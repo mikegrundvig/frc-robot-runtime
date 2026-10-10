@@ -1,0 +1,23 @@
+// Where a project beside the robot program (the libraries in lib/) finds WPILib's libraries:
+// wherever GradleRIO finds them for the robot program, so both always get the same ones. That's the
+// WPILib installation's own repository when there is one, and WPILib's and the vendors' servers.
+// Those servers may serve only the FRC libraries, as GradleRIO filters them for the robot program;
+// all else, the compiler's plugins included, comes from Maven Central alone.
+
+def frcGroups = /(org\.wpilib|edu\.wpi\.first|com\.ctre\.phoenix6|com\.revrobotics|org\.photonvision|org\.littletonrobotics)(\..*)?/
+def centralHost = ~/repo1?\.maven(\.apache)?\.org/
+rootProject.repositories.withType(MavenArtifactRepository).each { source ->
+    if (source.url.host != null && source.url.host ==~ centralHost) {
+        return // declared once, below
+    }
+    repositories.maven {
+        name = source.name
+        url = source.url
+        if (source.url.scheme != "file") {
+            content { includeGroupByRegex frcGroups }
+        }
+    }
+}
+repositories {
+    mavenCentral()
+}

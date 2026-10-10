@@ -1,0 +1,213 @@
+// The runtime: the robot program every robot shares, which no team writes. Mechanisms built from a
+// robot's definition, the drivetrain, vision, localization's wiring, autos, the loop, the venues,
+// the simulator's adapters, and the harness a team tests its own robot with (test fixtures). It
+// reads the world model, localization, the simulation and Pitwall, and nothing of the team's robot
+// program (frc.robot): the team's Main hands it which robot this is, this season's field and what
+// the robot does (RobotProgram.start), and Gradle keeps it so, since the runtime can't see the
+// project that depends on it. Its code is in com.michaelgrundvig.frc.runtime.
+//
+// GradleRIO is applied here, as in a robot program: it gives this build WPILib and the vendor
+// libraries in vendordeps/ to compile and test with, and the native libraries the simulator's tests
+// load. The runtime borrows them and never bundles them: every robot has its own, and the robot
+// program that includes this build must have the same versions (its build checks it).
+
+plugins {
+    id "java-library"
+    id "java-test-fixtures"
+    id "jacoco"
+    alias(libs.plugins.gradlerio)
+    alias(libs.plugins.spotless)
+    alias(libs.plugins.errorprone)
+}
+
+// What a build that includes this one asks for (settings.gradle, includeBuild): the runtime is
+// com.michaelgrundvig.frc:frc-robot-runtime.
+group = "com.michaelgrundvig.frc"
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+dependencies {
+    // The libraries the runtime is made of appear in its signatures.
+    api "com.michaelgrundvig.frc:frc-robot-model"
+    api project(":localization")
+    api project(":simulation")
+    api "com.michaelgrundvig.frc:frc-pitwall"
+    api libs.jspecify
+
+    // WPILib, and the vendor libraries in vendordeps/ (Commands v3, AdvantageKit, Phoenix, REVLib,
+    // PhotonLib), exactly as GradleRIO gives them to a robot program. The robot program has them
+    // at run time; here they compile the runtime, its fixtures and its tests.
+    compileOnly wpi.java.deps.wpilib()
+    compileOnly wpi.java.vendor.java()
+    testFixturesCompileOnly wpi.java.deps.wpilib()
+    testFixturesCompileOnly wpi.java.vendor.java()
+    testImplementation wpi.java.deps.wpilib()
+    testImplementation wpi.java.vendor.java()
+    testRuntimeOnly wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
+    testRuntimeOnly wpi.java.vendor.jniRelease(wpi.platforms.desktop)
+
+    // The native libraries GradleRIO extracts for the desktop (extractReleaseNative), which the
+    // simulation's tests load (lib/simulation/build.gradle).
+    nativeDebug wpi.java.deps.wpilibJniDebug(wpi.platforms.desktop)
+    nativeDebug wpi.java.vendor.jniDebug(wpi.platforms.desktop)
+    nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
+    nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
+
+    // WPILib's annotations, and AdvantageKit's @AutoLog processor, at the version
+    // vendordeps/AdvantageKit.json pins.
+    annotationProcessor wpi.java.deps.wpilibAnnotations()
+    def akit = new groovy.json.JsonSlurper().parse(file("vendordeps/AdvantageKit.json"))
+    annotationProcessor "org.littletonrobotics.akit:akit-autolog:${akit.version}"
+
+    // Configuration records are built by name, through builders generated as they compile, and
+    // their Javadoc is written into the jar so Pitwall's page can say what each value means.
+    compileOnly libs.recordbuilder.core
+    compileOnly libs.errorprone.annotations
+    annotationProcessor libs.recordbuilder.processor
+    annotationProcessor "com.michaelgrundvig.frc:docs-processor"
+    testFixturesCompileOnly libs.recordbuilder.core
+    testFixturesCompileOnly libs.errorprone.annotations
+    testFixturesAnnotationProcessor libs.recordbuilder.processor
+    testCompileOnly libs.errorprone.annotations
+    testCompileOnly libs.recordbuilder.core
+    testAnnotationProcessor libs.recordbuilder.processor
+
+    errorprone libs.errorprone.core
+    errorprone libs.nullaway
+
+    // What a team tests its own robot with: the simulator's harness (RobotSim), the monkey, the
+    // invariants, the auto check. JUnit's API and AssertJ appear in them; the architecture rules
+    // are shared with the team's own architecture test.
+    testFixturesApi platform(libs.junit.bom)
+    testFixturesApi "org.junit.jupiter:junit-jupiter-api"
+    testFixturesApi libs.assertj.core
+    testFixturesApi libs.archunit
+    // The truth suite's known gaps, which the simulator's tests share with its library's.
+    testFixturesApi testFixtures(project(":simulation"))
+
+    testImplementation platform(libs.junit.bom)
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation libs.assertj.core
+    testImplementation libs.archunit
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // The simulator runs in the robot's process.
+    options.compilerArgs.add "-XDstringConcat=inline"
+}
+tasks.named("compileJava") {
+    options.compilerArgs.add "-Apitwall.docs.records=com.michaelgrundvig.frc.world.config.ConfigRecord"
+}
+
+// PhotonVision's camera simulation allocates OpenCV frames in native memory that only Java's
+// collector frees (each Mat's finalizer), so outside the heap a simulating process grows with how
+// seldom the collector runs. A 32 MB young generation runs it often enough (docs/testing.md).
+tasks.withType(Test).configureEach { jvmArgs "-Xmn32m" }
+
+// The tests run the robot program's simulation: WPILib's and the vendors' native libraries, which
+// GradleRIO extracts, and the JVM options it sets for its tests.
+wpi.java.configureTestTasks(test)
+
+// The folders of the robot model and of Pitwall that this build compiles against: its own
+// submodules when it is the build that runs, and those of the build that includes it otherwise
+// (settings.gradle includes them only in the first case).
+def includedBuildDir = { String name ->
+    for (def g = gradle; g != null; g = g.parent) {
+        def found = g.includedBuilds.find { it.name == name }
+        if (found != null) {
+            return found.projectDir
+        }
+    }
+    throw new GradleException("No build named ${name} is included: the runtime needs the robot model and Pitwall")
+}
+def modelDir = includedBuildDir("model")
+def pitwallDir = includedBuildDir("pitwall")
+
+tasks.named("test") {
+    useJUnitPlatform()
+    // A fresh test JVM every 20 test classes (a robot program's tests do the same).
+    forkEvery = 20
+    // Tests run in the build folder, so what simulated devices and logs write (CTRE's ctre_sim/,
+    // for one) stays out of the project. A test finds project files through frc.projectDir.
+    def work = layout.buildDirectory.dir("test-work")
+    workingDir = work
+    systemProperty "frc.projectDir", projectDir.absolutePath
+    // How many seeds MonkeySimTest runs on each robot, or the one seed to run alone, the one a
+    // failure names: -PmonkeySeeds=50, -PmonkeySeed=1234 (docs/testing.md).
+    ["monkeySeeds", "monkeySeed"].each { name ->
+        def value = providers.gradleProperty(name).orNull
+        if (value != null) {
+            systemProperty "frc.$name", value
+        }
+    }
+    // Project files the tests check against the code, declared so Gradle knows the tests depend
+    // on them: the values register (docs/values.md, ValuesRegisterTest) and the guides' examples of
+    // code (DocExamplesTest), read as text with the sources they're found in. A quick build
+    // (-Pquick) skips tests whose inputs haven't changed, so an undeclared file would let a change
+    // to it pass untested. The model's and Pitwall's are the submodules of this build, or, when a
+    // robot program includes this build, the program's own (settings.gradle).
+    systemProperty "frc.modelDir", modelDir.absolutePath
+    systemProperty "frc.pitwallDir", pitwallDir.absolutePath
+    inputs.files(fileTree("docs") { include "**/*.md" }, "README.md", new File(pitwallDir, "README.md"))
+    .withPropertyName("guides").withPathSensitivity(PathSensitivity.NAME_ONLY)
+    inputs.files(
+            fileTree("src") { include "*/java/**/*.java" },
+            fileTree("lib") { include "*/src/*/java/**/*.java" },
+            fileTree(modelDir) { include "src/*/java/**/*.java" },
+            fileTree(pitwallDir) { include "src/*/java/**/*.java" })
+            .withPropertyName("documentedSources").withPathSensitivity(PathSensitivity.NAME_ONLY)
+    // GOLDEN_UPDATE=1 has the recorded tests record their recordings again, in src/test/resources,
+    // which Gradle doesn't know the tests write: so with it, the tests always run, and never come
+    // from the build cache, whatever ran before.
+    def goldenUpdate = providers.environmentVariable("GOLDEN_UPDATE").orElse("")
+    inputs.property("goldenUpdate", goldenUpdate)
+    outputs.upToDateWhen { goldenUpdate.get() != "1" }
+    outputs.doNotCacheIf("GOLDEN_UPDATE rewrites src/test/resources") { goldenUpdate.get() == "1" }
+    doFirst { work.get().asFile.mkdirs() }
+    // ReplayEndToEndTest's robot programs write their coverage beside the tests' own, for the
+    // coverage report to count: the program's startup runs nowhere else.
+    // It's an output of the tests, said so: restored from the build cache with their own coverage,
+    // or the coverage check would count the program's startup as never run.
+    def endToEndCoverage = layout.buildDirectory.file("jacoco/end-to-end.exec")
+    outputs.file(endToEndCoverage).withPropertyName("endToEndCoverage").optional()
+    doFirst { endToEndCoverage.get().asFile.delete() }
+}
+tasks.named("jacocoTestReport") {
+    executionData.from(fileTree(layout.buildDirectory.dir("jacoco")) { include "end-to-end.exec" })
+}
+
+// Gradle's configuration cache (gradle.properties) can't hold GradleRIO's own tasks yet: the
+// simulator's run, deploy, vendordep, and WPILib's tools. A build that runs one goes without it, as
+// every build used to. Marking them incompatible is enough for that; Gradle's internal
+// ConfigurationCacheDegradation, where it's there as today, also keeps the problems the cache finds
+// in them out of the output, so the build says so in a line. Should it change or go, the build
+// works as before and lists them.
+def withoutConfigurationCache = { Task task, String why ->
+    task.notCompatibleWithConfigurationCache(why)
+    try {
+        def degrade = Class.forName("org.gradle.api.internal.ConfigurationCacheDegradation").methods.find {
+            it.name == "requireDegradation" && it.parameterCount == 2 && it.parameterTypes[1] == String
+        }
+        degrade?.invoke(null, task, why)
+    } catch (Exception | LinkageError ignored) {
+        // Marked incompatible above, which is all a build needs.
+    }
+}
+// GradleRIO's tasks that building and testing use work with it.
+def cacheable = [
+    "extractReleaseNative",
+    "extractDebugNative",
+    "downloadDepsPreemptively"
+]
+tasks.configureEach { task ->
+    if (task.class.name.startsWith("org.wpilib.") && !(task.name in cacheable)) {
+        withoutConfigurationCache(task, "GradleRIO's state can't be kept in the configuration cache")
+    }
+}
+
+apply from: "gradle/quality.gradle" // formatting, static analysis, coverage, the ci task

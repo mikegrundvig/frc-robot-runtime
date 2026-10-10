@@ -1,0 +1,28 @@
+// The build's own Gradle plugins, one per tool whose files the build generates from the robot's
+// configuration: the AdvantageScope plugin today. An included build (the root settings.gradle
+// includes it), so the robot project applies a plugin by its id and Gradle builds it first.
+
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+    }
+}
+
+plugins {
+    // Downloads the JDK the build asks for when it's missing, as the root build does.
+    id "org.gradle.toolchains.foojay-resolver-convention" version "1.0.0"
+}
+
+dependencyResolutionManagement {
+    repositories {
+        mavenCentral()
+    }
+    // The root build's version catalog, so test libraries are versioned in one place.
+    versionCatalogs {
+        libs {
+            from(files("../gradle/libs.versions.toml"))
+        }
+    }
+}
+
+rootProject.name = "build-logic"

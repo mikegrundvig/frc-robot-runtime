@@ -1,0 +1,63 @@
+// Localization: where the robot is, from its wheels, IMUs, and cameras, on the field the world
+// model describes, and the math of the calibration procedures. It reads the world model and WPILib's
+// math, and nothing of the robot program, the simulator, or Pitwall: the robot runs it every loop
+// without them, and its tests run in milliseconds without them.
+
+plugins {
+    id "java-library"
+    id "jacoco"
+    id "com.diffplug.spotless"
+    id "net.ltgt.errorprone"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// com.michaelgrundvig.frc:localization, beside the runtime's own coordinates (the runtime's build asks for
+// it as a project).
+group = "com.michaelgrundvig.frc"
+
+base {
+    archivesName = "localization"
+}
+
+// WPILib's libraries, from wherever GradleRIO finds them for the robot program.
+apply from: rootProject.file("gradle/wpilib-repositories.gradle")
+
+dependencies {
+    // The field and the robot's definition appear in its signatures.
+    api "com.michaelgrundvig.frc:frc-robot-model"
+
+    // Configuration records are built by name, through builders generated as they compile.
+    compileOnly libs.recordbuilder.core
+    testCompileOnly libs.recordbuilder.core
+    annotationProcessor libs.recordbuilder.processor
+    // Writes the configuration records' Javadoc into the jar, so Pitwall's page can say what each
+    // value means. It runs in the compiler only: localization never sees Pitwall.
+    annotationProcessor "com.michaelgrundvig.frc:docs-processor"
+
+    errorprone libs.errorprone.core
+    errorprone libs.nullaway
+
+    testImplementation platform(libs.junit.bom)
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation libs.assertj.core
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // As the robot program compiles: localization runs on the robot, every loop.
+    options.compilerArgs.add "-XDstringConcat=inline"
+}
+tasks.named("compileJava") {
+    options.compilerArgs.add "-Apitwall.docs.records=com.michaelgrundvig.frc.world.config.ConfigRecord"
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+}
+
+apply from: rootProject.file("gradle/quality.gradle")

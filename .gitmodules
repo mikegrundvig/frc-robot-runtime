@@ -1,0 +1,6 @@
+[submodule "model"]
+	path = model
+	url = https://github.com/mikegrundvig/frc-robot-model.git
+[submodule "pitwall"]
+	path = pitwall
+	url = https://github.com/mikegrundvig/frc-pitwall.git

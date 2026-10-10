@@ -1,0 +1,223 @@
+package com.michaelgrundvig.frc.runtime.subsystems.drive;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Seconds;
+
+import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.behavior.Gate;
+import com.michaelgrundvig.frc.runtime.behavior.Outcome;
+import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.command3.Command;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.kinematics.ChassisVelocities;
+
+/**
+ * The drivetrain's moves, as a joint's are: each a command that ends on its own, with a deadline,
+ * an outcome, and a reason. Turning is profiled under what the robot's own model says it can do.
+ */
+@ExtendWith(RobotSim.class)
+class DriveMovesSimTest {
+  private final DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM);
+  private final Drive drive = harness.drive;
+
+  @AfterEach
+  void tearDown() {
+    harness.close();
+  }
+
+  /** Schedules a move and runs loops until it ends, at most {@code seconds}: how long it took. */
+  private double runToEnd(DriveMove move, double seconds) {
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(move);
+    for (int i = 1; i <= RobotLoop.loops(seconds); i++) {
+      harness.loop();
+      if (move.outcome().isPresent()) {
+        return i * RobotLoop.PERIOD_SECONDS;
+      }
+    }
+    return Double.NaN;
+  }
+
+  private double heading() {
+    return drive.getPose().getRotation().getDegrees();
+  }
+
+  /**
+   * A quarter turn, profiled at half the robot's own turning acceleration, each wheel given the
+   * volts its share of that takes: it follows its profile and arrives inside 2° and nearly still in
+   * about the profile's 0.83 s, and says so.
+   */
+  @Test
+  void aTurnArrivesAtItsHeading() {
+    DriveMove left = drive.turnTo(Rotation2d.fromDegrees(90));
+
+    double took = runToEnd(left, 3);
+
+    assertThat(left.arrived()).isTrue();
+    assertThat(left.reason()).matches("drive → 90\\.0°: ARRIVED in 0\\.\\d\\d s");
+    assertThat(heading()).isCloseTo(90, within(2.0));
+    assertThat(took).as("its 0.83 s profile, tracked").isLessThan(0.95);
+  }
+
+  /** A turn to -170° from 0° goes the nearer way, clockwise, never through 180° the long way. */
+  @Test
+  void aTurnGoesTheNearerWay() {
+    DriveMove around = drive.turnTo(Rotation2d.fromDegrees(-170));
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(around);
+    double highest = 0;
+    for (int i = 0; i < RobotLoop.loops(3) && around.outcome().isEmpty(); i++) {
+      harness.loop();
+      highest = Math.max(highest, heading());
+    }
+
+    assertThat(around.arrived()).isTrue();
+    assertThat(highest).as("never turned left").isLessThan(1);
+  }
+
+  /**
+   * To a pose 2 m ahead and 1 m left, turning a quarter turn on the way: it arrives within 2 cm and
+   * 2°, and never strays more than a few centimeters from the straight line there.
+   */
+  @Test
+  void itGoesToAPoseInAStraightLine() {
+    Pose2d target = new Pose2d(2, 1, Rotation2d.fromDegrees(90));
+    DriveMove there = drive.goTo(target);
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(there);
+    double strayed = 0;
+    int loops = 0;
+    for (; loops < RobotLoop.loops(5) && there.outcome().isEmpty(); loops++) {
+      harness.loop();
+      Translation2d at = harness.simulation.truePose().getTranslation();
+      // Distance from the line from the start (0, 0) to (2, 1).
+      strayed = Math.max(strayed, Math.abs(at.getX() * 1 - at.getY() * 2) / Math.sqrt(5));
+    }
+
+    assertThat(there.arrived()).isTrue();
+    assertThat(there.reason()).startsWith("drive → (2.00, 1.00) 90.0°: ARRIVED in ");
+    Pose2d truth = harness.simulation.truePose();
+    assertThat(truth.getTranslation().getDistance(target.getTranslation())).isLessThan(0.03);
+    assertThat(truth.getRotation().getDegrees()).isCloseTo(90, within(2.5));
+    assertThat(strayed).as("off the straight line, at most").isLessThan(0.05);
+    assertThat(loops * RobotLoop.PERIOD_SECONDS).as("about its profile's time").isLessThan(2.5);
+  }
+
+  /**
+   * A half turn, past where the heading wraps from 180° to -180°, arrives, and holds the robot
+   * where it stood: it moves less than 2 cm.
+   */
+  @Test
+  void aTurnHoldsItsSpot() {
+    DriveMove around = drive.turnTo(Rotation2d.fromDegrees(180));
+
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(around);
+    for (int i = 0; i < RobotLoop.loops(3) && around.outcome().isEmpty(); i++) {
+      harness.loop();
+    }
+
+    assertThat(around.arrived()).isTrue();
+    assertThat(harness.simulation.truePose().getTranslation().getNorm()).isLessThan(0.02);
+  }
+
+  /**
+   * A move that ends as it starts, its condition holding already, still takes its loop, so a loop
+   * of moves goes round once a loop. Until 2026-10-07 it ended without a loop, and such a loop went
+   * round without end in one, the robot's loop never finishing.
+   */
+  @Test
+  void aMoveThatEndsAsItStartsStillTakesItsLoop() {
+    int[] arrived = {0};
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(
+        Command.noRequirements(
+                co -> {
+                  while (arrived[0] < 100) {
+                    arrived[0]++;
+                    co.await(drive.runUntil(new ChassisVelocities(1, 0, 0), () -> true));
+                  }
+                })
+            .named("There, again and again"));
+
+    harness.loop();
+    int inALoop = arrived[0];
+    harness.loop();
+
+    assertThat(inALoop).isEqualTo(1);
+    assertThat(arrived[0]).as("again, the next loop").isEqualTo(2);
+  }
+
+  /** A move that can't get there in time says where it got to. */
+  @Test
+  void aMoveThatTimesOutSaysWhereItGot() {
+    DriveMove far = drive.goTo(new Pose2d(8, 0, Rotation2d.ZERO)).within(Seconds.of(0.5));
+
+    runToEnd(far, 1);
+
+    assertThat(far.outcome()).contains(Outcome.TIMED_OUT);
+    assertThat(far.reason())
+        .matches(
+            "drive → \\(8\\.00, 0\\.00\\) 0\\.0°: TIMED_OUT after 0\\.50 s, at \\(0\\.\\d\\d, -?0\\.00\\)"
+                + " facing -?0\\.0°");
+  }
+
+  /** Driving until a gate opens ends the loop it does, having driven that far. */
+  @Test
+  void runUntilEndsTheLoopItsConditionHolds() {
+    Gate far = Gate.of(harness.scheduler, "a meter out", () -> drive.getPose().getX() >= 1);
+    DriveMove out = drive.runUntil(new ChassisVelocities(1.5, 0, 0), far);
+
+    double took = runToEnd(out, 3);
+
+    assertThat(out.name()).isEqualTo("drive until a meter out");
+    assertThat(out.arrived()).isTrue();
+    assertThat(took).as("speeding up, then 1.5 m/s").isBetween(0.6, 1.2);
+    assertThat(drive.getPose().getX()).isCloseTo(1.0, within(0.1));
+  }
+
+  /**
+   * A gate that never opens times out the move, by default after 3 s, saying why; {@code within}
+   * sets another deadline.
+   */
+  @Test
+  void runUntilTimesOutSayingWhy() {
+    Gate never = Gate.of(harness.scheduler, "bumped", () -> false);
+    DriveMove out = drive.runUntil(new ChassisVelocities(0.5, 0, 0), never);
+    DriveMove brief = out.within(Seconds.of(1));
+
+    runToEnd(out, 4);
+    runToEnd(brief, 2);
+
+    assertThat(out.outcome()).contains(Outcome.TIMED_OUT);
+    assertThat(out.reason())
+        .isEqualTo("drive until bumped: TIMED_OUT after 3.00 s: bumped is false");
+    assertThat(brief.reason()).startsWith("drive until bumped: TIMED_OUT after 1.00 s");
+  }
+
+  /** Canceled, a move says so, and stops the drivetrain. */
+  @Test
+  void aCanceledMoveSaysSo() {
+    DriveMove out =
+        drive.runUntil(
+            new ChassisVelocities(1, 0, 0), Gate.of(harness.scheduler, "never", () -> false));
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(out);
+    for (int i = 0; i < 10; i++) {
+      harness.loop();
+    }
+
+    harness.scheduler.cancel(out);
+
+    assertThat(out.outcome()).contains(Outcome.CANCELED);
+    assertThat(out.reason()).startsWith("drive until never: CANCELED after 0.");
+  }
+}

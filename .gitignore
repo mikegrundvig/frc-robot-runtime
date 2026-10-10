@@ -1,0 +1,34 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDEs
+.idea/
+*.iml
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/extensions.json
+bin/
+out/
+.classpath
+.project
+.settings/
+.factorypath
+
+# What simulated devices and logs write
+logs/
+ctre_sim/
+*.wpilog
+*.hoot
+
+# OS
+.DS_Store
+Thumbs.db
+
+# JVM crash logs and stray compiled classes
+hs_err_pid*
+replay_pid*
+*.class
+

@@ -1,0 +1,58 @@
+// The tool-config plugins: each generates one tool's files from the robot's configuration, checks
+// them against what's committed, and runs as part of the build (README.md, docs/simulator.md).
+// Shared: ToolConfigTask (the writer's Java process, and the check) and ToolConfigSync (the
+// check itself, and its sidecar under build/tool-configs/).
+
+plugins {
+    id "java-gradle-plugin"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+gradlePlugin {
+    plugins {
+        advantageScopeAssets {
+            id = "frc.advantagescope-assets"
+            implementationClass = "com.michaelgrundvig.frc.toolconfigs.AdvantageScopeAssetsPlugin"
+            displayName = "AdvantageScope's robot assets, from Robots.java"
+            description = "Generates ascope_assets/ from the robot's configuration in every build, and fails on an edit made outside it."
+        }
+    }
+}
+
+dependencies {
+    testImplementation platform(libs.junit.bom)
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation libs.assertj.core
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.compilerArgs.addAll([
+        "-Xlint:cast,divzero,empty,fallthrough,finally,overrides,rawtypes,unchecked",
+        "-Werror",
+        // Javadoc's references checked as it compiles, as the robot program's are (gradle/quality.gradle).
+        "-Xdoclint:reference"
+    ])
+}
+
+tasks.named("test") {
+    useJUnitPlatform()
+    maxHeapSize = "512m"
+    systemProperty "junit.jupiter.execution.timeout.default", "2 m"
+    // Gradle TestKit's own Gradle home: under build/, on disk, not in the system's temporary
+    // folder (in memory on some systems).
+    systemProperty "frc.testkit.dir", layout.buildDirectory.dir("testkit").get().asFile.absolutePath
+}
+
+// What the root build's ci runs here.
+tasks.register("ci") {
+    group = "verification"
+    description = "The tool-config plugins' checks and tests."
+    dependsOn "build"
+}
