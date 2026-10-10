@@ -1,0 +1,484 @@
+joint,device,group,setting,value
+pivot,leader,MotorOutput,NeutralMode,Brake
+pivot,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+pivot,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+pivot,leader,Feedback,SensorToMechanismRatio,25.0,scalar
+pivot,leader,Slot0,kP,188.49555921538757
+pivot,leader,Slot0,kD,6.283185307179586
+pivot,leader,Slot0,kV,3.0
+pivot,leader,Slot0,kA,0.10785100872831538
+pivot,leader,Slot0,kG,0.5145379125528914
+pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot0,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kV,0.36
+roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.1053972820874471
+elevator,follower 1,request,LeaderID,0
+elevator,follower 1,request,MotorAlignment,Aligned
+elevator,follower 1,MotorOutput,NeutralMode,Brake
+elevator,follower 1,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 1,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 1,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566
+joint,device,group,setting,value
+pivot,leader,MotorOutput,NeutralMode,Brake
+pivot,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+pivot,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+pivot,leader,Feedback,SensorToMechanismRatio,25.0,scalar
+pivot,leader,Slot0,kP,188.49555921538757
+pivot,leader,Slot0,kI,3.141592653589793
+pivot,leader,Slot0,kD,6.283185307179586
+pivot,leader,Slot0,kS,0.2
+pivot,leader,Slot0,kV,3.141592653589793
+pivot,leader,Slot0,kA,0.12566370614359174
+pivot,leader,Slot0,kG,0.6
+pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot0,GravityArmPositionOffset,-0.05555555555555555,rotations
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kS,0.1
+roller,leader,Slot0,kV,0.18849555921538758
+roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,findings,DOUBT,elevator's tuned kG, 0.9 V, is 8.539 times the ideal, 0.1054 V, from its motors and what it moves
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kS,0.15
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.9
+elevator,follower 1,request,LeaderID,0
+elevator,follower 1,request,MotorAlignment,Aligned
+elevator,follower 1,MotorOutput,NeutralMode,Brake
+elevator,follower 1,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 1,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 1,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kS,0.3
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.025132741228718346
+joint,device,group,setting,value
+pivot,leader,MotorOutput,Inverted,Clockwise_Positive
+pivot,leader,MotorOutput,NeutralMode,Brake
+pivot,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+pivot,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+pivot,leader,Feedback,RotorToSensorRatio,25.0,scalar
+pivot,leader,Feedback,FeedbackSensorSource,FusedCANcoder
+pivot,leader,Feedback,FeedbackRemoteSensorID,34
+pivot,leader,Slot0,kP,188.49555921538757
+pivot,leader,Slot0,kD,6.283185307179586
+pivot,leader,Slot0,kV,3.0
+pivot,leader,Slot0,kA,0.10785100872831538
+pivot,leader,Slot0,kG,0.5145379125528914
+pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot0,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
+pivot,cancoder,MagnetSensor,MagnetOffset,0.2,rotations
+pivot,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.6875,rotations
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kV,0.36
+roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.1053972820874471
+elevator,follower 21,request,LeaderID,20
+elevator,follower 21,request,MotorAlignment,Opposed
+elevator,follower 21,MotorOutput,Inverted,Clockwise_Positive
+elevator,follower 21,MotorOutput,NeutralMode,Brake
+elevator,follower 21,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 21,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 21,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566
+joint,device,group,setting,value
+pivot,leader,parameter,6,1
+pivot,leader,parameter,9,1
+pivot,leader,parameter,13,3F20D97C
+pivot,leader,parameter,21,3C2B92A6
+pivot,leader,parameter,45,1
+pivot,leader,parameter,54,1
+pivot,leader,parameter,55,1
+pivot,leader,parameter,59,28
+pivot,leader,parameter,60,0
+pivot,leader,parameter,61,4E20
+pivot,leader,parameter,74,2
+pivot,leader,parameter,75,41400000
+pivot,leader,parameter,115,41126C2C
+pivot,leader,parameter,116,3DA2F983
+pivot,leader,parameter,127,0
+pivot,leader,parameter,141,1
+pivot,leader,parameter,154,3ED33333
+pivot,leader,parameter,158,14
+pivot,leader,parameter,160,14
+pivot,leader,parameter,163,14
+pivot,follower 42,parameter,6,1
+pivot,follower 42,parameter,59,28
+pivot,follower 42,parameter,60,0
+pivot,follower 42,parameter,61,4E20
+pivot,follower 42,parameter,74,2
+pivot,follower 42,parameter,75,41400000
+pivot,follower 42,parameter,194,29
+pivot,follower 42,parameter,195,1
+pivot,robot,,rotorRatio,25.0000000
+pivot,robot,,loopRatio,25.0000000
+pivot,robot,,loopZero,0.0000000
+pivot,robot,,positionKp,0.6283185
+pivot,robot,,velocityKp,0.0104720
+pivot,robot,,windowEdge,-0.3125000
+pivot,robot,,closedLoop,false
+pivot,robot,,absolute,pivot absolute encoder
+pivot,robot,,softLimits.lower,0.0795775
+pivot,robot,,softLimits.upper,9.1514092
+roller,leader,parameter,6,1
+roller,leader,parameter,9,1
+roller,leader,parameter,13,3B64C388
+roller,leader,parameter,21,387403C4
+roller,leader,parameter,45,0
+roller,leader,parameter,59,28
+roller,leader,parameter,60,0
+roller,leader,parameter,61,4E20
+roller,leader,parameter,74,2
+roller,leader,parameter,75,41400000
+roller,leader,parameter,158,14
+roller,leader,parameter,160,14
+roller,robot,,rotorRatio,3.0000000
+roller,robot,,loopRatio,3.0000000
+roller,robot,,loopZero,0.0000000
+roller,robot,,positionKp,0.0034907
+roller,robot,,velocityKp,0.0000582
+roller,robot,,windowEdge,0.0000000
+roller,robot,,closedLoop,false
+roller,robot,,absolute,none
+roller,robot,,softLimits,none
+elevator,leader,parameter,6,1
+elevator,leader,parameter,9,1
+elevator,leader,parameter,13,3DA36C53
+elevator,leader,parameter,21,3AAE5169
+elevator,leader,parameter,45,0
+elevator,leader,parameter,59,28
+elevator,leader,parameter,60,0
+elevator,leader,parameter,61,4E20
+elevator,leader,parameter,74,2
+elevator,leader,parameter,75,41400000
+elevator,leader,parameter,158,14
+elevator,leader,parameter,160,14
+elevator,follower 44,parameter,6,1
+elevator,follower 44,parameter,59,28
+elevator,follower 44,parameter,60,0
+elevator,follower 44,parameter,61,4E20
+elevator,follower 44,parameter,74,2
+elevator,follower 44,parameter,75,41400000
+elevator,follower 44,parameter,194,2B
+elevator,follower 44,parameter,195,1
+elevator,robot,,rotorRatio,10.0000000
+elevator,robot,,loopRatio,10.0000000
+elevator,robot,,loopZero,0.0000000
+elevator,robot,,positionKp,0.0797965
+elevator,robot,,velocityKp,0.0013299
+elevator,robot,,windowEdge,0.0000000
+elevator,robot,,closedLoop,false
+elevator,robot,,absolute,none
+elevator,robot,,softLimits,none
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566
+joint,device,group,setting,value
+pivot,leader,parameter,6,1
+pivot,leader,parameter,9,4
+pivot,leader,parameter,13,417B53D1
+pivot,leader,parameter,21,3E860A92
+pivot,leader,parameter,45,1
+pivot,leader,parameter,54,1
+pivot,leader,parameter,55,1
+pivot,leader,parameter,59,28
+pivot,leader,parameter,60,0
+pivot,leader,parameter,61,4E20
+pivot,leader,parameter,74,2
+pivot,leader,parameter,75,41400000
+pivot,leader,parameter,115,3F2DB5DF
+pivot,leader,parameter,116,3EA1A137
+pivot,leader,parameter,127,0
+pivot,leader,parameter,141,1
+pivot,leader,parameter,149,0
+pivot,leader,parameter,154,3ED33333
+pivot,leader,parameter,158,14
+pivot,leader,parameter,160,14
+pivot,leader,parameter,163,14
+pivot,follower 42,parameter,6,1
+pivot,follower 42,parameter,59,28
+pivot,follower 42,parameter,60,0
+pivot,follower 42,parameter,61,4E20
+pivot,follower 42,parameter,74,2
+pivot,follower 42,parameter,75,41400000
+pivot,follower 42,parameter,194,29
+pivot,follower 42,parameter,195,1
+pivot,robot,,rotorRatio,25.0000000
+pivot,robot,,loopRatio,1.0000000
+pivot,robot,,loopZero,0.3125000
+pivot,robot,,positionKp,15.7079633
+pivot,robot,,velocityKp,0.2617994
+pivot,robot,,windowEdge,-0.3125000
+pivot,robot,,closedLoop,true
+pivot,robot,,absolute,pivot absolute encoder
+pivot,robot,,softLimits.lower,0.3156831
+pivot,robot,,softLimits.upper,0.6785564
+roller,leader,parameter,6,1
+roller,leader,parameter,9,1
+roller,leader,parameter,13,3B64C388
+roller,leader,parameter,21,387403C4
+roller,leader,parameter,45,0
+roller,leader,parameter,59,28
+roller,leader,parameter,60,0
+roller,leader,parameter,61,4E20
+roller,leader,parameter,74,2
+roller,leader,parameter,75,41400000
+roller,leader,parameter,158,14
+roller,leader,parameter,160,14
+roller,robot,,rotorRatio,3.0000000
+roller,robot,,loopRatio,3.0000000
+roller,robot,,loopZero,0.0000000
+roller,robot,,positionKp,0.0034907
+roller,robot,,velocityKp,0.0000582
+roller,robot,,windowEdge,0.0000000
+roller,robot,,closedLoop,false
+roller,robot,,absolute,none
+roller,robot,,softLimits,none
+elevator,leader,parameter,6,1
+elevator,leader,parameter,9,1
+elevator,leader,parameter,13,3DA36C53
+elevator,leader,parameter,21,3AAE5169
+elevator,leader,parameter,45,0
+elevator,leader,parameter,59,28
+elevator,leader,parameter,60,0
+elevator,leader,parameter,61,4E20
+elevator,leader,parameter,74,2
+elevator,leader,parameter,75,41400000
+elevator,leader,parameter,158,14
+elevator,leader,parameter,160,14
+elevator,follower 44,parameter,6,1
+elevator,follower 44,parameter,59,28
+elevator,follower 44,parameter,60,0
+elevator,follower 44,parameter,61,4E20
+elevator,follower 44,parameter,74,2
+elevator,follower 44,parameter,75,41400000
+elevator,follower 44,parameter,194,2B
+elevator,follower 44,parameter,195,1
+elevator,robot,,rotorRatio,10.0000000
+elevator,robot,,loopRatio,10.0000000
+elevator,robot,,loopZero,0.0000000
+elevator,robot,,positionKp,0.0797965
+elevator,robot,,velocityKp,0.0013299
+elevator,robot,,windowEdge,0.0000000
+elevator,robot,,closedLoop,false
+elevator,robot,,absolute,none
+elevator,robot,,softLimits,none
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566
+joint,device,group,setting,value
+pivot,leader,parameter,6,1
+pivot,leader,parameter,9,1
+pivot,leader,parameter,13,3F20D97C
+pivot,leader,parameter,14,37AFB0CB
+pivot,leader,parameter,21,3C2B92A6
+pivot,leader,parameter,45,0
+pivot,leader,parameter,59,28
+pivot,leader,parameter,60,0
+pivot,leader,parameter,61,4E20
+pivot,leader,parameter,74,2
+pivot,leader,parameter,75,41400000
+pivot,leader,parameter,158,14
+pivot,leader,parameter,160,14
+pivot,robot,,rotorRatio,25.0000000
+pivot,robot,,loopRatio,25.0000000
+pivot,robot,,loopZero,0.0000000
+pivot,robot,,positionKp,0.6283185
+pivot,robot,,velocityKp,0.0104720
+pivot,robot,,windowEdge,0.0000000
+pivot,robot,,closedLoop,false
+pivot,robot,,absolute,none
+pivot,robot,,softLimits,none
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,ExternalFeedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Commutation,MotorArrangement,NEO550_JST
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kV,0.1963636363636364
+roller,leader,Slot0,kA,0.0222912732341313
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.1053972820874471
+elevator,follower 1,request,LeaderID,0
+elevator,follower 1,request,MotorAlignment,Aligned
+elevator,follower 1,MotorOutput,NeutralMode,Brake
+elevator,follower 1,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 1,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 1,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,findings,REFUSED,turret has a tuned kG of 0.3 V, but gravity can't move it: it turns about the vertical. Leave its kG out, or write 0
+joint,device,group,setting,value
+pivot,findings,REFUSED,pivot's gravity angle, -120°, is more than a quarter turn from its zero, past Phoenix's gravity offset of ±0.25 rotations: its positive direction lowers it at its zero. Turn its axis around in the definition (and its motors' and encoder's directions in the wiring), so that positive raises it; its gravity angle is then -60°
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kV,0.36
+roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.1053972820874471
+elevator,follower 1,request,LeaderID,0
+elevator,follower 1,request,MotorAlignment,Aligned
+elevator,follower 1,MotorOutput,NeutralMode,Brake
+elevator,follower 1,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 1,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 1,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566
+joint,device,group,setting,value
+pivot,findings,DOUBT,pivot's tuned kG, 0.4 V, is 0.2851 times the ideal, 1.403 V, from its motors and what it moves
+pivot,leader,parameter,6,1
+pivot,leader,parameter,9,1
+pivot,leader,parameter,13,3F20D97C
+pivot,leader,parameter,21,3C2B92A6
+pivot,leader,parameter,45,0
+pivot,leader,parameter,59,28
+pivot,leader,parameter,60,0
+pivot,leader,parameter,61,4E20
+pivot,leader,parameter,74,2
+pivot,leader,parameter,75,41400000
+pivot,leader,parameter,158,14
+pivot,leader,parameter,160,14
+pivot,robot,,rotorRatio,25.0000000
+pivot,robot,,loopRatio,25.0000000
+pivot,robot,,loopZero,0.0000000
+pivot,robot,,positionKp,0.6283185
+pivot,robot,,velocityKp,0.0104720
+pivot,robot,,windowEdge,0.0000000
+pivot,robot,,closedLoop,false
+pivot,robot,,absolute,none
+pivot,robot,,softLimits,none
+roller,leader,MotorOutput,NeutralMode,Brake
+roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
+roller,leader,ClosedLoopGeneral,ContinuousWrap,true
+roller,leader,Slot0,kP,0.12566370614359174
+roller,leader,Slot0,kV,0.36
+roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,GravityType,Arm_Cosine
+elevator,leader,MotorOutput,NeutralMode,Brake
+elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
+elevator,leader,Slot0,kP,9.575574408141689
+elevator,leader,Slot0,kD,0.319185813604723
+elevator,leader,Slot0,kV,1.2
+elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kG,0.1053972820874471
+elevator,follower 1,request,LeaderID,0
+elevator,follower 1,request,MotorAlignment,Aligned
+elevator,follower 1,MotorOutput,NeutralMode,Brake
+elevator,follower 1,CurrentLimits,StatorCurrentLimit,40.0,A
+elevator,follower 1,CurrentLimits,SupplyCurrentLimit,60.0,A
+elevator,follower 1,Feedback,SensorToMechanismRatio,10.0,scalar
+turret,leader,MotorOutput,NeutralMode,Brake
+turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
+turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
+turret,leader,ClosedLoopGeneral,ContinuousWrap,true
+turret,leader,Slot0,kP,125.66370614359172
+turret,leader,Slot0,kD,3.141592653589793
+turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kA,0.0079758346635566

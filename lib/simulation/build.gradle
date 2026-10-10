@@ -1,0 +1,78 @@
+// The simulation: the simulated world's physics, the models of the sensors that read it, the
+// errors those sensors make, the catalog of what can go wrong, and where each random stream starts.
+// It reads the world model and WPILib's math, and nothing of the robot program, localization, the
+// hardware layer, or Pitwall: the robot runs localization every loop without the simulator, so
+// nothing it runs may reach physics, and the simulator plugs in behind the robot's IO, through its
+// adapters (com.michaelgrundvig.frc.runtime.sim), as hardware would.
+
+plugins {
+    id "java-library"
+    id "java-test-fixtures"
+    id "jacoco"
+    id "com.diffplug.spotless"
+    id "net.ltgt.errorprone"
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+// com.michaelgrundvig.frc:simulation, beside the runtime's own coordinates (the runtime's build asks for
+// it as a project).
+group = "com.michaelgrundvig.frc"
+
+base {
+    archivesName = "simulation"
+}
+
+// WPILib's libraries, from wherever GradleRIO finds them for the robot program.
+apply from: rootProject.file("gradle/wpilib-repositories.gradle")
+
+dependencies {
+    // The field and the robot's definition appear in its signatures.
+    api "com.michaelgrundvig.frc:frc-robot-model"
+
+    // Configuration records are built by name, through builders generated as they compile.
+    compileOnly libs.recordbuilder.core
+    testCompileOnly libs.recordbuilder.core
+    annotationProcessor libs.recordbuilder.processor
+    // Writes the configuration records' Javadoc into the jar, so Pitwall's page can say what each
+    // value means. It runs in the compiler only: the simulation never sees Pitwall.
+    annotationProcessor "com.michaelgrundvig.frc:docs-processor"
+
+    errorprone libs.errorprone.core
+    errorprone libs.nullaway
+
+    // What the truth suite's tests share, here and in the robot program's (src/testFixtures): its
+    // known gaps.
+    testFixturesImplementation platform(libs.junit.bom)
+    testFixturesImplementation "org.junit.jupiter:junit-jupiter-api"
+    testFixturesImplementation libs.assertj.core
+
+    testImplementation platform(libs.junit.bom)
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    testImplementation libs.assertj.core
+}
+
+tasks.withType(JavaCompile).configureEach {
+    // As the robot program compiles: the simulator runs in its process.
+    options.compilerArgs.add "-XDstringConcat=inline"
+}
+tasks.named("compileJava") {
+    options.compilerArgs.add "-Apitwall.docs.records=com.michaelgrundvig.frc.world.config.ConfigRecord"
+}
+
+// Today's physics turns each wheel with WPILib's motor model, whose discretization takes a matrix
+// exponential in WPILib's native math (wpimath's JNI, not the hardware layer): the tests run with
+// the natives GradleRIO extracts for the robot program, as its studies do.
+def natives = rootProject.layout.buildDirectory.dir("jni/release")
+tasks.named("test") {
+    useJUnitPlatform()
+    dependsOn ":extractReleaseNative"
+    systemProperty "java.library.path", natives.get().asFile.absolutePath
+}
+
+apply from: rootProject.file("gradle/quality.gradle")

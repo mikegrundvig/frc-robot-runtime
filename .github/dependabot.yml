@@ -1,0 +1,23 @@
+# Weekly pull requests for newer build tools, test libraries, and CI actions. WPILib, the vendor
+# libraries and everything pinned to WPILib's versions (the JSON library and the protobuf runtime)
+# are updated deliberately, per WPILib release, not by this bot, and so is Gradle itself: it follows
+# the version WPILib's installer ships, which laptops set up with the installer build with offline.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "org.wpilib*"
+      - dependency-name: "org.littletonrobotics*"
+      - dependency-name: "com.ctre*"
+      - dependency-name: "com.revrobotics*"
+      - dependency-name: "org.photonvision*"
+      - dependency-name: "io.avaje:avaje-jsonb"
+      - dependency-name: "us.hebi.quickbuf:quickbuf-runtime"
+      - dependency-name: "gradle-wrapper"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

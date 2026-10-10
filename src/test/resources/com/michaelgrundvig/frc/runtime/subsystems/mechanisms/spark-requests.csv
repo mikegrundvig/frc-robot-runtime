@@ -1,0 +1,38 @@
+case,step,setpoint,slot,feedforward volts
+pivot seeded,hold where it rests,0.104166664,0,1.402624488
+pivot seeded,to a point, rising,3.125000000,0,3.296864986
+pivot seeded,to a point, falling,6.944444656,0,-3.753086090
+pivot seeded,at a speed,716.197265625,1,3.116783619
+pivot seeded,at a speed back,-477.464843750,1,0.193185106
+pivot seeded,to a point, moving,4.166666508,0,-0.859361649
+pivot seeded,at a speed, moving,716.197265625,1,1.957805872
+pivot at 30° back,hold where it rests,0.104166664,0,0.341056079
+pivot at 30° back,to a point, rising,3.125000000,0,2.403527737
+pivot at 30° back,to a point, falling,6.944444656,0,-3.857115030
+pivot at 30° back,at a speed,716.197265625,1,2.241055965
+pivot at 30° back,at a speed back,-477.464843750,1,-0.958943963
+pivot at 30° back,to a point, moving,4.166666508,0,-1.613274097
+pivot at 30° back,at a speed, moving,716.197265625,1,1.763191938
+pivot lowering,hold where it rests,0.104166664,0,-0.399862915
+pivot lowering,to a point, rising,3.125000000,0,1.821877003
+pivot lowering,to a point, falling,6.944444656,0,-3.239980221
+pivot lowering,at a speed,716.197265625,1,1.114296198
+pivot lowering,at a speed back,-477.464843750,1,-1.409302354
+pivot lowering,to a point, moving,4.166666508,0,-1.960914254
+pivot lowering,at a speed, moving,716.197265625,1,1.444699764
+elevator,hold where it rests,0.000000000,0,0.207574084
+elevator,to a point, rising,25.063770294,0,3.552626610
+elevator,to a point, falling,12.531885147,0,-4.567513466
+elevator,at a speed,2255.739257813,1,4.347679138
+elevator,at a speed back,-1503.826293945,1,-2.602495909
+elevator,to a point, moving,31.329713821,0,1.768423319
+elevator,at a speed, moving,2255.739257813,1,4.347679138
+roller,hold where it rests,0.000000000,0,0.000000000
+roller,to a point, rising,0.375000000,0,0.720000029
+roller,to a point, falling,0.833333313,0,-0.439999998
+roller,at a speed,85.943672180,1,0.159999996
+roller,at a speed back,-57.295780182,1,-0.140000001
+roller,to a point, moving,0.500000000,0,0.109999999
+roller,at a speed, moving,85.943672180,1,0.159999996
+pivot closed on its encoder,to a point, rising,0.437500000,0,2.658272982
+pivot closed on its encoder,at a speed,19.098592758,1,1.592461586
