@@ -80,7 +80,7 @@ class InterlocksTest {
   /** The roller runs only with the pivot past 110°: stopped until then, left alone after. */
   @Test
   void aJointThatRunsOnlyWhenAnotherIsPastAPlaceStopsUntilItIs() {
-    Interlocks roller = new Interlocks(travel(ROLLER), false);
+    Interlocks roller = new Interlocks(travel(ROLLER));
     Interlock rule = Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110)));
     roller.add(rule, pivotView.at(radians(1.5)));
     Demand intaking = Demand.of(Request.VELOCITY, 50, 1);
@@ -97,7 +97,7 @@ class InterlocksTest {
   /** A joint that doesn't know where it is restricts: the roller stops with the pivot unhomed. */
   @Test
   void aJointThatDoesntKnowWhereItIsRestricts() {
-    Interlocks roller = new Interlocks(travel(ROLLER), false);
+    Interlocks roller = new Interlocks(travel(ROLLER));
     roller.add(
         Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))),
         pivotView.at(radians(120)));
@@ -114,7 +114,7 @@ class InterlocksTest {
    */
   @Test
   void aJointHeldAtPositionsHoldsWhereItStopsOnceAndRestartsWhenLetGo() {
-    Interlocks turret = new Interlocks(travel(TURRET), true);
+    Interlocks turret = new Interlocks(travel(TURRET));
     turret.add(Interlock.that(TURRET).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))), rollerView);
     rollerView.knowsWhere = false;
     Demand back = toward(180);
@@ -138,7 +138,7 @@ class InterlocksTest {
 
   /** The pivot kept out of 40° to 80° while the elevator is below clear. */
   private Interlocks keptOut() {
-    Interlocks pivot = new Interlocks(travel(PIVOT), true);
+    Interlocks pivot = new Interlocks(travel(PIVOT));
     pivot.add(
         Interlock.that(PIVOT).keepsOut(Range.degrees(40, 80)).when(ELEVATOR.atMost(ELEVATOR_CLEAR)),
         elevatorView.at(0));
@@ -197,7 +197,7 @@ class InterlocksTest {
    */
   @Test
   void aJointAtItsEndInsideARegionReachingItLeavesByTheOtherEdge() {
-    Interlocks pivot = new Interlocks(travel(PIVOT), true);
+    Interlocks pivot = new Interlocks(travel(PIVOT));
     pivot.add(
         Interlock.that(PIVOT)
             .keepsOut(Range.degrees(100, 135))
@@ -328,7 +328,7 @@ class InterlocksTest {
   @Test
   void aSensorsConditionHoldsAndALostSensorRestricts() {
     Sensors sensors = sensors();
-    Interlocks roller = new Interlocks(travel(ROLLER), false);
+    Interlocks roller = new Interlocks(travel(ROLLER));
     roller.add(Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()), null);
     roller.add(Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))), pivotView);
     Demand intaking = Demand.of(Request.VELOCITY, 50, 1);

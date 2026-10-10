@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.world.robot.CanDevice;
 import com.michaelgrundvig.frc.world.robot.Condition;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Interlock;
+import com.michaelgrundvig.frc.world.robot.Interlock.KeepsOut.Side;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
@@ -23,6 +24,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
 import org.jspecify.annotations.Nullable;
@@ -374,8 +376,8 @@ public final class JointInvariants {
     private final Travel travel;
     private final double band;
 
-    /** Below the region (-1) or above it (1) when last outside it; 0 before it ever was. */
-    private int side;
+    /** The side of the region the joint was last outside on, or empty before it ever was. */
+    private Optional<Side> lastOutside = Optional.empty();
 
     /** Whether it was judged last loop, the region closed. */
     private boolean judging;
@@ -386,8 +388,8 @@ public final class JointInvariants {
      */
     private long letBeUntil = Long.MIN_VALUE;
 
-    /** Which edge it's kept to, and how far past it it may go, while it's judged. */
-    private boolean below;
+    /** Which side it's kept to, and how far past that edge it may go, while it's judged. */
+    private Side keptTo = Side.ABOVE;
 
     private double allowed;
 
@@ -419,15 +421,15 @@ public final class JointInvariants {
 
     /** How far past the edge it's kept to a position is: negative outside. */
     private double past(double position) {
-      return below ? position - keeps.region().lower() : keeps.region().upper() - position;
+      return keeps.distancePastEdge(keptTo, position);
     }
 
     @Override
     public @Nullable String broken(long now, boolean enabled) {
       boolean knows = joint.view().knowsWhere();
       double at = joint.position();
-      if (knows && !keeps.keepsOut(at)) {
-        side = keeps.keptBelow(at, 0) ? -1 : 1;
+      if (knows && !keeps.isInside(at)) {
+        lastOutside = Optional.of(keeps.sideKeptTo(at));
       }
       WatchedJoint io = io(keeps.joint());
       if (!io.connected() || !io.followersConnected() || io.restarted()) {
@@ -439,14 +441,14 @@ public final class JointInvariants {
       }
       String found = null;
       if (judged && (!judging || touched.contains(keeps.joint()))) {
-        below = keeps.keptBelow(at, side);
+        keptTo = keeps.sideKeptTo(at, lastOutside);
         double stops = past(travel.stoppingPoint(at, joint.velocity()));
         allowed = Math.max(0, Math.max(past(at), stops)) + band;
       } else if (judged) {
-        if (!keeps.keepsOut(at) && keeps.keptBelow(at, 0) != below) {
+        if (!keeps.isInside(at) && keeps.sideKeptTo(at) != keptTo) {
           // Out the far side: too fast to stop inside as the region closed, it carried on through,
           // and is kept out from there.
-          below = !below;
+          keptTo = keeps.sideKeptTo(at);
           allowed = Math.max(0, past(travel.stoppingPoint(at, joint.velocity()))) + band;
         }
         if (past(at) <= 0) {

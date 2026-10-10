@@ -105,12 +105,12 @@ import org.wpilib.util.Alert;
  *
  * <p><b>Inside</b>, what it applies each loop goes through stages, each a class of its own with
  * tests of its own: what a command asked, or its idle ({@link Idle}), as a {@link Demand}; its
- * interlocks beneath that ({@link Interlocks}), reading what other joints publish ({@link
- * JointView}), never their mechanisms; its limit switches beneath them ({@link LimitStops}); the
- * profile toward what's left ({@link JointProfile}); and its output to its IO, here. Where it's
- * driven is its {@link Travel}; how it finds where it is, and where it stands meanwhile, its {@link
- * JointHoming}; what's doubted of its switches and its PDH channels, {@link SwitchDoubts} and
- * {@link DeadChannels}.
+ * interlocks beneath that ({@link Interlocks}, which asks the model what they allow), reading what
+ * other joints publish ({@link JointView}), never their mechanisms; its limit switches beneath them
+ * ({@link LimitStops}); the profile toward what's left ({@link JointProfile}); and its output to
+ * its IO, here. Where it's driven is its {@link Travel}; how it finds where it is, and where it
+ * stands meanwhile, its {@link JointHoming}; what's doubted of its switches and its PDH channels,
+ * {@link SwitchDoubts} and {@link DeadChannels}.
  */
 @CheckReturnValue
 public final class JointMechanism implements Mechanism {
@@ -571,7 +571,7 @@ public final class JointMechanism implements Mechanism {
     if (standsIn != null) {
       homing.faulted(standsIn);
     }
-    interlocks = new Interlocks(travel, positional);
+    interlocks = new Interlocks(travel);
     places = new PlaceNames(joint, positionBands.enter());
     String key = "Joints/" + label;
     inputsKey = key;
