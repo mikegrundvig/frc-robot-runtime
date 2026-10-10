@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import org.gradle.testkit.runner.BuildResult;
 import org.gradle.testkit.runner.BuildTask;
@@ -111,12 +112,20 @@ class AdvantageScopeAssetsPluginTest {
     return Files.readString(project.resolve("ascope_assets/Robot_comp/config.json"));
   }
 
+  /**
+   * A build of the fixture project. Each build reads the project's files from disk: these tests
+   * change and delete files between builds that follow within milliseconds, and a daemon that
+   * watches the file system can run the next build before it has heard of the change. On a busy
+   * machine it then calls the task up to date when a file it wrote is gone.
+   */
   private GradleRunner gradle(String... arguments) {
+    List<String> all = new ArrayList<>(List.of(arguments));
+    all.add("--no-watch-fs");
     return GradleRunner.create()
         .withProjectDir(project.toFile())
         .withTestKitDir(new File(System.getProperty("frc.testkit.dir", "build/testkit")))
         .withPluginClasspath()
-        .withArguments(List.of(arguments));
+        .withArguments(all);
   }
 
   private static TaskOutcome outcome(BuildResult result) {
