@@ -101,13 +101,13 @@ class JointsTest {
             .label("hatch")
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .build()
-            .motor(Motor.NEO, JointFixtures.gearing(10), SPARK_MAX.can(21));
+            .motors(Motor.NEO.through(JointFixtures.gearing(10)).on(SPARK_MAX.can(21)));
     Joint.Revolute flap =
         JointRevoluteBuilder.builder(unmotored(PIVOT))
             .label("flap")
             .link(JointFixtures.link("flap", 1, new Translation3d()))
             .build()
-            .motor(Motor.MINION, JointFixtures.gearing(10), TALON_FXS.can(22));
+            .motors(Motor.MINION.through(JointFixtures.gearing(10)).on(TALON_FXS.can(22)));
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT).joints(append(ROBOT.joints(), hatch, flap)).build();
 
@@ -117,7 +117,9 @@ class JointsTest {
     assertThat(Joints.driven(robot)).contains(hatch, flap);
     assertThatIllegalArgumentException()
         .isThrownBy(
-            () -> unmotored(hatch).motor(Motor.NEO, JointFixtures.gearing(10), TALON_FX.can(21)))
+            () ->
+                unmotored(hatch)
+                    .motors(Motor.NEO.through(JointFixtures.gearing(10)).on(TALON_FX.can(21))))
         .withMessageContaining(
             "its NEO is on a TalonFX, which doesn't drive one: a TalonFXS or a SPARK MAX or a SPARK"
                 + " Flex does");
@@ -131,7 +133,7 @@ class JointsTest {
   void anEncoderOnATalonFxsDataPortIsntReadYet() {
     Joint.Revolute pivot =
         unmotored(PIVOT)
-            .motor(Motor.MINION, JointFixtures.gearing(25), TALON_FXS.can(23))
+            .motors(Motor.MINION.through(JointFixtures.gearing(25)).on(TALON_FXS.can(23)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0)))
             .retuned(old -> MechanismControl.position(30));
 
@@ -159,10 +161,12 @@ class JointsTest {
   void anUnwiredJointIsCheckedOnItsMotorsController() {
     MechanismControl lowering = PIVOT.driven().control().orElseThrow().withKg(0.4, Degrees.of(180));
     Joint.Revolute onNeos =
-        unmotored(PIVOT).motors(Motor.NEO, JointFixtures.gearing(25), 2).retuned(c -> lowering);
+        unmotored(PIVOT)
+            .motors(Motor.NEO.through(JointFixtures.gearing(25)).count(2))
+            .retuned(c -> lowering);
     Joint.Revolute onKrakens =
         unmotored(PIVOT)
-            .motors(Motor.KRAKEN_X60, JointFixtures.gearing(25), 2)
+            .motors(Motor.KRAKEN_X60.through(JointFixtures.gearing(25)).count(2))
             .retuned(c -> lowering);
 
     assertThat(ControllerSettings.findings(ROBOT.with(onNeos).math(), onNeos))

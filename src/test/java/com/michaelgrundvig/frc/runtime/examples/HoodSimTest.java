@@ -16,6 +16,7 @@ import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.Driven;
+import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring.PortEncoder;
@@ -112,7 +113,8 @@ class HoodSimTest {
   @Test
   void anUndrivenJointsSwitchIsAGate() {
     Joint.Revolute withSwitch =
-        HOOD.limitSwitch(End.LOWER, Degrees.of(0), SensorWiring.port(3).normallyClosed());
+        HOOD.limitSwitch(
+            LimitSwitch.lower().at(Degrees.of(0)).on(SensorWiring.port(3).normallyClosed()));
     JointsSimHarness switched =
         new JointsSimHarness(
             RobotDefinitionBuilder.builder(ROBOT).joints(List.of(withSwitch)).build());

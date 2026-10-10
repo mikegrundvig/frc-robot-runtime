@@ -25,6 +25,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
@@ -37,7 +38,6 @@ import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
-import com.michaelgrundvig.frc.world.robot.Sensor.Switch.Limit.End;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -61,9 +61,10 @@ class HardwareTest {
       Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
           .range(Range.degrees(0, 135))
           .rest(Degrees.of(0))
-          .motor(Motor.KRAKEN_X60, Gearing.of(25), TALON_FX.can(11))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(11)))
           .absoluteEncoder(MechanismWiring.PortEncoder.dutyCycle(2).offset(Rotations.of(0.3)))
-          .limitSwitch(End.LOWER, Degrees.of(0), SensorWiring.port(1).normallyClosed())
+          .limitSwitch(
+              LimitSwitch.lower().at(Degrees.of(0)).on(SensorWiring.port(1).normallyClosed()))
           .control(MechanismControl.position(30).withKg(0));
 
   /** An arm on a SPARK, its lower limit switch on the SPARK's own input. */
@@ -71,8 +72,11 @@ class HardwareTest {
       Joint.pivot("arm", Part.CHASSIS, new Translation3d(-0.2, 0, 0.4), Joint.PITCH_UP)
           .range(Range.degrees(0, 90))
           .rest(Degrees.of(0))
-          .motor(Motor.NEO, Gearing.of(50), SPARK_MAX.can(12))
-          .limitSwitch(End.LOWER, Degrees.of(0), SensorWiring.Direction.REVERSE.normallyClosed())
+          .motors(Motor.NEO.through(Gearing.of(50)).on(SPARK_MAX.can(12)))
+          .limitSwitch(
+              LimitSwitch.lower()
+                  .at(Degrees.of(0))
+                  .on(SensorWiring.Direction.REVERSE.normallyClosed()))
           .control(
               MechanismControl.position(30)
                   .withKg(0)
@@ -82,7 +86,7 @@ class HardwareTest {
   private static final Joint.Revolute ROLLER =
       Joint.roller("roller", PIVOT, new Translation3d(0, 0, 0.35))
           .outputs(Output.volts("intaking", 6))
-          .motor(Motor.KRAKEN_X60, Gearing.of(3))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(3)))
           .control(MechanismControl.velocity(0.02));
 
   private static final Sensor.Switch BEAM =

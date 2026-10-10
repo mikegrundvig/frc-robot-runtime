@@ -79,7 +79,8 @@ public record RobotConfig(
 
   /**
    * The same robot with some of its joints wired or tuned otherwise, as its definition's {@link
-   * RobotDefinition#with(Joint...)}: {@code COMPETITION.with(PIVOT.motorsOn(TALON_FX.can(33)))}.
+   * RobotDefinition#with(Joint...)}: {@code COMPETITION.with(PIVOT.motors(motors ->
+   * motors.on(TALON_FX.can(33))))}.
    */
   public RobotConfig with(Joint... changed) {
     return redefined(definition.with(changed));

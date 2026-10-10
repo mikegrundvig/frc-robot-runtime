@@ -41,7 +41,8 @@ import org.junit.jupiter.api.Test;
 class RevMechanismTest {
   private static final RobotDefinition ROBOT =
       JointFixtures.ROBOT.with(
-          JointFixtures.unmotored(PIVOT).motors(Motor.NEO, JointFixtures.gearing(25), 2));
+          JointFixtures.unmotored(PIVOT)
+              .motors(Motor.NEO.through(JointFixtures.gearing(25)).count(2)));
 
   private static final RobotMath MATH = ROBOT.math();
 
@@ -203,11 +204,12 @@ class RevMechanismTest {
     Joint.Prismatic elevator =
         JointFixtures.unmotored(JointFixtures.ELEVATOR)
             .motors(
-                Motor.NEO_VORTEX,
-                JointFixtures.gearing(10),
-                Inches.of(1),
-                MechanismWiring.Controller.SPARK_FLEX.can(41),
-                MechanismWiring.Controller.SPARK_FLEX.can(42))
+                Motor.NEO_VORTEX
+                    .through(JointFixtures.gearing(10))
+                    .drum(Inches.of(1))
+                    .on(
+                        MechanismWiring.Controller.SPARK_FLEX.can(41),
+                        MechanismWiring.Controller.SPARK_FLEX.can(42)))
             .absoluteEncoder(
                 Driven.AbsoluteEncoder.of()
                     .ratio(1.0 / 9)

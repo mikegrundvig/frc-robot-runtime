@@ -15,6 +15,7 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.robot.Driven;
+import com.michaelgrundvig.frc.world.robot.Driven.AbsoluteEncoder;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -123,7 +124,10 @@ class AbsoluteSeedingSimTest {
   @Test
   void anUnwiredEncoderIsReadInTheSimulator() {
     JointsSimHarness sim =
-        sim(PIVOT.absoluteEncoder().retuned(old -> control(30, 1, profile(8, 30))));
+        sim(
+            PIVOT
+                .absoluteEncoder(AbsoluteEncoder.of())
+                .retuned(old -> control(30, 1, profile(8, 30))));
     JointMechanism pivot = sim.joints.of(PIVOT);
     sim.simulation.powerOnAt(PIVOT, Math.toRadians(80));
 

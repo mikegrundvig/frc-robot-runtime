@@ -42,7 +42,7 @@ public static final Joint.Revolute PIVOT =
         .carries(Link.box("intake arm", new Translation3d(0, 0, 0.2),
             new Translation3d(0.05, 0.55, 0.36)))
         .positions(PIVOT_IN, PIVOT_OUT)
-        .motor(Motor.KRAKEN_X60, Gearing.of(25), TALON_FX.can(32).pdh(4, Amps.of(40)))
+        .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(32).pdh(4, Amps.of(40))))
         .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))
         .control(MechanismControl.position(30)
             .withProfile(DegreesPerSecond.of(450), DegreesPerSecondPerSecond.of(1700)));
@@ -53,7 +53,7 @@ public static final Output OUTTAKING = Output.volts("outtaking", -4);
 public static final Joint.Revolute ROLLER =
     Joint.roller("roller", PIVOT, new Translation3d(0, 0, 0.35))   // it rides on the pivot's end
         .outputs(INTAKING, OUTTAKING)
-        .motor(Motor.KRAKEN_X60, Gearing.of(3), TALON_FX.can(31).pdh(5, Amps.of(40)))
+        .motors(Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(31).pdh(5, Amps.of(40))))
         .runsOnlyWhen(PIVOT.atLeast(Degrees.of(110)))   // only once the pivot is out of the frame
         .control(MechanismControl.velocity(0.02));
 
@@ -78,9 +78,9 @@ Then list them in the robot's definition: `.joints(List.of(PIVOT, ROLLER))` and
   neither. A mass is optional, a rough one does, and one left out is never guessed.
 - `.positions(...)` are its named places. They're relative to the joint's parent, so an arm's
   places on an elevator mean the same at any height.
-- `.motor(...)` is one Kraken X60 turning it through 25:1, on a TalonFX at CAN ID 32, fed by the
-  PDH's channel 4 through a 40 A breaker. Several motors together are `.motors(...)`, the leader
-  first. With no controllers named, it runs in the simulator alone ([Wiring and
+- `.motors(...)` is one Kraken X60 turning it through 25:1, on a TalonFX at CAN ID 32, fed by the
+  PDH's channel 4 through a 40 A breaker. Several motors together name a controller each in
+  `.on(...)`, the leader first. With no `.on(...)`, they run in the simulator alone ([Wiring and
   devices](#wiring-and-devices), [The PDH](#the-pdh)).
 - `.absoluteEncoder(...)` is a CANcoder turning with it, so the pivot knows where it is the moment
   the robot starts ([Absolute encoders](#absolute-encoders)). A joint without one names how it
@@ -109,8 +109,8 @@ exactly those ([Use it](#3-use-it)).
 **A block says each thing once.** What a joint has one of (its link, its positions, its outputs,
 its motors, its absolute encoder, a switch at each end, its control) is refused said twice, saying
 how to change it: a second `.absoluteEncoder(...)` meant as a pair is "pivot already has an
-absolute encoder: to re-wire it, encoderOn(...); to offset it, encoderOffset(...); a decoded pair
-isn't supported yet". What it has several of, servos and interlocks, adds up. Its hard stops and
+absolute encoder: to re-wire it, absoluteEncoder(encoder -> encoder.on(...)); to offset it,
+absoluteEncoder(encoder -> encoder.offset(...)); a decoded pair isn't supported yet". What it has several of, servos and interlocks, adds up. Its hard stops and
 where it rests are one verb each, `.range(...)` and `.rest(...)`, which change them when said
 again, as a practice robot does ([A practice robot](#5-a-practice-robot)). A joint can't tell its
 block from a finished joint, so in a block too, a second `.range(...)` or `.rest(...)` replaces the
@@ -137,9 +137,13 @@ public static final Joint.Prismatic ELEVATOR =
     Joint.elevator("elevator", Part.CHASSIS, new Translation3d(0, 0, 0.1))
         .range(Range.meters(0, 1.2)).rest(ELEVATOR_DOWN)
         .positions(ELEVATOR_DOWN, ELEVATOR_CLEAR)
-        .motors(Motor.KRAKEN_X60, Gearing.of(5), Inches.of(0.75),
-            TALON_FX.can(20).pdh(0, Amps.of(40)),
-            TALON_FX.can(21).clockwise().pdh(1, Amps.of(40)))
+        .motors(
+            Motor.KRAKEN_X60
+                .through(Gearing.of(5))
+                .drum(Inches.of(0.75))
+                .on(
+                    TALON_FX.can(20).pdh(0, Amps.of(40)),
+                    TALON_FX.can(21).clockwise().pdh(1, Amps.of(40))))
         // Its CANcoder turns once for twelve turns of the drum: less than once over its travel.
         .absoluteEncoder(
             AbsoluteEncoder.of().ratio(1.0 / 12).on(CANCODER.can(24).offset(Rotations.of(0.31))))
@@ -152,7 +156,7 @@ public static final Joint.Revolute ARM =
     Joint.pivot("arm", ELEVATOR, new Translation3d(0.1, 0, 0.3), Joint.PITCH_UP)
         .range(Range.degrees(-60, 150)).rest(ARM_STOWED)
         .positions(ARM_STOWED, ARM_SCORING)
-        .motor(Motor.KRAKEN_X60, Gearing.of(60), TALON_FX.can(22).pdh(2, Amps.of(40)))
+        .motors(Motor.KRAKEN_X60.through(Gearing.of(60)).on(TALON_FX.can(22).pdh(2, Amps.of(40))))
         .absoluteEncoder(CANCODER.can(23).offset(Rotations.of(0.12)))
         // The arm keeps out of the bumper's band while the elevator is too low to clear it.
         .keepsOut(Range.degrees(-10, 30)).when(ELEVATOR.atMost(Inches.of(32)))
@@ -162,8 +166,8 @@ public static final Joint.Revolute ARM =
 **The elevator**:
 - `Joint.elevator(...)` slides straight up, from 0.1 m above the chassis's origin. Its range, its
   places and its speeds are lengths: `Range.meters(0, 1.2)`, `Position.of("down", Inches.of(0))`.
-- `.motors(...)` is two Krakens through 5:1 onto a drum, a sprocket or a pulley, whose pitch
-  radius, where the chain or belt meets it, is 0.75 in. The leader is first. The follower is
+- `.motors(...)` is two Krakens through 5:1 onto a drum, a sprocket or a pulley (`.drum(...)`),
+  whose pitch radius, where the chain or belt meets it, is 0.75 in. The leader is first. The follower is
   mounted facing the other way, so it turns clockwise, seen facing its shaft, as the elevator
   rises: `.clockwise()`.
 - `.absoluteEncoder(...)`: the drum turns ten times over the elevator's 1.2 m, so a CANcoder on its
@@ -542,10 +546,12 @@ differences, and the same code runs on either, `pivot.goTo(PIVOT_OUT)` to each r
 static final RobotConfig PRACTICE =
     COMPETITION.named("practice")
         .with(
-            PIVOT.motorsOn(TALON_FX.can(33).pdh(4, Amps.of(40))) // another CAN ID
-                .replaced(PIVOT_OUT, Degrees.of(128)), // it swings out to 128°
-            ARM.encoderOffset(Rotations.of(0.47)) // its magnet's own offset
-                .retuned(control -> control.withKg(0.3)) // a lighter arm
+            // The pivot's motor is at another CAN ID, and it swings out to 128°.
+            PIVOT.motors(motors -> motors.on(TALON_FX.can(33).pdh(4, Amps.of(40))))
+                .replaced(PIVOT_OUT, Degrees.of(128)),
+            // The arm's magnet has its own offset, and the arm is lighter.
+            ARM.absoluteEncoder(encoder -> encoder.offset(Rotations.of(0.47)))
+                .retuned(control -> control.withKg(0.3))
                 .rest(Degrees.of(-30))) // it stows at -30°
         .with(CLAW_BEAM.on(CANDI.can(36).s1().normallyOpen())) // a beam on another CANdi
         .with(CameraConfigBuilder.builder(BACK_LEFT).up(Inches.of(20.5)).build()); // lower
@@ -554,16 +560,18 @@ static final RobotConfig PRACTICE =
 List it in `Robots.all()` beside the competition robot, `List.of(COMPETITION, PRACTICE)`, and the
 test that builds every robot checks it.
 
-Each change keeps the rest of what it changes, so a CAD revision that regears the competition
-robot's pivot regears the practice robot's too:
+A part is changed by naming it and saying what differs, in the words its block uses: `motors ->
+motors.on(...)` is the same `.on(...)` the block wrote. Each change keeps the rest of what it
+changes, so a CAD revision that regears the competition robot's pivot regears the practice robot's
+too:
 
 | Change | What it changes | What it keeps |
 |---|---|---|
-| `motorsOn(...)` | Its motors' controllers, the leader first | The motor, how many, and their gearing |
-| `gearing(...)` | Its motors' gearing | Their controllers |
-| `encoderOffset(...)` | Its absolute encoder's offset, its magnet's own | Its CANcoder, data port or Systemcore port and the rest of their wiring, so a CANcoder moved to another ID on the competition robot moves on the practice robot too |
-| `encoderOn(...)` | The device its absolute encoder is read on | Its ratio, and, on another CANcoder or port of the same kind, how its loop reads it: one whose CANcoder only moved ID stays fused, unless its CANcoder says its own, `.remote()` |
-| `limitSwitchOn(End.LOWER, ...)` | The input its switch at that end is on | Where it trips |
+| `motors(motors -> motors.on(...))` | Its motors' controllers, the leader first | The motor, how many, and their gearing |
+| `motors(motors -> motors.gearing(...))` | Its motors' gearing | Their controllers |
+| `absoluteEncoder(encoder -> encoder.offset(...))` | Its absolute encoder's offset, its magnet's own | Its CANcoder, data port or Systemcore port and the rest of their wiring, so a CANcoder moved to another ID on the competition robot moves on the practice robot too |
+| `absoluteEncoder(encoder -> encoder.on(...))` | The device its absolute encoder is read on | Its ratio, and, on another CANcoder or port of the same kind, how its loop reads it: one whose CANcoder only moved ID stays fused, unless its CANcoder says its own, `.remote()` |
+| `limitSwitch(End.LOWER, limit -> limit.on(...))` | The input its switch at that end is on | Where it trips |
 | `retuned(control -> ...)` | Its control, a wither at a time | The rest of its control |
 | `replaced(PIVOT_OUT, Degrees.of(128))` | Where one of its positions is, or how one of its outputs runs: `replaced(OUTTAKING, Volts.of(-6))`, at a speed, a voltage or a share of the battery, `Percent.of(60)` | Its name, so every move, configuration and interlock that names it finds it there |
 | `range(Range.degrees(0, 131))` | Its hard stops | Where it rests, which must be inside them |
@@ -587,9 +595,10 @@ A few things to know:
   go in any order: a practice pivot whose stops and out both move, each past the other's, is
   `PIVOT.range(...).replaced(PIVOT_OUT, ...)` either way round.
 - **Chain a joint's changes.** A joint given twice is refused, since the second would drop the
-  first's change. `PIVOT.motor(...)` in a practice robot, which would restate its gearing and leave
-  it behind when the competition robot's changes, is refused as a second say of its motors: "pivot
-  already has its motors: to re-wire them, motorsOn(...); to re-gear them, gearing(...)".
+  first's change. `PIVOT.motors(Motor.KRAKEN_X60.through(...))` in a practice robot, which would
+  restate its gearing and leave it behind when the competition robot's changes, is refused as a
+  second say of its motors: "pivot already has its motors: to re-wire them, motors(motors ->
+  motors.on(...)); to re-gear them, motors(motors -> motors.gearing(...))".
 
 Some differences have no change yet: a drivetrain re-geared or its modules placed otherwise, a
 joint on another count of motors, and a joint only one of the robots has. Write those through the
@@ -768,7 +777,7 @@ ways:
 | A SPARK's data port, such as REV's Through Bore | `.absoluteEncoder(DATA_PORT.offset(Rotations.of(0.82)))` | The SPARK, read at startup | `DATA_PORT.offset(...).closesLoop()`: the SPARK's own loop, at the controller's rate |
 | A Systemcore port: a duty-cycle encoder, or an analog encoder or potentiometer | `.absoluteEncoder(PortEncoder.dutyCycle(1).offset(Rotations.of(0.82)))`, or `PortEncoder.analog(2, 10)` for a ten-turn pot | The robot, from its first good reading | `PortEncoder.dutyCycle(1).offset(...).closesLoop()`: the robot's own loop, each loop, at 50 Hz |
 
-With no wiring (`.absoluteEncoder()`), only the simulator reads it.
+With no wiring (`.absoluteEncoder(AbsoluteEncoder.of())`), only the simulator reads it.
 
 **What closing on it costs.** A motor controller's loop runs at 1 kHz; the robot's runs once a
 loop, at 50 Hz, twenty times coarser: a kP a motor controller holds steady may make it buzz, so tune
@@ -861,12 +870,12 @@ the magnet is good.
 
 ### Limit switches and sensors
 
-**A joint's limit switches** are in its block: `.limitSwitch(End.LOWER, Degrees.of(0),
-Direction.REVERSE.normallyClosed())` on its own controller's limit pin, or with a Systemcore port
-(`SensorWiring.port(1).normallyClosed()`) or a CANdi's input (`CANDI.can(30).s1().normallyClosed()`)
-in place of the pin. Each is named for its joint and end, "pivot lower limit", and
+**A joint's limit switches** are in its block:
+`.limitSwitch(LimitSwitch.lower().at(Degrees.of(0)).on(Direction.REVERSE.normallyClosed()))` on its
+own controller's limit pin, or with a Systemcore port (`SensorWiring.port(1).normallyClosed()`) or
+a CANdi's input (`CANDI.can(30).s1().normallyClosed()`) in place of the pin. Each is named for its joint and end, "pivot lower limit", and
 `PIVOT.switchAt(End.LOWER)` is the switch, for a condition. One whose position isn't known
-(`.limitSwitch(End.LOWER)` without an angle) can stop its joint but not home it.
+(`.limitSwitch(LimitSwitch.lower())` without an angle) can stop its joint but not home it.
 
 **Every other switch and rangefinder** is a constant of its own, on its part, the chassis or a
 joint's link (the arm a roller rides on, not the roller, which spins), carrying its wiring:

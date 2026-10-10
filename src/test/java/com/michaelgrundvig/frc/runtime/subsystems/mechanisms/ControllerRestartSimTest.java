@@ -47,7 +47,7 @@ class ControllerRestartSimTest {
   /** The pivot on a TalonFX that reads a CANcoder, seeded from it once at startup. */
   private static final Joint.Revolute ON_CANCODER =
       PIVOT
-          .motorsOn(TALON_FX.can(21))
+          .motors(motors -> motors.on(TALON_FX.can(21)))
           .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))
           .retuned(old -> control(30, 1, profile(8, 30)));
 
@@ -145,7 +145,10 @@ class ControllerRestartSimTest {
         new JointsSimHarness(
             ROBOT.with(
                 unmotored(PIVOT)
-                    .motors(Motor.KRAKEN_X60, gearing(25), TALON_FX.can(21), TALON_FX.can(22))
+                    .motors(
+                        Motor.KRAKEN_X60
+                            .through(gearing(25))
+                            .on(TALON_FX.can(21), TALON_FX.can(22)))
                     .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))
                     .retuned(old -> control(30, 1, profile(8, 30)))));
     JointMechanism pivot = sim.joints.of(PIVOT);
@@ -201,7 +204,7 @@ class ControllerRestartSimTest {
    */
   private static final Joint.Revolute TURRET_ON_CANCODER =
       TURRET
-          .motorsOn(TALON_FX.can(23))
+          .motors(motors -> motors.on(TALON_FX.can(23)))
           .absoluteEncoder(CANCODER.can(35).offset(Rotations.of(0)))
           .retuned(old -> control(20, 0.5, profile(3, 10)));
 

@@ -15,6 +15,7 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.Motor;
@@ -140,9 +141,11 @@ class SwitchHomingSimTest {
   void aControllerStopsAtTheSwitchOnItsOwnPin() {
     assertItsControllerStops(
         unmotored(TURRET)
-            .motor(Motor.NEO, JointFixtures.gearing(50), SPARK_MAX.can(21))
+            .motors(Motor.NEO.through(JointFixtures.gearing(50)).on(SPARK_MAX.can(21)))
             .limitSwitch(
-                End.LOWER, Degrees.of(-90), SensorWiring.Direction.REVERSE.normallyClosed()));
+                LimitSwitch.lower()
+                    .at(Degrees.of(-90))
+                    .on(SensorWiring.Direction.REVERSE.normallyClosed())));
   }
 
   /**
@@ -153,8 +156,9 @@ class SwitchHomingSimTest {
   void aTalonFxStopsAtItsSwitchOnACandi() {
     assertItsControllerStops(
         TURRET
-            .motorsOn(TALON_FX.can(21))
-            .limitSwitch(End.LOWER, Degrees.of(-90), CANDI.can(30).s1().normallyClosed()));
+            .motors(motors -> motors.on(TALON_FX.can(21)))
+            .limitSwitch(
+                LimitSwitch.lower().at(Degrees.of(-90)).on(CANDI.can(30).s1().normallyClosed())));
   }
 
   /** What a joint's controller was last asked as the loop began, and the volts it then put out. */

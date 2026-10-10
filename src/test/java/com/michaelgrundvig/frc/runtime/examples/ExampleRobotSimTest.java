@@ -73,7 +73,7 @@ class ExampleRobotSimTest {
           .range(Range.meters(0, 0.3))
           .rest(HOPPER_DOWN)
           .positions(HOPPER_DOWN, HOPPER_CLEAR)
-          .motor(Motor.KRAKEN_X60, Gearing.of(10), Inches.of(0.5))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(10)).drum(Inches.of(0.5)))
           .control(MechanismControl.position(30).withHoming(Homing.assumeAtRest()));
 
   /**

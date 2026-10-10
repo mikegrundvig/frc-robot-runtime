@@ -46,19 +46,20 @@ class EncoderSlipSimTest {
       PIVOT.absoluteEncoder(PORT_1).retuned(old -> control(30, 1, profile(8, 30)));
 
   /** Its loop closes on its encoder, the robot's. */
-  private static final Joint.Revolute CLOSED = SEEDED.encoderOn(PORT_1.closesLoop());
+  private static final Joint.Revolute CLOSED =
+      SEEDED.absoluteEncoder(encoder -> encoder.on(PORT_1.closesLoop()));
 
   /** On a SPARK MAX, a through-bore on its data port, read once. */
   private static final Joint.Revolute ON_DATA_PORT =
       unmotored(PIVOT)
-          .motor(Motor.NEO, gearing(25), SPARK_MAX.can(21))
+          .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(21)))
           .absoluteEncoder(DATA_PORT.offset(Rotations.of(0.1)))
           .retuned(old -> control(30, 1, profile(8, 30)));
 
   /** On a TalonFX, a CANcoder it's seeded from once, read beside its rotor. */
   private static final Joint.Revolute ON_CANCODER =
       PIVOT
-          .motorsOn(TALON_FX.can(21))
+          .motors(motors -> motors.on(TALON_FX.can(21)))
           .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))
           .retuned(old -> control(30, 1, profile(8, 30)));
 
@@ -218,7 +219,7 @@ class EncoderSlipSimTest {
             .retuned(old -> control(20, 0.5, profile(3, 10)));
     Joint.Revolute onDataPort =
         unmotored(TURRET)
-            .motor(Motor.NEO, gearing(50), SPARK_MAX.can(22))
+            .motors(Motor.NEO.through(gearing(50)).on(SPARK_MAX.can(22)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0)))
             .retuned(old -> control(20, 0.5, profile(3, 10)));
     for (Joint.Revolute turret : List.of(onPort, onDataPort)) {
@@ -286,7 +287,8 @@ class EncoderSlipSimTest {
   @Test
   void aCancoderWithABadMagnetIsntTrusted() {
     Joint.Revolute remote =
-        ON_CANCODER.encoderOn(CANCODER.can(34).offset(Rotations.of(0.3)).remote());
+        ON_CANCODER.absoluteEncoder(
+            encoder -> encoder.on(CANCODER.can(34).offset(Rotations.of(0.3)).remote()));
     for (Joint.Revolute wired : List.of(ON_CANCODER, remote)) {
       boolean[] bad = {false};
       JointsSimHarness sim =

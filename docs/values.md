@@ -500,7 +500,7 @@ datasheets as it joins `Robots.java`.
 
 `com.michaelgrundvig.frc.world.robot.Joint.Revolute`: a joint that turns, in radians. Its range
 and its link have sections of their own ([`Range`](#range), [`Link`](#link)), and so does how
-it's driven, its block's `.motor(...)`, `.absoluteEncoder(...)`, `.limitSwitch(...)`,
+it's driven, its block's `.motors(...)`, `.absoluteEncoder(...)`, `.limitSwitch(...)`,
 `.control(...)`, and its interlocks, `.keepsOut(...)` and `.runsOnlyWhen(...)` ([`Driven.Motors`](#drivenmotors) and the rest). How it's driven isn't part of what
 the joint is: two joints the same but for it are one joint, re-tuned or re-wired.
 
@@ -539,8 +539,8 @@ sections of their own; its interlocks are written as the robot's are ([`Interloc
 ### `Driven.Motors`
 
 `com.michaelgrundvig.frc.world.robot.Driven.Motors`: the motors turning a joint, in its block:
-`.motor(Motor.KRAKEN_X60, Gearing.of(25))`, `.motors(Motor.KRAKEN_X60, Gearing.of(1), 4)`, or each
-on its controller (`TALON_FX.can(41)`, `.clockwise()` for one turning the other way). The joint's
+`.motors(Motor.KRAKEN_X60.through(Gearing.of(25)))`, four together with `.count(4)`, or each on
+its controller with `.on(...)` (`TALON_FX.can(41)`, `.clockwise()` for one turning the other way). The joint's
 drive is worked out from it, under the joint's label; a drive between joints, a differential's, is
 the robot's own (`RobotDefinition.drives`).
 
@@ -566,8 +566,8 @@ them from a subsystem of your own ([mechanisms](mechanisms.md#8-when-the-templat
 ### `Driven.AbsoluteEncoder`
 
 `com.michaelgrundvig.frc.world.robot.Driven.AbsoluteEncoder`: an absolute encoder on a joint,
-turning with it, in its block: `.absoluteEncoder()`, with its CANcoder, a SPARK's data port or
-a Systemcore port (`.absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))`), or written in
+turning with it, in its block: `.absoluteEncoder(AbsoluteEncoder.of())`, with its CANcoder, a
+SPARK's data port or a Systemcore port (`.absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))`), or written in
 full, geared, as `.absoluteEncoder(AbsoluteEncoder.of().ratio(0.536).on(CANCODER.can(34)...))`. On a
 joint that slides, it turns with the drum its motors' pitch radius names, on its shaft or geared
 down from it. Its sensor is worked out from it: "arm absolute encoder", which says where the joint
@@ -582,8 +582,8 @@ Systemcore port (`MechanismWiring.PortEncoder`); unwired, only the simulator rea
 ### `Driven.LimitSwitch`
 
 `com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch`: a switch a joint presses at one end of
-its travel, in its block (`.limitSwitch(End.LOWER, Degrees.of(0))`, with its wiring on a port, a
-CANdi, or the joint's own controller's pin). Its sensor is worked out from it, named for its joint
+its travel, in its block (`.limitSwitch(LimitSwitch.lower().at(Degrees.of(0)))`, with its wiring
+on a port, a CANdi, or the joint's own controller's pin in `.on(...)`). Its sensor is worked out from it, named for its joint
 and its end: "pivot lower limit", what `PIVOT.switchAt(End.LOWER)` gives a condition.
 
 | Value | Kind | Source | How to measure it, or why |
@@ -672,13 +672,14 @@ which WPILib 2027 sends as a `PWM`'s pulse in microseconds.
 
 `com.michaelgrundvig.frc.world.robot.Transmission.Geared`: motors turning a revolute joint
 through gearing. Its joint and its gearing have sections of their own ([`Gearing`](#gearing)).
-`Joint.Revolute.motors(motor, count, gearing)` writes a drive with one.
+A revolute joint's `.motors(motor.through(gearing))` writes a drive with one.
 
 ### `Transmission.Drum`
 
 `com.michaelgrundvig.frc.world.robot.Transmission.Drum`: motors driving a prismatic joint through
 gearing and a drum, sprocket, or pulley: an elevator. Its joint and its gearing have sections of
-their own. `Joint.Prismatic.motors(motor, count, gearing, pitchRadius)` writes a drive with one.
+their own. A prismatic joint's `.motors(motor.through(gearing).drum(pitchRadius))` writes a drive
+with one.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -933,8 +934,8 @@ the guide, so nothing here has a starting value of the template's.
 ### A motor's controller
 
 Each motor's controller is named in its joint's block, the leader first, one for each motor
-(`.motors(Motor.KRAKEN_X60, gearing, TALON_FX.can(41), TALON_FX.can(42).clockwise())`), with the
-PDH channel that feeds it (`.pdh(4, Amps.of(40))`); and its absolute encoder's CANcoder
+(`.motors(Motor.KRAKEN_X60.through(gearing).on(TALON_FX.can(41), TALON_FX.can(42).clockwise()))`),
+with the PDH channel that feeds it (`.pdh(4, Amps.of(40))`); and its absolute encoder's CANcoder
 ([`MechanismWiring.Cancoder`](#mechanismwiringcancoder)), or that encoder on a SPARK's data port
 ([`MechanismWiring.DataPortEncoder`](#mechanismwiringdataportencoder)) or a Systemcore port
 ([`MechanismWiring.PortEncoder`](#mechanismwiringportencoder)):
@@ -1178,8 +1179,9 @@ Each motor's current limits, all set where they show, as the drivetrain's are
 ## A sensor's wiring
 
 Where each switch and rangefinder is connected, carried by the sensor: a joint's limit switch in its
-block (`.limitSwitch(End.LOWER, Degrees.of(0), SensorWiring.port(1).normallyClosed())`), any
-other switch with `.on(...)` (`.on(CANDI.can(CANIVORE, 30).s1().normallyOpen())`), a
+block
+(`.limitSwitch(LimitSwitch.lower().at(Degrees.of(0)).on(SensorWiring.port(1).normallyClosed()))`),
+any other switch with `.on(...)` (`.on(CANDI.can(CANIVORE, 30).s1().normallyOpen())`), a
 rangefinder with `.on(CANRANGE.can(CANIVORE, 31))`. A sensor with no wiring only runs in the
 simulator. The definition refuses two sensors on one input, a controller's limit input on a joint
 that isn't wired or whose controller has none, a joint's limit switch on another joint's

@@ -44,26 +44,26 @@ class JointPlantTest {
                   Kilograms.of(2),
                   new Translation3d(0.3, 0, 0),
                   new Translation3d(0.6, 0.05, 0.05)))
-          .motor(Motor.KRAKEN_X60, Gearing.of(50))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(MechanismControl.position(30));
 
   private static final Joint.Revolute BARE_ARM =
       Joint.pivot("bare arm", Part.CHASSIS, new Translation3d(-0.1, 0, 0.5), Joint.PITCH_UP)
           .range(Range.degrees(-60, 90))
           .rest(Degrees.of(0))
-          .motor(Motor.KRAKEN_X60, Gearing.of(50))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(MechanismControl.position(30).withKg(0.4, Degrees.of(-30)));
 
   private static final Joint.Prismatic LIFT =
       Joint.elevator("lift", Part.CHASSIS, new Translation3d(0, 0.2, 0.1))
           .range(Range.meters(0, 1))
           .rest(Meters.of(0))
-          .motors(Motor.KRAKEN_X60, Gearing.of(10), Inches.of(1), 2)
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(10)).drum(Inches.of(1)).count(2))
           .control(MechanismControl.position(60).withKg(0.5));
 
   private static final Joint.Revolute TURRET =
       Joint.roller("turret", Part.CHASSIS, new Translation3d(0, -0.2, 0.4), Vector3.UP)
-          .motor(Motor.KRAKEN_X60, Gearing.of(20))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(20)))
           .control(MechanismControl.position(20));
 
   private static final RobotMath MATH = math(List.of(ARM, BARE_ARM, LIFT, TURRET));

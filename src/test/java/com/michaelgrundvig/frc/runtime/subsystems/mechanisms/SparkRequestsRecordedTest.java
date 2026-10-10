@@ -57,36 +57,35 @@ class SparkRequestsRecordedTest {
     requests(
         "pivot seeded",
         unmotored(PIVOT)
-            .motor(Motor.NEO, gearing(25), SPARK_MAX.can(55).clockwise())
+            .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(55).clockwise()))
             .retuned(control -> control.withKs(0.2)),
         25 / (2 * Math.PI));
     requests(
         "pivot at 30° back",
         unmotored(PIVOT)
-            .motor(Motor.NEO, gearing(25), SPARK_MAX.can(56))
+            .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(56)))
             .retuned(control -> control.withKs(0.1).withKv(0.6).withKg(0.4, Degrees.of(-30))),
         25 / (2 * Math.PI));
     requests(
         "pivot lowering",
         unmotored(PIVOT)
-            .motor(Motor.NEO, gearing(25), SPARK_MAX.can(57))
+            .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(57)))
             .retuned(control -> control.withKg(0.4, Degrees.of(180))),
         25 / (2 * Math.PI));
     requests(
         "elevator",
         unmotored(ELEVATOR)
             .motors(
-                Motor.NEO_VORTEX,
-                gearing(10),
-                Inches.of(1),
-                SPARK_FLEX.can(58),
-                SPARK_FLEX.can(59).clockwise())
+                Motor.NEO_VORTEX
+                    .through(gearing(10))
+                    .drum(Inches.of(1))
+                    .on(SPARK_FLEX.can(58), SPARK_FLEX.can(59).clockwise()))
             .retuned(control -> control.withKs(0.15)),
         10 / (2 * Math.PI * 0.0254));
     requests(
         "roller",
         unmotored(ROLLER)
-            .motor(Motor.NEO_550, gearing(3), SPARK_MAX.can(60))
+            .motors(Motor.NEO_550.through(gearing(3)).on(SPARK_MAX.can(60)))
             .retuned(control -> control.withKs(0.1).withKv(0.02)),
         3 / (2 * Math.PI));
     closedOnItsEncoder();
@@ -138,7 +137,7 @@ class SparkRequestsRecordedTest {
   private void closedOnItsEncoder() {
     Joint.Revolute pivot =
         unmotored(PIVOT)
-            .motor(Motor.NEO, gearing(25), SPARK_MAX.can(61))
+            .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(61)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0.1)).inverted().closesLoop())
             .retuned(
                 control ->

@@ -64,7 +64,7 @@ class JointIOTalonTest {
 
   /** The pivot, its motor on a TalonFX at an ID on the test's CANivore. */
   private static Joint.Revolute pivot(int id) {
-    return PIVOT.motorsOn(TALON_FX.can(CANIVORE, id));
+    return PIVOT.motors(motors -> motors.on(TALON_FX.can(CANIVORE, id)));
   }
 
   /** A joint's IO, on the fixtures' robot with the joint as given. */
@@ -211,7 +211,10 @@ class JointIOTalonTest {
   /** The elevator's two motors: the first leads, and it reads meters through its drum. */
   @Test
   void aSlideReadsMetersThroughItsDrum() throws InterruptedException {
-    JointIOTalon io = io(ELEVATOR.motorsOn(TALON_FX.can(CANIVORE, 53), TALON_FX.can(CANIVORE, 54)));
+    JointIOTalon io =
+        io(
+            ELEVATOR.motors(
+                motors -> motors.on(TALON_FX.can(CANIVORE, 53), TALON_FX.can(CANIVORE, 54))));
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
     eventually(() -> io.updateInputs(inputs), () -> inputs.connected);
 
@@ -316,13 +319,14 @@ class JointIOTalonTest {
             .build();
     Joint.Prismatic competition =
         ELEVATOR
-            .motorsOn(TALON_FX.can(CANIVORE, 60), TALON_FX.can(CANIVORE, 61))
+            .motors(motors -> motors.on(TALON_FX.can(CANIVORE, 60), TALON_FX.can(CANIVORE, 61)))
             .absoluteEncoder(
                 Driven.AbsoluteEncoder.of()
                     .ratio(1.0 / 9)
                     .on(CANCODER.can(CANIVORE, 62).offset(Rotations.of(0.31))))
             .retuned(old -> unhomed);
-    Joint.Prismatic practice = competition.encoderOffset(Rotations.of(0.06));
+    Joint.Prismatic practice =
+        competition.absoluteEncoder(encoder -> encoder.offset(Rotations.of(0.06)));
     double perMeter = 1.0 / 9 / (2 * Math.PI * 0.0254);
     // Its magnet's raw reading at 0.6 m: where it reads, less its own offset.
     new CANcoder(62, new CANBus(BUS)).getSimState().setRawPosition(0.6 * perMeter - 0.06);
@@ -349,7 +353,8 @@ class JointIOTalonTest {
     JointIOTalon io =
         io(
             unmotored(PIVOT)
-                .motor(Motor.NEO, JointFixtures.gearing(25), TALON_FXS.can(CANIVORE, 58)));
+                .motors(
+                    Motor.NEO.through(JointFixtures.gearing(25)).on(TALON_FXS.can(CANIVORE, 58))));
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
 
     boolean resting =
@@ -377,10 +382,9 @@ class JointIOTalonTest {
     Joint.Revolute pivot =
         unmotored(PIVOT)
             .motors(
-                Motor.KRAKEN_X60,
-                gearing(25),
-                TALON_FX.can(CANIVORE, 44),
-                TALON_FX.can(CANIVORE, 45))
+                Motor.KRAKEN_X60
+                    .through(gearing(25))
+                    .on(TALON_FX.can(CANIVORE, 44), TALON_FX.can(CANIVORE, 45)))
             .absoluteEncoder(CANCODER.can(CANIVORE, 46).offset(Rotations.of(0)));
     JointIOTalon io = io(pivot);
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();

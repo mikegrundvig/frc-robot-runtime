@@ -40,7 +40,8 @@ class EncoderLoopSimTest {
       PIVOT.absoluteEncoder(PORT_1).retuned(old -> control(30, 1, profile(8, 30)));
 
   /** Its loop closes on its encoder. */
-  private static final Joint.Revolute CLOSED = SEEDED.encoderOn(PORT_1.closesLoop());
+  private static final Joint.Revolute CLOSED =
+      SEEDED.absoluteEncoder(encoder -> encoder.on(PORT_1.closesLoop()));
 
   private static JointsSimHarness sim(Joint joint) {
     RobotDefinition robot = ROBOT.with(joint);
@@ -103,8 +104,12 @@ class EncoderLoopSimTest {
     JointsSimHarness seeded = sim(ELEVATOR_SEEDED);
     JointsSimHarness closed =
         sim(
-            ELEVATOR_SEEDED.encoderOn(
-                MechanismWiring.PortEncoder.dutyCycle(2).offset(Rotations.of(0.3)).closesLoop()));
+            ELEVATOR_SEEDED.absoluteEncoder(
+                encoder ->
+                    encoder.on(
+                        MechanismWiring.PortEncoder.dutyCycle(2)
+                            .offset(Rotations.of(0.3))
+                            .closesLoop())));
     for (JointsSimHarness each : new JointsSimHarness[] {seeded, closed}) {
       each.run(0.1);
       // The carriage is at 1.5 cm, still, and its motor's count reads where it rests, 0 m.

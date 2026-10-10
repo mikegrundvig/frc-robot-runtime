@@ -59,7 +59,7 @@ class JointIOSimTest {
       Joint.pivot("bare arm", Part.CHASSIS, new Translation3d(0.1, 0, 0.4), Joint.PITCH_UP)
           .range(Range.degrees(-120, 90))
           .rest(Degrees.of(0))
-          .motor(Motor.KRAKEN_X60, Gearing.of(50))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(
               MechanismControl.position(30)
                   .withKd(1)
@@ -71,7 +71,7 @@ class JointIOSimTest {
       Joint.elevator("bare lift", Part.CHASSIS, new Translation3d(-0.2, 0, 0.1))
           .range(Range.meters(0, 1))
           .rest(Meters.of(0))
-          .motor(Motor.KRAKEN_X60, Gearing.of(10), Inches.of(1))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(10)).drum(Inches.of(1)))
           .control(
               MechanismControl.position(60)
                   .withKd(2)
@@ -348,7 +348,7 @@ class JointIOSimTest {
                 ControllerPlan.of(ROBOT.math(), PIVOT, PIVOT_MOTOR, List.of(onTalon), light))
             .notes();
     Joint unwiredPivot = PIVOT.retuned(old -> light);
-    Joint wiredPivot = PIVOT.motorsOn(onTalon).retuned(old -> light);
+    Joint wiredPivot = PIVOT.motors(motors -> motors.on(onTalon)).retuned(old -> light);
 
     List<Finding> unwired =
         ControllerSettings.findings(ROBOT.with(unwiredPivot).math(), unwiredPivot);
@@ -418,7 +418,9 @@ class JointIOSimTest {
    * The fixtures' turret, which turns freely, on a TalonFX that reads a CANcoder turning with it.
    */
   private static final Joint.Revolute TURRET_ON_CANCODER =
-      TURRET.motorsOn(TALON_FX.can(23)).absoluteEncoder(CANCODER.can(35).offset(Rotations.of(0)));
+      TURRET
+          .motors(motors -> motors.on(TALON_FX.can(23)))
+          .absoluteEncoder(CANCODER.can(35).offset(Rotations.of(0)));
 
   /**
    * The turret a turn and a quarter round from where it rests, its motor controller counting it
@@ -502,11 +504,12 @@ class JointIOSimTest {
           .range(Range.meters(0, 1.2))
           .rest(Meters.of(0))
           .motors(
-              Motor.KRAKEN_X60,
-              Gearing.of(5),
-              Inches.of(0.75),
-              TALON_FX.can(20).pdh(0, Amps.of(40)),
-              TALON_FX.can(21).clockwise().pdh(1, Amps.of(40)))
+              Motor.KRAKEN_X60
+                  .through(Gearing.of(5))
+                  .drum(Inches.of(0.75))
+                  .on(
+                      TALON_FX.can(20).pdh(0, Amps.of(40)),
+                      TALON_FX.can(21).clockwise().pdh(1, Amps.of(40))))
           .control(
               MechanismControl.position(30)
                   .withKg(0.35)

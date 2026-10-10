@@ -59,8 +59,10 @@ class ExampleRobotRecordedSimTest {
     return ExampleRobot.COMPETITION
         .definition()
         .with(
-            ARM.encoderOn(CANCODER.can(23).offset(Rotations.of(0.12)).fused()),
-            ELEVATOR.encoderOn(CANCODER.can(24).offset(Rotations.of(0.31)).fused()));
+            ARM.absoluteEncoder(
+                encoder -> encoder.on(CANCODER.can(23).offset(Rotations.of(0.12)).fused())),
+            ELEVATOR.absoluteEncoder(
+                encoder -> encoder.on(CANCODER.can(24).offset(Rotations.of(0.31)).fused())));
   }
 
   /**
@@ -72,28 +74,28 @@ class ExampleRobotRecordedSimTest {
   private static RobotDefinition sparks() {
     Joint.Revolute pivot =
         unmotored(PIVOT)
-            .motor(Motor.NEO, Gearing.of(25), SPARK_MAX.can(32))
-            .encoderOn(DATA_PORT.offset(Rotations.of(0.82)).closesLoop());
+            .motors(Motor.NEO.through(Gearing.of(25)).on(SPARK_MAX.can(32)))
+            .absoluteEncoder(
+                encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.82)).closesLoop()));
     Joint.Revolute arm =
         unmotored(ARM)
-            .motor(Motor.NEO, Gearing.of(60), SPARK_MAX.can(22))
-            .encoderOn(DATA_PORT.offset(Rotations.of(0.12)));
+            .motors(Motor.NEO.through(Gearing.of(60)).on(SPARK_MAX.can(22)))
+            .absoluteEncoder(encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.12))));
     Joint.Prismatic elevator =
         unmotored(ELEVATOR)
             .motors(
-                Motor.NEO_VORTEX,
-                Gearing.of(5),
-                Inches.of(0.75),
-                SPARK_FLEX.can(20),
-                SPARK_FLEX.can(21).clockwise())
-            .encoderOn(DATA_PORT.offset(Rotations.of(0.31)).closesLoop());
+                Motor.NEO_VORTEX
+                    .through(Gearing.of(5))
+                    .drum(Inches.of(0.75))
+                    .on(SPARK_FLEX.can(20), SPARK_FLEX.can(21).clockwise()))
+            .absoluteEncoder(
+                encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.31)).closesLoop()));
     Joint.Revolute shooter =
         unmotored(SHOOTER)
             .motors(
-                Motor.NEO_VORTEX,
-                Gearing.of(1),
-                SPARK_FLEX.can(52),
-                SPARK_FLEX.can(53).clockwise());
+                Motor.NEO_VORTEX
+                    .through(Gearing.of(1))
+                    .on(SPARK_FLEX.can(52), SPARK_FLEX.can(53).clockwise()));
     return ExampleRobot.COMPETITION.definition().with(pivot, arm, elevator, shooter);
   }
 

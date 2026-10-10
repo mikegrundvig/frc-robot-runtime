@@ -60,7 +60,7 @@ import org.wpilib.simulation.SimDeviceSim;
 class JointIOSparkTest {
   /** The pivot on a NEO through 25:1, its SPARK MAX at an ID. */
   private static Joint.Revolute pivot(int id) {
-    return unmotored(PIVOT).motor(Motor.NEO, gearing(25), SPARK_MAX.can(id));
+    return unmotored(PIVOT).motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(id)));
   }
 
   /** A joint's IO, on the fixtures' robot with the joint as given. */
@@ -255,11 +255,10 @@ class JointIOSparkTest {
         io(
             unmotored(ELEVATOR)
                 .motors(
-                    Motor.NEO_VORTEX,
-                    gearing(10),
-                    Inches.of(1),
-                    SPARK_FLEX.can(34),
-                    SPARK_FLEX.can(35)));
+                    Motor.NEO_VORTEX
+                        .through(gearing(10))
+                        .drum(Inches.of(1))
+                        .on(SPARK_FLEX.can(34), SPARK_FLEX.can(35))));
     SparkSim sim = new SparkSim(io.leader(), DCMotor.getNeoVortex(1));
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
 
@@ -307,7 +306,8 @@ class JointIOSparkTest {
   /** A speed goes to the SPARK's speed slot in rotor RPM: the roller's 1 rad/s through 3:1. */
   @Test
   void aSpeedGoesInRotorRpm() {
-    JointIOSpark io = io(unmotored(ROLLER).motor(Motor.NEO_550, gearing(3), SPARK_MAX.can(36)));
+    JointIOSpark io =
+        io(unmotored(ROLLER).motors(Motor.NEO_550.through(gearing(3)).on(SPARK_MAX.can(36))));
     SparkSim sim = new SparkSim(io.leader(), DCMotor.getNeo550(1));
     sim.enable();
 
@@ -447,11 +447,10 @@ class JointIOSparkTest {
         io(
             unmotored(ELEVATOR)
                 .motors(
-                    Motor.NEO_VORTEX,
-                    gearing(10),
-                    Inches.of(1),
-                    SPARK_FLEX.can(43),
-                    SPARK_FLEX.can(44))
+                    Motor.NEO_VORTEX
+                        .through(gearing(10))
+                        .drum(Inches.of(1))
+                        .on(SPARK_FLEX.can(43), SPARK_FLEX.can(44)))
                 .absoluteEncoder(
                     Driven.AbsoluteEncoder.of()
                         .ratio(1.0 / 9)
@@ -544,7 +543,9 @@ class JointIOSparkTest {
   @Test
   void itsSparksHealthIsReadAFewTimesASecond() {
     JointIOSpark io =
-        io(unmotored(PIVOT).motors(Motor.NEO, gearing(25), SPARK_MAX.can(52), SPARK_MAX.can(53)));
+        io(
+            unmotored(PIVOT)
+                .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(52), SPARK_MAX.can(53))));
     SparkMax spark = (SparkMax) io.leader();
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
     io.updateInputs(inputs);

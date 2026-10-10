@@ -558,10 +558,9 @@ class RobotContainerSimTest {
             .rest(Degrees.of(0))
             .outputs(push)
             .motors(
-                Motor.KRAKEN_X60,
-                Gearing.of(50),
-                TALON_FX.can(11).pdh(4, Amps.of(40)),
-                TALON_FX.can(12).pdh(5, Amps.of(40)))
+                Motor.KRAKEN_X60
+                    .through(Gearing.of(50))
+                    .on(TALON_FX.can(11).pdh(4, Amps.of(40)), TALON_FX.can(12).pdh(5, Amps.of(40))))
             .control(
                 MechanismControl.position(30)
                     .withKg(0)
@@ -598,7 +597,7 @@ class RobotContainerSimTest {
         Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
-            .motor(Motor.KRAKEN_X60, Gearing.of(50))
+            .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
             .control(
                 MechanismControl.position(30)
                     .withKg(0)

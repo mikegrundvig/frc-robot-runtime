@@ -53,10 +53,11 @@ class PowerSimTest {
           .positions(ARM_DOWN)
           .outputs(PUSH)
           .motors(
-              Motor.KRAKEN_X60,
-              Gearing.of(50),
-              TALON_FX.can(11).pdh(4, Amps.of(40)),
-              TALON_FX.can(12).clockwise().pdh(5, Amps.of(40)))
+              Motor.KRAKEN_X60
+                  .through(Gearing.of(50))
+                  .on(
+                      TALON_FX.can(11).pdh(4, Amps.of(40)),
+                      TALON_FX.can(12).clockwise().pdh(5, Amps.of(40))))
           .control(
               MechanismControl.position(30)
                   .withKg(0)
@@ -149,7 +150,8 @@ class PowerSimTest {
     Joint.Revolute roller =
         Joint.roller("roller", Part.CHASSIS, new Translation3d(0.3, 0, 0.3))
             .outputs(spinning)
-            .motor(Motor.KRAKEN_X60, Gearing.of(3), TALON_FX.can(21).pdh(6, Amps.of(40)))
+            .motors(
+                Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(21).pdh(6, Amps.of(40))))
             .control(MechanismControl.velocity(0.02));
     JointsSimHarness free =
         new JointsSimHarness(
@@ -185,7 +187,7 @@ class PowerSimTest {
     JointsSimHarness sim =
         new JointsSimHarness(
             RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-                .joints(List.of(ARM.motorsOn()))
+                .joints(List.of(ARM.motors(motors -> motors.on())))
                 .build());
 
     sim.run(0.1);

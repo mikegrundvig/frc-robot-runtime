@@ -32,7 +32,7 @@ class DefinitionDoubtsTest {
           .carries(
               Link.box(
                   "arm plate", new Translation3d(0.2, 0, 0), new Translation3d(0.4, 0.05, 0.05)))
-          .motor(Motor.KRAKEN_X60, Gearing.of(50))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(
               MechanismControl.position(30).withHoming(MechanismControl.Homing.assumeAtRest()));
 
@@ -111,7 +111,8 @@ class DefinitionDoubtsTest {
   @Test
   void aWiredControllerWithNoChannelIsADoubtOnceThereIsAPdh() {
     RobotDefinition wired =
-        RobotDefinitionBuilder.builder(ROBOT.with(ARM.motorsOn(TALON_FX.can(32))))
+        RobotDefinitionBuilder.builder(
+                ROBOT.with(ARM.motors(motors -> motors.on(TALON_FX.can(32)))))
             .pdh(Pdh.can(1))
             .build();
 

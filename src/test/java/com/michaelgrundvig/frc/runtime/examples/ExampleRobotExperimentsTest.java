@@ -81,7 +81,7 @@ class ExampleRobotExperimentsTest {
           .range(Range.degrees(0, 90))
           .rest(WRIST_STOWED)
           .positions(WRIST_STOWED)
-          .motor(Motor.KRAKEN_X44, Gearing.of(50))
+          .motors(Motor.KRAKEN_X44.through(Gearing.of(50)))
           .control(MechanismControl.position(30).withHoming(Homing.assumeAtRest()));
 
   /** A joint with one place and no speed has nothing to step between, so none. */

@@ -8,6 +8,7 @@ import static org.wpilib.units.Units.Degrees;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
+import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -31,8 +32,11 @@ class PinnedSensorTest {
   /** The pivot on a SPARK MAX, its bottom switch on the SPARK's reverse limit input. */
   private static final Joint.Revolute ON_SPARK =
       unmotored(PIVOT)
-          .motor(Motor.NEO, JointFixtures.gearing(25), SPARK_MAX.can(21))
-          .limitSwitch(End.LOWER, Degrees.of(0), SensorWiring.Direction.REVERSE.normallyClosed());
+          .motors(Motor.NEO.through(JointFixtures.gearing(25)).on(SPARK_MAX.can(21)))
+          .limitSwitch(
+              LimitSwitch.lower()
+                  .at(Degrees.of(0))
+                  .on(SensorWiring.Direction.REVERSE.normallyClosed()));
 
   private static final RobotDefinition ROBOT = JointFixtures.ROBOT.with(ON_SPARK);
 

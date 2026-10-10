@@ -102,7 +102,7 @@ class ControllerEmulatorTest {
     MechanismWiring.Device wired = SPARK_MAX.can(62);
     Joint.Revolute pivot =
         unmotored(PIVOT)
-            .motor(Motor.NEO, gearing(25), wired)
+            .motors(Motor.NEO.through(gearing(25)).on(wired))
             .retuned(control -> control.withKs(0.2).withKd(1.5));
     RobotDefinition robot = ROBOT.with(pivot);
     JointIOSpark onRobot = new JointIOSpark(robot.math(), pivot, ControllerPins.NONE);
@@ -140,9 +140,11 @@ class ControllerEmulatorTest {
   @Test
   void anUnwiredNeoJointIsEmulatedAsASpark() {
     Joint.Revolute onNeo = unmotored(PIVOT);
-    List<Double> unwired = voltsGoingOut(onNeo.motor(Motor.NEO, gearing(25)));
-    List<Double> onSpark = voltsGoingOut(onNeo.motor(Motor.NEO, gearing(25), SPARK_MAX.can(32)));
-    List<Double> onTalon = voltsGoingOut(onNeo.motor(Motor.NEO, gearing(25), TALON_FXS.can(32)));
+    List<Double> unwired = voltsGoingOut(onNeo.motors(Motor.NEO.through(gearing(25))));
+    List<Double> onSpark =
+        voltsGoingOut(onNeo.motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(32))));
+    List<Double> onTalon =
+        voltsGoingOut(onNeo.motors(Motor.NEO.through(gearing(25)).on(TALON_FXS.can(32))));
 
     assertThat(unwired).isEqualTo(onSpark).isNotEqualTo(onTalon);
   }
@@ -170,7 +172,8 @@ class ControllerEmulatorTest {
   void aJointOnASparkArrivesInTheSimulator() {
     JointsSimHarness sim =
         new JointsSimHarness(
-            ROBOT.with(unmotored(PIVOT).motor(Motor.NEO, gearing(25), SPARK_MAX.can(32))));
+            ROBOT.with(
+                unmotored(PIVOT).motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(32)))));
     Move out = sim.joints.of(PIVOT).goTo(PIVOT_OUT);
 
     sim.scheduler.schedule(out);

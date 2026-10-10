@@ -39,8 +39,9 @@ import org.wpilib.units.measure.Distance;
  * roller on its end, an elevator, and a turret that turns freely, each turned by its block's
  * motors, unwired, so it runs in the simulator. Numbers are chosen to read, not taken from a robot.
  * A test varies a joint through its block, {@code ROBOT.with(PIVOT.retuned(control -> ...))}, or
- * wires it, {@code PIVOT.motorsOn(TALON_FX.can(32))}; one that turns it with other motors takes
- * them off first, {@code unmotored(PIVOT).motor(Motor.NEO, gearing(25), SPARK_MAX.can(32))}.
+ * wires it, {@code PIVOT.motors(motors -> motors.on(TALON_FX.can(32)))}; one that turns it with
+ * other motors takes them off first, {@code
+ * unmotored(PIVOT).motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(32)))}.
  */
 public final class JointFixtures {
   private JointFixtures() {}
@@ -88,7 +89,7 @@ public final class JointFixtures {
           .range(Range.degrees(0, 135))
           .rest(Math.toRadians(1.5))
           .build()
-          .motor(Motor.KRAKEN_X60, gearing(25))
+          .motors(Motor.KRAKEN_X60.through(gearing(25)))
           .control(assumed(control(30, 1, profile(8, 30))));
 
   /** Its roller, through 3:1: intaking at 1500 rpm, outtaking at 6 V back, ejecting at half. */
@@ -101,7 +102,7 @@ public final class JointFixtures {
           .link(link("roller", 0.5, new Translation3d(0, 0, 0)))
           .outputs(List.of(ROLLER_INTAKING, ROLLER_OUTTAKING, ROLLER_EJECTING))
           .build()
-          .motor(Motor.KRAKEN_X60, gearing(3))
+          .motors(Motor.KRAKEN_X60.through(gearing(3)))
           .control(MechanismControl.velocity(0.02));
 
   /** An elevator, 0 to 1.2 m, carrying 5 kg: down, clear at 0.4 m, and at the top. */
@@ -115,7 +116,7 @@ public final class JointFixtures {
           .positions(List.of(ELEVATOR_DOWN, ELEVATOR_CLEAR, ELEVATOR_TOP))
           .range(Range.meters(0, 1.2))
           .build()
-          .motors(Motor.KRAKEN_X60, gearing(10), Inches.of(1), 2)
+          .motors(Motor.KRAKEN_X60.through(gearing(10)).drum(Inches.of(1)).count(2))
           .control(assumed(control(60, 2, profile(1.2, 5))));
 
   /** A turret that turns freely about the vertical, facing forward at 0°, back at 180°. */
@@ -128,7 +129,7 @@ public final class JointFixtures {
           .link(link("turret", 3, new Translation3d(0, 0, 0)))
           .positions(List.of(TURRET_FRONT, TURRET_BACK))
           .build()
-          .motor(Motor.KRAKEN_X60, gearing(50))
+          .motors(Motor.KRAKEN_X60.through(gearing(50)))
           .control(assumed(control(20, 0.5, profile(3, 10))));
 
   /** The intake out and rolling, and the elevator clear: three joints at once. */

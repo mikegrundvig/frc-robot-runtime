@@ -872,11 +872,12 @@ class PhoenixMechanismTest {
     Joint.Prismatic elevator =
         ELEVATOR
             .motors(
-                Motor.KRAKEN_X60,
-                gearing(10),
-                Meters.of(0.02),
-                MechanismWiring.Controller.TALON_FX.can(30),
-                MechanismWiring.Controller.TALON_FX.can(31))
+                Motor.KRAKEN_X60
+                    .through(gearing(10))
+                    .drum(Meters.of(0.02))
+                    .on(
+                        MechanismWiring.Controller.TALON_FX.can(30),
+                        MechanismWiring.Controller.TALON_FX.can(31)))
             .absoluteEncoder(
                 Driven.AbsoluteEncoder.of()
                     .ratio(1.0 / 12)

@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven;
+import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.DrivenBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
@@ -85,11 +86,11 @@ class RobotConfigTest {
   void eachJointsBlockIsItsSetup() {
     Joint.Revolute pivot =
         JointFixtures.unmotored(JointFixtures.PIVOT)
-            .motor(Motor.NEO, JointFixtures.gearing(25), SPARK_MAX.can(32).clockwise())
+            .motors(Motor.NEO.through(JointFixtures.gearing(25)).on(SPARK_MAX.can(32).clockwise()))
             .limitSwitch(
-                Sensor.Switch.Limit.End.LOWER,
-                Degrees.of(0),
-                SensorWiring.Direction.REVERSE.normallyClosed());
+                LimitSwitch.lower()
+                    .at(Degrees.of(0))
+                    .on(SensorWiring.Direction.REVERSE.normallyClosed()));
     RobotDefinition wired =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
             .joints(List.of(pivot))
@@ -136,7 +137,7 @@ class RobotConfigTest {
   void aPracticeRobotIsTheCompetitionRobotRewired() {
     Joint.Revolute pivot =
         JointFixtures.unmotored(JointFixtures.PIVOT)
-            .motor(Motor.NEO, JointFixtures.gearing(25), SPARK_MAX.can(32).clockwise());
+            .motors(Motor.NEO.through(JointFixtures.gearing(25)).on(SPARK_MAX.can(32).clockwise()));
     Sensor.Switch beam =
         Sensor.Switch.beam("claw beam", pivot).on(SensorWiring.port(1).normallyOpen());
     RobotConfig competition =
@@ -162,7 +163,7 @@ class RobotConfigTest {
     RobotConfig practice =
         competition
             .named("practice")
-            .with(pivot.motorsOn(SPARK_MAX.can(33).clockwise()))
+            .with(pivot.motors(motors -> motors.on(SPARK_MAX.can(33).clockwise())))
             .with(beam.on(SensorWiring.port(2).normallyOpen()))
             .with(competition.definition().drivetrain().wired(wiring));
     List<RobotConfig> all = List.of(competition, practice);
@@ -227,13 +228,13 @@ class RobotConfigTest {
         Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
-            .motor(Motor.NEO, JointFixtures.gearing(50))
+            .motors(Motor.NEO.through(JointFixtures.gearing(50)))
             .control(held.withKg(0.4, Degrees.of(120)));
     Joint.Revolute onKrakens =
         Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
-            .motor(Motor.KRAKEN_X60, JointFixtures.gearing(50))
+            .motors(Motor.KRAKEN_X60.through(JointFixtures.gearing(50)))
             .control(held.withKg(0.4, Degrees.of(120)));
     String robots =
         "arm's gravity angle, 120°, is more than a quarter turn from its zero, past Phoenix's"
@@ -249,19 +250,21 @@ class RobotConfigTest {
         .isThrownBy(() -> withJoint(onKrakens))
         .withMessage("RobotConfig[sim].joints: " + robots);
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> withJoint(arm.motorsOn(TALON_FXS.can(21))))
+        .isThrownBy(() -> withJoint(arm.motors(motors -> motors.on(TALON_FXS.can(21)))))
         .withMessage("RobotConfig[sim].joints: " + robots);
     assertThat(withJoint(arm).definition().joints())
         .as("on NEOs wired to nothing, a SPARK: any offset")
         .hasSize(1);
-    assertThat(withJoint(arm.motorsOn(SPARK_MAX.can(21))).definition().joints())
+    assertThat(withJoint(arm.motors(motors -> motors.on(SPARK_MAX.can(21)))).definition().joints())
         .as("on a SPARK, the robot works out its gravity, any offset")
         .hasSize(1);
     assertThat(withJoint(onKrakens.retuned(control -> integral.withKg(0.4, Degrees.of(60)))))
         .as("a TalonFX takes a kI")
         .isNotNull();
     assertThat(withJoint(arm.retuned(control -> integral)).definition().joints()).hasSize(1);
-    assertThat(withJoint(arm.motorsOn(SPARK_MAX.can(21)).retuned(control -> integral)))
+    assertThat(
+            withJoint(
+                arm.motors(motors -> motors.on(SPARK_MAX.can(21))).retuned(control -> integral)))
         .as("a SPARK takes a kI")
         .isNotNull();
   }

@@ -195,7 +195,7 @@ class JointInvariantsSimTest {
    */
   static final Joint.Prismatic SOFT =
       WEIGHED
-          .motorsOn(TALON_FX.can(20), TALON_FX.can(21))
+          .motors(motors -> motors.on(TALON_FX.can(20), TALON_FX.can(21)))
           .retuned(old -> JointFixtures.assumed(control(5, 0.5, profile(1.2, 5))));
 
   static final RobotDefinition SOFT_ROBOT =
@@ -261,7 +261,8 @@ class JointInvariantsSimTest {
       PIVOT
           .absoluteEncoder(MechanismWiring.PortEncoder.dutyCycle(1))
           .retuned(old -> control(30, 1, profile(8, 30)))
-          .encoderOn(MechanismWiring.PortEncoder.dutyCycle(1).closesLoop());
+          .absoluteEncoder(
+              encoder -> encoder.on(MechanismWiring.PortEncoder.dutyCycle(1).closesLoop()));
 
   /**
    * The encoder its loop closes on comes unplugged as the pivot swings out: it's faulted, and holds

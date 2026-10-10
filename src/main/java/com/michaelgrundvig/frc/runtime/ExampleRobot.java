@@ -72,7 +72,7 @@ public final class ExampleRobot {
               Link.box(
                   "intake arm", new Translation3d(0, 0, 0.2), new Translation3d(0.05, 0.55, 0.36)))
           .positions(PIVOT_IN, PIVOT_OUT)
-          .motor(Motor.KRAKEN_X60, Gearing.of(25), TALON_FX.can(32).pdh(4, Amps.of(40)))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(32).pdh(4, Amps.of(40))))
           .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))
           .control(
               MechanismControl.position(30)
@@ -84,7 +84,7 @@ public final class ExampleRobot {
   public static final Joint.Revolute ROLLER =
       Joint.roller("roller", PIVOT, new Translation3d(0, 0, 0.35)) // it rides on the pivot's end
           .outputs(INTAKING, OUTTAKING)
-          .motor(Motor.KRAKEN_X60, Gearing.of(3), TALON_FX.can(31).pdh(5, Amps.of(40)))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(31).pdh(5, Amps.of(40))))
           // @start region=runs-only-when
           // The roller runs only once the pivot is out of the frame.
           .runsOnlyWhen(PIVOT.atLeast(Degrees.of(110)))
@@ -115,7 +115,7 @@ public final class ExampleRobot {
           .range(Range.degrees(0, 40))
           .rest(HOOD_DOWN)
           .positions(HOOD_DOWN, HOOD_LOB)
-          .motor(Motor.KRAKEN_X44, Gearing.of(50), TALON_FX.can(40).pdh(6, Amps.of(30)))
+          .motors(Motor.KRAKEN_X44.through(Gearing.of(50)).on(TALON_FX.can(40).pdh(6, Amps.of(30))))
           .absoluteEncoder(CANCODER.can(41).offset(Rotations.of(-0.3)))
           .control(MechanismControl.position(30).withKg(0.35));
 
@@ -132,11 +132,12 @@ public final class ExampleRobot {
           .rest(ELEVATOR_DOWN)
           .positions(ELEVATOR_DOWN, ELEVATOR_CLEAR)
           .motors(
-              Motor.KRAKEN_X60,
-              Gearing.of(5),
-              Inches.of(0.75),
-              TALON_FX.can(20).pdh(0, Amps.of(40)),
-              TALON_FX.can(21).clockwise().pdh(1, Amps.of(40)))
+              Motor.KRAKEN_X60
+                  .through(Gearing.of(5))
+                  .drum(Inches.of(0.75))
+                  .on(
+                      TALON_FX.can(20).pdh(0, Amps.of(40)),
+                      TALON_FX.can(21).clockwise().pdh(1, Amps.of(40))))
           // Its CANcoder turns once for twelve turns of the drum: less than once over its travel.
           .absoluteEncoder(
               AbsoluteEncoder.of().ratio(1.0 / 12).on(CANCODER.can(24).offset(Rotations.of(0.31))))
@@ -153,7 +154,7 @@ public final class ExampleRobot {
           .range(Range.degrees(-60, 150))
           .rest(ARM_STOWED)
           .positions(ARM_STOWED, ARM_SCORING)
-          .motor(Motor.KRAKEN_X60, Gearing.of(60), TALON_FX.can(22).pdh(2, Amps.of(40)))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(60)).on(TALON_FX.can(22).pdh(2, Amps.of(40))))
           .absoluteEncoder(CANCODER.can(23).offset(Rotations.of(0.12)))
           // @start region=keeps-out
           // The arm keeps out of the bumper's band while the elevator is too low to clear it.
@@ -168,13 +169,13 @@ public final class ExampleRobot {
   public static final Joint.Revolute FEEDER =
       Joint.roller("feeder", Part.CHASSIS, new Translation3d(-0.1, 0, 0.35))
           .outputs(FEEDER_FEEDING)
-          .motor(Motor.KRAKEN_X60, Gearing.of(4), TALON_FX.can(50).pdh(7, Amps.of(40)))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(4)).on(TALON_FX.can(50).pdh(7, Amps.of(40))))
           .control(MechanismControl.velocity(0.02));
 
   public static final Joint.Revolute INDEXER =
       Joint.roller("indexer", Part.CHASSIS, new Translation3d(0.05, 0, 0.15))
           .outputs(INDEXER_FEEDING)
-          .motor(Motor.KRAKEN_X60, Gearing.of(3), TALON_FX.can(51).pdh(8, Amps.of(40)))
+          .motors(Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(51).pdh(8, Amps.of(40))))
           .control(MechanismControl.velocity(0.02));
 
   /** A typical shot's speed: aimed shots follow a computed one, and this gives a step to test. */
@@ -185,10 +186,11 @@ public final class ExampleRobot {
       Joint.roller("shooter", Part.CHASSIS, new Translation3d(-0.2, 0, 0.45))
           .outputs(SHOOTING)
           .motors(
-              Motor.KRAKEN_X60,
-              Gearing.of(1),
-              TALON_FX.can(52).pdh(9, Amps.of(40)),
-              TALON_FX.can(53).clockwise().pdh(10, Amps.of(40)))
+              Motor.KRAKEN_X60
+                  .through(Gearing.of(1))
+                  .on(
+                      TALON_FX.can(52).pdh(9, Amps.of(40)),
+                      TALON_FX.can(53).clockwise().pdh(10, Amps.of(40))))
           .control(MechanismControl.velocity(0.02).coasting());
 
   // @start region=configurations
@@ -460,11 +462,13 @@ public final class ExampleRobot {
       COMPETITION
           .named("practice")
           .with(
+              // The pivot's motor is at another CAN ID, and it swings out to 128°.
               PIVOT
-                  .motorsOn(TALON_FX.can(33).pdh(4, Amps.of(40))) // another CAN ID
-                  .replaced(PIVOT_OUT, Degrees.of(128)), // it swings out to 128°
-              ARM.encoderOffset(Rotations.of(0.47)) // its magnet's own offset
-                  .retuned(control -> control.withKg(0.3)) // a lighter arm
+                  .motors(motors -> motors.on(TALON_FX.can(33).pdh(4, Amps.of(40))))
+                  .replaced(PIVOT_OUT, Degrees.of(128)),
+              // The arm's magnet has its own offset, and the arm is lighter.
+              ARM.absoluteEncoder(encoder -> encoder.offset(Rotations.of(0.47)))
+                  .retuned(control -> control.withKg(0.3))
                   .rest(Degrees.of(-30))) // it stows at -30°
           .with(CLAW_BEAM.on(CANDI.can(36).s1().normallyOpen())) // a beam on another CANdi
           .with(CameraConfigBuilder.builder(BACK_LEFT).up(Inches.of(20.5)).build()); // lower
