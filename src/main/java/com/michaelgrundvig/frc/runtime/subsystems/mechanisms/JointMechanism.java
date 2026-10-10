@@ -535,16 +535,7 @@ public final class JointMechanism implements Mechanism {
         standsIn == null && positional && encoder != null && math.absoluteEncoder(joint) != null
             ? new EncoderSlip(EncoderGap.of(math, joint, control))
             : null;
-    loopOnMotor =
-        encoder == null
-            || !(encoder
-                    .cancoder()
-                    .filter(on -> on.feedback() != MechanismWiring.Feedback.ROTOR)
-                    .isPresent()
-                || encoder
-                    .dataPort()
-                    .filter(MechanismWiring.DataPortEncoder::closedLoop)
-                    .isPresent());
+    loopOnMotor = encoder == null || !encoder.runsControllerLoop();
     cancoder =
         encoder == null ? "" : encoder.cancoder().map(on -> "CANcoder " + on.id()).orElse("");
     readsBeside =

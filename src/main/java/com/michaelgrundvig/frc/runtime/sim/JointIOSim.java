@@ -204,16 +204,7 @@ final class JointIOSim implements JointIO {
         joint
             .driven()
             .absoluteEncoder()
-            .map(
-                encoder ->
-                    encoder
-                            .dataPort()
-                            .filter(MechanismWiring.DataPortEncoder::closedLoop)
-                            .isPresent()
-                        || encoder
-                            .cancoder()
-                            .filter(on -> on.feedback() != MechanismWiring.Feedback.ROTOR)
-                            .isPresent())
+            .map(Driven.AbsoluteEncoder::runsControllerLoop)
             .orElse(false);
     seedsFrom = readsEncoder() ? math.absoluteEncoder(joint) : null;
   }
