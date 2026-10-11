@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.SignalLogger;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.wiring.CanPorts;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
@@ -98,11 +99,9 @@ public final class PhoenixDrivetrain implements AutoCloseable {
     return odometry.lock();
   }
 
+  /** Phoenix's name for the CAN bus the wiring names. */
   static CANBus bus(CanBus bus) {
-    return switch (bus) {
-      case CanBus.Port port -> new CANBus(CanPorts.of(port.port()));
-      case CanBus.Canivore canivore -> new CANBus(canivore.name());
-    };
+    return PhoenixMechanism.bus(bus);
   }
 
   /** Stops reading the devices. */

@@ -36,7 +36,17 @@ import org.wpilib.units.measure.LinearAcceleration;
  * documentation, so the two are set apart for now, and must agree.
  */
 final class GyroIOPigeon2 implements GyroIO {
+  /**
+   * How often the Pigeon sends its accelerations: 100 Hz, twice a robot loop. A collision's jolt is
+   * brief, and a reading once a loop could miss most of it.
+   */
   private static final double ACCELERATION_HZ = 100;
+
+  /**
+   * How long the Pigeon may go without answering before it is called disconnected. One missed frame
+   * is a glitch, not a lost device.
+   */
+  private static final double SILENT_AFTER_SECONDS = 0.5;
 
   private final StatusSignal<Angle> yaw;
   private final StatusSignal<AngularVelocity> yawVelocity;
@@ -57,8 +67,8 @@ final class GyroIOPigeon2 implements GyroIO {
   /** The last high-rate yaw that came, in radians. */
   private double lastYawRadians;
 
-  /** Disconnected once silent for half a second, not at one glitch. */
-  private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
+  private final Debouncer connected =
+      new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
 
   /**
    * @param yawScale the gyro's measured scale: its readings times this are the true rotation
@@ -80,6 +90,9 @@ final class GyroIOPigeon2 implements GyroIO {
     // The odometry thread records raw values; this turns the yaw's unit (degrees) into radians.
     radiansPerYawUnit = yaw.getValue().unit().toBaseUnits(1);
 
+    // How often the Pigeon sends each signal: the yaw as fast as the odometry thread reads it, the
+    // rest of what is read here once a robot loop, and the accelerations twice a loop. Then Phoenix
+    // is told to stop every frame whose rate was not set here, to keep the CAN bus's load down.
     yaw.setUpdateFrequency(PhoenixOdometryThread.FREQUENCY_HZ);
     BaseStatusSignal.setUpdateFrequencyForAll(RobotLoop.FREQUENCY_HZ, yawVelocity, pitch, roll);
     BaseStatusSignal.setUpdateFrequencyForAll(
@@ -93,11 +106,11 @@ final class GyroIOPigeon2 implements GyroIO {
 
   @Override
   public void updateInputs(GyroIOInputs inputs) {
-    boolean ok =
+    boolean answered =
         BaseStatusSignal.refreshAll(
                 yaw, yawVelocity, pitch, roll, accelerationX, accelerationY, accelerationZ)
             .isOK();
-    inputs.connected = connected.calculate(ok);
+    inputs.connected = connected.calculate(answered);
     inputs.yaw = new Rotation2d(yawScale * yaw.getValue().in(Radians));
     inputs.yawVelocityRadPerSec = yawScale * yawVelocity.getValue().in(RadiansPerSecond);
     inputs.pitchRad = pitch.getValue().in(Radians);
