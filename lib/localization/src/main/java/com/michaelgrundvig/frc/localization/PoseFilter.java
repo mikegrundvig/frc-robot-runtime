@@ -147,7 +147,8 @@ final class PoseFilter {
 
   /**
    * Each camera's turn's variance, and its shift's along each axis, by the camera's place. They
-   * start as the filter was told, and a doubt about a camera's mount raises them ({@link #setCameraVariances}).
+   * start as the filter was told, and a doubt about a camera's mount raises them ({@link
+   * #setCameraVariances}).
    */
   private final double[] cameraTurnVariance = new double[ConsideredErrors.MAX_CAMERAS];
 
