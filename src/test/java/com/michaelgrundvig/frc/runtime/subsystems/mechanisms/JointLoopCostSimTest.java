@@ -1,0 +1,201 @@
+package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
+
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_RUN;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER;
+import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER_INTAKING;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.SimulationTest;
+import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.robot.Interlock;
+import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.system.RobotController;
+
+/**
+ * What one joint's part of a robot loop costs: the bytes it allocates and the time it takes, for
+ * everything a {@link JointMechanism} does between reading its hardware and writing to it. This is
+ * the hottest code in the robot, since every joint runs it every 20 ms, so a change to it is
+ * measured here before and after.
+ *
+ * <p>Two joints are measured, each with its interlock and without it: the fixture robot's pivot,
+ * sent to a position past a keep-out, and its roller, run at a speed under a run-only-when. The
+ * difference between a joint with its interlock and the same joint without is what enforcing
+ * interlocks costs. The numbers are written to {@code build/joint-loop-cost.txt}.
+ *
+ * <p>Only the allocation is asserted, and loosely: it is exact and repeatable, where the time
+ * depends on what else the computer is doing.
+ */
+@SimulationTest
+@ExtendWith(RobotSim.class)
+class JointLoopCostSimTest {
+  /** Loops run before anything is measured, so the JIT has compiled the loop. */
+  private static final int WARM_UP_LOOPS = 4000;
+
+  private static final int MEASURED_LOOPS = 4000;
+
+  /** A joint's loop allocated nothing like this much when this test was written. */
+  private static final double MOST_BYTES_A_LOOP = 1000;
+
+  private static final com.sun.management.ThreadMXBean THREADS =
+      (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
+
+  private static final RobotDefinition GUARDED =
+      RobotDefinitionBuilder.builder(ROBOT)
+          .name("guarded")
+          .interlocks(
+              List.of(
+                  Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(PIVOT_RUN)),
+                  Interlock.that(PIVOT)
+                      .keepsOut(Range.degrees(40, 80))
+                      .when(ELEVATOR.atMost(ELEVATOR_CLEAR))))
+          .build();
+
+  /** What a joint is asked each loop while it is measured. */
+  private enum Asking {
+    /** The pivot is sent to "out", past the keep-out, which holds it at the region's edge. */
+    PIVOT_OUT_PAST_KEEP_OUT,
+    /** The roller is run at "intaking", which its run-only-when holds while the pivot is in. */
+    ROLLER_INTAKING_WITH_PIVOT_IN,
+    /** Nothing is asked: the joint does what it does idle. */
+    NOTHING
+  }
+
+  /** What one joint's loop cost, averaged over the measured loops. */
+  private record Cost(String what, double bytesALoop, double nanosALoop) {
+    String shown() {
+      return String.format(
+          Locale.ROOT, "%-58s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
+    }
+  }
+
+  @Test
+  void aJointsLoopAllocatesLittle() throws IOException {
+    List<Cost> costs = new ArrayList<>();
+    costs.add(
+        measure(
+            "pivot to a position, no interlocks", ROBOT, PIVOT, Asking.PIVOT_OUT_PAST_KEEP_OUT));
+    costs.add(
+        measure(
+            "pivot to a position, held by its keep-out",
+            GUARDED,
+            PIVOT,
+            Asking.PIVOT_OUT_PAST_KEEP_OUT));
+    costs.add(measure("pivot idle, no interlocks", ROBOT, PIVOT, Asking.NOTHING));
+    costs.add(measure("pivot idle, under its keep-out", GUARDED, PIVOT, Asking.NOTHING));
+    costs.add(
+        measure(
+            "roller at a speed, no interlocks",
+            ROBOT,
+            ROLLER,
+            Asking.ROLLER_INTAKING_WITH_PIVOT_IN));
+    costs.add(
+        measure(
+            "roller at a speed, held by its run-only-when",
+            GUARDED,
+            ROLLER,
+            Asking.ROLLER_INTAKING_WITH_PIVOT_IN));
+    costs.add(measure("roller idle, no interlocks", ROBOT, ROLLER, Asking.NOTHING));
+    costs.add(measure("roller idle, under its run-only-when", GUARDED, ROLLER, Asking.NOTHING));
+
+    StringBuilder report = new StringBuilder();
+    for (Cost cost : costs) {
+      report.append(cost.shown()).append('\n');
+    }
+    Files.createDirectories(Path.of("build"));
+    Files.writeString(Path.of("build", "joint-loop-cost.txt"), report);
+    System.out.print(report);
+
+    for (Cost cost : costs) {
+      assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(MOST_BYTES_A_LOOP);
+    }
+  }
+
+  /**
+   * Runs a robot's joints as the robot does, and measures what one of them costs a loop: its read,
+   * what it does with the sensors and the PDH, what it is asked, and its write. The other joints,
+   * the simulated physics and the sensors' own reading are run but not measured.
+   */
+  private static Cost measure(String what, RobotDefinition robot, Joint joint, Asking asking) {
+    JointsSimHarness sim = new JointsSimHarness(robot);
+    JointMechanism measured = sim.joints.of(joint);
+    Sensors sensors = sim.joints.sensors();
+    Power power = sim.joints.power();
+    long thread = Thread.currentThread().threadId();
+    long bytes = 0;
+    long nanos = 0;
+    for (int loop = 0; loop < WARM_UP_LOOPS + MEASURED_LOOPS; loop++) {
+      RobotSim.stepClock();
+      sim.simulation.step(RobotLoop.PERIOD_SECONDS);
+      long now = RobotController.getTime();
+      long bytesBefore = THREADS.getThreadAllocatedBytes(thread);
+      long nanosBefore = System.nanoTime();
+      measured.read(now, true);
+      long nanosAfter = System.nanoTime();
+      long bytesAfter = THREADS.getThreadAllocatedBytes(thread);
+      long loopBytes = bytesAfter - bytesBefore;
+      long loopNanos = nanosAfter - nanosBefore;
+      for (JointMechanism other : sim.joints.all()) {
+        if (other != measured) {
+          other.read(now, true);
+        }
+      }
+      sensors.read();
+      power.read();
+      for (JointMechanism other : sim.joints.all()) {
+        if (other != measured) {
+          other.sensed();
+          other.powered(power);
+        }
+      }
+
+      bytesBefore = THREADS.getThreadAllocatedBytes(thread);
+      nanosBefore = System.nanoTime();
+      measured.sensed();
+      measured.powered(power);
+      ask(measured, asking);
+      measured.write();
+      nanosAfter = System.nanoTime();
+      bytesAfter = THREADS.getThreadAllocatedBytes(thread);
+      loopBytes += bytesAfter - bytesBefore;
+      loopNanos += nanosAfter - nanosBefore;
+      for (JointMechanism other : sim.joints.all()) {
+        if (other != measured) {
+          other.write();
+        }
+      }
+
+      if (loop >= WARM_UP_LOOPS) {
+        bytes += loopBytes;
+        nanos += loopNanos;
+      }
+    }
+    return new Cost(what, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
+  }
+
+  private static void ask(JointMechanism joint, Asking asking) {
+    switch (asking) {
+      case PIVOT_OUT_PAST_KEEP_OUT -> joint.askPosition(PIVOT_OUT.value(), 1, PIVOT_OUT.name());
+      case ROLLER_INTAKING_WITH_PIVOT_IN -> joint.askOutput(ROLLER_INTAKING);
+      case NOTHING -> {}
+    }
+  }
+}

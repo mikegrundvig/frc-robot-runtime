@@ -204,9 +204,7 @@ public final class Joints implements AutoCloseable {
     // handed it once every joint is built: two joints may restrict each other.
     for (Interlock interlock : definition.everyInterlock()) {
       enforced(interlock.joint())
-          .restrict(
-              interlock,
-              interlock.other().map(this::enforced).map(JointMechanism::view).orElse(null));
+          .restrict(interlock, interlock.other().map(this::enforced).map(JointMechanism::view));
     }
   }
 

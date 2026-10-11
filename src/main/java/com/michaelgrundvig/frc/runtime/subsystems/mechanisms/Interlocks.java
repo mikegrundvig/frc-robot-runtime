@@ -8,11 +8,10 @@ import com.michaelgrundvig.frc.world.robot.InterlockEnforcement;
 import com.michaelgrundvig.frc.world.robot.InterlockReadings;
 import com.michaelgrundvig.frc.world.robot.InterlockState;
 import com.michaelgrundvig.frc.world.robot.InterlockVerdict;
-import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Travel;
 import java.util.ArrayList;
 import java.util.List;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 
 /**
  * The interlocks on one joint, enforced beneath every command.
@@ -21,7 +20,7 @@ import org.jspecify.annotations.Nullable;
  * allow, as a function of plain values. This class is the part of the job that the model cannot do,
  * because the model holds no state and reads no hardware. Each loop ({@link #apply}) it gathers
  * what the conditions read, asks the model for its verdict, keeps what the interlocks remember for
- * the next loop, and turns the verdict back into the joint's {@link Demand}.
+ * the next loop, and writes the verdict into the joint's {@link Demand}.
  *
  * <p>A condition on another joint is read through what that joint publishes ({@link JointView}),
  * never through its mechanism. A condition that cannot be read is reported to the model as unknown,
@@ -32,11 +31,12 @@ final class Interlocks {
    * One interlock on the joint, with what is needed to read its condition and to report it.
    *
    * @param interlock the rule
-   * @param other what the joint its condition is about publishes, or null for a sensor's condition
+   * @param other what the joint its condition is about publishes, or empty for a condition on a
+   *     sensor
    * @param shown the rule in words, as the log names what holds a joint. It is worked out once
    *     here, because building it every loop would be wasteful.
    */
-  private record Enforced(Interlock interlock, @Nullable JointView other, String shown) {}
+  private record Enforced(Interlock interlock, Optional<JointView> other, String shown) {}
 
   private final Travel travel;
   private final List<Enforced> enforced = new ArrayList<>();
@@ -60,9 +60,10 @@ final class Interlocks {
    * Adds an interlock on the joint. Interlocks are added while the robot is being built, before its
    * first loop, so starting their memory afresh here loses nothing.
    *
-   * @param other what the joint its condition is about publishes, or null for a sensor's condition
+   * @param other what the joint its condition is about publishes, or empty for a condition on a
+   *     sensor
    */
-  void add(Interlock interlock, @Nullable JointView other) {
+  void add(Interlock interlock, Optional<JointView> other) {
     enforced.add(new Enforced(interlock, other, interlock.toString()));
     List<Interlock> interlocks = enforced.stream().map(Enforced::interlock).toList();
     enforcement = new InterlockEnforcement(travel, interlocks, RobotLoop.PERIOD_SECONDS);
@@ -75,20 +76,19 @@ final class Interlocks {
    * neutral, saying which interlocks hold it ({@link Demand#heldBy}), and asking for the joint's
    * profile to restart when the model says it must.
    *
-   * @param demand what the joint is asked, or its idle
+   * @param demand what the joint is asked, or what it does idle
    * @param at where the joint is
    * @param velocity how fast it moves
-   * @param accelerating how fast its speed changed over the last loop, a second squared
+   * @param acceleration how fast its speed changed over the last loop, a second squared
    * @param sensors the robot's sensors, as read this loop
    */
-  Demand apply(
-      Demand demand, double at, double velocity, double accelerating, @Nullable Sensors sensors) {
+  Demand apply(Demand demand, double at, double velocity, double acceleration, Sensors sensors) {
     if (enforced.isEmpty()) {
       return demand;
     }
     InterlockReadings readings =
-        new InterlockReadings(at, velocity, accelerating, conditionReadings(sensors));
-    InterlockVerdict verdict = enforcement.decide(state, asked(demand), readings);
+        new InterlockReadings(at, velocity, acceleration, conditionReadings(sensors));
+    InterlockVerdict verdict = enforcement.decide(state, demand.ask(), readings);
     state = verdict.state();
 
     boolean unchanged = verdict.heldBy().isEmpty() && !verdict.restartProfile();
@@ -99,7 +99,7 @@ final class Interlocks {
   }
 
   /** What each interlock's condition reads this loop, in the order the interlocks were added. */
-  private List<ConditionReading> conditionReadings(@Nullable Sensors sensors) {
+  private List<ConditionReading> conditionReadings(Sensors sensors) {
     List<ConditionReading> readings = new ArrayList<>(enforced.size());
     for (Enforced each : enforced) {
       readings.add(read(each.interlock().condition(), each.other(), sensors));
@@ -113,23 +113,23 @@ final class Interlocks {
    * that is lost.
    */
   private static ConditionReading read(
-      Condition condition, @Nullable JointView other, @Nullable Sensors sensors) {
+      Condition condition, Optional<JointView> other, Sensors sensors) {
     switch (condition) {
       case Condition.OnJoint onJoint -> {
-        if (other == null || !other.knowsWhere()) {
+        if (other.isEmpty() || !other.get().knowsWhere()) {
           return ConditionReading.UNKNOWN;
         }
-        return ConditionReading.of(onJoint.holdsAt(other.position()));
+        return ConditionReading.of(onJoint.holdsAt(other.get().position()));
       }
       case Condition.UpToSpeed upToSpeed -> {
         // A joint's speed comes from its motors, so it is known whether or not the joint is homed.
-        if (other == null || !other.answers()) {
+        if (other.isEmpty() || !other.get().answers()) {
           return ConditionReading.UNKNOWN;
         }
-        return ConditionReading.of(upToSpeed.holdsAt(other.velocity()));
+        return ConditionReading.of(upToSpeed.holdsAt(other.get().velocity()));
       }
       case Condition.OnSensor onSensor -> {
-        if (sensors == null || !sensors.reads(onSensor.sensor())) {
+        if (!sensors.reads(onSensor.sensor())) {
           return ConditionReading.UNKNOWN;
         }
         return ConditionReading.of(sensors.holds(onSensor));
@@ -138,45 +138,16 @@ final class Interlocks {
   }
 
   /**
-   * A demand in the model's terms. By the time a demand reaches the interlocks, the joint's idle
-   * has turned "nothing asked" into a position to hold or into neutral, and homing's push never
-   * comes this way, so neither of those has a counterpart in the model.
+   * The demand as the verdict leaves it: doing what the model allows, and naming the interlocks
+   * that hold the joint after whatever held it already.
    */
-  private static JointAsk asked(Demand demand) {
-    return switch (demand.kind()) {
-      case POSITION -> new JointAsk.ToPosition(demand.value(), demand.fraction());
-      case VELOCITY -> new JointAsk.AtVelocity(demand.value());
-      case VOLTAGE -> new JointAsk.AtVoltage(demand.value());
-      case DUTY_CYCLE -> new JointAsk.AtDutyCycle(demand.value());
-      case NEUTRAL -> JointAsk.NEUTRAL;
-      case NONE, HOMING ->
-          throw new IllegalStateException(
-              "interlocks are applied to what a joint is driven at, and "
-                  + demand.kind()
-                  + " is not that");
-    };
-  }
-
-  /** The demand as the verdict leaves it, naming the interlocks that hold the joint. */
   private Demand changed(Demand demand, InterlockVerdict verdict) {
-    boolean restart = demand.restart() || verdict.restartProfile();
+    boolean restartProfile = demand.restartProfile() || verdict.restartProfile();
     String heldBy = demand.heldBy();
     for (Interlock holding : verdict.heldBy()) {
       heldBy = Demand.joined(heldBy, shown(holding));
     }
-    return switch (verdict.allowed()) {
-      case JointAsk.ToPosition toPosition ->
-          new Demand(
-              Request.POSITION, toPosition.position(), toPosition.cruiseShare(), restart, heldBy);
-      // Neutral drives nothing, so nothing reads the value and the share it carries: they stay as
-      // they were.
-      case JointAsk.Neutral neutral ->
-          new Demand(Request.NEUTRAL, demand.value(), demand.fraction(), restart, heldBy);
-      // No interlock ever turns a demand into an output, so an output in the verdict is the one
-      // that was asked, with only its profile restarted.
-      case JointAsk.AtOutput output ->
-          new Demand(demand.kind(), demand.value(), demand.fraction(), restart, heldBy);
-    };
+    return new Demand(verdict.allowed(), restartProfile, heldBy);
   }
 
   /** An interlock in words, as it was worked out when the interlock was added. */

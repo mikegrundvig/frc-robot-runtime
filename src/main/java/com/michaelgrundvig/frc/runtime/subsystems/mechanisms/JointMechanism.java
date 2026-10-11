@@ -20,9 +20,9 @@ import com.michaelgrundvig.frc.world.robot.EncoderGap;
 import com.michaelgrundvig.frc.world.robot.EncoderLoop;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
-import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.PlaceNames;
 import com.michaelgrundvig.frc.world.robot.Position;
@@ -33,6 +33,7 @@ import com.michaelgrundvig.frc.world.robot.Travel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
@@ -145,10 +146,22 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * What a command asked of it, its name for what it asked ("out"), the command that asked, and in
-   * which loop.
+   * What a command asked of the joint.
+   *
+   * @param demand what it asked, with nothing yet holding the joint short of it
+   * @param name the name of what it asked for ("out", "intaking"), or empty for a computed position
+   *     or output, which has none
+   * @param by the command that asked, all the way out: the one that was bound or scheduled
+   *     ("Intake"). Empty when code outside any command asked.
    */
-  private record Asked(Demand demand, @Nullable String name, @Nullable Command by, long loop) {}
+  private record Request(Demand demand, Optional<String> name, Optional<Command> by) {
+    /**
+     * Whether this request is for exactly the same thing, by the same name, from the same asker.
+     */
+    boolean isFor(JointAsk ask, Optional<String> name, Optional<Command> by) {
+      return demand.ask().equals(ask) && this.name.equals(name) && this.by.equals(by);
+    }
+  }
 
   // What it is, from its block.
 
@@ -313,17 +326,27 @@ public final class JointMechanism implements Mechanism {
   /** How fast its speed changed since the loop before, in its units a second squared. */
   private double accelerating;
 
-  /** What a command last asked of it: what it does this loop, if it asked this loop. */
-  private @Nullable Asked asked;
+  /**
+   * What a command last asked of the joint, or empty before any has. It is what the joint does this
+   * loop only if it was asked this loop ({@link #requestedInLoop}).
+   */
+  private Optional<Request> request = Optional.empty();
 
-  /** What it applied last loop, the value it was asked for, and the name it was asked by. */
-  private Request applied = Request.NONE;
+  /** The loop in which a command last asked something of the joint. Loops count from 1. */
+  private long requestedInLoop;
 
-  private double appliedValue = Double.NaN;
-  private @Nullable String appliedName;
+  /** What the joint's motors were told in the last loop that was written. */
+  private Applied applied = Applied.Undriven.NOTHING;
 
-  /** What holds it this loop, its interlocks and its limit switches, as logged; empty for none. */
-  private String heldBy = "";
+  /**
+   * The number in what the joint was last asked, by a command or by its idle, before its interlocks
+   * and limit switches were applied. The log shows it as the joint's goal while the joint is not at
+   * a position, and shows NaN until the joint has been asked anything.
+   */
+  private double lastAskedNumber = Double.NaN;
+
+  /** The name of what a command asked that the joint is being driven at, if it has a name. */
+  private Optional<String> drivenName = Optional.empty();
 
   /** How the last move on it ended, as logged. */
   private String outcome = "";
@@ -593,7 +616,7 @@ public final class JointMechanism implements Mechanism {
    * An interlock on this joint, and what the joint its condition reads publishes, or null for a
    * sensor's: set once, by {@link Joints}.
    */
-  void restrict(Interlock interlock, @Nullable JointView other) {
+  void restrict(Interlock interlock, Optional<JointView> other) {
     interlocks.add(interlock, other);
   }
 
@@ -642,11 +665,13 @@ public final class JointMechanism implements Mechanism {
    * leave it; where it is, while it runs at an output. NaN before it's first read.
    */
   public double goal() {
-    return switch (applied) {
-      case POSITION -> profile.goal();
-      case NONE, HOMING -> idle.at();
-      case VELOCITY, VOLTAGE, DUTY_CYCLE, NEUTRAL -> clamp(measured);
-    };
+    if (applied instanceof Applied.Undriven) {
+      return idle.at().orElse(Double.NaN);
+    }
+    if (applied.wasToAPosition()) {
+      return profile.goal();
+    }
+    return clamp(measured);
   }
 
   /** Where it stands: unhomed, homing, ready or faulted. */
@@ -664,7 +689,7 @@ public final class JointMechanism implements Mechanism {
 
   /** What holds it this loop, its interlocks and its limit switches, as logged; empty for none. */
   public String heldBy() {
-    return heldBy;
+    return applied.heldBy();
   }
 
   // ---- The pre-built commands ----
@@ -813,7 +838,7 @@ public final class JointMechanism implements Mechanism {
    * as a push held to a current. The loop it isn't asked again, the joint goes back to its idle.
    */
   public void setVoltage(double volts) {
-    ask(Request.VOLTAGE, volts, 1, null);
+    ask(new JointAsk.AtVoltage(volts), Optional.empty());
   }
 
   // ---- Its gates ----
@@ -885,7 +910,8 @@ public final class JointMechanism implements Mechanism {
           Output own = joint.own(output);
           boolean[] inside = {false};
           return why -> {
-            boolean running = enabled && own.name().equals(appliedName);
+            boolean running =
+                enabled && drivenName.isPresent() && own.name().equals(drivenName.get());
             inside[0] =
                 running
                     && (own.kind() != Output.Kind.VELOCITY || withinSpeed(own.value(), inside[0]));
@@ -913,19 +939,8 @@ public final class JointMechanism implements Mechanism {
               inside[0] =
                   enabled
                       && homing.state() == State.READY
-                      && switch (applied) {
-                        case POSITION -> {
-                          double off = Math.abs(measured - profile.goal());
-                          yield profile.arrived()
-                              && (inside[0]
-                                  ? off <= positionBands.stay()
-                                  : off <= positionBands.enter());
-                        }
-                        case VELOCITY -> withinSpeed(appliedValue, inside[0]);
-                        case VOLTAGE, DUTY_CYCLE -> true;
-                        case NEUTRAL -> Math.abs(inputs.velocity) <= speedBands.enter() * freeSpeed;
-                        case NONE, HOMING -> false;
-                      };
+                      && applied instanceof Demand demand
+                      && isDoing(demand.ask(), inside[0]);
               return inside[0];
             });
   }
@@ -941,16 +956,42 @@ public final class JointMechanism implements Mechanism {
         label + " stalled",
         () ->
             why -> {
-              double asked =
-                  switch (applied) {
-                    case VELOCITY -> Math.abs(appliedValue);
-                    case VOLTAGE -> Math.abs(appliedValue) / Motor.NOMINAL_VOLTS * freeSpeed;
-                    case DUTY_CYCLE -> Math.abs(appliedValue) * freeSpeed;
-                    default -> 0;
-                  };
+              double asked = speedAsked();
               return stalling.calculate(
                   enabled && asked > 0 && Math.abs(inputs.velocity) < STALL_SHARE * asked);
             });
+  }
+
+  /**
+   * Whether the joint is doing what it was driven at.
+   *
+   * @param wasDoingIt whether it was the last time this was asked, which widens the band it must be
+   *     inside from the one to arrive in to the one to stay in
+   */
+  private boolean isDoing(JointAsk ask, boolean wasDoingIt) {
+    return switch (ask) {
+      case JointAsk.ToPosition toPosition -> {
+        double off = Math.abs(measured - profile.goal());
+        double band = wasDoingIt ? positionBands.stay() : positionBands.enter();
+        yield profile.arrived() && off <= band;
+      }
+      case JointAsk.AtVelocity atVelocity -> withinSpeed(atVelocity.speed(), wasDoingIt);
+      // A voltage or a share of the battery has no speed to reach: it is doing it at once.
+      case JointAsk.AtVoltage atVoltage -> true;
+      case JointAsk.AtDutyCycle atDutyCycle -> true;
+      case JointAsk.Neutral neutral -> Math.abs(inputs.velocity) <= speedBands.enter() * freeSpeed;
+    };
+  }
+
+  /**
+   * The speed the output the joint is driven at asks for, with nothing loading the joint, as a size
+   * without a direction. Zero while the joint is not run at an output.
+   */
+  private double speedAsked() {
+    if (applied instanceof Demand demand && demand.ask() instanceof JointAsk.AtOutput output) {
+      return Math.abs(output.unloadedSpeed(freeSpeed));
+    }
+    return 0;
   }
 
   /** Whether it runs within its speed band of a speed: the stay band if it already was. */
@@ -964,41 +1005,41 @@ public final class JointMechanism implements Mechanism {
 
   /** Asks it to be at a position this loop, profiled at a share of its cruise. */
   void askPosition(double position, double fraction, @Nullable String name) {
-    ask(Request.POSITION, position, fraction, name);
+    ask(new JointAsk.ToPosition(position, fraction), Optional.ofNullable(name));
   }
 
   /** Asks it to run at an output this loop. */
   void askOutput(Output output) {
-    switch (output.kind()) {
-      case VELOCITY -> ask(Request.VELOCITY, output.value(), 1, output.name());
-      case VOLTAGE -> ask(Request.VOLTAGE, output.value(), 1, output.name());
-      case DUTY_CYCLE ->
-          ask(
-              output.value() == 0 ? Request.NEUTRAL : Request.DUTY_CYCLE,
-              output.value(),
-              1,
-              output.name());
-    }
+    ask(Asks.running(output), Optional.of(output.name()));
   }
 
   /** Asks it to run at a speed this loop, a computed one. */
   void askVelocity(double velocity) {
-    ask(Request.VELOCITY, velocity, 1, null);
+    ask(new JointAsk.AtVelocity(velocity), Optional.empty());
   }
 
   /**
-   * A request this loop, from the command running. One that isn't a number (NaN, or infinite, as a
-   * computed target's division by zero gives) is no request: the joint idles this loop, beneath its
-   * interlocks as ever, rather than be driven at it or let it past a keep-out. It's logged ({@code
-   * Joints/<label>/Rejected}), with who asked, and the first raises an alert that stays raised.
+   * Takes a request for this loop from the command that is running.
+   *
+   * <p>A request whose number is not a number (NaN, or infinite, as a computed target's division by
+   * zero gives) is no request. The joint idles this loop, beneath its interlocks as ever, so it is
+   * neither driven at such a number nor let past a keep-out by one. The request is logged ({@code
+   * Joints/<label>/Rejected}) with who asked, and the first one raises an alert that stays raised.
+   *
+   * <p>A command that asks for the same thing loop after loop, as most do, keeps the request it
+   * made before, so asking again allocates nothing.
    */
-  private void ask(Request kind, double value, double fraction, @Nullable String name) {
-    Command by = outermost(scheduler.currentCommand());
-    if (!Double.isFinite(value)) {
-      reject(kind, value, by);
+  private void ask(JointAsk ask, Optional<String> name) {
+    Optional<Command> by = outermost(scheduler.currentCommand());
+    if (!Double.isFinite(Asks.number(ask))) {
+      reject(ask, by);
       return;
     }
-    asked = new Asked(Demand.of(kind, value, fraction), name, by, loop);
+    boolean askedBefore = request.isPresent() && request.get().isFor(ask, name, by);
+    if (!askedBefore) {
+      request = Optional.of(new Request(Demand.of(ask), name, by));
+    }
+    requestedInLoop = loop;
   }
 
   /** What it was asked this loop that isn't a number, by whom, as logged: empty for nothing. */
@@ -1007,23 +1048,16 @@ public final class JointMechanism implements Mechanism {
   }
 
   /** A request that isn't a number: logged this loop, and the first one raises an alert. */
-  private void reject(Request kind, double value, @Nullable Command by) {
-    String what =
-        switch (kind) {
-          case POSITION -> "a position";
-          case VELOCITY -> "a speed";
-          case VOLTAGE -> "a voltage";
-          default -> "a share of the battery";
-        };
-    String who = by == null ? "code outside any command" : by.name();
+  private void reject(JointAsk ask, Optional<Command> by) {
+    String who = by.isPresent() ? by.get().name() : "code outside any command";
     rejected =
         who
             + " asked "
             + label
             + " for "
-            + what
+            + Asks.numberShown(ask)
             + " of "
-            + value
+            + Asks.number(ask)
             + ", which isn't a number: "
             + label
             + " idles instead; check how "
@@ -1047,12 +1081,12 @@ public final class JointMechanism implements Mechanism {
   }
 
   /** The command a command runs inside, all the way out: the one bound or scheduled, "Intake". */
-  private @Nullable Command outermost(@Nullable Command command) {
+  private Optional<Command> outermost(@Nullable Command command) {
     Command outer = command;
     for (Command up = outer; up != null; up = scheduler.getParentOf(up)) {
       outer = up;
     }
-    return outer;
+    return Optional.ofNullable(outer);
   }
 
   /** A move begins: its profile starts from where the joint is now, not where it was headed. */
@@ -1066,7 +1100,7 @@ public final class JointMechanism implements Mechanism {
    * pushing on toward a target it couldn't reach.
    */
   void moveEnded(boolean arrived, double target) {
-    if (applied != Request.POSITION) {
+    if (!applied.wasToAPosition()) {
       return; // it ran at a speed, or never moved: its idle decides from what it did
     }
     if (arrived) {
@@ -1170,16 +1204,20 @@ public final class JointMechanism implements Mechanism {
    * holds it short, and the joint is within its band of it.
    */
   boolean settledAt(double position) {
-    return applied == Request.POSITION
-        && appliedValue == position
-        && heldBy.isEmpty()
+    return applied instanceof Demand demand
+        && demand.ask() instanceof JointAsk.ToPosition toPosition
+        && toPosition.position() == position
+        && demand.heldBy().isEmpty()
         && profile.arrived()
         && Math.abs(measured - profile.goal()) <= positionBands.enter();
   }
 
   /** Whether it runs at a speed, within its band. */
   boolean atSpeed(double velocity) {
-    return applied == Request.VELOCITY && appliedValue == velocity && withinSpeed(velocity, false);
+    return applied instanceof Demand demand
+        && demand.ask() instanceof JointAsk.AtVelocity atVelocity
+        && atVelocity.speed() == velocity
+        && withinSpeed(velocity, false);
   }
 
   /** How long its profile takes from where it is to a position, at a share of its cruise. */
@@ -1274,7 +1312,7 @@ public final class JointMechanism implements Mechanism {
               + inputs.unconfigured
               + " didn't take its settings: check its CAN ID and wiring, then restart the robot");
     }
-    if (Double.isNaN(idle.at()) || enabling) {
+    if (idle.at().isEmpty() || enabling) {
       // First read, or just enabled: idle holds where the joint is, not where it was left.
       idle.holdAt(clamp(measured));
       profile.restart();
@@ -1437,56 +1475,58 @@ public final class JointMechanism implements Mechanism {
    * limit switches: a position along its profile, anything else as it's left, to its IO.
    */
   void write() {
-    Asked now = asked != null && asked.loop() == loop ? asked : null;
-    Request requested = now == null ? Request.NONE : now.demand().kind();
-    heldBy = "";
+    Optional<Request> requested = requestedInLoop == loop ? request : Optional.empty();
     if (!enabled || homing.justFound() || (positional && homing.state() != State.READY)) {
       // Disabled; or where it is isn't known, so nothing is driven to a position on a guess,
       // except homing's push; or it found its stop, and reads its new position from the next loop.
       OptionalDouble heldOnMotor = homing.heldOnMotor();
       if (enabled && homing.state() == State.HOMING) {
         io.home(homing.volts());
-        applied = Request.HOMING;
+        applied = Applied.Undriven.HOMING;
       } else if (enabled && heldOnMotor.isPresent()) {
         // The encoder its loop closes on is lost: it holds where its motor says, on its motor
         // controller's own loop, rather than going limp.
         io.setPosition(heldOnMotor.getAsDouble(), 0, 0);
-        applied = Request.NONE;
+        applied = Applied.Undriven.NOTHING;
       } else {
         io.stop();
-        applied = Request.NONE;
+        applied = Applied.Undriven.NOTHING;
       }
       homing.settled();
       profile.restart();
-      appliedName = null;
-      log(requested, now);
+      drivenName = Optional.empty();
+      log(requested);
       return;
     }
-    Demand demand =
-        idle.resolve(now == null ? Demand.NONE : now.demand(), applied, clamp(measured));
-    appliedValue = demand.value();
-    appliedName = now == null ? null : now.name();
+    Demand demand;
+    if (requested.isPresent()) {
+      demand = requested.get().demand();
+      idle.commandAsked(demand.ask());
+      drivenName = requested.get().name();
+    } else {
+      demand = idle.demand(applied, clamp(measured));
+      drivenName = Optional.empty();
+    }
+    lastAskedNumber = Asks.number(demand.ask());
     // The interlocks, beneath every command.
     demand = interlocks.apply(demand, measured, inputs.velocity, accelerating, sensors);
     // A tripped limit switch, beneath them all: nothing drives the joint on toward its end.
     demand = stops.apply(demand, measured, sensors);
-    if (demand.restart()) {
+    if (demand.restartProfile()) {
       profile.restart();
     }
-    heldBy = demand.heldBy();
-    double value = demand.value();
-    switch (demand.kind()) {
-      case POSITION -> drive(value, demand.fraction());
-      case VELOCITY -> io.setVelocity(value);
-      case VOLTAGE -> io.setVoltage(value);
-      case DUTY_CYCLE -> io.setDutyCycle(value);
-      case NEUTRAL, NONE, HOMING -> io.stop();
+    switch (demand.ask()) {
+      case JointAsk.ToPosition toPosition -> drive(toPosition.position(), toPosition.cruiseShare());
+      case JointAsk.AtVelocity atVelocity -> io.setVelocity(atVelocity.speed());
+      case JointAsk.AtVoltage atVoltage -> io.setVoltage(atVoltage.volts());
+      case JointAsk.AtDutyCycle atDutyCycle -> io.setDutyCycle(atDutyCycle.share());
+      case JointAsk.Neutral neutral -> io.stop();
     }
-    if (demand.kind() != Request.POSITION) {
+    if (!(demand.ask() instanceof JointAsk.ToPosition)) {
       profile.restart();
     }
-    applied = demand.kind();
-    log(requested, now);
+    applied = demand;
+    log(requested);
   }
 
   /** Where the joint comes to a stop from where it is and how fast, braking at its acceleration. */
@@ -1525,7 +1565,7 @@ public final class JointMechanism implements Mechanism {
   /** The limit switch it homes to, or null when it doesn't home to one. */
   private Sensor.@Nullable Switch homingSwitch() {
     Sensor.Switch.Limit.End end = homing.switchEnd();
-    return end == null ? null : stops.at(end);
+    return end == null ? null : stops.at(end).orElse(null);
   }
 
   // ---- The log ----
@@ -1533,20 +1573,15 @@ public final class JointMechanism implements Mechanism {
   /**
    * What it did this loop, under its fixed keys.
    *
-   * @param requested what a command asked of it this loop: {@link Request#NONE} for nothing
-   * @param now what the command asked, by name and by whom: null for nothing
+   * @param requested what a command asked of it this loop, if one did
    */
-  private void log(Request requested, @Nullable Asked now) {
-    @Nullable Command by = now == null ? null : now.by();
+  private void log(Optional<Request> requested) {
     Logger.recordOutput(stateKey, homing.shown());
-    Logger.recordOutput(
-        commandKey,
-        requested == Request.NONE ? "idle" : by == null ? "outside any command" : by.name());
-    Logger.recordOutput(goalKey, applied == Request.POSITION ? profile.goal() : appliedValue);
-    String name = requested == Request.NONE || now == null ? null : now.name();
-    Logger.recordOutput(goalNameKey, name == null ? "" : name);
+    Logger.recordOutput(commandKey, commandShown(requested));
+    Logger.recordOutput(goalKey, applied.wasToAPosition() ? profile.goal() : lastAskedNumber);
+    Logger.recordOutput(goalNameKey, goalNameShown(requested));
     Logger.recordOutput(atKey, where());
-    Logger.recordOutput(heldByKey, heldBy);
+    Logger.recordOutput(heldByKey, applied.heldBy());
     Logger.recordOutput(setpointKey, profile.position());
     Logger.recordOutput(setpointVelocityKey, profile.velocity());
     Logger.recordOutput(outcomeKey, outcome);
@@ -1560,14 +1595,33 @@ public final class JointMechanism implements Mechanism {
     }
   }
 
+  /** Who asked something of the joint this loop, as the log's {@code Command} says it. */
+  private static String commandShown(Optional<Request> requested) {
+    if (requested.isEmpty()) {
+      return "idle";
+    }
+    Optional<Command> by = requested.get().by();
+    return by.isPresent() ? by.get().name() : "outside any command";
+  }
+
+  /** The name of what a command asked for this loop, as the log's {@code GoalName} says it. */
+  private static String goalNameShown(Optional<Request> requested) {
+    if (requested.isEmpty()) {
+      return "";
+    }
+    return requested.get().name().orElse("");
+  }
+
   /**
    * Where it is, in its names: "at out", "between run and out", "below in"; a number for a joint
    * without names; what it runs at, for a roller.
    */
   private String where() {
     if (!positional) {
-      String name = appliedName;
-      return name != null ? name : applied == Request.NEUTRAL ? "stopped" : "idle";
+      if (drivenName.isPresent()) {
+        return drivenName.get();
+      }
+      return applied.wasNeutral() ? "stopped" : "idle";
     }
     if (homing.state() != State.READY) {
       return "unknown";

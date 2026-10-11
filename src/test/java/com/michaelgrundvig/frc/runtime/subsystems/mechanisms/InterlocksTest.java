@@ -13,12 +13,14 @@ import static org.wpilib.units.Units.RPM;
 
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Travel;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.wpilib.command3.Scheduler;
 
@@ -70,7 +72,7 @@ class InterlocksTest {
   }
 
   private static Demand toward(double degrees) {
-    return Demand.of(Request.POSITION, radians(degrees), 0.5);
+    return Demands.toPosition(radians(degrees), 0.5);
   }
 
   private final Other pivotView = new Other();
@@ -82,14 +84,14 @@ class InterlocksTest {
   void aJointThatRunsOnlyWhenAnotherIsPastAPlaceStopsUntilItIs() {
     Interlocks roller = new Interlocks(travel(ROLLER));
     Interlock rule = Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110)));
-    roller.add(rule, pivotView.at(radians(1.5)));
-    Demand intaking = Demand.of(Request.VELOCITY, 50, 1);
+    roller.add(rule, Optional.of(pivotView.at(radians(1.5))));
+    Demand intaking = Demands.atVelocity(50);
 
-    Demand stopped = roller.apply(intaking, 0, 0, 0, null);
+    Demand stopped = roller.apply(intaking, 0, 0, 0, Demands.NO_SENSORS);
     pivotView.at(radians(120));
-    Demand running = roller.apply(intaking, 0, 0, 0, null);
+    Demand running = roller.apply(intaking, 0, 0, 0, Demands.NO_SENSORS);
 
-    assertThat(stopped.kind()).isEqualTo(Request.NEUTRAL);
+    assertThat(stopped.ask()).isEqualTo(JointAsk.NEUTRAL);
     assertThat(stopped.heldBy()).isEqualTo("roller runs only when pivot at least 110°");
     assertThat(running).isSameAs(intaking);
   }
@@ -100,11 +102,11 @@ class InterlocksTest {
     Interlocks roller = new Interlocks(travel(ROLLER));
     roller.add(
         Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))),
-        pivotView.at(radians(120)));
+        Optional.of(pivotView.at(radians(120))));
     pivotView.knowsWhere = false;
 
-    assertThat(roller.apply(Demand.of(Request.VELOCITY, 50, 1), 0, 0, 0, null).kind())
-        .isEqualTo(Request.NEUTRAL);
+    assertThat(roller.apply(Demands.atVelocity(50), 0, 0, 0, Demands.NO_SENSORS).ask())
+        .isEqualTo(JointAsk.NEUTRAL);
   }
 
   /**
@@ -115,24 +117,26 @@ class InterlocksTest {
   @Test
   void aJointHeldAtPositionsHoldsWhereItStopsOnceAndRestartsWhenLetGo() {
     Interlocks turret = new Interlocks(travel(TURRET));
-    turret.add(Interlock.that(TURRET).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))), rollerView);
+    turret.add(
+        Interlock.that(TURRET).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))),
+        Optional.of(rollerView));
     rollerView.knowsWhere = false;
     Demand back = toward(180);
 
-    Demand held = turret.apply(back, 1, 3, 0, null);
-    Demand stillHeld = turret.apply(back, 1.1, 1, 0, null);
+    Demand held = turret.apply(back, 1, 3, 0, Demands.NO_SENSORS);
+    Demand stillHeld = turret.apply(back, 1.1, 1, 0, Demands.NO_SENSORS);
     rollerView.velocity = 1100.0 / 60 * 2 * Math.PI;
-    Demand letGo = turret.apply(back, 1.2, 0, 0, null);
-    Demand after = turret.apply(back, 1.2, 0, 0, null);
+    Demand letGo = turret.apply(back, 1.2, 0, 0, Demands.NO_SENSORS);
+    Demand after = turret.apply(back, 1.2, 0, 0, Demands.NO_SENSORS);
 
-    assertThat(held.kind()).isEqualTo(Request.POSITION);
-    assertThat(held.value())
+    assertThat(held.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(held))
         .as("1 rad, braking from 3 rad/s at 10 rad/s²")
         .isCloseTo(1.45, within(1e-12));
-    assertThat(held.fraction()).isEqualTo(1);
+    assertThat(Demands.cruiseShare(held)).isEqualTo(1);
     assertThat(held.heldBy()).isEqualTo("turret runs only when roller at least 1000 rpm");
-    assertThat(stillHeld.value()).as("worked out once").isEqualTo(held.value());
-    assertThat(letGo).isEqualTo(back.restarted());
+    assertThat(Demands.position(stillHeld)).as("worked out once").isEqualTo(Demands.position(held));
+    assertThat(letGo).isEqualTo(back.restartingProfile());
     assertThat(after).isSameAs(back);
   }
 
@@ -141,7 +145,7 @@ class InterlocksTest {
     Interlocks pivot = new Interlocks(travel(PIVOT));
     pivot.add(
         Interlock.that(PIVOT).keepsOut(Range.degrees(40, 80)).when(ELEVATOR.atMost(ELEVATOR_CLEAR)),
-        elevatorView.at(0));
+        Optional.of(elevatorView.at(0)));
     return pivot;
   }
 
@@ -153,17 +157,17 @@ class InterlocksTest {
   void aClosedRegionHoldsTheJointAtItsEdgeOnItsSide() {
     Interlocks pivot = keptOut();
 
-    Demand fromBelow = pivot.apply(toward(130), radians(10), 0, 0, null);
-    Demand fromAbove = pivot.apply(toward(1.5), radians(120), 0, 0, null);
-    Demand short_ = pivot.apply(toward(30), radians(10), 0, 0, null);
+    Demand fromBelow = pivot.apply(toward(130), radians(10), 0, 0, Demands.NO_SENSORS);
+    Demand fromAbove = pivot.apply(toward(1.5), radians(120), 0, 0, Demands.NO_SENSORS);
+    Demand short_ = pivot.apply(toward(30), radians(10), 0, 0, Demands.NO_SENSORS);
     elevatorView.at(0.5);
-    Demand open = pivot.apply(toward(130), radians(10), 0, 0, null);
+    Demand open = pivot.apply(toward(130), radians(10), 0, 0, Demands.NO_SENSORS);
 
-    assertThat(fromBelow.value()).isCloseTo(radians(40), within(1e-12));
-    assertThat(fromBelow.fraction()).isEqualTo(1);
+    assertThat(Demands.position(fromBelow)).isCloseTo(radians(40), within(1e-12));
+    assertThat(Demands.cruiseShare(fromBelow)).isEqualTo(1);
     assertThat(fromBelow.heldBy())
         .isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
-    assertThat(fromAbove.value()).isCloseTo(radians(80), within(1e-12));
+    assertThat(Demands.position(fromAbove)).isCloseTo(radians(80), within(1e-12));
     assertThat(short_).as("a target short of it isn't held").isEqualTo(toward(30));
     assertThat(open).isEqualTo(toward(130));
   }
@@ -177,16 +181,16 @@ class InterlocksTest {
   @Test
   void insideItMayLeaveTheWayItCameAndOtherwiseHoldsWhereItWouldStopOnce() {
     Interlocks pivot = keptOut();
-    pivot.apply(toward(130), radians(35), 2, 0, null);
+    pivot.apply(toward(130), radians(35), 2, 0, Demands.NO_SENSORS);
 
-    Demand held = pivot.apply(toward(130), radians(45), 2, 0, null);
-    Demand later = pivot.apply(toward(130), radians(47), 0.5, 0, null);
-    Demand leaving = pivot.apply(toward(1.5), radians(47), 0, 0, null);
+    Demand held = pivot.apply(toward(130), radians(45), 2, 0, Demands.NO_SENSORS);
+    Demand later = pivot.apply(toward(130), radians(47), 0.5, 0, Demands.NO_SENSORS);
+    Demand leaving = pivot.apply(toward(1.5), radians(47), 0, 0, Demands.NO_SENSORS);
 
     double stops = radians(45) + 4 / 60.0;
-    assertThat(held.value()).isCloseTo(stops, within(1e-12));
-    assertThat(later.value()).as("worked out once").isEqualTo(held.value());
-    assertThat(leaving.value()).isCloseTo(radians(1.5), within(1e-12));
+    assertThat(Demands.position(held)).isCloseTo(stops, within(1e-12));
+    assertThat(Demands.position(later)).as("worked out once").isEqualTo(Demands.position(held));
+    assertThat(Demands.position(leaving)).isCloseTo(radians(1.5), within(1e-12));
     assertThat(leaving.heldBy()).isEmpty();
   }
 
@@ -202,14 +206,14 @@ class InterlocksTest {
         Interlock.that(PIVOT)
             .keepsOut(Range.degrees(100, 135))
             .when(ELEVATOR.atMost(ELEVATOR_CLEAR)),
-        elevatorView.at(0));
+        Optional.of(elevatorView.at(0)));
 
-    Demand down = pivot.apply(toward(1.5), radians(135), 0, 0, null);
-    Demand deeper = pivot.apply(toward(120), radians(135), 0, 0, null);
+    Demand down = pivot.apply(toward(1.5), radians(135), 0, 0, Demands.NO_SENSORS);
+    Demand deeper = pivot.apply(toward(120), radians(135), 0, 0, Demands.NO_SENSORS);
 
-    assertThat(down.value()).isCloseTo(radians(1.5), within(1e-12));
+    assertThat(Demands.position(down)).isCloseTo(radians(1.5), within(1e-12));
     assertThat(down.heldBy()).isEmpty();
-    assertThat(deeper.value()).isCloseTo(radians(135), within(1e-12));
+    assertThat(Demands.position(deeper)).isCloseTo(radians(135), within(1e-12));
     assertThat(deeper.heldBy()).isNotEmpty();
   }
 
@@ -221,17 +225,17 @@ class InterlocksTest {
   @Test
   void anOutputIsHeldAtTheEdgeOnceItWouldStopInside() {
     Interlocks pivot = keptOut();
-    Demand up = Demand.of(Request.VELOCITY, 2, 1);
+    Demand up = Demands.atVelocity(2);
 
-    Demand farOff = pivot.apply(up, radians(20), 2, 0, null);
-    Demand near = pivot.apply(up, radians(38), 2, 0, null);
-    Demand neutral = pivot.apply(Demand.of(Request.NEUTRAL, 0, 1), radians(38), 2, 0, null);
+    Demand farOff = pivot.apply(up, radians(20), 2, 0, Demands.NO_SENSORS);
+    Demand near = pivot.apply(up, radians(38), 2, 0, Demands.NO_SENSORS);
+    Demand neutral = pivot.apply(Demand.NEUTRAL, radians(38), 2, 0, Demands.NO_SENSORS);
 
     assertThat(farOff).isSameAs(up);
-    assertThat(near.kind()).isEqualTo(Request.POSITION);
-    assertThat(near.value()).isCloseTo(radians(40), within(1e-12));
+    assertThat(near.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(near)).isCloseTo(radians(40), within(1e-12));
     assertThat(near.heldBy()).isNotEmpty();
-    assertThat(neutral.kind()).isEqualTo(Request.NEUTRAL);
+    assertThat(neutral.ask()).isEqualTo(JointAsk.NEUTRAL);
   }
 
   /**
@@ -241,17 +245,17 @@ class InterlocksTest {
    */
   @Test
   void anOutputIsHeldALoopBeforeItCouldNoLongerStopShort() {
-    Demand up = Demand.of(Request.VELOCITY, 2, 1);
+    Demand up = Demands.atVelocity(2);
 
-    Demand aLoopOn = keptOut().apply(up, radians(34.5), 2, 0, null);
-    Demand steady = keptOut().apply(up, radians(33), 2, 0, null);
-    Demand speedingUp = keptOut().apply(up, radians(33), 2, 25, null);
-    Demand slowingDown = keptOut().apply(up, radians(33), 2, -25, null);
+    Demand aLoopOn = keptOut().apply(up, radians(34.5), 2, 0, Demands.NO_SENSORS);
+    Demand steady = keptOut().apply(up, radians(33), 2, 0, Demands.NO_SENSORS);
+    Demand speedingUp = keptOut().apply(up, radians(33), 2, 25, Demands.NO_SENSORS);
+    Demand slowingDown = keptOut().apply(up, radians(33), 2, -25, Demands.NO_SENSORS);
 
-    assertThat(aLoopOn.kind()).isEqualTo(Request.POSITION);
-    assertThat(aLoopOn.value()).isCloseTo(radians(40), within(1e-12));
+    assertThat(aLoopOn.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(aLoopOn)).isCloseTo(radians(40), within(1e-12));
     assertThat(steady).isSameAs(up);
-    assertThat(speedingUp.kind()).isEqualTo(Request.POSITION);
+    assertThat(speedingUp.ask()).isInstanceOf(JointAsk.ToPosition.class);
     assertThat(slowingDown).as("slowing down never holds it later").isSameAs(up);
   }
 
@@ -264,17 +268,17 @@ class InterlocksTest {
    */
   @Test
   void anOutputFromRestIsHeldOnceTheSpeedItAsksForWouldReach() {
-    Demand up = Demand.of(Request.VELOCITY, 2, 1);
-    Demand pushed = Demand.of(Request.VOLTAGE, 3, 1);
+    Demand up = Demands.atVelocity(2);
+    Demand pushed = Demands.atVoltage(3);
 
-    Demand short_ = keptOut().apply(up, radians(33), 0, 0, null);
-    Demand near = keptOut().apply(up, radians(35), 0, 0, null);
-    Demand atVolts = keptOut().apply(pushed, radians(20), 0, 0, null);
+    Demand short_ = keptOut().apply(up, radians(33), 0, 0, Demands.NO_SENSORS);
+    Demand near = keptOut().apply(up, radians(35), 0, 0, Demands.NO_SENSORS);
+    Demand atVolts = keptOut().apply(pushed, radians(20), 0, 0, Demands.NO_SENSORS);
 
     assertThat(short_).isSameAs(up);
-    assertThat(near.kind()).isEqualTo(Request.POSITION);
-    assertThat(near.value()).isCloseTo(radians(40), within(1e-12));
-    assertThat(atVolts.kind()).isEqualTo(Request.POSITION);
+    assertThat(near.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(near)).isCloseTo(radians(40), within(1e-12));
+    assertThat(atVolts.ask()).isInstanceOf(JointAsk.ToPosition.class);
   }
 
   /**
@@ -285,19 +289,19 @@ class InterlocksTest {
   @Test
   void anOutputHeldAtTheEdgeStaysHeldWhileItPushesToward() {
     Interlocks pivot = keptOut();
-    Demand up = Demand.of(Request.VOLTAGE, 3, 1);
-    Demand down = Demand.of(Request.VOLTAGE, -3, 1);
-    pivot.apply(up, radians(38), 2, 0, null);
+    Demand up = Demands.atVoltage(3);
+    Demand down = Demands.atVoltage(-3);
+    pivot.apply(up, radians(38), 2, 0, Demands.NO_SENSORS);
 
-    Demand atRest = pivot.apply(up, radians(39.95), 0, 0, null);
-    Demand away = pivot.apply(down, radians(39.95), 0, 0, null);
-    Demand again = pivot.apply(up, radians(39.9), -0.1, 0, null);
+    Demand atRest = pivot.apply(up, radians(39.95), 0, 0, Demands.NO_SENSORS);
+    Demand away = pivot.apply(down, radians(39.95), 0, 0, Demands.NO_SENSORS);
+    Demand again = pivot.apply(up, radians(39.9), -0.1, 0, Demands.NO_SENSORS);
 
-    assertThat(atRest.kind()).isEqualTo(Request.POSITION);
-    assertThat(atRest.value()).isCloseTo(radians(40), within(1e-12));
+    assertThat(atRest.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(atRest)).isCloseTo(radians(40), within(1e-12));
     assertThat(away).isSameAs(down);
-    assertThat(again.kind()).isEqualTo(Request.POSITION);
-    assertThat(again.value()).isCloseTo(radians(40), within(1e-12));
+    assertThat(again.ask()).isInstanceOf(JointAsk.ToPosition.class);
+    assertThat(Demands.position(again)).isCloseTo(radians(40), within(1e-12));
   }
 
   private static final Sensor.Switch CLAW_BEAM = Sensor.Switch.beam("claw beam", PIVOT);
@@ -329,9 +333,11 @@ class InterlocksTest {
   void aSensorsConditionHoldsAndALostSensorRestricts() {
     Sensors sensors = sensors();
     Interlocks roller = new Interlocks(travel(ROLLER));
-    roller.add(Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()), null);
-    roller.add(Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))), pivotView);
-    Demand intaking = Demand.of(Request.VELOCITY, 50, 1);
+    roller.add(Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()), Optional.empty());
+    roller.add(
+        Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))),
+        Optional.of(pivotView));
+    Demand intaking = Demands.atVelocity(50);
     pivotView.at(radians(120));
 
     beam.connected = true;
@@ -347,7 +353,7 @@ class InterlocksTest {
     Demand lost = roller.apply(intaking, 0, 0, 0, sensors);
 
     assertThat(clear).isSameAs(intaking);
-    assertThat(tripped.kind()).isEqualTo(Request.NEUTRAL);
+    assertThat(tripped.ask()).isEqualTo(JointAsk.NEUTRAL);
     assertThat(tripped.heldBy()).isEqualTo("roller runs only when claw beam clear");
     assertThat(lost.heldBy())
         .isEqualTo(

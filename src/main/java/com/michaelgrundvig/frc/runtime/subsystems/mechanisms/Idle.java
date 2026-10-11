@@ -1,71 +1,110 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.world.robot.JointAsk;
+import java.util.OptionalDouble;
+
 /**
- * What a joint does in a loop no command asks anything of it: a joint held at positions holds its
- * goal, and one that only runs at outputs, a roller, stops. Where it holds is where its last move
- * to a position arrived, or, if that move didn't, where the joint came to a stop; where it was
- * first read, enabled, or found by its homing; or where it was as it last ran at an output or
- * stopped. Idle is the joint's own, so a joint a command owns but drives no longer doesn't sag; a
- * default command replaces it, as v3's do.
+ * What a joint does in a loop in which no command asks anything of it.
+ *
+ * <p>A joint that holds positions holds one. A joint that only runs at outputs, such as a roller,
+ * goes neutral, unless the last thing it was asked for was a position, which it then holds.
+ *
+ * <p>Where a joint holds is the latest of these:
+ *
+ * <ul>
+ *   <li>where it was first read, where it was when the robot was enabled, or where its homing found
+ *       it ({@link #holdAt});
+ *   <li>where its last move to a position arrived, or, if that move did not arrive, where the joint
+ *       came to a stop ({@link #moveEnded});
+ *   <li>where it was when it stopped running at an output and was left idle ({@link #demand}).
+ * </ul>
+ *
+ * <p>The idle is the joint's own, not a command, so a joint that a command owns but no longer
+ * drives does not sag. A default command replaces it, as it would in Commands v3.
  */
 final class Idle {
-  /** Whether the joint holds positions at all: it has a range or named positions. */
-  private final boolean positional;
-
-  /** Whether it holds a position when idle: it was last asked for one, or it holds positions. */
-  private boolean holds;
-
-  /** Where it holds, in the joint's units: NaN until the joint is first read. */
-  private double at = Double.NaN;
+  /** Whether the joint is one that holds positions: it has a range or named positions. */
+  private final boolean holdsPositions;
 
   /**
-   * @param positional whether the joint holds positions at all
+   * Whether the joint holds a position when it is next left idle. A joint that holds positions
+   * always does. Any other joint does only while the last thing a command asked of it was a
+   * position.
    */
-  Idle(boolean positional) {
-    this.positional = positional;
-    holds = positional;
+  private boolean holdsWhenIdle;
+
+  /**
+   * Where the joint holds when idle, in the joint's units. Empty until the joint has been read, and
+   * while what was read is not a number: there is then nowhere to hold.
+   */
+  private OptionalDouble holdsAt = OptionalDouble.empty();
+
+  /**
+   * The demand that holds the joint there. It is built when where the joint holds changes and
+   * handed out in every idle loop after that, so that a joint left idle allocates nothing.
+   */
+  private Demand hold = holdingAt(Double.NaN);
+
+  /**
+   * @param holdsPositions whether the joint is one that holds positions
+   */
+  Idle(boolean holdsPositions) {
+    this.holdsPositions = holdsPositions;
+    holdsWhenIdle = holdsPositions;
   }
 
-  /** Where it holds, in the joint's units: NaN until the joint is first read. */
-  double at() {
-    return at;
+  /** Where the joint holds when idle, or empty while there is nowhere to hold yet. */
+  OptionalDouble at() {
+    return holdsAt;
   }
 
-  /** It holds at a position from now: where the joint was read, or where homing found it. */
+  /** From now on the joint holds at a position: where it was read, or where its homing found it. */
   void holdAt(double position) {
-    at = position;
+    if (Double.isNaN(position)) {
+      holdsAt = OptionalDouble.empty();
+    } else {
+      holdsAt = OptionalDouble.of(position);
+    }
+    hold = holdingAt(position);
   }
 
   /**
-   * A move to a position ended: it holds where the move arrived, or, if it didn't, where the joint
-   * comes to a stop, so a joint that jammed holds where it jammed rather than pushing on toward a
-   * target it couldn't reach.
+   * A move to a position ended, and the joint holds from now on.
+   *
+   * @param position where the move arrived. If it did not arrive, where the joint comes to a stop,
+   *     so that a joint that jammed holds where it jammed and does not push on toward a position it
+   *     could not reach.
    */
   void moveEnded(double position) {
-    holds = true;
-    at = position;
+    holdsWhenIdle = true;
+    holdAt(position);
+  }
+
+  /** A command asked something of the joint this loop, which decides what it does idle next. */
+  void commandAsked(JointAsk asked) {
+    holdsWhenIdle = holdsPositions || asked instanceof JointAsk.ToPosition;
   }
 
   /**
-   * What the joint does this loop: what a command asked, or, when none did, its idle.
+   * What the joint does this loop, no command having asked anything of it.
    *
-   * @param asked what a command asked this loop, or {@link Demand#NONE}
-   * @param applied what it was driven at the loop before
-   * @param here where it is, inside its limits: where it holds from an output or a stop
+   * @param lastLoop what the joint's motors were told in the loop before
+   * @param here where the joint is now, inside its limits
    */
-  Demand resolve(Demand asked, Request applied, double here) {
-    if (asked.kind() != Request.NONE) {
-      holds = asked.kind() == Request.POSITION || positional;
-      return asked;
+  Demand demand(Applied lastLoop, double here) {
+    if (!holdsWhenIdle) {
+      return Demand.NEUTRAL;
     }
-    if (!holds) {
-      return Demand.of(Request.NEUTRAL, 0, 1);
+    if (lastLoop.wasToAPosition()) {
+      return hold;
     }
-    if (applied != Request.POSITION) {
-      // From an output, or a stop: it holds where it is now, its profile from there.
-      at = here;
-      return Demand.of(Request.POSITION, at, 1).restarted();
-    }
-    return Demand.of(Request.POSITION, at, 1);
+    // The joint was running at an output, or was not driven at all. It holds where it is now, and
+    // its profile starts from there.
+    holdAt(here);
+    return hold.restartingProfile();
+  }
+
+  private static Demand holdingAt(double position) {
+    return Demand.of(new JointAsk.ToPosition(position, JointAsk.FULL_CRUISE));
   }
 }
