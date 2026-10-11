@@ -7,8 +7,8 @@ import java.util.function.Supplier;
 import org.wpilib.framework.RobotBase;
 
 /**
- * The robot program: what the team's {@code Main} hands over, and the one place the program starts.
- * The program never names a team class; it is given what it needs.
+ * What a team's {@code Main} hands the robot program, and the one place the program starts. The
+ * runtime never names a team's class. It is given what it needs here instead.
  *
  * <p>{@code Main} is one call:
  *
@@ -36,7 +36,10 @@ public record RobotProgram(
     start(robot, season, controls, BuildInfo.UNKNOWN);
   }
 
-  /** Starts the robot program. WPILib calls the robot's constructor once it is ready. */
+  /**
+   * Starts the robot program. This hands WPILib a way to make the robot, and WPILib makes it once
+   * its own startup is done.
+   */
   public static void start(
       Supplier<RobotConfig> robot,
       Function<Body, Game> season,

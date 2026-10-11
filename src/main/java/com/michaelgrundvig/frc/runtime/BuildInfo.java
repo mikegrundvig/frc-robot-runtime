@@ -1,8 +1,8 @@
 package com.michaelgrundvig.frc.runtime;
 
 /**
- * Which code is running, as the robot's log records it at startup: every log says exactly which
- * build produced it. The team's {@code Main} fills it from the build's generated constants.
+ * Which code is running. The robot's log records it at startup, so every log says exactly which
+ * build produced it. A team's {@code Main} fills it in from the build's generated constants.
  *
  * @param projectName the project's name
  * @param buildDate when it was built, as text
@@ -24,7 +24,7 @@ public record BuildInfo(
     COMMITTED("All changes committed"),
     /** The tree had edits the commit lacks. */
     UNCOMMITTED("Uncommitted changes"),
-    /** Git wasn't available to say. */
+    /** Git was not available to say. */
     UNKNOWN("Unknown");
 
     private final String text;
@@ -38,7 +38,10 @@ public record BuildInfo(
       return text;
     }
 
-    /** From the build's flag: 0 for a clean tree, 1 for edits, anything else for unknown. */
+    /**
+     * The value for the build's flag. The build writes 0 for a clean tree and 1 for a tree with
+     * edits. Any other number means it could not tell.
+     */
     public static Changes fromFlag(int flag) {
       return switch (flag) {
         case 0 -> COMMITTED;

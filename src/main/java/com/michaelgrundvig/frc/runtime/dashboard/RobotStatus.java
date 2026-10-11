@@ -3,9 +3,9 @@ package com.michaelgrundvig.frc.runtime.dashboard;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
 
 /**
- * The robot's state, as the drive team's dashboard shows it: what it needs to know before and
- * during a match, in words and yes-or-no. Built by name once a loop, after the robot has updated
- * everything it reads.
+ * The robot's state, as the drive team's dashboard shows it: what the drive team needs to know
+ * before and during a match, each as words or as a yes or no. One is built, by name, once a loop,
+ * after the robot has updated everything it reads.
  *
  * @param readyToScore whether localization is good enough to score from
  * @param scoring "Ready to score", or why not

@@ -8,15 +8,16 @@ import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import org.wpilib.command3.Scheduler;
 
 /**
- * What the robot program asks of the team's code: a team's {@code Controls} constructor, called
- * once, after the mechanisms are built, with everything behavior reaches. {@code Controls::new} is
- * one. A test makes its own the same way, and gets what it makes back.
+ * What the robot program asks of a team's code. It is the shape of a team's {@code Controls}
+ * constructor, so {@code Controls::new} is one. The program calls it once, after the mechanisms are
+ * built, with everything that behavior reaches. A test makes its own controls the same way, and
+ * gets back what it made.
  *
  * @param <T> what is made: a team's controls
  */
 @FunctionalInterface
 public interface ControlsMaker<T> {
-  /** Binds nothing: for a robot whose behavior a test supplies itself. */
+  /** Controls that bind nothing, for a robot whose behavior a test supplies itself. */
   ControlsMaker<String> NONE =
       (scheduler, robot, joints, drive, driver, operator, autos) -> "no controls";
 

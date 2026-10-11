@@ -16,13 +16,13 @@ import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.Optional;
 
 /**
- * Everything the code needs to know about one physical robot. Each robot the team builds is one
- * instance in {@code Robots}. Every value is checked when the record is built, so a bad value fails
- * at startup, and before that in the tests, which build every robot.
+ * Everything the code needs to know about one physical robot. Each robot a team builds is one of
+ * these in {@code Robots}. Every value is checked as the record is built, so a bad value fails as
+ * the program starts, and fails before that in the tests, which build every robot.
  *
- * <p>What the robot is, its definition, is read by everything that needs to know the robot:
- * localization, the simulator, the views. The rest is how this program drives it, wires it, and
- * judges what its sensors say.
+ * <p>The definition says what the robot is. Everything that needs to know the robot reads it:
+ * localization, the simulator, the views. The other values say how this program judges what the
+ * robot's sensors tell it.
  *
  * @param definition what the robot is: its body, drivetrain, cameras, IMUs and joints, where each
  *     is mounted, and, in each one's block, how it's driven and wired
@@ -35,6 +35,9 @@ public record RobotConfig(
     RobotDefinition definition, VisionConfig vision, EstimatorConfig estimator) {
   public RobotConfig {
     Optional<SwerveWiring> drivetrainWiring = definition.drivetrain().wiring();
+    // The definition's own findings come first, then what this program cannot drive: a drivetrain
+    // wired in a way the template has no modules for, a joint it cannot run, and an interlock it
+    // cannot enforce.
     Checks.on(RobotConfig.class, definition.name())
         .findings("definition", definition::findings)
         .check(
@@ -50,15 +53,15 @@ public record RobotConfig(
     return RobotConfigBuilder.builder();
   }
 
-  /** How the drivetrain is driven, from its block: its limits and gains, tunable live. */
+  /** How the drivetrain is driven, from its block: its limits and gains, which the pit can tune. */
   public DrivetrainControl drivetrain() {
     return definition.drivetrain().control().orElseThrow();
   }
 
   /**
-   * Where the drivetrain's devices are on the CAN bus, and how its encoders read, from its block:
-   * empty for a robot that only runs in simulation, whose drivetrain then stays still on real
-   * hardware.
+   * Where the drivetrain's devices are on the CAN bus, and how its encoders read, from its block. A
+   * robot that only runs in simulation has none, and on real hardware its drivetrain would then
+   * stay still.
    */
   public Optional<SwerveWiring> drivetrainWiring() {
     return definition.drivetrain().wiring();
@@ -70,8 +73,8 @@ public record RobotConfig(
   }
 
   /**
-   * The same robot under another name: a practice robot of its design, which {@code Robots.all}
-   * lists beside it, {@code COMPETITION.named("practice").with(...)}.
+   * The same robot under another name. This is how a practice robot of the same design is made, for
+   * {@code Robots.all} to list beside it: {@code COMPETITION.named("practice").with(...)}.
    */
   public RobotConfig named(String name) {
     return redefined(definition.named(name));

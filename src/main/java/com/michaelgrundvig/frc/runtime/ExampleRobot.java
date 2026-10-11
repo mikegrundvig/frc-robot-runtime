@@ -49,13 +49,15 @@ import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation3d;
 
 /**
- * The robot docs/mechanisms.md describes, and the one the template runs until a team writes its own
- * ({@code Robots.current()}): an intake (a pivot that swings out, with a roller on its end), a
- * hood, an elevator with an arm on it, and a shooter fed by a feeder and an indexer, on the
- * template's drivetrain and cameras. So the simulator, and Pitwall's status, tuning and
- * experiments, show real mechanisms from the start. The guide's blocks, and Robots.java's example,
- * are this code (DocExamplesTest), and ExampleRobotSimTest builds it as the robot does, so a robot
- * the guide describes is one the robot would start.
+ * The robot that docs/mechanisms.md describes, and the one the template runs until a team writes
+ * its own ({@code Robots.current()}). On the template's drivetrain and cameras it has an intake (a
+ * pivot that swings out, with a roller on its end), a hood, an elevator with an arm on it, and a
+ * shooter fed by a feeder and an indexer. With it, the simulator and Pitwall's status, tuning and
+ * experiments show real mechanisms from the start.
+ *
+ * <p>The guide's code blocks, and the example in Robots.java, are copied from this file, and
+ * DocExamplesTest keeps them the same. ExampleRobotSimTest builds this robot the way the robot
+ * program does. So the robot the guide describes is one that would really start.
  */
 public final class ExampleRobot {
   private ExampleRobot() {}
@@ -106,10 +108,16 @@ public final class ExampleRobot {
 
   public static final Position HOOD_DOWN = Position.degrees("down", 0);
 
-  /** A lob's angle: aimed shots follow a computed angle, and this gives the hood a step to test. */
+  /**
+   * The hood's angle for a lob. Aimed shots follow a computed angle and need no named one, so this
+   * is here to give the hood a step to test with.
+   */
   public static final Position HOOD_LOB = Position.degrees("lob", 30);
 
-  /** A hood zeroed level, raised as its angle grows: its kG holds it, along one cosine. */
+  /**
+   * A hood whose zero is level, and which rises as its angle grows. Its kG holds it up against
+   * gravity, scaled by the cosine of its angle.
+   */
   public static final Joint.Revolute HOOD =
       Joint.pivot("hood", Part.CHASSIS, new Translation3d(-0.2, 0, 0.55), Joint.PITCH_UP)
           .range(Range.degrees(0, 40))
@@ -178,10 +186,16 @@ public final class ExampleRobot {
           .motors(Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(51).pdh(8, Amps.of(40))))
           .control(MechanismControl.velocity(0.02));
 
-  /** A typical shot's speed: aimed shots follow a computed one, and this gives a step to test. */
+  /**
+   * The speed of a typical shot. Aimed shots follow a computed speed and need no named one, so this
+   * is here to give the shooter a step to test with.
+   */
   public static final Output SHOOTING = Output.rpm("shooting", 3000);
 
-  /** A flywheel on two motors, the second turned the other way: it coasts when told nothing. */
+  /**
+   * A flywheel on two motors, the second mounted facing the other way. It coasts when nothing is
+   * asked of it.
+   */
   public static final Joint.Revolute SHOOTER =
       Joint.roller("shooter", Part.CHASSIS, new Translation3d(-0.2, 0, 0.45))
           .outputs(SHOOTING)
@@ -230,10 +244,11 @@ public final class ExampleRobot {
    * Frame 27.5 x 27.5 in, the largest square within 2026's 110 in frame perimeter (R104), with
    * bumpers 4 in beyond it (R403) filling the bumper zone, 2.5 to 5.75 in up (R405), and 30 in
    * tall, 2026's starting height limit (R104). The 6.7 kg m^2 yaw inertia is an estimate, not a
-   * measurement; pitch and roll are the model's box, provisional until CAD or a tilt test gives
-   * them. The center of gravity is centered and low, the best case: only the simulator reads it,
-   * and the drive's current limit (below) is estimated from it. Left out, it's the frame's center a
-   * third of the robot's height up.
+   * measurement. The pitch and roll inertias are those of a box, which the model works out, and
+   * they stand until CAD or a tilt test gives better ones. The center of gravity is written as
+   * centered and low, which is the best case. Only the simulator reads it, and the drive's current
+   * limit (below) is estimated from it. If it were left out, it would be taken as the frame's
+   * center, a third of the robot's height up.
    */
   private static final Body BODY =
       Body.builder()
@@ -251,13 +266,18 @@ public final class ExampleRobot {
 
   /**
    * SDS MK4i modules with L2 gearing (6.75:1 drive, 150/7:1 steer) and 4 in wheels, driven by
-   * Kraken X60s without FOC: it needs a Phoenix Pro license, and under this drivetrain's 30 A limit
-   * it adds nothing. Free speed: 4.73 m/s. The gearing's losses aren't modeled yet (efficiency 1).
-   * The tread's grip and the drive's and steering's inertia aren't measured, so they're left out
-   * and the module's defaults stand in: PathPlanner's 1.2 for the grip, which the robot says at
-   * startup, and estimates for the inertias, which only the simulator reads, and notes. Measure the
-   * grip with a pull test (docs/characterization.md). The coupling, 50/14 drive motor turns per
-   * turn of the module, is Tuner X's for the MK4i, as a team's 2024 code had it.
+   * Kraken X60s without FOC. FOC needs a Phoenix Pro license, and under this drivetrain's 30 A
+   * limit it adds nothing. The free speed is 4.73 m/s. The gearing's losses are not modeled yet
+   * (efficiency 1).
+   *
+   * <p>The tread's grip and the inertias of the drive and of the steering have not been measured.
+   * They are left out here, so the module's defaults stand in for them. For the grip that is
+   * PathPlanner's 1.2, and the robot says so at startup. For the inertias they are estimates, which
+   * only the simulator reads, and which it notes. Measure the grip with a pull test
+   * (docs/characterization.md).
+   *
+   * <p>The coupling, 50/14 turns of the drive motor for each turn of the module, is Tuner X's value
+   * for the MK4i, as one team's 2024 code had it.
    */
   private static final DrivetrainGeometry.ModuleType MODULES =
       DrivetrainGeometry.ModuleType.builder()
@@ -324,12 +344,13 @@ public final class ExampleRobot {
 
   /**
    * A 1280 x 800 global-shutter camera with an 80 degree diagonal field of view, typical for
-   * AprilTags. The frame rate and latency are guesses: measure yours (the Vision log's {@code
-   * LatencySeconds} for each camera). The latency matters on the robot, not only in the simulator,
-   * which runs its cameras with it: an image arriving more than {@code
-   * VisionConfig.latencyMarginSeconds} later than it is left out, so a guess too low drops images.
-   * The 7 m sight range is a guess too, the simulator's all along: measure where yours stops
-   * finding a tag (docs/characterization.md, camera noise).
+   * AprilTags. The frame rate and the latency are guesses, so measure yours (the Vision log has
+   * {@code LatencySeconds} for each camera). The latency matters on the robot, and not only in the
+   * simulator, which runs its cameras with that latency. An image that arrives more than {@code
+   * VisionConfig.latencyMarginSeconds} later than the latency says is left out, so a guess that is
+   * too low drops images. The 7 m sight range is a guess as well, and has always been the
+   * simulator's. Measure where your camera stops finding a tag (docs/characterization.md, camera
+   * noise).
    */
   private static final CameraConfig.Sensor APRILTAG_CAMERA =
       CameraConfig.Sensor.builder()

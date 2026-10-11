@@ -5,16 +5,20 @@ import org.littletonrobotics.junction.LogDataReceiver;
 import org.littletonrobotics.junction.LogTable;
 
 /**
- * Streams the log to dashboards: every loop in the pit, and one loop in {@link #FIELD_DIVISOR} on
- * the field, where the radio's bandwidth is capped and the log on the robot's drive keeps
- * everything anyway. Whether the field is attached comes from the logged Driver Station data
- * itself, so a replay streams the same loops.
+ * Streams the log to dashboards. In the pit every loop is streamed. On the field only one loop in
+ * {@link #FIELD_DIVISOR} is, because the radio's bandwidth is capped there, and the log on the
+ * robot's drive keeps every loop anyway.
+ *
+ * <p>Whether the field is attached is read from the Driver Station data in the log itself, so a
+ * replay streams the same loops the robot did.
  */
 public final class DashboardStream implements LogDataReceiver {
-  /** On the field, stream one loop in this many: 10 Hz. */
+  /** On the field, one loop in this many is streamed, which comes to 10 Hz. */
   static final int FIELD_DIVISOR = (int) Math.round(RobotLoop.FREQUENCY_HZ / 10);
 
   private final LogDataReceiver dashboards;
+
+  /** How many loops have been offered to the stream so far. */
   private long loops;
 
   /**
@@ -37,7 +41,8 @@ public final class DashboardStream implements LogDataReceiver {
   @Override
   public void putTable(LogTable table) throws InterruptedException {
     boolean onTheField = table.get("DriverStation/FMSAttached", false);
-    if (!onTheField || loops % FIELD_DIVISOR == 0) {
+    boolean isThisLoopsTurn = loops % FIELD_DIVISOR == 0;
+    if (!onTheField || isThisLoopsTurn) {
       dashboards.putTable(table);
     }
     loops++;
