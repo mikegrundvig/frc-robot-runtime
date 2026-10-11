@@ -115,6 +115,7 @@ The guides are written for a robot program that has this repository as `runtime/
 template does: a path such as `runtime/src/main/java/...` is from that program's root (drop
 `runtime/` in this repository), and `./gradlew run` is the program's.
 
+- [Start here](docs/guide.md): how a robot is written, a twenty-minute read before the rest
 - [Mechanisms](docs/mechanisms.md): describe a mechanism in one block, use its commands
 - [Driving](docs/driving.md): the drivetrain's moves
 - [Autos](docs/autos.md): declaring, choosing, running and checking autos
