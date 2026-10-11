@@ -53,9 +53,9 @@ final class SharedErrors {
     }
     this.column[count] = column;
     this.variance[count] = variance;
-    seenByRow[PoseFilter.X][count] = seenByX;
-    seenByRow[PoseFilter.Y][count] = seenByY;
-    seenByRow[PoseFilter.HEADING][count] = seenByHeading;
+    seenByRow[StateLayout.X][count] = seenByX;
+    seenByRow[StateLayout.Y][count] = seenByY;
+    seenByRow[StateLayout.HEADING][count] = seenByHeading;
     count++;
   }
 
