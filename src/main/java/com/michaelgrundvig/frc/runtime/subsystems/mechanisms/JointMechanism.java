@@ -396,7 +396,13 @@ public final class JointMechanism implements Mechanism {
     } else {
       travel =
           new Travel(
-              joint, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false, 1, 1, 0);
+              joint,
+              Double.NEGATIVE_INFINITY,
+              Double.POSITIVE_INFINITY,
+              Travel.Taking.AS_IT_IS,
+              1,
+              1,
+              0);
       freeSpeed = 0;
       kA = 0;
       kV = 0;
