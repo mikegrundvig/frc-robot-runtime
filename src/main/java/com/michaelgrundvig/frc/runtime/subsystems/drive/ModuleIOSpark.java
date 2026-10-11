@@ -4,6 +4,7 @@ import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Rotations;
 
+import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
@@ -53,6 +54,13 @@ import org.wpilib.system.RobotController;
  * <p><b>Odometry</b> is read once a loop, not at the TalonFX modules' 250 Hz: each loop gives one
  * reading.
  *
+ * <p><b>Restarts.</b> A SPARK that loses power and comes back says so in its sticky warnings
+ * ({@link RevRestarts}). It comes back with the settings saved on it: what the wiring decides, and
+ * the gains and limits it was first sent. Whatever was tuned since is not saved, since it belongs
+ * to the session, so a restarted SPARK is sent it again ({@link #sendTuningAgainAfterARestart}).
+ * The steering needs telling nothing else, because its angle is its absolute encoder's. The drive
+ * comes back counting its motor from 0, and nothing here corrects for that.
+ *
  * <p><b>A frame that does not come</b> leaves the module's last reading standing, so the wheel
  * reads as not having moved for that loop and not as back at 0 ({@link #takeTheFramesThatCame}).
  *
@@ -81,6 +89,14 @@ final class ModuleIOSpark implements ModuleIO {
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
+  /**
+   * Each SPARK is asked whether it restarted once in this many loops, ten times a second. Its
+   * warning stays set until it is cleared, so no restart is missed, and one is acted on within a
+   * tenth of a second. Asking every loop would cost more than it is worth: REV makes about 64 bytes
+   * of objects for each SPARK each time it is asked (measured on REVLib 2027.0.0-alpha-8).
+   */
+  static final int RESTART_LOOPS = 5;
+
   private final SparkBase drive;
   private final SparkBase steer;
   private final RelativeEncoder driveEncoder;
@@ -106,6 +122,26 @@ final class ModuleIOSpark implements ModuleIO {
    * are saved on the SPARKs and waited for. After that they are sent without waiting.
    */
   private boolean configured;
+
+  /**
+   * The gains and limits each SPARK was last sent ({@link #configure}), kept to send again to one
+   * that restarts. Until the first are sent each is a blank configuration, which changes nothing on
+   * a SPARK.
+   */
+  private SparkBaseConfig driveTuning;
+
+  private SparkBaseConfig steerTuning;
+
+  /**
+   * Whether each SPARK restarted since it was last asked. A restarted SPARK falls back to what was
+   * saved on it, so it is sent the session's tuning again.
+   */
+  private final RevRestarts driveRestarts = new RevRestarts();
+
+  private final RevRestarts steerRestarts = new RevRestarts();
+
+  /** How many loops the module has been read in, to ask its SPARKs about restarts every few. */
+  private int loops;
 
   /** The steering's damping, volts per radian per second of its turning. */
   private double steerKd;
@@ -173,6 +209,12 @@ final class ModuleIOSpark implements ModuleIO {
     if (!applied(() -> resetAndSave(steer, steerSettings))) {
       noteUnconfigured("steering motor " + wiring.steerId());
     }
+    // Each SPARK's "has reset" warning is cleared now, so that what set it before the robot started
+    // is not taken for a restart.
+    drive.clearFaults();
+    steer.clearFaults();
+    driveTuning = blank(driveController);
+    steerTuning = blank(steerController);
     driveEncoder = drive.getEncoder();
     steerEncoder = steer.getAbsoluteEncoder();
     driveLoop = drive.getClosedLoopController();
@@ -305,6 +347,7 @@ final class ModuleIOSpark implements ModuleIO {
     // The frames are handed straight to a small step that takes numbers out of them, and nothing
     // else is handed them. Measured: handing the four frames on to everything below instead cost
     // 160 bytes more a loop, since the JIT then had to keep each frame as an object.
+    sendTuningAgainAfterARestart();
     takeTheFramesThatCame(
         driveEncoder.getPosition(),
         driveEncoder.getVelocity(),
@@ -323,8 +366,41 @@ final class ModuleIOSpark implements ModuleIO {
       Signal<Double> motorRpm,
       Signal<Double> encoderTurns,
       Signal<Double> encoderRpm) {
+    sendTuningAgainAfterARestart();
     takeTheFramesThatCame(motorTurns, motorRpm, encoderTurns, encoderRpm);
     fill(inputs);
+  }
+
+  /**
+   * Sends each SPARK that restarted since the last loop the session's tuning again. A restarted
+   * SPARK has fallen back to what was saved on it at startup: the gains and limits of the first
+   * {@link #configure}, without whatever was tuned since. Each is asked once in {@link
+   * #RESTART_LOOPS} loops.
+   */
+  private void sendTuningAgainAfterARestart() {
+    boolean asksThisLoop = loops % RESTART_LOOPS == 0;
+    loops++;
+    if (!asksThisLoop) {
+      return;
+    }
+    if (restarted(drive, driveRestarts)) {
+      sendWhileRunning(drive, driveTuning);
+    }
+    if (restarted(steer, steerRestarts)) {
+      sendWhileRunning(steer, steerTuning);
+    }
+  }
+
+  /**
+   * Whether a SPARK restarted since the last loop, from its sticky "has reset" warning. Its faults
+   * are cleared when it did, so that its next restart can show.
+   */
+  private static boolean restarted(SparkBase spark, RevRestarts restarts) {
+    if (!restarts.happened(spark.getStickyWarnings())) {
+      return false;
+    }
+    spark.clearFaults();
+    return true;
   }
 
   /**
@@ -412,14 +488,14 @@ final class ModuleIOSpark implements ModuleIO {
   @Override
   public void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
     steerKd = gains.steerKd();
-    SparkBaseConfig driveTuning = blank(driveController);
+    driveTuning = blank(driveController);
     driveTuning.smartCurrentLimit(wholeAmps(limits.driveStatorCurrent().in(Amps)));
     driveTuning.closedLoop.p(driveKpAsAShare(gains), ClosedLoopSlot.kSlot0);
-    SparkBaseConfig steerTuning = blank(steerController);
+    steerTuning = blank(steerController);
     steerTuning.smartCurrentLimit(wholeAmps(limits.steerStatorCurrent().in(Amps)));
     steerTuning.closedLoop.p(steerKpAsAShare(gains), ClosedLoopSlot.kSlot0);
     if (!configured) {
-      saveAtStartup(driveTuning, steerTuning);
+      saveAtStartup();
       configured = true;
       return;
     }
@@ -458,7 +534,7 @@ final class ModuleIOSpark implements ModuleIO {
    * Saves the gains and limits on the SPARKs, on top of what the constructor saved, and waits for
    * each to confirm. One that doesn't is noted, for the drivetrain's alert.
    */
-  private void saveAtStartup(SparkBaseConfig driveTuning, SparkBaseConfig steerTuning) {
+  private void saveAtStartup() {
     if (!applied(() -> addAndSave(drive, driveTuning))) {
       noteUnconfigured("drive motor's gains");
     }

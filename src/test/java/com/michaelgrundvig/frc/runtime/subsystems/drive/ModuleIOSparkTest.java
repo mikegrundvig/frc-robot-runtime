@@ -2,23 +2,33 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
+import com.michaelgrundvig.frc.world.robot.DrivetrainControlGainsBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.revrobotics.PersistMode;
 import com.revrobotics.REVLibError;
 import com.revrobotics.RelativeEncoder;
+import com.revrobotics.ResetMode;
 import com.revrobotics.sim.SparkAbsoluteEncoderSim;
+import com.revrobotics.sim.SparkSimFaultManager;
 import com.revrobotics.spark.ClosedLoopSlot;
+import com.revrobotics.spark.SparkBase;
 import com.revrobotics.spark.SparkFlex;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.SparkSim;
+import com.revrobotics.spark.config.SparkBaseConfig;
+import com.revrobotics.spark.config.SparkFlexConfig;
+import com.revrobotics.spark.config.SparkMaxConfig;
 import com.revrobotics.util.Signal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -208,5 +218,118 @@ class ModuleIOSparkTest {
         .isCloseTo(driveKp, within(1e-6 * driveKp + 1e-9));
     assertThat(((SparkMax) io.steer()).configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0))
         .isCloseTo(steerKp, within(1e-6 * steerKp));
+  }
+
+  /** REV's sticky warning that a SPARK has reset, which it sets as it starts. */
+  private static final SparkBase.Warnings HAS_RESET =
+      new SparkBase.Warnings(false, false, false, false, false, false, true, false);
+
+  /**
+   * A module's SPARK that restarts comes back with what was saved on it at startup, without the
+   * gains and limits tuned since. Each of the module's two SPARKs says it restarted in its sticky
+   * warnings, and is sent the session's tuning again: the drive's first, while the steering, which
+   * did not restart, is left alone, and then the steering's. REV's simulation keeps what it was
+   * told through a restart, so the test puts each SPARK back on its startup tuning, as a restart
+   * would.
+   */
+  @Test
+  void aRestartedSparkIsToldItsTuningAgain() {
+    ModuleIOSpark io = module(26, 6, 0);
+    SparkFlex drive = (SparkFlex) io.drive();
+    SparkMax steer = (SparkMax) io.steer();
+    DrivetrainControl control = ExampleRobot.SIM.drivetrain();
+    DrivetrainControl.Gains tunedGains =
+        DrivetrainControlGainsBuilder.builder(control.gains())
+            .driveKp(2 * control.gains().driveKp())
+            .steerKp(2 * control.gains().steerKp())
+            .build();
+    DrivetrainControl.Limits tunedLimits =
+        DrivetrainControlLimitsBuilder.builder(control.limits())
+            .driveStatorCurrent(Amps.of(33))
+            .steerStatorCurrent(Amps.of(17))
+            .build();
+    io.configure(control.gains(), control.limits());
+    double driveKpAtStartup = drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    double steerKpAtStartup = steer.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    int driveAmpsAtStartup = drive.configAccessor.getSmartCurrentLimit();
+    int steerAmpsAtStartup = steer.configAccessor.getSmartCurrentLimit();
+    io.configure(tunedGains, tunedLimits);
+    ModuleIO.ModuleIOInputs inputs = new ModuleIO.ModuleIOInputs();
+    // Each SPARK's warning reads clear once, after the module cleared it as it started.
+    readUntilItAsksAboutRestarts(io, inputs);
+
+    fallBackToStartup(drive, new SparkFlexConfig(), driveKpAtStartup, driveAmpsAtStartup);
+    fallBackToStartup(steer, new SparkMaxConfig(), steerKpAtStartup, steerAmpsAtStartup);
+    new SparkSimFaultManager(drive).setStickyWarnings(HAS_RESET);
+    readUntilItAsksAboutRestarts(io, inputs);
+    double driveKp = drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    int driveAmps = drive.configAccessor.getSmartCurrentLimit();
+    double steerKpLeftAlone = steer.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    new SparkSimFaultManager(steer).setStickyWarnings(HAS_RESET);
+    readUntilItAsksAboutRestarts(io, inputs);
+
+    assertThat(driveKp)
+        .as("the drive's tuned kP, again")
+        .isCloseTo(2 * driveKpAtStartup, within(1e-6 * driveKpAtStartup + 1e-12));
+    assertThat(driveAmps).as("the drive's tuned current limit, again").isEqualTo(33);
+    assertThat(steerKpLeftAlone)
+        .as("the steering did not restart, so nothing is sent to it")
+        .isEqualTo(steerKpAtStartup);
+    assertThat(steer.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0))
+        .as("the steering's tuned kP, again")
+        .isCloseTo(2 * steerKpAtStartup, within(1e-6 * steerKpAtStartup));
+    assertThat(steer.configAccessor.getSmartCurrentLimit())
+        .as("the steering's tuned current limit, again")
+        .isEqualTo(17);
+  }
+
+  /**
+   * A restart is acted on once: the tuning is sent again as the restart is reported, and not in the
+   * loops after it.
+   */
+  @Test
+  void aRestartIsActedOnOnce() {
+    ModuleIOSpark io = module(2, 4, 0);
+    SparkFlex drive = (SparkFlex) io.drive();
+    DrivetrainControl control = ExampleRobot.SIM.drivetrain();
+    io.configure(control.gains(), control.limits());
+    double kPAtStartup = drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    int ampsAtStartup = drive.configAccessor.getSmartCurrentLimit();
+    io.configure(
+        DrivetrainControlGainsBuilder.builder(control.gains())
+            .driveKp(2 * control.gains().driveKp())
+            .build(),
+        control.limits());
+    ModuleIO.ModuleIOInputs inputs = new ModuleIO.ModuleIOInputs();
+    readUntilItAsksAboutRestarts(io, inputs);
+    new SparkSimFaultManager(drive).setStickyWarnings(HAS_RESET);
+    readUntilItAsksAboutRestarts(io, inputs);
+    double sentAgain = drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+
+    // The loops after the restart was reported: whatever the SPARK holds now is not written over.
+    fallBackToStartup(drive, new SparkFlexConfig(), kPAtStartup, ampsAtStartup);
+    readUntilItAsksAboutRestarts(io, inputs);
+    readUntilItAsksAboutRestarts(io, inputs);
+
+    assertThat(sentAgain).as("the tuned kP, sent again").isGreaterThan(1.5 * kPAtStartup);
+    assertThat(drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0))
+        .as("nothing was sent after the one restart")
+        .isEqualTo(kPAtStartup);
+  }
+
+  /** Reads the module through enough loops that it asks its SPARKs about restarts once. */
+  private static void readUntilItAsksAboutRestarts(
+      ModuleIOSpark io, ModuleIO.ModuleIOInputs inputs) {
+    for (int loop = 0; loop < ModuleIOSpark.RESTART_LOOPS; loop++) {
+      io.updateInputs(inputs);
+    }
+  }
+
+  /** Puts a SPARK's gain and current limit back as they were saved at startup. */
+  private static void fallBackToStartup(
+      SparkBase spark, SparkBaseConfig blank, double kP, int statorAmps) {
+    blank.smartCurrentLimit(statorAmps);
+    blank.closedLoop.p(kP, ClosedLoopSlot.kSlot0);
+    spark.configure(blank, ResetMode.kNoResetSafeParameters, PersistMode.kNoPersistParameters);
   }
 }

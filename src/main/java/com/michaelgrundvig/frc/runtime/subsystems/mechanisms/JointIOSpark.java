@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.lib.rev.RevMechanism;
+import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
 import com.michaelgrundvig.frc.runtime.lib.wiring.CanPorts;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
@@ -106,18 +107,13 @@ public final class JointIOSpark implements JointIO {
   }
 
   /**
-   * Whether a SPARK has restarted since it was last asked.
-   *
-   * <p>A SPARK sets a sticky warning, "has reset", as it starts, and keeps it until its faults are
-   * cleared. This clears it as the robot starts and again after each restart it reports. A clear
-   * takes a frame or more to show, so after clearing, the warning is not believed until a frame has
-   * shown it clear. Otherwise one restart would be reported for several loops.
+   * Whether a SPARK has restarted since it was last asked, from its sticky "has reset" warning
+   * ({@link RevRestarts}). The SPARK's faults are cleared as the robot starts and again after each
+   * restart it reports, so that the next one can show.
    */
   private static final class Restarts {
     private final SparkBase spark;
-
-    /** Whether the warning has read clear since it was last cleared. Only then is it believed. */
-    private boolean seenClear;
+    private final RevRestarts seen = new RevRestarts();
 
     Restarts(SparkBase spark) {
       this.spark = spark;
@@ -125,20 +121,10 @@ public final class JointIOSpark implements JointIO {
     }
 
     boolean happened() {
-      Signal<SparkBase.Warnings> sticky = spark.getStickyWarnings();
-      if (!sticky.isValid()) {
-        return false;
-      }
-      boolean hasReset = sticky.get().hasReset;
-      if (!seenClear) {
-        seenClear = !hasReset;
-        return false;
-      }
-      if (!hasReset) {
+      if (!seen.happened(spark.getStickyWarnings())) {
         return false;
       }
       spark.clearFaults();
-      seenClear = false;
       return true;
     }
   }
