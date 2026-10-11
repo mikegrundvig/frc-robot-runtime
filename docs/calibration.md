@@ -142,7 +142,7 @@ carries straight into the radius.
 
 ## A camera's mount
 
-*Calibrate the front-left camera's mount (20 s, drive slowly past tags).*
+*Calibrate the front-left camera's mount (20 s, stop at several spots in view of tags).*
 
 Each camera has its own action. Drive the robot to a spot where the camera sees tags, and stop for
 two seconds; then another spot, nearer or farther, turned a little; six spots or so, from about a

@@ -180,7 +180,8 @@ public final class Calibration {
   /** The name of the Pitwall action that calibrates a camera's mount, from the camera's name. */
   public static String cameraMountAction(String camera) {
     return format(
-        "Calibrate the %s camera's mount (%.0f s, drive slowly past tags)", camera, MOUNT_SECONDS);
+        "Calibrate the %s camera's mount (%.0f s, stop at several spots in view of tags)",
+        camera, MOUNT_SECONDS);
   }
 
   // ---- The wheel radius ----
@@ -362,7 +363,8 @@ public final class Calibration {
 
   /**
    * Finds where a camera really is, from the tags it sees while the other cameras hold the robot's
-   * pose. The drive team drives slowly past tags, nearer and farther, for twenty seconds.
+   * pose. The drive team stops at several spots in view of tags, nearer and farther, within twenty
+   * seconds: an image counts only once the robot has stood still for half a second.
    *
    * @param name the name of a camera on the chassis
    * @throws IllegalArgumentException if no camera on the chassis has this name
@@ -407,8 +409,9 @@ public final class Calibration {
     } else {
       report(
           format(
-              "%s: too few sightings (%d) to place it. Drive slowly past tags,"
-                  + " nearer and farther, where the other cameras see tags too.",
+              "%s: too few sightings (%d) to place it. Stop for two seconds at each of several"
+                  + " spots where it sees tags, nearer and farther, and where the other cameras"
+                  + " see tags too: an image counts only while the robot stands still.",
               camera.name(), mount.sightings()));
     }
   }
