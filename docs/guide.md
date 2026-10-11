@@ -391,9 +391,15 @@ pass.
 The loop runs in every mode. What changes is what the robot may do.
 
 **Disabled** means the loop still reads sensors and still works out where the robot is, but no
-joint is driven. The pit's choice of auto is taken only while the robot is disabled. When the
-robot is enabled again, each joint holds wherever it is at that moment. It does not jump back to
-an old target.
+joint is driven. The pit's choice of auto is taken only while the robot is disabled.
+
+Disabling does not cancel a command. A command that is running when the robot is disabled keeps
+running. Its joints are not driven, its deadlines keep counting, and letting go of its button
+still cancels it. When the robot is enabled again, a joint with no command holds wherever it is
+at that moment. It does not jump back to an old target. A joint whose command is still running
+picks up where that command left off. So a trigger held through a disable starts its intake again
+the moment the robot is enabled, and a move that was part way there carries on. The one command
+that is ended for you is the auto. `DisablingSimTest` runs each of these cases.
 
 **Autonomous** is enabled with nobody driving. On the pass it begins, the runtime starts the
 chosen auto's command. On the pass it ends, the runtime cancels that command if it is still
