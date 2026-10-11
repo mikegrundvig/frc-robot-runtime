@@ -173,6 +173,28 @@ class InterlocksTest {
   }
 
   /**
+   * A hold that lasts hands out one demand, not a new one each loop: the same demand asked, and the
+   * joint, still moving, held at the same edge. A different demand asked gets a new one, and so
+   * does the loop in which the hold changes.
+   */
+  @Test
+  void aHoldThatLastsHandsOutTheSameDemandEachLoop() {
+    Interlocks pivot = keptOut();
+    Demand asked = toward(130);
+    Demand first = pivot.apply(asked, radians(10), 1, 0, Demands.NO_SENSORS);
+
+    Demand second = pivot.apply(asked, radians(11), 0.5, 0, Demands.NO_SENSORS);
+    Demand askedAnother = pivot.apply(toward(120), radians(11), 0.5, 0, Demands.NO_SENSORS);
+    Demand askedAsBefore = pivot.apply(asked, radians(11), 0.5, 0, Demands.NO_SENSORS);
+
+    assertThat(first.heldBy())
+        .isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(second).isSameAs(first);
+    assertThat(askedAnother).isNotSameAs(first).isEqualTo(first);
+    assertThat(askedAsBefore).isEqualTo(first);
+  }
+
+  /**
    * Overshot into the region from below, it may leave the way it came, and otherwise holds where it
    * would stop as the hold starts, the point worked out once however fast it then goes: worked out
    * again each loop, it ran ahead of a joint its loop hadn't yet slowed, and the joint through the

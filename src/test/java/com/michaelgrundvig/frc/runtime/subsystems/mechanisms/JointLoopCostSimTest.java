@@ -44,8 +44,11 @@ import org.wpilib.system.RobotController;
  * interlocks costs. The numbers are printed, and written to {@code build/joint-loop-cost.txt} under
  * the directory the tests run in.
  *
- * <p>Only the allocation is asserted, and loosely: it is exact and repeatable, where the time
- * depends on what else the computer is doing.
+ * <p>Only the allocation is asserted: it is exact and repeatable, where the time depends on what
+ * else the computer is doing. Every joint is held to a loose bound. A joint under an interlock is
+ * also held to a tight one, because each of these scenarios is a steady state, in which the same
+ * thing is asked and the interlock holds or does not hold as it did the loop before, and enforcing
+ * an interlock through such a loop must make no new objects.
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
@@ -59,6 +62,14 @@ class JointLoopCostSimTest {
 
   /** A joint's loop allocated nothing like this much when this test was written. */
   private static final double MOST_BYTES_A_LOOP = 1000;
+
+  /**
+   * The most a joint under an interlock may allocate a loop, on average, in a steady state. It
+   * measured 0.0 in all four scenarios when this was written. The smallest object is 16 bytes, so
+   * this fails as soon as anything at all is made every loop, and lets pass something made only now
+   * and then.
+   */
+  private static final double MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK = 8;
 
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
@@ -85,7 +96,7 @@ class JointLoopCostSimTest {
   }
 
   /** What one joint's loop cost, averaged over the measured loops. */
-  private record Cost(String what, double bytesALoop, double nanosALoop) {
+  private record Cost(String what, boolean underAnInterlock, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
           Locale.ROOT, "%-58s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
@@ -131,6 +142,11 @@ class JointLoopCostSimTest {
 
     for (Cost cost : costs) {
       assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(MOST_BYTES_A_LOOP);
+      if (cost.underAnInterlock()) {
+        assertThat(cost.bytesALoop())
+            .as(cost.what())
+            .isLessThan(MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK);
+      }
     }
   }
 
@@ -195,7 +211,9 @@ class JointLoopCostSimTest {
         nanos += loopNanos;
       }
     }
-    return new Cost(what, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
+    boolean underAnInterlock = robot == GUARDED;
+    return new Cost(
+        what, underAnInterlock, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
   }
 
   /** What a move would ask each loop: built once, as a move builds it as it begins. */
