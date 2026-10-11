@@ -93,7 +93,8 @@ import org.wpilib.units.Measure;
  * {@code -PmonkeySeed=<seed>} runs it again, exactly (docs/testing.md).
  *
  * <pre>{@code
- * new Monkey(sim, Monkey.robot(ExampleRobot.COMPETITION, Controls::new), seed, 150, true).run();
+ * new Monkey(sim, Monkey.robot(ExampleRobot.COMPETITION, ExampleControls::new), seed, 150, true)
+ *     .run();
  * }</pre>
  */
 public final class Monkey {

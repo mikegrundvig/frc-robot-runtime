@@ -15,7 +15,7 @@ build (below).
 
 | Path | What |
 |---|---|
-| `src/main/java/` | The runtime (`com.michaelgrundvig.frc.runtime`, `com.michaelgrundvig.frc:frc-robot-runtime`). At its top: `RobotProgram` (the entry point), `Robot` (logging, Pitwall, and the loop), `RobotContainer` (builds every mechanism on the hardware for the mode: real, simulated, or replayed from a log), `RobotConfig`, `RunMode`, and `ExampleRobot`, the guide's robot, which the runtime is tested on. Its packages: `subsystems` (`drive`, `localization`, `vision`, `mechanisms`), `hardware`, `behavior`, `autos`, `commands`, `dashboard`, `views`, `venues`, `sim` (the simulated world's adapters), and `lib` (loop timing, Systemcore's CAN ports, the Phoenix and REV helpers). |
+| `src/main/java/` | The runtime (`com.michaelgrundvig.frc.runtime`, `com.michaelgrundvig.frc:frc-robot-runtime`). At its top: `RobotProgram` (the entry point), `Robot` (logging, Pitwall, and the loop), `RobotContainer` (builds every mechanism on the hardware for the mode: real, simulated, or replayed from a log), `RobotConfig`, `RunMode`, and `ExampleRobot`, the guide's robot, which the runtime is tested on, with `ExampleControls`, its buttons and autos. Its packages: `subsystems` (`drive`, `localization`, `vision`, `mechanisms`), `hardware`, `behavior`, `autos`, `commands`, `dashboard`, `views`, `venues`, `sim` (the simulated world's adapters), and `lib` (loop timing, Systemcore's CAN ports, the Phoenix and REV helpers). |
 | `src/testFixtures/java/` | What a team tests its own robot with: `RobotSim`, `Monkey`, `AutoCheck`, the invariants, `GoldenFile`, and the architecture rules a robot program shares (`ProductionRules`). A robot program asks for them as `testFixtures("com.michaelgrundvig.frc:frc-robot-runtime")`. |
 | `src/test/java/` | The runtime's own tests, in the packages of what they test, from single classes to the whole robot in the simulator, on the guide's robot, with its architecture rules (`ArchitectureTest`), the values register's test (`ValuesRegisterTest`) and the guides' examples' test (`DocExamplesTest`). |
 | `lib/localization/` | Localization, a project of its own (`com.michaelgrundvig.frc.localization`): the service the robot runs each loop, the pose estimator and everything that feeds it, and the calibration math. Reads the world model and nothing else of the robot's. |
@@ -37,10 +37,11 @@ this season's field, and what the robot does. The runtime never names a team cla
 RobotProgram.start(
     () -> ExampleRobot.COMPETITION, // which robot this is
     Rebuilt::game, // this season's field and venues
-    Controls::new); // what it does
+    ExampleControls::new); // what it does
 ```
 
-A team passes a method that picks its robot (`Robots::current`) and its own `Controls::new`; a
+That is the guide's robot with the guide's controls (`ExampleControls`, beside `ExampleRobot`). A
+team passes a method that picks its robot (`Robots::current`) and its own `Controls::new`; a
 fourth argument, `BuildInfo`, tells the log which code this is.
 
 ## Using it

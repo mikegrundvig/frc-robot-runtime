@@ -75,9 +75,9 @@ tasks.withType(JavaCompile).configureEach {
 
 // Javadoc's examples are compiled code: {@snippet class=... region=...} shows a region of a source
 // marked // @start region=... and // @end, found on these paths, and javadoc fails, naming it, on a
-// class or region that isn't there. The guide's examples (its robot,
-// src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java, and the rest in
-// src/test/java/com/michaelgrundvig/frc/runtime/examples) serve every project's Javadoc. ci builds
+// class or region that isn't there. The guide's examples (its robot and its controls,
+// ExampleRobot.java and ExampleControls.java in src/main/java/com/michaelgrundvig/frc/runtime, and
+// the rest in src/test/java/com/michaelgrundvig/frc/runtime/examples) serve every project's Javadoc. ci builds
 // it, so a renamed example fails the build. Its comments are checked as the compiler checks them:
 // references only.
 tasks.named("javadoc", Javadoc) {

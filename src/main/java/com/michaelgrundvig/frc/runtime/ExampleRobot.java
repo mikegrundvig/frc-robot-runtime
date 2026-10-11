@@ -53,7 +53,8 @@ import org.wpilib.math.geometry.Translation3d;
  * its own ({@code Robots.current()}). On the template's drivetrain and cameras it has an intake (a
  * pivot that swings out, with a roller on its end), a hood, an elevator with an arm on it, and a
  * shooter fed by a feeder and an indexer. With it, the simulator and Pitwall's status, tuning and
- * experiments show real mechanisms from the start.
+ * experiments show real mechanisms from the start. What it does, and its buttons, are in {@link
+ * ExampleControls}.
  *
  * <p>The guide's code blocks, and the example in Robots.java, are copied from this file, and
  * DocExamplesTest keeps them the same. ExampleRobotSimTest builds this robot the way the robot

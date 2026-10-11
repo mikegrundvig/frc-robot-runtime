@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
+import com.michaelgrundvig.frc.runtime.ExampleControls;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotProgram;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
@@ -15,6 +16,6 @@ final class Main {
     RobotProgram.start(
         () -> ExampleRobot.COMPETITION, // which robot this is
         Rebuilt::game, // this season's field and venues
-        Controls::new); // what it does
+        ExampleControls::new); // what it does
   }
 }

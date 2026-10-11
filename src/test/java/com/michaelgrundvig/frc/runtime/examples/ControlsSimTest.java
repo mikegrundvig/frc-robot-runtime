@@ -9,6 +9,7 @@ import static com.michaelgrundvig.frc.runtime.ExampleRobot.SHOOTER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import com.michaelgrundvig.frc.runtime.ExampleControls;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Binding;
@@ -38,7 +39,7 @@ class ControlsSimTest {
   /** The guide's robot with the guide's controls, enabled in teleop, a few loops in. */
   private JointSimulation enabled() {
     sim.build(ExampleRobot.COMPETITION, SensorErrors.NONE);
-    sim.controls(Controls::new);
+    sim.controls(ExampleControls::new);
     RobotSim.setEnabled(true);
     sim.run(0.1);
     return Objects.requireNonNull(sim.world().joints());

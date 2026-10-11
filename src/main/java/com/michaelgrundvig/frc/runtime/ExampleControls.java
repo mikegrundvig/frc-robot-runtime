@@ -1,4 +1,4 @@
-package com.michaelgrundvig.frc.runtime.examples;
+package com.michaelgrundvig.frc.runtime;
 
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.CLAW_BEAM;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.FEEDER;
@@ -30,14 +30,18 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 
 /**
- * What the guide's robot does, and the drive team's buttons for it, in the class a team writes its
- * behavior in (src/main/java/frc/robot/Controls.java): an intake that ends when its beam sees a
- * piece, a deploy that backs off if it doesn't arrive, an aimed shot that feeds only while the
- * robot is aimed and the shooter is at speed, and two autos. docs/guide.md walks through all of it,
- * docs/mechanisms.md's "Where behavior goes" and docs/autos.md quote it (DocExamplesTest), and
- * ControlsSimTest runs each behavior in the simulator.
+ * What the guide's robot ({@link ExampleRobot}) does, and the drive team's buttons for it, written
+ * as a team writes its own {@code Controls}: an intake that ends when its beam sees a piece, a
+ * deploy that backs off if it doesn't arrive, an aimed shot that feeds only while the robot is
+ * aimed and the shooter is at speed, and two autos.
+ *
+ * <p>It is beside the guide's robot so that a program running that robot can run its controls too:
+ * the template gives the guide's robots these, so the buttons the guide describes work in the
+ * simulator from the start. docs/guide.md walks through all of it, docs/mechanisms.md's "Where
+ * behavior goes" and docs/autos.md quote it (DocExamplesTest), and ControlsSimTest runs each
+ * behavior in the simulator.
  */
-public final class Controls {
+public final class ExampleControls {
   // @start region=constructor
   private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
   private static final Place SHOT = Place.at("Shot", new Pose2d(3, 3, Rotation2d.ZERO));
@@ -47,7 +51,7 @@ public final class Controls {
   private final Drive drive;
   private final Gate pieceIn;
 
-  Controls(
+  public ExampleControls(
       Scheduler scheduler,
       RobotDefinition robot,
       Joints joints,

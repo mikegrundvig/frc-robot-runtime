@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
+import com.michaelgrundvig.frc.runtime.ExampleControls;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.Monkey;
 
@@ -7,5 +8,6 @@ import com.michaelgrundvig.frc.runtime.Monkey;
 public final class ExampleMonkey {
   private ExampleMonkey() {}
 
-  public static final Monkey.Robot ROBOT = Monkey.robot(ExampleRobot.COMPETITION, Controls::new);
+  public static final Monkey.Robot ROBOT =
+      Monkey.robot(ExampleRobot.COMPETITION, ExampleControls::new);
 }

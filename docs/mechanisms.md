@@ -22,8 +22,9 @@ first used.
 8. [When the template can't drive it](#8-when-the-template-cant-drive-it)
 
 The guide's robot is compiled and tested, and it's the robot the template runs until you write
-yours: `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java` has it, `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/` its
-commands (`ExampleCommands`, `Controls`), and a test fails when the guide and the code drift apart.
+yours: `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java` has it, `ExampleControls.java` beside it has
+its buttons and autos, `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/` has more
+commands (`ExampleCommands`), and a test fails when the guide and the code drift apart.
 
 ## 1. An intake: a pivot and a roller
 
@@ -433,13 +434,14 @@ after its mechanisms, and hands it everything behavior reaches: the robot's defi
 which robot it runs on, the joints, with the sensors read beside them, the drivetrain, and two
 gamepads, the driver's on port 0 and the operator's on port 1, and the list its autos are declared in.
 Write each command as a method, and
-bind it in the constructor:
+bind it in the constructor. This is the guide's robot's, `ExampleControls`, which the template runs
+on the guide's robot until you write yours:
 
 ```java fragment
-public final class Controls {
+public final class ExampleControls {
   private final JointMechanism pivot, roller, shooter, feeder, indexer;
 
-  Controls(Scheduler scheduler, RobotDefinition robot, Joints joints, Drive drive,
+  public ExampleControls(Scheduler scheduler, RobotDefinition robot, Joints joints, Drive drive,
       RecordingGamepad driver, RecordingGamepad operator, Autos autos) {
     pivot = joints.of(PIVOT);
     roller = joints.of(ROLLER);

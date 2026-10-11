@@ -9,7 +9,7 @@ when autonomous begins.
 `Controls` gets the robot's `Autos` list. Add an auto with `autos.add(name, start, factory)`. The start
 is one of the field's starts, written for blue like any place; the factory is a method that returns
 the auto's command. This is the guide's robot ([mechanisms](mechanisms.md#where-behavior-goes)), with
-its first auto, from `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Controls.java`:
+its first auto, from `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleControls.java`:
 
 ```java fragment
 private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
@@ -75,7 +75,7 @@ starts, and may be a place of its own: the check reads that one too.
 simulator, from its own start, for the 15 seconds of autonomous:
 
 ```java
-var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, Controls::new);
+var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, ExampleControls::new);
 ```
 
 It fails, with each run reported, if an auto throws, if any drive or joint move in it ends `REFUSED`,

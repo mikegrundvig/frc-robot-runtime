@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.examples;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.michaelgrundvig.frc.runtime.AutoCheck;
+import com.michaelgrundvig.frc.runtime.ExampleControls;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import org.junit.jupiter.api.Test;
@@ -17,7 +18,7 @@ class ExampleAutosSimTest {
 
   @Test
   void theGuidesAutosAndDoNothingPassTheTemplatesCheck() {
-    var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, Controls::new);
+    var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, ExampleControls::new);
 
     assertThat(results)
         .extracting(AutoCheck.Result::auto)

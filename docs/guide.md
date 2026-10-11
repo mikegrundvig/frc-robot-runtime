@@ -4,15 +4,16 @@ This is the readable way in. It takes about half an hour, top to bottom. It expl
 team writes, what the program builds from it, how the program runs, and the calls you will use
 most. It is not a reference, and it links to the guides that have the detail.
 
-The whole page follows one robot. It is the guide's robot, `ExampleRobot`, and its `Controls`
-class. Every block of code below is copied from code that compiles, and nearly all of it is from
-those two files:
+The whole page follows one robot. It is the guide's robot, `ExampleRobot`, and the class that
+holds its behaviour, `ExampleControls`. Every block of code below is copied from code that
+compiles, and nearly all of it is from those two files, which sit side by side:
 
 - `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java`
-- `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Controls.java`
+- `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleControls.java`
 
 A test fails when this page and that code drift apart. Another test, `ControlsSimTest`, runs each
-behaviour described here in the simulator.
+behaviour described here in the simulator. You can run it yourself too. The template runs this
+robot with these controls until you write your own, so every button below works in the simulator.
 
 ## The idea
 
@@ -80,18 +81,19 @@ There are three kinds of file.
 RobotProgram.start(
     () -> ExampleRobot.COMPETITION, // which robot this is
     Rebuilt::game, // this season's field and venues
-    Controls::new); // what it does
+    ExampleControls::new); // what it does
 ```
 
 The first argument answers "which robot is this?". The second is the season's field, which the
-model already describes. The third is your `Controls` class.
+model already describes. The third is the class that holds the robot's behaviour. The guide's
+robot has `ExampleControls`. Yours is called `Controls`.
 
 **The robot's description** is a class of constants. The guide's is `ExampleRobot`. It has an
 intake, which is a pivot with a roller on its end. It has an elevator with an arm on it. It has a
 shooter, with a feeder and an indexer that push pieces into it, and a hood over it.
 
 **`Controls`** is where behaviour goes. It holds your commands, your button bindings and your
-autos.
+autos. The guide's is `ExampleControls`, and this page calls it the guide's controls.
 
 If you know WPILib: there is no `RobotContainer`, no `Constants` and no subsystem classes for you
 to write. `Main`, a description and `Controls` are the whole of a team's code.
@@ -277,7 +279,7 @@ joint, sensor and interlock.
 
 ### A joint's commands
 
-In `Controls` you look a joint up by its constant, as in `joints.of(PIVOT)`. Each one comes with
+In your controls you look a joint up by its constant, as in `joints.of(PIVOT)`. Each one comes with
 its commands already written. These are the three you will use most.
 
 - `pivot.goTo(PIVOT_OUT)` moves the joint to one of its places and ends when it gets there.
@@ -406,7 +408,7 @@ everything behaviour can reach. That is the command scheduler, the robot's descr
 joints, the drivetrain, the two gamepads and the list of autos. This is the guide's constructor:
 
 ```java
-Controls(
+public ExampleControls(
     Scheduler scheduler,
     RobotDefinition robot,
     Joints joints,
@@ -518,7 +520,7 @@ in commands. They sit below every command, in the description.
 
 ## Worked examples
 
-All four are in the guide's `Controls`, and each has a test in `ControlsSimTest`.
+All four are in the guide's `ExampleControls`, and each has a test in `ControlsSimTest`.
 
 ### A sensor ends the intake
 
@@ -661,7 +663,7 @@ The first two hold the robot 20 degrees either side of straight downfield while 
 `drive.lockWheels()` turns the wheels into an X, which makes the robot hard to push.
 
 The drivetrain can also drive itself. `drive.goTo(place)` drives to a spot and stops. These are
-the two spots the guide's `Controls` uses:
+the two spots the guide's controls use:
 
 ```java
 private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
@@ -759,7 +761,7 @@ presses buttons, steps the clock, and checks what happened. The clock moves only
 steps it, so the answer is the same on any laptop. `ControlsSimTest` is the one to read first. It
 has a test for each worked example above, and each is about a dozen lines.
 
-`AutoCheck.check(sim, ExampleRobot.COMPETITION, Controls::new)` runs every auto you declared, on
+`AutoCheck.check(sim, ExampleRobot.COMPETITION, ExampleControls::new)` runs every auto you declared, on
 both alliances. It fails if an auto throws, leaves the field, or has a move refused. The report
 quoted above came from it, in `ExampleAutosSimTest`.
 
@@ -769,17 +771,23 @@ Everything above is the guide's robot. The template is the project your team sta
 `src/main/java/frc/robot`, and it differs in a few ways. Each exists because a real team has
 more than one robot.
 
-**`Controls` starts empty.** The template's `Controls` binds nothing, so the guide's robot sits
-still in the simulator until you add bindings. The guide's `Controls` lives in the runtime's
-examples folder. Copy from it.
+**It runs the guide's robot until you write yours.** `./gradlew run` starts `ExampleRobot` with
+`ExampleControls`, so the buttons on this page work. Enable teleop in Pitwall's Sim view and hold
+the operator's right trigger, and the intake swings out and rolls. Hold the driver's right
+trigger, and the robot turns to the hub and shoots.
+
+**Your behaviour goes in `Controls`.** The template's own `Controls` starts empty. It binds
+nothing. It is the class every robot you add gets, and the template never changes it. Write your
+commands and bindings there, and copy from `ExampleControls` as you go.
 
 **`Robots.java` lists every robot.** `Robots.all()` returns each robot your team has. A test
 builds every one, which is how a bad number in any of them fails the build.
 
 **`Main` picks a robot when the program starts.** The template passes `Robots::current` where the
 guide's `Main` named one robot. `Robots.current()` decides which robot the program is running on.
-It passes `Robots::controls` third, which makes the `Controls` written for that robot. It also
-passes a fourth argument, a stamp that tells the log which build of the code ran.
+It passes `Robots::controls` third, which makes the controls written for that robot. The guide's
+two robots get `ExampleControls`, and a robot you add gets your `Controls`. It also passes a
+fourth argument, a stamp that tells the log which build of the code ran.
 
 **Two real robots are included.** `BetaRobot` and `DeltaRobot` are one team's two 2026 robots
 described this way, with their behaviour in `BetaControls` and `DeltaControls`. Read them when
