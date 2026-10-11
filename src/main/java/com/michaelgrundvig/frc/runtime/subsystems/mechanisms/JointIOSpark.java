@@ -27,103 +27,89 @@ import com.revrobotics.spark.config.SparkBaseConfig;
 import com.revrobotics.util.Signal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.hardware.bus.CANPort;
 import org.wpilib.math.filter.Debouncer;
 
 /**
- * A driven joint on REV hardware: a SPARK MAX or SPARK Flex leading its drive's motors, the rest
- * following it, read by its motor's own encoder. Every setting comes from the REV helper ({@link
- * RevMechanism}), from the robot's definition, the joint's wiring and its control ({@link
- * ControllerSettings#spark}), as a TalonFX's come from the Phoenix helper: nothing is retyped here.
+ * A driven joint on REV hardware: one SPARK MAX or SPARK Flex leading the joint's motors, and the
+ * rest following it.
  *
- * <p>Positions go to the SPARK's loop with the profile's point and the feedforward the robot works
- * out in volts, the plan's law and its kD ({@code ControllerPlan#feedforward}); speeds the same
- * way. A joint is read by its rotor: one with an absolute encoder on the SPARK's data port is told
- * where it is from that encoder's first good reading; one without takes where the joint rests as
- * where it is at power on, until it homes. One whose loop closes on that encoder is read by it
- * instead, each loop, and its positions go to the SPARK's loop in the encoder's turns ({@link
- * RevMechanism.Settings#loopRatio}). Its settings are kept through a brownout: REV's controllers
- * fall back to what's saved on them.
+ * <p><b>Its settings</b> all come from the REV helper ({@link RevMechanism}), which works them out
+ * from the robot's definition, the joint's wiring and its control ({@link
+ * ControllerSettings#spark}), as a TalonFX's come from the Phoenix helper. No setting is typed in
+ * here. They are saved on each SPARK at startup, because a SPARK that browns out falls back to what
+ * is saved on it.
  *
- * <p>Each SPARK's restart is read from its sticky warnings ({@link Restarts}), from a frame it
- * sends anyway. A leader that restarts counts its motor from 0: one told where it is by the encoder
- * on its data port is told again, at once; the joint does the rest ({@link JointMechanism}). A
- * restarted SPARK falls back to what's saved on it, so each is told the pit's tuning again, which
- * isn't saved, and the leader's soft limits are back on.
+ * <p><b>What it asks of the leader.</b> A SPARK's loop runs only the joint's kP (and kI). A
+ * position goes to that loop as the profile's point, with a feedforward in volts that the robot
+ * works out each loop: the plan's own feedforward ({@code ControllerPlan#feedforward}), the volts
+ * the caller adds, and the plan's kD on the difference between the profile's speed and the speed
+ * last read. A speed goes the same way, without the kD term.
+ *
+ * <p><b>Where the joint is.</b> A SPARK counts its motor's turns from wherever it was powered on,
+ * so at startup it is told where the joint is:
+ *
+ * <ul>
+ *   <li>A joint with no absolute encoder is told it is where its definition rests it. Homing
+ *       corrects that later ({@link #resetPosition}).
+ *   <li>A joint with an absolute encoder on the leader's data port is told where it is from that
+ *       encoder's first good reading ({@link #seedMotorOnce}). After that its position is its
+ *       motor's count, and the encoder is read each loop beside it, so a slip between the two shows
+ *       ({@link JointIOInputs#absolutePosition}).
+ *   <li>A joint whose wiring closes the SPARK's loop on that encoder ({@code
+ *       DataPortEncoder#closesLoop}) is read by the encoder every loop instead, and its positions
+ *       go to the SPARK's loop in the encoder's turns ({@link RevMechanism.Settings#loopRatio}).
+ *       The motor's count is reported beside it ({@link JointIOInputs#motorPosition}).
+ * </ul>
+ *
+ * <p><b>Restarts.</b> A SPARK that loses power and comes back says so in its sticky warnings
+ * ({@link Restarts}), in a frame it sends anyway. It comes back counting its motor from 0, with the
+ * settings saved on it. So a restarted leader is told where the joint is again from its absolute
+ * encoder, if it has one, and the joint handles the rest ({@link JointMechanism}). The pit's tuning
+ * is not saved on the SPARK, since it belongs to the session, so every restarted SPARK is sent it
+ * again. The leader's soft limits come back switched on, as they were saved.
  */
 public final class JointIOSpark implements JointIO {
-  /** At startup, configuring a device is tried this many times. */
-  private static final int TRIES = 5;
-
-  private final SparkBase leader;
-  private final List<SparkBase> followers = new ArrayList<>();
-  private final RelativeEncoder encoder;
-  private final SparkClosedLoopController loop;
-
-  /** The kind of SPARK its motors are on: a SPARK MAX or a SPARK Flex. */
-  private final MechanismWiring.Controller controller;
-
-  private final MechanismRotations rotations;
-  private final double rotorRatio;
-  private final String unconfigured;
-
-  /** A controller counts as silent once it has been for half a second, not at one glitch. */
-  private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
-
-  /** The REV settings for a control: the joint's, its drive's and its block's, with it. */
-  private final Function<MechanismControl, RevMechanism.Settings> configure;
-
-  private RevMechanism.Settings settings;
-
-  /** Where the joint is and how fast it moves, last read, in the mechanism's rotations. */
-  private double position;
-
-  private double velocity;
-
-  /** Whether its soft limits are switched off, while it homes past them. */
-  private boolean softLimitsOff;
-
-  /** What the robot's definition derives: where the joint is from its absolute encoder. */
-  private final RobotMath math;
-
-  /** The absolute encoder on the leader's data port, and the definition's, if it has one. */
-  private final @Nullable SparkAbsoluteEncoder absolute;
-
-  private final Sensor.@Nullable Encoder absoluteModel;
-
-  /** Whether the motor's encoder has been told where the joint is, from the absolute encoder. */
-  private boolean seeded;
-
-  /** Its control as the pit last tuned it: what a restarted SPARK is told again. */
-  private MechanismControl tuned;
-
-  /** Whether each SPARK restarted: the leader, then each follower in order. */
-  private final Restarts leaderRestarts;
-
-  private final Restarts[] followerRestarts;
+  /** At startup each SPARK is sent its settings up to this many times, until it confirms them. */
+  private static final int STARTUP_TRIES = 5;
 
   /**
-   * Whether each follower answers, from its frames of faults: half a second without, it doesn't.
+   * How long a SPARK may go without answering before it is called silent. One missed frame is a
+   * glitch, not a lost device.
    */
-  private final Debouncer[] followersAnswer;
+  private static final double SILENT_AFTER_SECONDS = 0.5;
 
-  /** The loops it's been read in. */
-  private int loops;
+  /** A SPARK reports its motor's speed in rotations a minute. */
+  private static final double SECONDS_PER_MINUTE = 60;
+
+  /** Whether the leader's soft limits are in force. A SPARK keeps them in its own settings. */
+  private enum SoftLimits {
+    /** In force, as they were saved at startup. */
+    ON,
+    /**
+     * Switched off while the joint homes. Homing pushes the joint into a hard stop, and until the
+     * joint is homed its soft limits are in the wrong place.
+     */
+    OFF_FOR_HOMING
+  }
 
   /**
-   * Whether a SPARK restarted since it was last asked, from its sticky warning that it reset, which
-   * a SPARK sets as it starts and keeps until it's cleared. Cleared as the robot starts and after
-   * each restart, the warning is believed only once a frame has read it clear again, since a clear
-   * shows a frame or more late.
+   * Whether a SPARK has restarted since it was last asked.
+   *
+   * <p>A SPARK sets a sticky warning, "has reset", as it starts, and keeps it until its faults are
+   * cleared. This clears it as the robot starts and again after each restart it reports. A clear
+   * takes a frame or more to show, so after clearing, the warning is not believed until a frame has
+   * shown it clear. Otherwise one restart would be reported for several loops.
    */
   private static final class Restarts {
     private final SparkBase spark;
 
-    /** Whether its warning has read clear since it was last cleared: then it's believed. */
-    private boolean armed;
+    /** Whether the warning has read clear since it was last cleared. Only then is it believed. */
+    private boolean seenClear;
 
     Restarts(SparkBase spark) {
       this.spark = spark;
@@ -135,106 +121,207 @@ public final class JointIOSpark implements JointIO {
       if (!sticky.isValid()) {
         return false;
       }
-      boolean reset = sticky.get().hasReset;
-      if (!armed) {
-        armed = !reset;
+      boolean hasReset = sticky.get().hasReset;
+      if (!seenClear) {
+        seenClear = !hasReset;
         return false;
       }
-      if (!reset) {
+      if (!hasReset) {
         return false;
       }
       spark.clearFaults();
-      armed = false;
+      seenClear = false;
       return true;
     }
   }
 
   /**
-   * Configures every device of the joint, waiting for each, at startup.
+   * One SPARK that follows the leader.
    *
-   * @param math what the robot's definition derives: the joint's drive, ratios and seeds
-   * @param joint the joint, its block naming its control and its motors' SPARKs, which it must
-   * @throws IllegalArgumentException for a joint whose motors aren't wired, and what its settings
-   *     refuse ({@link ControllerSettings#spark})
+   * @param answers whether it has sent its faults within the last half second
+   */
+  private record FollowingSpark(SparkBase spark, Restarts restarts, Debouncer answers) {}
+
+  /**
+   * The absolute encoder on the leader's data port.
+   *
+   * @param reading the SPARK's reading of it, in turns from 0 to 1, with the encoder's direction
+   *     and offset already applied by the SPARK
+   * @param model the definition's encoder that it is, which converts its reading into the joint's
+   *     units
+   */
+  private record DataPortEncoder(SparkAbsoluteEncoder reading, Sensor.Encoder model) {}
+
+  private final RobotMath math;
+  private final SparkBase leader;
+  private final List<FollowingSpark> followers;
+
+  /** The leader's own count of its motor's turns. */
+  private final RelativeEncoder motorEncoder;
+
+  private final SparkClosedLoopController loop;
+
+  /** The kind of SPARK the joint's motors are on: a SPARK MAX or a SPARK Flex. */
+  private final MechanismWiring.Controller controller;
+
+  /** Converts between the joint's units (radians or meters) and the mechanism's rotations. */
+  private final MechanismRotations rotations;
+
+  /** How many turns the motor makes for one rotation of the mechanism. */
+  private final double rotorRatio;
+
+  /** The SPARKs that never confirmed their settings at startup, such as "motor 32". */
+  private final String unconfigured;
+
+  private final Debouncer leaderAnswers = silentAfterHalfASecond();
+  private final Restarts leaderRestarts;
+
+  /** The REV settings for this joint under a given control: its block's, or the pit's. */
+  private final Function<MechanismControl, RevMechanism.Settings> settingsFor;
+
+  /** The settings in force: the block's at startup, then whatever the pit last tuned. */
+  private RevMechanism.Settings settings;
+
+  /** The control those settings came from. A restarted SPARK is sent its tuning again. */
+  private MechanismControl tuned;
+
+  /** Where the joint was last read, and how fast, in the mechanism's rotations and per second. */
+  private double positionRotations;
+
+  private double velocityRotationsPerSecond;
+
+  private SoftLimits softLimits = SoftLimits.ON;
+
+  /** The absolute encoder on the leader's data port. Empty for a joint without one. */
+  private final Optional<DataPortEncoder> absoluteEncoder;
+
+  /**
+   * Whether the motor's count has been told where the joint is from the absolute encoder. It is
+   * told once, and once more after each time the leader restarts.
+   */
+  private boolean motorSeeded;
+
+  /**
+   * Whether the motor was told where the joint is during this loop, and where, in the mechanism's
+   * rotations. A flag and a number rather than an Optional, because this is set and read every loop
+   * and an Optional would allocate.
+   */
+  private boolean seededThisLoop;
+
+  private double seededRotations;
+
+  /** How many loops the joint has been read in, to read its SPARKs' health every few. */
+  private int loops;
+
+  /**
+   * Configures every SPARK of the joint at startup, waiting for each to confirm.
+   *
+   * @param math what the robot's definition derives: the joint's drive, ratios and encoder
+   * @param joint the joint. Its block must name its control and its motors' SPARKs.
+   * @throws IllegalArgumentException for a joint whose motors aren't wired, and for what its
+   *     settings refuse ({@link ControllerSettings#spark})
    */
   public JointIOSpark(RobotMath math, Joint joint) {
     this(math, joint, ControllerPins.NONE);
   }
 
   /**
-   * The same, with what's on its leading SPARK's limit inputs.
+   * The same, with what is on the leading SPARK's limit inputs.
    *
-   * @param pins its switches there, from the robot's sensor wiring
+   * @param pins the switches on them, from the robot's sensor wiring
    */
   public JointIOSpark(RobotMath math, Joint joint, ControllerPins pins) {
-    List<MechanismWiring.Device> controllers =
+    List<MechanismWiring.Device> wired =
         joint.driven().motors().map(Driven.Motors::controllers).orElse(List.of());
-    if (controllers.isEmpty()) {
+    if (wired.isEmpty()) {
       throw new IllegalArgumentException(joint.label() + " has no wiring: wire it");
     }
-    MechanismWiring.Device wiredLeader = controllers.get(0);
+    MechanismWiring.Device wiredLeader = wired.get(0);
     controller = wiredLeader.controller();
     this.math = math;
-    configure = control -> ControllerSettings.spark(math, joint, control);
+    settingsFor = control -> ControllerSettings.spark(math, joint, control);
     tuned = ControllerSettings.control(joint);
-    settings = configure.apply(tuned);
-    // On Systemcore's own CAN, as the definition requires of a SPARK, and the definition's encoder
-    // on the data port, which the settings found.
-    CanBus.Port bus = (CanBus.Port) wiredLeader.bus();
-    Sensor.Encoder model =
-        joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::dataPort).isPresent()
-            ? math.absoluteEncoder(joint)
-            : null;
-    absoluteModel = model;
+    settings = settingsFor.apply(tuned);
+    // The definition requires a SPARK to be on one of Systemcore's own CAN ports.
+    CANPort port = CanPorts.of(((CanBus.Port) wiredLeader.bus()).port());
+    boolean hasDataPortEncoder =
+        joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::dataPort).isPresent();
+    Optional<Sensor.Encoder> encoderModel =
+        hasDataPortEncoder
+            ? Optional.of(Objects.requireNonNull(math.absoluteEncoder(joint)))
+            : Optional.empty();
     rotations = settings.rotations();
     rotorRatio = settings.rotorRatio();
-    List<String> failed = new ArrayList<>();
-    leader = spark(CanPorts.of(bus.port()), wiredLeader.id());
-    SparkBaseConfig leading = settings.leader();
-    RevMechanism.limits(leading.limitSwitch, pins);
-    if (!applied(
-        () ->
-            leader.configure(
-                leading, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters))) {
-      failed.add("motor " + wiredLeader.id());
+
+    // From here on the SPARKs are opened and told their settings: the leader, then each follower.
+    // A SPARK that never confirms is noted and runs on what was saved on it before.
+    List<String> neverConfirmed = new ArrayList<>();
+    leader = open(port, wiredLeader.id());
+    SparkBaseConfig leaderSettings = settings.leader();
+    RevMechanism.limits(leaderSettings.limitSwitch, pins);
+    if (!savedAtStartup(leader, leaderSettings)) {
+      neverConfirmed.add("motor " + wiredLeader.id());
     }
+    List<SparkBase> following = new ArrayList<>();
     for (RevMechanism.Follower each : settings.followers()) {
-      SparkBase follower = spark(CanPorts.of(bus.port()), each.id());
-      if (!applied(
-          () ->
-              follower.configure(
-                  each.config(), ResetMode.kResetSafeParameters, PersistMode.kPersistParameters))) {
-        failed.add("motor " + each.id());
+      SparkBase follower = open(port, each.id());
+      if (!savedAtStartup(follower, each.config())) {
+        neverConfirmed.add("motor " + each.id());
       }
-      followers.add(follower);
+      following.add(follower);
     }
-    unconfigured = String.join(", ", failed);
+    unconfigured = String.join(", ", neverConfirmed);
+
+    // Each SPARK's "has reset" warning is cleared now, the leader's and then each follower's, so
+    // that what set it before the robot started is not taken for a restart.
     leaderRestarts = new Restarts(leader);
-    followerRestarts = followers.stream().map(Restarts::new).toArray(Restarts[]::new);
-    followersAnswer = new Debouncer[followers.size()];
-    for (int i = 0; i < followersAnswer.length; i++) {
-      followersAnswer[i] = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
+    List<Restarts> followerRestarts = new ArrayList<>();
+    for (SparkBase follower : following) {
+      followerRestarts.add(new Restarts(follower));
     }
-    encoder = leader.getEncoder();
+    // Each follower's half second of silence is counted from here, once every SPARK has been
+    // configured and cleared, and not from partway through startup.
+    List<FollowingSpark> followersWithHealth = new ArrayList<>();
+    for (int i = 0; i < following.size(); i++) {
+      followersWithHealth.add(
+          new FollowingSpark(following.get(i), followerRestarts.get(i), silentAfterHalfASecond()));
+    }
+    followers = List.copyOf(followersWithHealth);
+
+    motorEncoder = leader.getEncoder();
     loop = leader.getClosedLoopController();
-    absolute = model != null ? leader.getAbsoluteEncoder() : null;
-    encoder.setPosition(rotations.toRotations(joint.restPosition()) * rotorRatio);
+    absoluteEncoder =
+        encoderModel.map(model -> new DataPortEncoder(leader.getAbsoluteEncoder(), model));
+    // Until an absolute encoder says otherwise (seedMotorOnce) or the joint is homed, the joint is
+    // taken to be where its definition rests it.
+    motorEncoder.setPosition(rotations.toRotations(joint.restPosition()) * rotorRatio);
   }
 
-  /** The leading SPARK: for the tests, which read what it was told through REV's simulation. */
-  SparkBase leader() {
-    return leader;
+  /** Opens a SPARK of the joint's kind, driving a brushless motor. */
+  private SparkBase open(CANPort port, int id) {
+    if (controller == MechanismWiring.Controller.SPARK_FLEX) {
+      return new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless);
+    }
+    return new SparkMax(port, id, SparkLowLevel.MotorType.kBrushless);
   }
 
-  private SparkBase spark(CANPort port, int id) {
-    return controller == MechanismWiring.Controller.SPARK_FLEX
-        ? new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless)
-        : new SparkMax(port, id, SparkLowLevel.MotorType.kBrushless);
+  /**
+   * Sends a SPARK its whole configuration at startup and waits for it to confirm, trying a few
+   * times. The SPARK is first reset to REV's defaults, so nothing left on it from other code
+   * survives, and the result is saved on it, so a brownout falls back to these settings.
+   *
+   * @return whether the SPARK confirmed
+   */
+  private static boolean savedAtStartup(SparkBase spark, SparkBaseConfig settings) {
+    return confirmed(
+        () ->
+            spark.configure(
+                settings, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters));
   }
 
-  /** Tries something a device must confirm, a few times: at startup. Whether it took. */
-  private static boolean applied(Supplier<REVLibError> attempt) {
-    for (int i = 0; i < TRIES; i++) {
+  /** Whether a SPARK confirmed something it was sent at startup, after a few tries. */
+  private static boolean confirmed(Supplier<REVLibError> attempt) {
+    for (int i = 0; i < STARTUP_TRIES; i++) {
       if (attempt.get() == REVLibError.kOk) {
         return true;
       }
@@ -242,190 +329,289 @@ public final class JointIOSpark implements JointIO {
     return false;
   }
 
+  /**
+   * Sends a SPARK one group of settings while the robot runs: without waiting for it to confirm,
+   * leaving its other settings as they are, and without saving, since what is sent while running
+   * (the pit's tuning, soft limits switched off for homing) belongs to the session.
+   */
+  private static void sendWhileRunning(SparkBase spark, SparkBaseConfig change) {
+    spark.configureAsync(
+        change, ResetMode.kNoResetSafeParameters, PersistMode.kNoPersistParameters);
+  }
+
+  private static Debouncer silentAfterHalfASecond() {
+    return new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  }
+
+  /** The leading SPARK. For the tests, which read what it was told through REV's simulation. */
+  SparkBase leader() {
+    return leader;
+  }
+
   @Override
   public void retune(MechanismControl control) {
     tuned = control;
-    settings = configure.apply(control);
-    tune(leader);
-    for (SparkBase follower : followers) {
-      tune(follower);
+    settings = settingsFor.apply(control);
+    sendTuning(leader);
+    for (int i = 0; i < followers.size(); i++) {
+      sendTuning(followers.get(i).spark());
     }
   }
 
-  /**
-   * Tells a SPARK the pit's tuning: without waiting, as the loop runs, and not saved, since the
-   * pit's tuning is the session's.
-   */
-  private void tune(SparkBase spark) {
-    spark.configureAsync(
-        settings.tuning(controller, tuned),
-        ResetMode.kNoResetSafeParameters,
-        PersistMode.kNoPersistParameters);
+  /** Sends a SPARK the pit's tuning: the loop's gains and the current limit. */
+  private void sendTuning(SparkBase spark) {
+    sendWhileRunning(spark, settings.tuning(controller, tuned));
   }
 
   @Override
   public void updateInputs(JointIOInputs inputs) {
-    updateInputs(inputs, encoder.getPosition(), encoder.getVelocity());
+    updateInputs(inputs, motorEncoder.getPosition(), motorEncoder.getVelocity());
   }
 
   /**
-   * The inputs from its motor's encoder's frames this loop, its position and its speed. A frame
-   * that didn't come reads as REV's default, 0, which a joint at 0 would read too: its last reading
-   * stands instead, and the joint's reading isn't fresh this loop; half a second of them, its SPARK
-   * is silent.
+   * Fills the inputs from this loop's frames of the motor's encoder.
+   *
+   * <p>A frame that did not come reads as REV's default, 0, which is also what a joint at 0 reads.
+   * So a missing frame is never taken as a reading: the last reading stands, and the inputs say it
+   * is not fresh this loop ({@link JointIOInputs#fresh}). After half a second of missing frames the
+   * SPARK counts as silent.
+   *
+   * @param motorTurns the motor's position frame, in the motor's turns
+   * @param motorRpm the motor's speed frame, in the motor's turns a minute
    */
-  void updateInputs(JointIOInputs inputs, Signal<Double> rotor, Signal<Double> rpm) {
-    boolean restarted = leaderRestarts.happened();
-    if (restarted) {
-      // It counts its motor from 0, on what's saved on it: an encoder on its data port seeds it
-      // again, now, and it's told the pit's tuning again; its soft limits are back on.
-      seeded = false;
-      softLimitsOff = false;
-      tune(leader);
+  void updateInputs(JointIOInputs inputs, Signal<Double> motorTurns, Signal<Double> motorRpm) {
+    boolean leaderRestarted = leaderRestarts.happened();
+    if (leaderRestarted) {
+      recoverTheLeaderFromARestart();
     }
-    seed();
-    double share = leader.getAppliedOutput().get(0.0);
-    double current = Math.abs(leader.getOutputCurrent().get(0.0));
-    boolean fresh = rotor.isValid() && rpm.isValid();
-    inputs.connected = connected.calculate(fresh);
-    double fromEncoder = fromAbsolute();
-    if (settings.closedLoop() && seeded) {
-      // Its loop runs on its absolute encoder, whose word is where the joint is, once it's given
-      // one: a frame of it that didn't come leaves its last.
-      if (Double.isNaN(fromEncoder)) {
-        fresh = false;
-      } else {
-        position = fromEncoder;
-      }
-      seededAt = Double.NaN;
-    } else if (!Double.isNaN(seededAt)) {
-      // Told where it is this loop: its encoder's reading catches up on the next.
-      position = seededAt;
-      seededAt = Double.NaN;
-    } else if (rotor.isValid()) {
-      position = rotor.get() / rotorRatio;
+    seedMotorOnce();
+    double appliedShare = leader.getAppliedOutput().get(0.0);
+    double statorAmps = Math.abs(leader.getOutputCurrent().get(0.0));
+    boolean motorFramesCame = motorTurns.isValid() && motorRpm.isValid();
+    inputs.connected = leaderAnswers.calculate(motorFramesCame);
+
+    double encoderRotations = readAbsoluteEncoder();
+    boolean encoderRead = !Double.isNaN(encoderRotations);
+    // Once the motor has been told where the joint is, a joint whose loop is closed on the absolute
+    // encoder is read by that encoder.
+    boolean readByEncoder = settings.closedLoop() && motorSeeded;
+    boolean positionCame = takePosition(readByEncoder, encoderRotations, motorTurns);
+    if (motorRpm.isValid()) {
+      velocityRotationsPerSecond = motorRpm.get() / SECONDS_PER_MINUTE / rotorRatio;
     }
-    if (rpm.isValid()) {
-      velocity = rpm.get() / 60 / rotorRatio;
-    }
-    inputs.fresh = fresh;
-    inputs.absolutePosition =
-        Double.isNaN(fromEncoder) ? Double.NaN : rotations.fromRotations(fromEncoder);
-    // Its loop closed on the encoder, its motor's own count beside it, so a slip between shows.
+
+    inputs.fresh = motorFramesCame && positionCame;
+    inputs.absolutePosition = encoderRead ? rotations.fromRotations(encoderRotations) : Double.NaN;
+    // With the loop closed on the encoder, the motor's own count is reported beside it, so a slip
+    // between the two shows.
+    boolean reportsMotorBesideEncoder = readByEncoder && motorTurns.isValid();
     inputs.motorPosition =
-        settings.closedLoop() && seeded && rotor.isValid()
-            ? rotations.fromRotations(rotor.get() / rotorRatio)
+        reportsMotorBesideEncoder
+            ? rotations.fromRotations(motorTurns.get() / rotorRatio)
             : Double.NaN;
-    inputs.position = rotations.fromRotations(position);
-    inputs.velocity = rotations.fromRotations(velocity);
-    inputs.appliedVolts = share * leader.getBusVoltage().get(0.0);
-    inputs.statorCurrentAmps = current;
-    // A SPARK doesn't measure what it draws from the battery: its share of the motor's current.
-    inputs.supplyCurrentAmps = Math.abs(share) * current;
+    inputs.position = rotations.fromRotations(positionRotations);
+    inputs.velocity = rotations.fromRotations(velocityRotationsPerSecond);
+    inputs.appliedVolts = appliedShare * leader.getBusVoltage().get(0.0);
+    inputs.statorCurrentAmps = statorAmps;
+    // A SPARK measures the current through its motor, not what it draws from the battery. The
+    // battery's share is estimated as the motor's current times the share of the battery's voltage
+    // across the motor.
+    inputs.supplyCurrentAmps = Math.abs(appliedShare) * statorAmps;
     inputs.forwardLimit = leader.getForwardLimitSwitch().isPressed().get(false);
     inputs.reverseLimit = leader.getReverseLimitSwitch().isPressed().get(false);
     inputs.unconfigured = unconfigured;
-    inputs.restarted = restarted;
-    if (inputs.followersRestarted.length != followerRestarts.length) {
-      inputs.followersRestarted = new boolean[followerRestarts.length];
-    }
-    for (int i = 0; i < followerRestarts.length; i++) {
-      boolean follower = followerRestarts[i].happened();
-      if (follower) {
-        tune(followers.get(i));
-      }
-      inputs.followersRestarted[i] = follower;
-    }
-    if (loops++ % HEALTH_LOOPS == 0) {
-      health(inputs);
+
+    inputs.restarted = leaderRestarted;
+    readFollowersRestarts(inputs);
+
+    boolean readsHealthThisLoop = loops % HEALTH_LOOPS == 0;
+    loops++;
+    if (readsHealthThisLoop) {
+      readHealth(inputs);
     }
   }
 
   /**
-   * Its SPARKs' health, the leader's and each follower's: its faults, and its warnings above them,
-   * from the frames each sends anyway, and each follower's answering; the last reading standing
-   * where none came.
+   * Takes this loop's reading of where the joint is, from whichever sensor says so this loop. When
+   * that sensor's frame did not come, the last reading stands.
+   *
+   * @param readByEncoder whether the joint is read by its absolute encoder, and not by its motor
+   * @param encoderRotations the absolute encoder's reading, in the mechanism's rotations, or NaN
+   * @param motorTurns the motor's position frame
+   * @return false when the joint is read by its absolute encoder and the encoder's frame did not
+   *     come. A missing motor frame is not reported here: the caller already knows of it.
    */
-  private void health(JointIOInputs inputs) {
+  private boolean takePosition(
+      boolean readByEncoder, double encoderRotations, Signal<Double> motorTurns) {
+    if (readByEncoder) {
+      seededThisLoop = false;
+      if (Double.isNaN(encoderRotations)) {
+        return false;
+      }
+      positionRotations = encoderRotations;
+      return true;
+    }
+    if (seededThisLoop) {
+      // The motor was told where the joint is this loop, and its own reading has not caught up:
+      // its next frame has not come. For this one loop the joint is where the motor was told.
+      positionRotations = seededRotations;
+      seededThisLoop = false;
+      return true;
+    }
+    if (motorTurns.isValid()) {
+      positionRotations = motorTurns.get() / rotorRatio;
+    }
+    return true;
+  }
+
+  /**
+   * Reads whether each follower restarted since the last loop. A restarted follower has fallen back
+   * to the settings saved on it, so it is sent the pit's tuning again.
+   */
+  private void readFollowersRestarts(JointIOInputs inputs) {
+    if (inputs.followersRestarted.length != followers.size()) {
+      inputs.followersRestarted = new boolean[followers.size()];
+    }
+    for (int i = 0; i < followers.size(); i++) {
+      FollowingSpark follower = followers.get(i);
+      boolean restarted = follower.restarts().happened();
+      if (restarted) {
+        sendTuning(follower.spark());
+      }
+      inputs.followersRestarted[i] = restarted;
+    }
+  }
+
+  /**
+   * Puts a restarted leader back as the robot left it. It came back counting its motor from 0, with
+   * the settings saved on it at startup: its soft limits on, and no pit tuning. So the absolute
+   * encoder must tell it where the joint is again, which {@link #seedMotorOnce} does next in the
+   * same loop, and it is sent the pit's tuning again.
+   */
+  private void recoverTheLeaderFromARestart() {
+    motorSeeded = false;
+    softLimits = SoftLimits.ON;
+    sendTuning(leader);
+  }
+
+  /**
+   * Tells the motor's count where the joint is, from the absolute encoder's first good reading. It
+   * happens once at startup, and once more after each restart of the leader.
+   */
+  private void seedMotorOnce() {
+    if (motorSeeded) {
+      return;
+    }
+    double encoderRotations = readAbsoluteEncoder();
+    if (Double.isNaN(encoderRotations)) {
+      return;
+    }
+    motorEncoder.setPosition(encoderRotations * rotorRatio);
+    seededRotations = encoderRotations;
+    seededThisLoop = true;
+    motorSeeded = true;
+  }
+
+  /**
+   * Where the absolute encoder on the data port says the joint is, in the mechanism's rotations.
+   * The SPARK reads the encoder with its direction and offset applied, as a share of a turn
+   * measured from the low edge of the window of positions one turn of the encoder can tell apart
+   * ({@link RevMechanism.Settings#windowEdge}).
+   *
+   * @return the position, or NaN when there is no such encoder or its frame did not come. NaN
+   *     rather than an Optional because this runs every loop, where an Optional would allocate.
+   */
+  private double readAbsoluteEncoder() {
+    if (absoluteEncoder.isEmpty()) {
+      return Double.NaN;
+    }
+    Signal<Double> turnsFromTheEdge = absoluteEncoder.get().reading().getPosition();
+    if (!turnsFromTheEdge.isValid()) {
+      return Double.NaN;
+    }
+    double encoderTurns = settings.windowEdge() + turnsFromTheEdge.get();
+    return rotations.toRotations(math.fromAbsolute(absoluteEncoder.get().model(), encoderTurns));
+  }
+
+  /**
+   * Reads each SPARK's faults, and whether each follower still answers. Faults are listed leader
+   * first, then each follower in order. A SPARK whose frames did not come keeps the faults it last
+   * reported.
+   */
+  private void readHealth(JointIOInputs inputs) {
     if (inputs.faults.length != 1 + followers.size()) {
       inputs.faults = new int[1 + followers.size()];
     }
     if (inputs.followersConnected.length != followers.size()) {
       inputs.followersConnected = new boolean[followers.size()];
     }
-    for (int i = 0; i <= followers.size(); i++) {
-      SparkBase spark = i == 0 ? leader : followers.get(i - 1);
-      Signal<SparkBase.Faults> faults = spark.getFaults();
-      Signal<SparkBase.Warnings> warnings = spark.getWarnings();
-      boolean answered = faults.isValid() && warnings.isValid();
-      if (answered) {
-        inputs.faults[i] = warnings.get().rawBits << 16 | faults.get().rawBits;
-      }
-      if (i > 0) {
-        inputs.followersConnected[i - 1] = followersAnswer[i - 1].calculate(answered);
-      }
+    readFaults(leader, inputs.faults, 0);
+    for (int i = 0; i < followers.size(); i++) {
+      FollowingSpark follower = followers.get(i);
+      boolean answered = readFaults(follower.spark(), inputs.faults, 1 + i);
+      inputs.followersConnected[i] = follower.answers().calculate(answered);
     }
   }
 
-  /** Where it was seeded this loop, in the mechanism's rotations: NaN otherwise. */
-  private double seededAt = Double.NaN;
-
   /**
-   * Tells the motor's encoder where the joint is, from the absolute encoder's first good reading:
-   * once, at startup.
+   * Reads one SPARK's faults and warnings into its place in the list, if both frames came. A SPARK
+   * sends both anyway. They are packed into one number: the fault bits in the low sixteen bits, and
+   * the warning bits in the sixteen above them.
+   *
+   * @return whether the SPARK answered
    */
-  private void seed() {
-    double at = seeded ? Double.NaN : fromAbsolute();
-    if (Double.isNaN(at)) {
-      return;
+  private static boolean readFaults(SparkBase spark, int[] faults, int index) {
+    Signal<SparkBase.Faults> faultBits = spark.getFaults();
+    Signal<SparkBase.Warnings> warningBits = spark.getWarnings();
+    boolean answered = faultBits.isValid() && warningBits.isValid();
+    if (answered) {
+      faults[index] = warningBits.get().rawBits << 16 | faultBits.get().rawBits;
     }
-    encoder.setPosition(at * rotorRatio);
-    seededAt = at;
-    seeded = true;
+    return answered;
   }
 
   /**
-   * Where the absolute encoder on its data port says the joint is, in the mechanism's rotations:
-   * NaN without one, or before its first good reading. The SPARK reads it with its direction and
-   * offset applied, from the window's low edge ({@link RevMechanism.Settings#windowEdge}).
+   * A position in the joint's units as the SPARK's loop takes it: in turns of the sensor the loop
+   * runs on, the motor or the absolute encoder, counted from where that sensor reads zero.
    */
-  private double fromAbsolute() {
-    SparkAbsoluteEncoder reading = absolute;
-    Sensor.Encoder model = absoluteModel;
-    if (reading == null || model == null) {
-      return Double.NaN;
-    }
-    Signal<Double> fromEdge = reading.getPosition();
-    return fromEdge.isValid()
-        ? rotations.toRotations(math.fromAbsolute(model, settings.windowEdge() + fromEdge.get()))
-        : Double.NaN;
+  private double loopTurns(double position) {
+    return rotations.toRotations(position) * settings.loopRatio() + settings.loopZero();
   }
 
   /**
-   * The profile's point to the SPARK's loop, which runs its kP on it, with the plan's feedforward
-   * and kD toward the profile's speed from the speed last read, worked out here in volts.
+   * Sends the profile's point to the SPARK's position loop, which runs its kP on it. The rest of
+   * the control law is worked out here, in volts, and sent with it as the loop's arbitrary
+   * feedforward: the caller's volts, the plan's feedforward at this point, and the plan's kD on how
+   * far the speed last read is from the profile's.
    */
   @Override
   public void setPosition(double position, double velocity, double feedforwardVolts) {
     ControllerPlan plan = settings.plan();
-    loop.setSetpoint(
-        rotations.toRotations(position) * settings.loopRatio() + settings.loopZero(),
-        SparkLowLevel.ControlType.kPosition,
-        ClosedLoopSlot.kSlot0,
+    double speedLastRead = rotations.fromRotations(velocityRotationsPerSecond);
+    double volts =
         feedforwardVolts
             + plan.feedforward(position, velocity, 0)
-            + plan.kD() * (velocity - rotations.fromRotations(this.velocity)),
+            + plan.kD() * (velocity - speedLastRead);
+    loop.setSetpoint(
+        loopTurns(position),
+        SparkLowLevel.ControlType.kPosition,
+        ClosedLoopSlot.kSlot0,
+        volts,
         SparkClosedLoopController.ArbFFUnits.kVoltage);
   }
 
-  /** A speed to the SPARK's loop, with the plan's feedforward at where the joint was last read. */
+  /**
+   * Sends a speed to the SPARK's velocity loop, in turns a minute of the sensor its loop runs on,
+   * with the plan's feedforward for that speed at where the joint was last read.
+   */
   @Override
   public void setVelocity(double velocity) {
+    double positionLastRead = rotations.fromRotations(positionRotations);
     loop.setSetpoint(
-        rotations.toRotations(velocity) * settings.loopRatio() * 60,
+        rotations.toRotations(velocity) * settings.loopRatio() * SECONDS_PER_MINUTE,
         SparkLowLevel.ControlType.kVelocity,
         ClosedLoopSlot.kSlot1,
-        settings.plan().feedforward(rotations.fromRotations(position), velocity, 0),
+        settings.plan().feedforward(positionLastRead, velocity, 0),
         SparkClosedLoopController.ArbFFUnits.kVoltage);
   }
 
@@ -444,29 +630,31 @@ public final class JointIOSpark implements JointIO {
     leader.stopMotor();
   }
 
-  /** Switches its soft limits off first: a SPARK keeps them in its own settings. */
+  /**
+   * A voltage that ignores the soft limits. A SPARK has no request that ignores them, so they are
+   * switched off in its settings first, once, and stay off until the joint is told where it is
+   * ({@link #resetPosition}).
+   */
   @Override
   public void home(double volts) {
-    if (settings.softLimits().isPresent() && !softLimitsOff) {
-      leader.configureAsync(
-          settings.softLimitsEnabled(controller, false),
-          ResetMode.kNoResetSafeParameters,
-          PersistMode.kNoPersistParameters);
-      softLimitsOff = true;
+    boolean hasSoftLimits = settings.softLimits().isPresent();
+    if (hasSoftLimits && softLimits == SoftLimits.ON) {
+      sendWhileRunning(leader, settings.softLimitsEnabled(controller, false));
+      softLimits = SoftLimits.OFF_FOR_HOMING;
     }
     leader.setVoltage(volts);
   }
 
-  /** Sets where the joint is, and its soft limits back on if homing switched them off. */
+  /**
+   * Tells the motor's count where the joint is, and switches the soft limits back on if homing
+   * switched them off.
+   */
   @Override
   public void resetPosition(double position) {
-    encoder.setPosition(rotations.toRotations(position) * rotorRatio);
-    if (softLimitsOff) {
-      leader.configureAsync(
-          settings.softLimitsEnabled(controller, true),
-          ResetMode.kNoResetSafeParameters,
-          PersistMode.kNoPersistParameters);
-      softLimitsOff = false;
+    motorEncoder.setPosition(rotations.toRotations(position) * rotorRatio);
+    if (softLimits == SoftLimits.OFF_FOR_HOMING) {
+      sendWhileRunning(leader, settings.softLimitsEnabled(controller, true));
+      softLimits = SoftLimits.ON;
     }
   }
 }

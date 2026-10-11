@@ -5,8 +5,6 @@ import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CANcoderConfiguration;
-import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
-import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.NeutralOut;
@@ -15,9 +13,6 @@ import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.CANcoder;
 import com.ctre.phoenix6.hardware.ParentDevice;
-import com.ctre.phoenix6.hardware.TalonFX;
-import com.ctre.phoenix6.hardware.TalonFXS;
-import com.ctre.phoenix6.hardware.traits.CommonTalon;
 import com.ctre.phoenix6.signals.ForwardLimitValue;
 import com.ctre.phoenix6.signals.MagnetHealthValue;
 import com.ctre.phoenix6.signals.ReverseLimitValue;
@@ -42,298 +37,447 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.units.measure.Angle;
 
 /**
- * A driven joint on CTRE hardware: a TalonFX, or a TalonFXS as its wiring says, leading its drive's
- * motors, the rest following it, and its CANcoder, if its wiring names one. A TalonFXS takes the
- * settings a TalonFX would, in its own terms ({@link PhoenixMechanism#talonFxs}). Every setting
- * comes from the Phoenix helper ({@link PhoenixMechanism}), from the robot's definition, the
- * joint's wiring and its control ({@link ControllerSettings#talon}): ratios, gains seeded from the
- * definition, gravity, soft limits, current limits, directions and followers. Nothing is retyped
- * here.
+ * A driven joint on CTRE hardware: one TalonFX or TalonFXS leading the joint's motors, the rest
+ * following it, and the joint's CANcoder if its wiring names one ({@link PhoenixTalon} says how the
+ * two controllers differ).
  *
- * <p>Runs on Phoenix 6 without a Pro license, unless the definition's motors are its FOC ones
- * ({@code Motor.KRAKEN_X60_FOC}): only then do its requests use FOC. Positions go to the motor
- * controller as {@code PositionVoltage} with the profile's velocity, which its own kV, kS and
- * gravity turn into volts; speeds as {@code VelocityVoltage}. A joint read by its rotor is told
- * where it is from its CANcoder's first good reading, when its wiring reads one that way ({@code
- * Feedback.ROTOR}), and reads the CANcoder each loop beside its rotor, so a slip between them
- * shows; with no CANcoder, it takes where the joint rests as where it is at power on. It isn't
- * seeded from a CANcoder that says its magnet is too close or too far, and says so ({@link
- * JointIOInputs#magnetBad}). The CANcoder sends both its reading and its magnet's health anyway, at
- * its own rates: reading them adds nothing on the bus.
+ * <p><b>Its settings</b> all come from the Phoenix helper ({@link PhoenixMechanism}), which works
+ * them out from the robot's definition, the joint's wiring and its control ({@link
+ * ControllerSettings#talon}): ratios, gains, gravity, soft limits, current limits, directions and
+ * followers. No setting is typed in here.
  *
- * <p>Each device's restart is read from the frame Phoenix says it sends as it starts ({@code
- * ParentDevice.getResetOccurredChecker}), once a loop, with no traffic of its own. A leader that
- * restarts counts its rotor from 0: one told where it is by its CANcoder is told again, at once;
- * the joint does the rest ({@link JointMechanism}). Phoenix keeps a TalonFX's settings through a
- * restart, a retune's included, and sends the followers their request again on its own.
+ * <p><b>What it asks of the leader.</b> A position goes as a {@code PositionVoltage} with the
+ * profile's speed, which the controller's own kV, kS and gravity terms turn into volts. A speed
+ * goes as a {@code VelocityVoltage}. Requests use FOC, which needs a Phoenix Pro license, only when
+ * the definition's motor is one of its FOC motors ({@code Motor.KRAKEN_X60_FOC}); otherwise this
+ * runs on Phoenix 6 without a license.
+ *
+ * <p><b>Where the joint is.</b> A controller counts its motor's turns from wherever it was powered
+ * on, so at startup it has to be told where the joint is:
+ *
+ * <ul>
+ *   <li>A joint with no CANcoder is told it is where its definition rests it. Homing corrects that
+ *       later ({@link #resetPosition}).
+ *   <li>A joint whose controller reads its own rotor, with a CANcoder beside it ({@code
+ *       Feedback.ROTOR}), is told where it is from the CANcoder's first good reading ({@link
+ *       #seedRotorOnce}). After that the robot reads the CANcoder every loop beside the rotor, so a
+ *       slip between the two shows ({@link JointIOInputs#absolutePosition}). A CANcoder that says
+ *       its magnet is too close or too far is not trusted for this, and the inputs say so ({@link
+ *       JointIOInputs#magnetBad}).
+ *   <li>A joint whose controller reads the CANcoder itself (remote, fused or sync) needs telling
+ *       nothing: the controller's position is the CANcoder's.
+ * </ul>
+ *
+ * <p>Reading the CANcoder costs no CAN traffic: it sends its position and its magnet's health at
+ * its own rates whether or not anything reads them.
+ *
+ * <p><b>Restarts.</b> A device that loses power and comes back (a breaker that reset, a loose
+ * connector) sends a frame saying it has started, and Phoenix exposes that ({@code
+ * ParentDevice.getResetOccurredChecker}). It is read once a loop and costs no traffic. A restarted
+ * leader counts its rotor from 0 again, so one that was told where it is by its CANcoder is told
+ * again at once; the joint handles the rest ({@link JointMechanism}). Phoenix keeps a TalonFX's
+ * settings through a restart, including what {@link #retune} sent, and sends the followers their
+ * follow request again by itself.
  */
 public final class JointIOTalon implements JointIO {
-  /** At startup, configuring a device is tried this many times, waiting this long each time. */
-  private static final int TRIES = 5;
+  /** At startup each device is sent its settings up to this many times, until it confirms them. */
+  private static final int STARTUP_TRIES = 5;
 
+  /** How long each of those tries waits for the device to confirm. Startup can afford the wait. */
   private static final double STARTUP_TIMEOUT_SECONDS = 0.25;
 
-  private final Talon leader;
-  private final List<Talon> followers = new ArrayList<>();
+  /**
+   * A timeout of zero sends a setting and returns without waiting for the device to confirm it.
+   * Everything sent while the robot's loop runs uses this, because a loop that waits on a device
+   * stutters.
+   */
+  private static final double NO_WAIT_SECONDS = 0;
+
+  /**
+   * How long a device may go without answering before it is called silent. One missed frame is a
+   * glitch, not a lost device.
+   */
+  private static final double SILENT_AFTER_SECONDS = 0.5;
+
+  /**
+   * How often each TalonFX sends its fault field: 4 Hz, the slowest rate Phoenix sends anything.
+   * Faults are read only ten times a second ({@link JointIO#HEALTH_LOOPS}), and the frame doubles
+   * as proof that a follower is still on the bus.
+   */
+  private static final double FAULTS_HZ = 4;
+
+  private final RobotMath math;
+  private final PhoenixTalon leader;
+  private final List<FollowingTalon> followers;
+
+  /** Converts between the joint's units (radians or meters) and Phoenix's rotations. */
   private final MechanismRotations rotations;
-  private final BaseStatusSignal[] signals;
+
+  /** The Phoenix settings for this joint under a given control: its block's, or the pit's. */
+  private final Function<MechanismControl, PhoenixMechanism.Settings> settingsFor;
+
+  /** The devices that never confirmed their settings at startup, such as "motor 32, CANcoder 9". */
+  private final String unconfigured;
+
+  // The leader's signals, which it sends once a loop. They are refreshed together, each loop.
   private final BaseStatusSignal position;
   private final BaseStatusSignal velocity;
-  private final BaseStatusSignal volts;
+  private final BaseStatusSignal motorVolts;
   private final BaseStatusSignal statorCurrent;
   private final BaseStatusSignal supplyCurrent;
-
-  /** What's on the leader's limits: a switch on a pin, whose polarity its reading takes. */
-  private final ControllerPins pins;
-
-  /** The leader's limit pins, as they are: closed to ground, or open. */
   private final StatusSignal<ForwardLimitValue> forwardLimit;
-
   private final StatusSignal<ReverseLimitValue> reverseLimit;
+  private final BaseStatusSignal[] leaderSignals;
 
-  /** A motor controller counts as silent once it has been for half a second, not at one glitch. */
-  private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
+  /** What the leader's two limit pins mean to the robot, from the switches wired to them. */
+  private final LimitPin forwardPin;
 
+  private final LimitPin reversePin;
+
+  private final Debouncer leaderAnswers = silentAfterHalfASecond();
+  private final Restarts leaderRestarts;
+  private final StatusSignal<Integer> leaderFaults;
+
+  /** The joint's CANcoder. Empty for a joint without one. */
+  private final Optional<Cancoder> cancoder;
+
+  /**
+   * Whether the leader's rotor has been told where the joint is from the CANcoder. It is told once,
+   * and once more after each time it restarts.
+   */
+  private boolean rotorSeeded;
+
+  /**
+   * Whether the rotor was told where the joint is during this loop, and where, in Phoenix's
+   * rotations. A flag and a number rather than an Optional, because this is set and read every loop
+   * and an Optional would allocate.
+   */
+  private boolean seededThisLoop;
+
+  private double seededRotations;
+
+  /** How many loops the joint has been read in, to read its devices' health every few. */
+  private int loops;
+
+  // The requests sent to the leader. Each is made once and reused, so asking allocates nothing.
   private final PositionVoltage positionRequest;
   private final VelocityVoltage velocityRequest;
   private final VoltageOut voltageRequest;
   private final DutyCycleOut dutyCycleRequest;
-  private final VoltageOut homingRequest;
+
+  /**
+   * A voltage that ignores the soft limits. Homing pushes the joint into a hard stop, and until the
+   * joint is homed its soft limits are in the wrong place.
+   */
+  private final VoltageOut homingPush;
+
   private final NeutralOut neutral = new NeutralOut();
-  private final String unconfigured;
-
-  /** The Phoenix settings for a control: the joint's, its drive's and its block's, with it. */
-  private final Function<MechanismControl, PhoenixMechanism.Settings> configure;
 
   /**
-   * The CANcoder the robot reads once, to tell the rotor where the joint is, and the definition's
-   * encoder it is: a joint whose motor controller reads its rotor ({@code Feedback.ROTOR}).
+   * What a switch on one of the leader's limit pins means. Phoenix reports each pin as it is,
+   * closed to ground or open, whatever polarity the controller was told for its own stop. So the
+   * switch's polarity is applied here, as the pin is read.
    */
-  private final @Nullable StatusSignal<Angle> seedFrom;
+  private enum LimitPin {
+    /** Nothing on the pin, or a CANdi's limit that the controller reads over CAN: never tripped. */
+    NOT_READ,
+    /** A normally open switch: tripped when the pin is closed to ground. */
+    TRIPPED_WHEN_CLOSED,
+    /** A normally closed switch: tripped when the pin is open. */
+    TRIPPED_WHEN_OPEN;
 
-  private final Sensor.@Nullable Encoder seedModel;
+    static LimitPin of(Optional<ControllerPins.Limit> limit) {
+      if (limit.isEmpty() || !(limit.get() instanceof ControllerPins.OnPin pin)) {
+        return NOT_READ;
+      }
+      if (pin.polarity() == SensorWiring.Polarity.NORMALLY_OPEN) {
+        return TRIPPED_WHEN_CLOSED;
+      }
+      return TRIPPED_WHEN_OPEN;
+    }
 
-  /** Its CANcoder's magnet's health, whichever way it's read: none without one. */
-  private final @Nullable StatusSignal<MagnetHealthValue> magnet;
+    boolean tripped(boolean closedToGround) {
+      return switch (this) {
+        case NOT_READ -> false;
+        case TRIPPED_WHEN_CLOSED -> closedToGround;
+        case TRIPPED_WHEN_OPEN -> !closedToGround;
+      };
+    }
+  }
 
-  private final RobotMath math;
-  private boolean seeded;
-
-  /** Where it was seeded this loop, in Phoenix's units: NaN otherwise. */
-  private double seededAt = Double.NaN;
+  /** What the CANcoder says of its magnet, as far as trusting its reading goes. */
+  private enum Magnet {
+    /**
+     * No CANcoder, or it has not said yet: its health comes in a frame sent four times a second.
+     */
+    NOT_SAID,
+    /** Red: the magnet is too close or too far, and the reading is not to be trusted. */
+    BAD,
+    /** Anything else: the reading can be used. */
+    USABLE
+  }
 
   /**
-   * Whether each device restarted since it was last asked: the leader, each follower in order, and
-   * its CANcoder, if it has one.
-   */
-  private final BooleanSupplier leaderRestarts;
-
-  private final BooleanSupplier[] followerRestarts;
-  private final @Nullable BooleanSupplier encoderRestarts;
-
-  /**
-   * Each device's fault field, the leader, each follower in order, then its CANcoder: read once in
-   * {@link JointIO#HEALTH_LOOPS} loops. A TalonFX's sent four times a second, the least Phoenix
-   * sends, and a follower answering while it comes.
-   */
-  private final List<StatusSignal<Integer>> faultFields = new ArrayList<>();
-
-  private final Debouncer[] followersAnswer;
-
-  /** The loops it's been read in. */
-  private int loops;
-
-  /**
-   * Configures every device of the joint, waiting for each, at startup.
+   * Whether a device has restarted since it was last asked.
    *
-   * @param math what the robot's definition derives: the joint's drive, ratios and seeds
-   * @param joint the joint, its block naming its control and its motors' controllers, which it must
-   * @throws IllegalArgumentException for a joint whose motors aren't wired, and what its settings
-   *     refuse ({@link ControllerSettings#talon})
+   * <p>Phoenix's checker also reports the frame a device sent when it and the robot first started.
+   * That is not a restart, so the first answer is thrown away.
+   */
+  private static final class Restarts {
+    private final BooleanSupplier startFrameSeen;
+    private boolean askedBefore;
+
+    Restarts(ParentDevice device) {
+      startFrameSeen = device.getResetOccurredChecker();
+    }
+
+    boolean happened() {
+      boolean seen = startFrameSeen.getAsBoolean();
+      if (!askedBefore) {
+        askedBefore = true;
+        return false;
+      }
+      return seen;
+    }
+  }
+
+  /**
+   * One motor controller that follows the leader.
+   *
+   * @param faults its fault field, which also shows that it is still on the bus
+   * @param answers whether it has answered within the last half second
+   */
+  private record FollowingTalon(
+      PhoenixTalon talon, Restarts restarts, StatusSignal<Integer> faults, Debouncer answers) {}
+
+  /**
+   * The joint's CANcoder, as the robot reads it.
+   *
+   * @param absolutePosition where its magnet is, with the CANcoder's own offset, direction and wrap
+   *     point already applied
+   * @param model the definition's encoder that this CANcoder is, which converts its reading into
+   *     the joint's units
+   * @param seedsTheRotor whether the leader reads its own rotor, so the robot tells it where the
+   *     joint is from this CANcoder and reads the CANcoder each loop beside it. False when the
+   *     leader reads the CANcoder itself.
+   */
+  private record Cancoder(
+      StatusSignal<Angle> absolutePosition,
+      StatusSignal<MagnetHealthValue> magnetHealth,
+      StatusSignal<Integer> faults,
+      Restarts restarts,
+      Sensor.Encoder model,
+      boolean seedsTheRotor) {}
+
+  /**
+   * Configures every device of the joint at startup, waiting for each to confirm.
+   *
+   * @param math what the robot's definition derives: the joint's drive, ratios and encoder
+   * @param joint the joint. Its block must name its control and its motors' controllers.
+   * @throws IllegalArgumentException for a joint whose motors aren't wired, and for what its
+   *     settings refuse ({@link ControllerSettings#talon})
    */
   public JointIOTalon(RobotMath math, Joint joint) {
     this(math, joint, ControllerPins.NONE);
   }
 
   /**
-   * The same, with what's on its leader's limits: switches on its pins, or a limit switch on a
-   * CANdi it reads over CAN.
+   * The same, with what is on the leader's limit inputs: switches on its pins, or a limit switch on
+   * a CANdi that it reads over CAN.
    *
-   * @param pins its limits, from the robot's sensor wiring
+   * @param pins the leader's limits, from the robot's sensor wiring
    */
   public JointIOTalon(RobotMath math, Joint joint, ControllerPins pins) {
-    List<MechanismWiring.Device> controllers =
+    List<MechanismWiring.Device> wired =
         joint.driven().motors().map(Driven.Motors::controllers).orElse(List.of());
-    if (controllers.isEmpty()) {
+    if (wired.isEmpty()) {
       throw new IllegalArgumentException(joint.label() + " has no wiring: wire it");
     }
-    MechanismWiring.Device wiredLeader = controllers.get(0);
+    MechanismWiring.Device wiredLeader = wired.get(0);
     Optional<MechanismWiring.Cancoder> wiredCancoder =
         joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::cancoder);
     Drive drive = math.drivesOf(joint).get(0);
-    configure = control -> ControllerSettings.talon(math, joint, control);
-    PhoenixMechanism.Settings settings = configure.apply(ControllerSettings.control(joint));
-    // The definition's encoder its CANcoder is, which the settings found.
-    Sensor.Encoder absolute = wiredCancoder.isPresent() ? math.absoluteEncoder(joint) : null;
+    settingsFor = control -> ControllerSettings.talon(math, joint, control);
+    PhoenixMechanism.Settings settings = settingsFor.apply(ControllerSettings.control(joint));
+    this.math = math;
     rotations = settings.rotations();
     CANBus bus = PhoenixMechanism.bus(wiredLeader.bus());
-    List<String> failed = new ArrayList<>();
     Motor motor = ((Actuator.Motors) drive.actuator()).motor();
-    leader = new Talon(wiredLeader.controller(), wiredLeader.id(), bus, motor);
-    TalonFXConfiguration leading = settings.leader();
-    PhoenixMechanism.limits(leading.HardwareLimitSwitch, pins);
-    if (!applied(() -> leader.apply(leading, STARTUP_TIMEOUT_SECONDS))) {
-      failed.add("motor " + wiredLeader.id());
-    }
+    MechanismWiring.Controller kind = wiredLeader.controller();
+
+    // From here on the devices are opened and told their settings, in this order: the leader, each
+    // follower, then the CANcoder. A device that never confirms is noted and runs on its defaults.
+    List<String> neverConfirmed = new ArrayList<>();
+    leader = PhoenixTalon.open(kind, wiredLeader.id(), bus, motor);
+    configureLeader(settings.leader(), pins, wiredLeader.id(), neverConfirmed);
+    List<PhoenixTalon> following = new ArrayList<>();
     for (PhoenixMechanism.FollowerSettings each : settings.followers()) {
-      Talon follower = new Talon(wiredLeader.controller(), each.id(), bus, motor);
-      if (!applied(() -> follower.apply(each.configuration(), STARTUP_TIMEOUT_SECONDS))) {
-        failed.add("motor " + each.id());
-      }
-      follower.device().setControl(each.request());
-      followers.add(follower);
+      PhoenixTalon follower = PhoenixTalon.open(kind, each.id(), bus, motor);
+      following.add(startFollower(follower, each, neverConfirmed));
     }
-    StatusSignal<Angle> cancoderReading = null;
-    StatusSignal<MagnetHealthValue> cancoderMagnet = null;
-    BooleanSupplier cancoderRestarts = null;
-    CANcoder wired = null;
-    if (settings.cancoder().isPresent()) {
-      CANcoderConfiguration config = settings.cancoder().get();
-      int id = wiredCancoder.orElseThrow().id();
-      CANcoder cancoder = new CANcoder(id, bus);
-      wired = cancoder;
-      if (!applied(() -> cancoder.getConfigurator().apply(config, STARTUP_TIMEOUT_SECONDS))) {
-        failed.add("CANcoder " + id);
-      }
-      cancoderReading = cancoder.getAbsolutePosition();
-      cancoderMagnet = cancoder.getMagnetHealth();
-      cancoderRestarts = restarts(cancoder);
-    }
-    faultFields.add(leader.device().getFaultField(false));
-    for (Talon follower : followers) {
-      faultFields.add(follower.device().getFaultField(false));
-    }
-    // A TalonFX's sent four times a second: a frame a device of its own on the bus, which Phoenix
-    // would otherwise stop as it optimizes it (below). A CANcoder sends its own anyway.
-    BaseStatusSignal.setUpdateFrequencyForAll(4, faultFields.toArray(BaseStatusSignal[]::new));
-    if (wired != null) {
-      faultFields.add(wired.getFaultField(false));
-    }
-    followersAnswer = new Debouncer[followers.size()];
-    for (int i = 0; i < followersAnswer.length; i++) {
-      followersAnswer[i] = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
-    }
-    encoderRestarts = cancoderRestarts;
-    magnet = cancoderMagnet;
-    leaderRestarts = restarts(leader.parent());
-    followerRestarts =
-        followers.stream()
-            .map(follower -> restarts(follower.parent()))
-            .toArray(BooleanSupplier[]::new);
-    boolean readsRotor =
+    // The leader reads its own rotor unless its wiring has it read a CANcoder instead.
+    boolean leaderReadsItsRotor =
         wiredCancoder.isEmpty() || wiredCancoder.get().feedback() == MechanismWiring.Feedback.ROTOR;
-    if (readsRotor) {
-      // Where it rests, until a CANcoder read by the robot says where it is (seed).
+    cancoder =
+        wiredCancoder.map(
+            wiring ->
+                startCancoder(
+                    new CANcoder(wiring.id(), bus),
+                    settings.cancoder().orElseThrow(),
+                    Objects.requireNonNull(math.absoluteEncoder(joint)),
+                    leaderReadsItsRotor,
+                    neverConfirmed));
+    unconfigured = String.join(", ", neverConfirmed);
+
+    leaderFaults = leader.device().getFaultField(false);
+    List<StatusSignal<Integer>> followerFaults = new ArrayList<>();
+    for (PhoenixTalon follower : following) {
+      followerFaults.add(follower.device().getFaultField(false));
+    }
+    sendFaultFieldsSlowly(leaderFaults, followerFaults);
+    // Each follower's half second of silence is counted from here, once every device has been
+    // configured, and not from partway through startup.
+    leaderRestarts = new Restarts(leader.parent());
+    List<FollowingTalon> watched = new ArrayList<>();
+    for (int i = 0; i < following.size(); i++) {
+      PhoenixTalon follower = following.get(i);
+      watched.add(
+          new FollowingTalon(
+              follower,
+              new Restarts(follower.parent()),
+              followerFaults.get(i),
+              silentAfterHalfASecond()));
+    }
+    followers = List.copyOf(watched);
+    if (leaderReadsItsRotor) {
+      // Until a CANcoder says otherwise (seedRotorOnce) or the joint is homed, the joint is taken
+      // to be where its definition rests it.
       leader
           .device()
           .setPosition(rotations.toRotations(joint.restPosition()), STARTUP_TIMEOUT_SECONDS);
     }
-    this.math = math;
-    seedFrom = readsRotor ? cancoderReading : null;
-    seedModel = readsRotor ? absolute : null;
-    unconfigured = String.join(", ", failed);
 
     position = leader.device().getPosition();
     velocity = leader.device().getVelocity();
-    volts = leader.device().getMotorVoltage();
+    motorVolts = leader.device().getMotorVoltage();
     statorCurrent = leader.device().getStatorCurrent();
     supplyCurrent = leader.device().getSupplyCurrent();
-    this.pins = pins;
     forwardLimit = leader.device().getForwardLimit();
     reverseLimit = leader.device().getReverseLimit();
-    signals =
+    forwardPin = LimitPin.of(pins.forward());
+    reversePin = LimitPin.of(pins.reverse());
+    leaderSignals =
         new BaseStatusSignal[] {
-          position, velocity, volts, statorCurrent, supplyCurrent, forwardLimit, reverseLimit
+          position, velocity, motorVolts, statorCurrent, supplyCurrent, forwardLimit, reverseLimit
         };
-    BaseStatusSignal.setUpdateFrequencyForAll(RobotLoop.FREQUENCY_HZ, signals);
-    List<ParentDevice> devices = new ArrayList<>();
-    for (Talon follower : followers) {
-      devices.add(follower.parent());
-    }
-    devices.add(leader.parent());
-    ParentDevice.optimizeBusUtilizationForAll(devices.toArray(ParentDevice[]::new));
+    sendOnlyWhatIsRead();
 
     boolean foc = foc(drive);
     positionRequest = new PositionVoltage(0).withEnableFOC(foc);
     velocityRequest = new VelocityVoltage(0).withEnableFOC(foc);
     voltageRequest = new VoltageOut(0).withEnableFOC(foc);
     dutyCycleRequest = new DutyCycleOut(0).withEnableFOC(foc);
-    homingRequest = new VoltageOut(0).withEnableFOC(foc).withIgnoreSoftwareLimits(true);
+    homingPush = new VoltageOut(0).withEnableFOC(foc).withIgnoreSoftwareLimits(true);
   }
 
-  /** The leading motor controller: for the tests, which read what it was last told. */
-  ParentDevice leader() {
-    return leader.parent();
-  }
-
-  @Override
-  public void retune(MechanismControl control) {
-    PhoenixMechanism.Settings settings = configure.apply(control);
-    // Without waiting, as the loop runs: what Phoenix doesn't take shows in the log as it reads.
-    leader.apply(settings.leader().Slot0, 0);
-    leader.apply(settings.leader().CurrentLimits, 0);
-    for (int i = 0; i < followers.size(); i++) {
-      followers.get(i).apply(settings.followers().get(i).configuration().CurrentLimits, 0);
+  /**
+   * Sends the leader its whole configuration, with what is on its limit inputs added to it, and
+   * waits for it to confirm.
+   */
+  private void configureLeader(
+      TalonFXConfiguration settings, ControllerPins pins, int id, List<String> neverConfirmed) {
+    PhoenixMechanism.limits(settings.HardwareLimitSwitch, pins);
+    if (!confirmed(() -> leader.apply(settings, STARTUP_TIMEOUT_SECONDS))) {
+      neverConfirmed.add("motor " + id);
     }
   }
 
   /**
-   * Whether a switch on a pin is tripped: closed to ground for a normally open one, open for a
-   * normally closed one. Phoenix reports the pin as it is, whatever polarity it's told for its own
-   * stop. Nothing on the pin, or a CANdi's limit read over CAN, reads nothing here.
+   * Sends a follower its own configuration, waits for it to confirm, and then tells it to follow
+   * the leader. A follower needs its own current limits, neutral mode and direction: following
+   * copies only the leader's output.
    */
-  private static boolean tripped(Optional<ControllerPins.Limit> limit, boolean closed) {
-    return limit.orElse(null) instanceof ControllerPins.OnPin pin
-        && closed == (pin.polarity() == SensorWiring.Polarity.NORMALLY_OPEN);
+  private static PhoenixTalon startFollower(
+      PhoenixTalon follower,
+      PhoenixMechanism.FollowerSettings settings,
+      List<String> neverConfirmed) {
+    if (!confirmed(() -> follower.apply(settings.configuration(), STARTUP_TIMEOUT_SECONDS))) {
+      neverConfirmed.add("motor " + settings.id());
+    }
+    follower.device().setControl(settings.request());
+    return follower;
   }
 
   /**
-   * Whether the definition's motors are driven with FOC, which needs Phoenix Pro: its FOC motors
-   * are named so ({@code Motor.KRAKEN_X60_FOC}, "Kraken X60 FOC").
+   * Sends the joint's CANcoder its offset, direction and wrap point, and waits for it to confirm.
+   *
+   * @param model the definition's encoder that the CANcoder is
+   * @param seedsTheRotor whether the leader reads its own rotor, and is told where the joint is
+   *     from this CANcoder
    */
-  static boolean foc(Drive drive) {
-    return drive.actuator() instanceof Actuator.Motors motors
-        && motors.motor().name().endsWith(" FOC");
+  private static Cancoder startCancoder(
+      CANcoder device,
+      CANcoderConfiguration settings,
+      Sensor.Encoder model,
+      boolean seedsTheRotor,
+      List<String> neverConfirmed) {
+    boolean tookIt =
+        confirmed(() -> device.getConfigurator().apply(settings, STARTUP_TIMEOUT_SECONDS));
+    if (!tookIt) {
+      neverConfirmed.add("CANcoder " + device.getDeviceID());
+    }
+    return new Cancoder(
+        device.getAbsolutePosition(),
+        device.getMagnetHealth(),
+        device.getFaultField(false),
+        new Restarts(device),
+        model,
+        seedsTheRotor);
   }
 
   /**
-   * A device's restarts once the robot runs: its first read takes what it reported as it and the
-   * robot started, which isn't one.
+   * Asks each TalonFX to send its fault field {@link #FAULTS_HZ} times a second. The rate has to be
+   * set explicitly: a frame whose rate nobody set is one Phoenix stops when the bus is trimmed
+   * ({@link #sendOnlyWhatIsRead}). A CANcoder's fault field needs nothing: a CANcoder is not
+   * trimmed, and sends it anyway.
    */
-  private static BooleanSupplier restarts(ParentDevice device) {
-    BooleanSupplier restarted = device.getResetOccurredChecker();
-    boolean[] started = {false};
-    return () -> {
-      boolean reported = restarted.getAsBoolean();
-      if (!started[0]) {
-        started[0] = true;
-        return false;
-      }
-      return reported;
-    };
+  private static void sendFaultFieldsSlowly(
+      StatusSignal<Integer> leaderFaults, List<StatusSignal<Integer>> followerFaults) {
+    List<BaseStatusSignal> faultFields = new ArrayList<>();
+    faultFields.add(leaderFaults);
+    faultFields.addAll(followerFaults);
+    BaseStatusSignal.setUpdateFrequencyForAll(
+        FAULTS_HZ, faultFields.toArray(BaseStatusSignal[]::new));
   }
 
   /**
-   * Tries something a device must confirm, a few times: at startup, where waiting is fine. Whether
-   * it took.
+   * Sets how often the motor controllers send each signal, to keep the CAN bus's load down.
+   *
+   * <p>The leader sends what {@link #updateInputs} reads once a robot loop ({@link
+   * RobotLoop#FREQUENCY_HZ}): reading faster than the loop gains nothing. Then Phoenix is told to
+   * stop every frame whose rate was never set, on the leader and on each follower. A follower is
+   * left sending only its fault field.
    */
-  private static boolean applied(Supplier<StatusCode> attempt) {
-    for (int i = 0; i < TRIES; i++) {
+  private void sendOnlyWhatIsRead() {
+    BaseStatusSignal.setUpdateFrequencyForAll(RobotLoop.FREQUENCY_HZ, leaderSignals);
+    ParentDevice[] devices = new ParentDevice[followers.size() + 1];
+    for (int i = 0; i < followers.size(); i++) {
+      devices[i] = followers.get(i).talon().parent();
+    }
+    devices[followers.size()] = leader.parent();
+    ParentDevice.optimizeBusUtilizationForAll(devices);
+  }
+
+  /**
+   * Whether a device confirmed something it was sent at startup, after a few tries. Only for
+   * startup, where waiting is fine.
+   */
+  private static boolean confirmed(Supplier<StatusCode> attempt) {
+    for (int i = 0; i < STARTUP_TRIES; i++) {
       if (attempt.get().isOK()) {
         return true;
       }
@@ -341,109 +485,190 @@ public final class JointIOTalon implements JointIO {
     return false;
   }
 
-  /**
-   * Tells the rotor where the joint is, from its CANcoder's first good reading: once, at startup,
-   * and again after it restarts. Only once the CANcoder has said its magnet isn't bad: it waits for
-   * that, a frame it sends four times a second.
-   *
-   * @param at where the CANcoder says the joint is, in its units: NaN without a good reading
-   * @param magnetGood whether the CANcoder has said its magnet isn't too close or too far
-   */
-  private void seed(double at, boolean magnetGood) {
-    if (seeded || Double.isNaN(at) || !magnetGood) {
-      return;
-    }
-    double rotationsAt = rotations.toRotations(at);
-    leader.device().setPosition(rotationsAt, 0);
-    seededAt = rotationsAt;
-    seeded = true;
+  private static Debouncer silentAfterHalfASecond() {
+    return new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  }
+
+  /** The leading motor controller. For the tests, which read what it was last told. */
+  ParentDevice leader() {
+    return leader.parent();
   }
 
   /**
-   * Where its CANcoder says the joint is this loop, in its units, where the robot reads it beside
-   * the rotor: NaN for a joint whose TalonFX reads it instead, or without a good reading. The
-   * CANcoder's own settings give its offset, direction and wrap.
+   * Whether the definition's motors are driven with FOC, which needs Phoenix Pro. The catalog names
+   * its FOC motors so ({@code Motor.KRAKEN_X60_FOC} is "Kraken X60 FOC").
    */
-  private double fromCancoder() {
-    StatusSignal<Angle> reading = seedFrom;
-    Sensor.Encoder model = seedModel;
-    if (reading == null || model == null || !reading.refresh().getStatus().isOK()) {
-      return Double.NaN;
-    }
-    return math.fromAbsolute(model, reading.getValueAsDouble());
+  static boolean foc(Drive drive) {
+    return drive.actuator() instanceof Actuator.Motors motors
+        && motors.motor().name().endsWith(" FOC");
   }
 
   /**
-   * What its CANcoder says of its magnet as of this loop: null without one, or before it has said:
-   * red, too close or too far; orange, adequate; green; or that it can't tell.
+   * Sends the gains and current limits the pit has tuned, without waiting for the devices to
+   * confirm. The leader takes both. A follower takes only its current limits, since it runs no loop
+   * of its own. A setting Phoenix refuses shows in the log as the device reads on.
    */
-  private @Nullable MagnetHealthValue magnet() {
-    StatusSignal<MagnetHealthValue> health = magnet;
-    return health != null && health.refresh().getStatus().isOK() ? health.getValue() : null;
+  @Override
+  public void retune(MechanismControl control) {
+    PhoenixMechanism.Settings settings = settingsFor.apply(control);
+    leader.apply(settings.leader().Slot0, NO_WAIT_SECONDS);
+    leader.apply(settings.leader().CurrentLimits, NO_WAIT_SECONDS);
+    for (int i = 0; i < followers.size(); i++) {
+      followers
+          .get(i)
+          .talon()
+          .apply(settings.followers().get(i).configuration().CurrentLimits, NO_WAIT_SECONDS);
+    }
   }
 
   @Override
   public void updateInputs(JointIOInputs inputs) {
-    boolean restarted = leaderRestarts.getAsBoolean();
-    if (restarted) {
-      // Its rotor counts from 0 again: a CANcoder it was seeded from seeds it again, now.
-      seeded = false;
+    boolean leaderRestarted = leaderRestarts.happened();
+    if (leaderRestarted) {
+      // A restarted leader counts its rotor from 0, so the CANcoder must tell it where the joint
+      // is again. It does so below, in this same loop.
+      rotorSeeded = false;
     }
-    MagnetHealthValue health = magnet();
-    boolean magnetBad = health == MagnetHealthValue.Magnet_Red;
-    double fromCancoder = fromCancoder();
-    seed(fromCancoder, health != null && !magnetBad);
-    inputs.connected = connected.calculate(BaseStatusSignal.refreshAll(signals).isOK());
-    // Told where it is this loop: its rotor's reading catches up on the next.
-    inputs.position =
-        rotations.fromRotations(Double.isNaN(seededAt) ? position.getValueAsDouble() : seededAt);
-    seededAt = Double.NaN;
+    Magnet magnet = readMagnet();
+    double besideRotor = readCancoderBesideRotor();
+    seedRotorOnce(besideRotor, magnet);
+
+    inputs.connected = leaderAnswers.calculate(BaseStatusSignal.refreshAll(leaderSignals).isOK());
+    inputs.position = rotations.fromRotations(rotorRotationsThisLoop());
     inputs.velocity = rotations.fromRotations(velocity.getValueAsDouble());
-    inputs.appliedVolts = volts.getValueAsDouble();
+    inputs.appliedVolts = motorVolts.getValueAsDouble();
     inputs.statorCurrentAmps = Math.abs(statorCurrent.getValueAsDouble());
     inputs.supplyCurrentAmps = supplyCurrent.getValueAsDouble();
     inputs.forwardLimit =
-        tripped(pins.forward(), forwardLimit.getValue() == ForwardLimitValue.ClosedToGround);
+        forwardPin.tripped(forwardLimit.getValue() == ForwardLimitValue.ClosedToGround);
     inputs.reverseLimit =
-        tripped(pins.reverse(), reverseLimit.getValue() == ReverseLimitValue.ClosedToGround);
-    inputs.absolutePosition = fromCancoder;
-    inputs.magnetBad = magnetBad;
+        reversePin.tripped(reverseLimit.getValue() == ReverseLimitValue.ClosedToGround);
+    inputs.absolutePosition = besideRotor;
+    inputs.magnetBad = magnet == Magnet.BAD;
     inputs.unconfigured = unconfigured;
-    inputs.restarted = restarted;
-    if (inputs.followersRestarted.length != followerRestarts.length) {
-      inputs.followersRestarted = new boolean[followerRestarts.length];
+
+    inputs.restarted = leaderRestarted;
+    readFollowersRestarts(inputs);
+    inputs.encoderRestarted = cancoder.isPresent() && cancoder.get().restarts().happened();
+
+    boolean readsHealthThisLoop = loops % HEALTH_LOOPS == 0;
+    loops++;
+    if (readsHealthThisLoop) {
+      readHealth(inputs);
     }
-    for (int i = 0; i < followerRestarts.length; i++) {
-      inputs.followersRestarted[i] = followerRestarts[i].getAsBoolean();
+  }
+
+  /** Reads whether each follower restarted since the last loop. */
+  private void readFollowersRestarts(JointIOInputs inputs) {
+    if (inputs.followersRestarted.length != followers.size()) {
+      inputs.followersRestarted = new boolean[followers.size()];
     }
-    BooleanSupplier encoder = encoderRestarts;
-    inputs.encoderRestarted = encoder != null && encoder.getAsBoolean();
-    if (loops++ % HEALTH_LOOPS == 0) {
-      health(inputs);
+    for (int i = 0; i < followers.size(); i++) {
+      inputs.followersRestarted[i] = followers.get(i).restarts().happened();
+    }
+  }
+
+  /** What the CANcoder says of its magnet as of this loop. */
+  private Magnet readMagnet() {
+    if (cancoder.isEmpty()) {
+      return Magnet.NOT_SAID;
+    }
+    StatusSignal<MagnetHealthValue> health = cancoder.get().magnetHealth();
+    if (!health.refresh().getStatus().isOK()) {
+      return Magnet.NOT_SAID;
+    }
+    if (health.getValue() == MagnetHealthValue.Magnet_Red) {
+      return Magnet.BAD;
+    }
+    return Magnet.USABLE;
+  }
+
+  /**
+   * Where the CANcoder says the joint is this loop, in the joint's units, for a joint whose leader
+   * reads its own rotor. The CANcoder's own settings have already applied its offset, direction and
+   * wrap point.
+   *
+   * @return the position, or NaN when there is no CANcoder to read beside the rotor or its reading
+   *     did not come. NaN is what {@link JointIOInputs#absolutePosition} holds for "no reading",
+   *     and this runs every loop, where an Optional would allocate.
+   */
+  private double readCancoderBesideRotor() {
+    if (cancoder.isEmpty() || !cancoder.get().seedsTheRotor()) {
+      return Double.NaN;
+    }
+    StatusSignal<Angle> reading = cancoder.get().absolutePosition();
+    if (!reading.refresh().getStatus().isOK()) {
+      return Double.NaN;
+    }
+    return math.fromAbsolute(cancoder.get().model(), reading.getValueAsDouble());
+  }
+
+  /**
+   * Tells the leader's rotor where the joint is, from the CANcoder's first good reading. It happens
+   * once at startup and once more after each restart of the leader, and never from a CANcoder that
+   * has not yet said its magnet is good.
+   *
+   * @param cancoderPosition where the CANcoder says the joint is, in the joint's units, or NaN
+   *     without a good reading
+   */
+  private void seedRotorOnce(double cancoderPosition, Magnet magnet) {
+    if (rotorSeeded || Double.isNaN(cancoderPosition) || magnet != Magnet.USABLE) {
+      return;
+    }
+    seededRotations = rotations.toRotations(cancoderPosition);
+    leader.device().setPosition(seededRotations, NO_WAIT_SECONDS);
+    seededThisLoop = true;
+    rotorSeeded = true;
+  }
+
+  /**
+   * Where the leader reads the joint this loop, in Phoenix's rotations. In the loop the rotor is
+   * told where the joint is, the leader's own reading is still its old count, because its next
+   * frame has not come yet. So for that one loop the answer is what it was just told.
+   */
+  private double rotorRotationsThisLoop() {
+    if (seededThisLoop) {
+      seededThisLoop = false;
+      return seededRotations;
+    }
+    return position.getValueAsDouble();
+  }
+
+  /**
+   * Reads each device's faults, and whether each follower still answers. Faults are listed leader
+   * first, then each follower in order, then the CANcoder. A device whose fault field did not come
+   * keeps the faults it last reported.
+   */
+  private void readHealth(JointIOInputs inputs) {
+    int devices = 1 + followers.size() + (cancoder.isPresent() ? 1 : 0);
+    if (inputs.faults.length != devices) {
+      inputs.faults = new int[devices];
+    }
+    if (inputs.followersConnected.length != followers.size()) {
+      inputs.followersConnected = new boolean[followers.size()];
+    }
+    readFaults(leaderFaults, inputs.faults, 0);
+    for (int i = 0; i < followers.size(); i++) {
+      FollowingTalon follower = followers.get(i);
+      boolean answered = readFaults(follower.faults(), inputs.faults, 1 + i);
+      inputs.followersConnected[i] = follower.answers().calculate(answered);
+    }
+    if (cancoder.isPresent()) {
+      readFaults(cancoder.get().faults(), inputs.faults, 1 + followers.size());
     }
   }
 
   /**
-   * Its devices' health: each one's faults, and each follower's answering, from its fault field,
-   * the last reading standing where none came.
+   * Reads one device's fault field into its place in the list, if it came.
+   *
+   * @return whether the device answered
    */
-  private void health(JointIOInputs inputs) {
-    if (inputs.faults.length != faultFields.size()) {
-      inputs.faults = new int[faultFields.size()];
+  private static boolean readFaults(StatusSignal<Integer> faultField, int[] faults, int index) {
+    boolean answered = faultField.refresh().getStatus().isOK();
+    if (answered) {
+      faults[index] = faultField.getValue();
     }
-    if (inputs.followersConnected.length != followersAnswer.length) {
-      inputs.followersConnected = new boolean[followersAnswer.length];
-    }
-    for (int i = 0; i < faultFields.size(); i++) {
-      StatusSignal<Integer> field = faultFields.get(i);
-      boolean answered = field.refresh().getStatus().isOK();
-      if (answered) {
-        inputs.faults[i] = field.getValue();
-      }
-      if (i >= 1 && i <= followersAnswer.length) {
-        inputs.followersConnected[i - 1] = followersAnswer[i - 1].calculate(answered);
-      }
-    }
+    return answered;
   }
 
   @Override
@@ -479,61 +704,12 @@ public final class JointIOTalon implements JointIO {
 
   @Override
   public void home(double volts) {
-    leader.device().setControl(homingRequest.withOutput(volts));
+    leader.device().setControl(homingPush.withOutput(volts));
   }
 
-  /** Sets the leader's position without waiting for it to confirm: this runs in the loop. */
+  /** Tells the leader where the joint is, without waiting for it to confirm. */
   @Override
   public void resetPosition(double position) {
-    leader.device().setPosition(rotations.toRotations(position), 0);
-  }
-
-  /**
-   * One motor controller: a TalonFX, or a TalonFXS driving a motor through its connector, which
-   * takes the settings worked out for a TalonFX in its own terms.
-   */
-  private static final class Talon {
-    private final @Nullable TalonFX fx;
-    private final @Nullable TalonFXS fxs;
-    private final Motor motor;
-
-    Talon(MechanismWiring.Controller controller, int id, CANBus bus, Motor motor) {
-      this.motor = motor;
-      if (controller == MechanismWiring.Controller.TALON_FXS) {
-        fx = null;
-        fxs = new TalonFXS(id, bus);
-      } else {
-        fx = new TalonFX(id, bus);
-        fxs = null;
-      }
-    }
-
-    CommonTalon device() {
-      return fx != null ? fx : Objects.requireNonNull(fxs);
-    }
-
-    ParentDevice parent() {
-      return fx != null ? fx : Objects.requireNonNull(fxs);
-    }
-
-    StatusCode apply(TalonFXConfiguration config, double timeout) {
-      return fx != null
-          ? fx.getConfigurator().apply(config, timeout)
-          : Objects.requireNonNull(fxs)
-              .getConfigurator()
-              .apply(PhoenixMechanism.talonFxs(config, motor), timeout);
-    }
-
-    StatusCode apply(Slot0Configs slot, double timeout) {
-      return fx != null
-          ? fx.getConfigurator().apply(slot, timeout)
-          : Objects.requireNonNull(fxs).getConfigurator().apply(slot, timeout);
-    }
-
-    StatusCode apply(CurrentLimitsConfigs limits, double timeout) {
-      return fx != null
-          ? fx.getConfigurator().apply(limits, timeout)
-          : Objects.requireNonNull(fxs).getConfigurator().apply(limits, timeout);
-    }
+    leader.device().setPosition(rotations.toRotations(position), NO_WAIT_SECONDS);
   }
 }
