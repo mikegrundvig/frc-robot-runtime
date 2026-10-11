@@ -4,114 +4,86 @@ import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 
 import com.google.errorprone.annotations.CheckReturnValue;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
-import org.jspecify.annotations.Nullable;
-import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.command3.Trigger;
-import org.wpilib.driverstation.DriverStationErrors;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.units.measure.Time;
-import org.wpilib.util.Alert;
 
 /**
- * A named condition that says why it's false: a v3 {@link Trigger}, so it binds ({@code
- * operator.rightBumper().and(readyToShoot).onTrue(...)}) and awaits ({@code
- * co.waitUntil(readyToShoot)}), with a name and named terms. Every joint's checks are gates already
- * ({@code shooter.isAtGoal()} is "shooter at goal"), and code makes its own:
+ * A named condition that says why it is false. It is a v3 {@link Trigger}, so it binds ({@code
+ * operator.rightBumper().and(readyToShoot).onTrue(...)}) and can be waited on ({@code
+ * co.waitUntil(readyToShoot)}), and it adds a name and named terms. Every joint's checks are gates
+ * already ({@code shooter.isAtGoal()} is "shooter at goal"), and a team's code makes its own:
  *
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=gates}
  *
- * <p>It's worked out once a loop, before the scheduler's bindings and commands read it, and logged
- * then: {@code Gates/ready to shoot = false}, and {@code Gates/ready to shoot/Blocking = [aimed]},
- * the terms that are false. Terms go one level deep: a gate of gates, each a lambda, never an
- * expression language.
+ * <p><b>The log.</b> Each time a gate is worked out it is logged: {@code Gates/ready to shoot =
+ * false}, and {@code Gates/ready to shoot/Blocking = [aimed]}, the terms that are false. Terms go
+ * one level deep. A gate is made of other gates, each one a lambda, and there is no expression
+ * language.
  *
- * <p>A gate made as the robot starts is worked out and logged every loop from then on. One made
- * once the robot runs (inside a command, or as an auto is built) is worked out and logged when it's
- * read instead: waited on or bound, that's every loop all the same, and once nothing reads it any
- * more it costs nothing, so making one per run of a command leaves nothing behind.
+ * <p><b>When it is worked out.</b> A gate made as the robot starts is worked out once a loop from
+ * then on, before the scheduler's bindings and commands read it. A gate made once the robot runs
+ * (inside a command, or as an auto is built) is worked out each time it is read instead. A gate
+ * that is waited on or bound is read every loop, so the two come to the same thing. The difference
+ * is that the second kind costs nothing once nobody reads it, so a command can make a new gate on
+ * every run without leaving anything behind.
  *
- * <p>A gate whose logic throws holds false while it does, its term saying so ({@code aimed threw:
- * ...}), and the rest of the robot runs on. The first time, it reports a Driver Station error with
- * the stack, and an alert stays raised while it throws.
+ * <p><b>A logic that throws.</b> The gate holds false while its logic throws, and its one term says
+ * so ({@code aimed threw: ...}). The rest of the robot runs on. The first time, the gate reports a
+ * Driver Station error with the stack, and an alert stays raised for as long as the logic throws.
+ *
+ * <p>What a gate has worked out, and the working out, is its {@link GateState}.
  */
 @CheckReturnValue
 public final class Gate extends Trigger {
-  /** What a gate works out each loop. */
+  /** What a gate works out. */
   public interface Logic {
-    /** Whether it holds now; when not, the names of the terms that don't, added to {@code why}. */
+    /**
+     * Whether the gate holds now.
+     *
+     * @param why where to add the name of each term that keeps the gate false
+     */
     boolean holds(List<String> why);
   }
 
-  /** The gate's value this loop, which v3's trigger reads. */
-  private static final class Value implements BooleanSupplier {
-    boolean holds;
-
-    /** The gate to work out as this is read, one made once the robot runs; else null. */
-    @Nullable Gate asked;
-
-    @Override
-    public boolean getAsBoolean() {
-      Gate gate = asked;
-      if (gate != null) {
-        gate.update();
-      }
-      return holds;
-    }
+  /** What a gate with a band remembers between workings out: whether it held the last time. */
+  private static final class Remembered {
+    boolean held;
   }
 
   private final Scheduler scheduler;
   private final String name;
-  private final Logic logic;
-  private final Value value;
-  private final List<String> blocking = new ArrayList<>();
-  private final String key;
-  private final String blockingKey;
-
-  /** Whether it logs: a gate debounced into another logs as that one, under the same name. */
-  private boolean logged = true;
-
-  private String[] shown = new String[0];
-
-  /** Raised while its logic throws: made the first time it does. */
-  private @Nullable Alert threw;
-
-  /** What the alert says. */
-  private String threwText = "";
-
-  /** Whether its logic threw last loop. */
-  private boolean throwing;
+  private final GateState state;
 
   /**
-   * A gate whose logic names what keeps it false: what a mechanism's or a sensor's gate is built
-   * from.
+   * A gate whose logic names what keeps it false. A mechanism's or a sensor's gate is built from
+   * this.
    */
   public Gate(Scheduler scheduler, String name, Logic logic) {
-    this(scheduler, name, logic, new Value());
+    this(scheduler, name, new GateState(name, logic));
   }
 
-  private Gate(Scheduler scheduler, String name, Logic logic, Value value) {
-    super(scheduler, value);
+  private Gate(Scheduler scheduler, String name, GateState state) {
+    super(scheduler, state);
     this.scheduler = scheduler;
     this.name = name;
-    this.logic = logic;
-    this.value = value;
-    key = "Gates/" + name;
-    blockingKey = key + "/Blocking";
-    update();
+    this.state = state;
+    state.workOut();
     if (Refusals.starting(scheduler)) {
-      scheduler.addPeriodic(this::update);
-    } else {
-      // The scheduler keeps every periodic for good, so one made once the robot runs works itself
-      // out as it's read: its command's run over, nothing of it is left running. A trigger polls
-      // from the moment it's made, too; unbound, it polls again once a command is bound to it.
-      value.asked = this;
-      unbind();
+      scheduler.addPeriodic(state::workOut);
+      return;
     }
+    // The scheduler keeps every periodic task for good. So a gate made once the robot runs is not
+    // given one: it is worked out as it is read, and nothing of it is left running when the
+    // command that made it is over. For the same reason its trigger is unbound here: a v3 trigger
+    // polls from the moment it is made, and an unbound one starts polling again only when a
+    // command is bound to it.
+    state.workOutWhenRead();
+    unbind();
   }
 
   /** A gate on any condition: {@code Gate.of(scheduler, "in range", () -> distance() <= 5)}. */
@@ -120,18 +92,21 @@ public final class Gate extends Trigger {
   }
 
   /**
-   * A gate on how far something is off, either way: it becomes true within {@code enter} of zero,
-   * and stays true until it's more than {@code stay} off, so an error that wavers at the edge
-   * doesn't flicker. {@code Gate.within(scheduler, "aimed", () -> headingError, 2.0, 4.0)}. Bands
-   * that can't be are refused ({@link Refusals#gate}): thrown as the robot starts, and once it
-   * runs, a gate that holds false saying why.
+   * A gate on how far something is off, in either direction: {@code Gate.within(scheduler, "aimed",
+   * () -> headingError, 2.0, 4.0)}. It becomes true once the error is within {@code enter} of zero,
+   * and then stays true until the error is more than {@code stay} off. With one band, an error that
+   * wavers at the edge would make the gate flicker.
    *
-   * @throws IllegalArgumentException for an {@code enter} that isn't positive, or a {@code stay}
-   *     below it, as the robot starts
+   * <p>Bands that cannot be are refused ({@link Refusals#gate}): as the robot starts that is a
+   * throw, and once it runs it is a gate that holds false and says why.
+   *
+   * @throws IllegalArgumentException as the robot starts, for an {@code enter} that is not
+   *     positive, or a {@code stay} below it
    */
   public static Gate within(
       Scheduler scheduler, String name, DoubleSupplier error, double enter, double stay) {
-    if (!(enter > 0 && stay >= enter)) {
+    boolean bandsCanBe = enter > 0 && stay >= enter;
+    if (!bandsCanBe) {
       return Refusals.gate(
           scheduler,
           name,
@@ -141,22 +116,23 @@ public final class Gate extends Trigger {
               + " and "
               + stay);
     }
-    boolean[] inside = {false};
+    Remembered inside = new Remembered();
     return new Gate(
         scheduler,
         name,
         why -> {
           double off = Math.abs(error.getAsDouble());
-          inside[0] = inside[0] ? off <= stay : off <= enter;
-          return inside[0];
+          double band = inside.held ? stay : enter;
+          inside.held = off <= band;
+          return inside.held;
         });
   }
 
   /**
-   * A gate true when all its terms are, blocked by the ones that aren't: {@code Gate.all("ready to
-   * shoot", shooter.isAtGoal(), aimed)}.
+   * A gate that is true when all its terms are, and is blocked by the ones that are not: {@code
+   * Gate.all("ready to shoot", shooter.isAtGoal(), aimed)}.
    *
-   * @throws IllegalArgumentException with no terms, or terms of different schedulers
+   * @throws IllegalArgumentException with no terms, or with terms of different schedulers
    */
   public static Gate all(String name, Gate... terms) {
     if (terms.length == 0) {
@@ -174,8 +150,9 @@ public final class Gate extends Trigger {
         name,
         why -> {
           boolean holds = true;
+          // Every term is asked, even after one is false, so that all the false ones are named.
           for (Gate term : all) {
-            if (!term.value.getAsBoolean()) {
+            if (!term.state.getAsBoolean()) {
               why.add(term.name);
               holds = false;
             }
@@ -185,53 +162,63 @@ public final class Gate extends Trigger {
   }
 
   /**
-   * The same gate, debounced: on the falling edge, it stays true until it has been false for the
-   * time, riding out a flywheel's dip as a shot leaves; on the rising edge, it becomes true only
-   * once it has been for the time. It's logged under the same name, in place of this one. It holds
-   * nothing until this gate first has.
+   * The same gate, debounced. On the falling edge it stays true until this gate has been false for
+   * the time, which rides out a flywheel's dip as a shot leaves. On the rising edge it becomes true
+   * only once this gate has been true for the time.
+   *
+   * <p>The debounced gate is logged under the same name, in place of this one. It holds nothing
+   * until this gate has first held.
    */
   @Override
   public Gate debounce(Time time, Debouncer.DebounceType type) {
     Debouncer debouncer = new Debouncer(time.in(Seconds), type);
-    Gate inner = this;
-    inner.logged = false;
-    boolean[] seen = {false};
+    GateState undebounced = state;
+    undebounced.stopLogging();
+    Remembered everHeld = new Remembered();
     return new Gate(
         scheduler,
         name,
         why -> {
-          boolean now = inner.value.getAsBoolean();
-          seen[0] |= now;
-          boolean debounced = debouncer.calculate(now); // every loop, so its timer keeps time
-          boolean holds = seen[0] && debounced;
-          if (!holds) {
-            if (now) {
-              why.add(name + " settling");
-            } else {
-              why.addAll(inner.blocking);
-            }
+          boolean holdsNow = undebounced.getAsBoolean();
+          everHeld.held |= holdsNow;
+          // The debouncer is asked every loop, whatever the answer, so that its timer keeps time.
+          boolean debounced = debouncer.calculate(holdsNow);
+          if (everHeld.held && debounced) {
+            return true;
           }
-          return holds;
+          if (holdsNow) {
+            why.add(name + " settling");
+          } else {
+            why.addAll(undebounced.blocking());
+          }
+          return false;
         });
   }
 
   /**
-   * A trigger true while this gate and a condition both hold. With a gamepad's button, it's the
-   * button's, recording what's bound to it: {@code readyToShoot.and(operator.rightBumper())} is
-   * "right bumper and ready to shoot", as the other way round.
+   * A trigger that is true while this gate and a condition both hold. When the condition is a
+   * gamepad's button the result is the button's own kind of trigger, which records what is bound to
+   * it: {@code readyToShoot.and(operator.rightBumper())} is "right bumper and ready to shoot", the
+   * same as when it is written the other way round.
    */
   @Override
   public Trigger and(BooleanSupplier condition) {
-    return condition instanceof RecordingTrigger button ? button.and(this) : super.and(condition);
+    if (condition instanceof RecordingTrigger button) {
+      return button.and(this);
+    }
+    return super.and(condition);
   }
 
   /**
-   * A trigger true while this gate or a condition holds: with a gamepad's button, the button's, as
-   * {@link #and} is.
+   * A trigger that is true while this gate or a condition holds. With a gamepad's button it is the
+   * button's own kind of trigger, as for {@link #and}.
    */
   @Override
   public Trigger or(BooleanSupplier condition) {
-    return condition instanceof RecordingTrigger button ? button.or(this) : super.or(condition);
+    if (condition instanceof RecordingTrigger button) {
+      return button.or(this);
+    }
+    return super.or(condition);
   }
 
   /** Its name, as logged: "ready to shoot". */
@@ -242,86 +229,33 @@ public final class Gate extends Trigger {
   /** Whether it holds this loop. */
   @Override
   public boolean getAsBoolean() {
-    return value.getAsBoolean();
+    return state.getAsBoolean();
   }
 
-  /** The terms that keep it false this loop: empty while it holds, or for a gate without terms. */
+  /**
+   * The terms that keep it false this loop. Empty while it holds, and always empty for a gate
+   * without terms.
+   */
   public List<String> blocking() {
-    asked();
-    return List.copyOf(blocking);
+    state.bringUpToDate();
+    return List.copyOf(state.blocking());
   }
 
-  /** Why it's false, as a reason reads: "ready to shoot is false: aimed"; or "ready to shoot". */
+  /**
+   * Why it is false, as a reason reads: "ready to shoot is false: aimed", or just "ready to shoot
+   * is false" for a gate without terms.
+   */
   public String why() {
-    asked();
-    return blocking.isEmpty()
-        ? name + " is false"
-        : name + " is false: " + String.join(", ", blocking);
+    state.bringUpToDate();
+    List<String> blocking = state.blocking();
+    if (blocking.isEmpty()) {
+      return name + " is false";
+    }
+    return name + " is false: " + String.join(", ", blocking);
   }
 
   @Override
   public String toString() {
     return name;
-  }
-
-  /** Works it out now, if it's one worked out as it's read. */
-  private void asked() {
-    if (value.asked != null) {
-      update();
-    }
-  }
-
-  /** Works it out for this loop, and logs it. */
-  private void update() {
-    blocking.clear();
-    boolean throwsNow = false;
-    try {
-      value.holds = logic.holds(blocking);
-    } catch (RuntimeException e) {
-      // Caught here, inside the scheduler's sideload: a sideload that throws is over, and the
-      // scheduler would then throw on every loop after it.
-      value.holds = false;
-      blocking.clear();
-      blocking.add(name + " threw: " + message(e));
-      report(e);
-      throwsNow = true;
-    }
-    Alert alert = threw;
-    if (alert != null && throwsNow != throwing) {
-      alert.set(throwsNow);
-    }
-    throwing = throwsNow;
-    if (logged) {
-      Logger.recordOutput(key, value.holds);
-      if (shown.length != blocking.size() || !List.of(shown).equals(blocking)) {
-        shown = blocking.toArray(String[]::new);
-      }
-      Logger.recordOutput(blockingKey, shown);
-    }
-  }
-
-  /**
-   * Reports its logic throwing: the first time, a Driver Station error with the stack; and the
-   * alert, saying what it threw last.
-   */
-  private void report(RuntimeException e) {
-    String text =
-        blocking.get(0)
-            + ". It holds false while it throws: fix its condition (the stack is in the"
-            + " Driver Station's log)";
-    Alert alert = threw;
-    if (alert == null) {
-      DriverStationErrors.reportError(text, e.getStackTrace());
-      threw = new Alert("Gates", name, text, Alert.Level.HIGH);
-    } else if (!text.equals(threwText)) {
-      alert.setText(text);
-    }
-    threwText = text;
-  }
-
-  /** What it says, or what it is when it says nothing. */
-  private static String message(RuntimeException e) {
-    String message = e.getMessage();
-    return message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
   }
 }

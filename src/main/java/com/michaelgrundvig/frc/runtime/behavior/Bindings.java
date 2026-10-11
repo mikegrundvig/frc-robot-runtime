@@ -11,23 +11,38 @@ import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Scheduler;
 
 /**
- * Every command bound to the drive team's gamepads, recorded as each binding is made: the one place
- * the robot's bindings are listed, so a controller map, the documentation's or Pitwall's, comes
- * from the bindings the robot makes and never from a second list. The robot's container makes it,
- * and its gamepads ({@link #gamepad}), so a team binds exactly as it would on WPILib's: {@code
+ * Every command bound to the drive team's gamepads, recorded as each binding is made. This is the
+ * one place the robot's bindings are listed, so a controller map (the documentation's, or
+ * Pitwall's) comes from the bindings the robot really makes and never from a second list that could
+ * disagree.
+ *
+ * <p>The robot's container makes this, and makes its gamepads from it ({@link #gamepad}). A team
+ * then binds exactly as it would on WPILib's gamepad: {@code
  * operator.rightTrigger().whileTrue(intake())} is recorded as "operator right trigger: while held:
  * Intake".
  *
- * <p>The record is logged as it grows ({@code Controls/Bindings}), and each loop, the bindings a
- * press or a release started ({@code Controls/Fired}). Two commands bound to one button the same
- * way start together, so each such button is a doubt the robot says at startup ({@link #doubts}).
+ * <p>The record is logged as it grows ({@code Controls/Bindings}). Each loop, the bindings that a
+ * press or a release started are logged too ({@code Controls/Fired}). Two commands bound to one
+ * button in the same way start together, so each such button is a doubt the robot says at startup
+ * ({@link #doubts}).
  *
- * <p>A binding made inside a running command lives only while that command runs, as v3's do, and
- * isn't recorded: the record is the robot's standing bindings.
+ * <p>A binding made inside a running command lives only while that command runs, as v3's bindings
+ * do, and is not recorded. The record is of the robot's standing bindings.
  */
 public final class Bindings {
   private static final String BINDINGS_KEY = "Controls/Bindings";
   private static final String FIRED_KEY = "Controls/Fired";
+
+  /** What is logged while there is nothing to list. */
+  private static final String[] NONE = new String[0];
+
+  /**
+   * A button and a way of binding a command to it. Two bindings that share both start together.
+   *
+   * @param button the button with its gamepad's name: "operator right trigger"
+   * @param how when a command bound this way starts
+   */
+  private record Start(String button, Binding.How how) {}
 
   private final Scheduler scheduler;
   private final List<Binding> all = new ArrayList<>();
@@ -40,14 +55,15 @@ public final class Bindings {
    */
   public Bindings(Scheduler scheduler) {
     this.scheduler = scheduler;
-    Logger.recordOutput(BINDINGS_KEY, new String[0]);
-    Logger.recordOutput(FIRED_KEY, new String[0]);
-    // Before the scheduler polls its triggers: last loop's firings are cleared, this loop's added.
-    scheduler.addPeriodic(this::nextLoop);
+    Logger.recordOutput(BINDINGS_KEY, NONE);
+    Logger.recordOutput(FIRED_KEY, NONE);
+    // The scheduler runs this before it polls its triggers. So each loop the last loop's firings
+    // are cleared first, and then this loop's are added as the triggers are polled.
+    scheduler.addPeriodic(this::forgetLastLoopsFirings);
   }
 
   /**
-   * A gamepad on a Driver Station port, its bindings recorded here.
+   * A gamepad on a Driver Station port, whose bindings are recorded here.
    *
    * @param name how the record names it: "driver", "operator"
    * @param port its Driver Station port: 0 for the driver, 1 for the operator
@@ -62,82 +78,99 @@ public final class Bindings {
   }
 
   /**
-   * Each button with two commands bound to it the same way, which then start together: a doubt,
-   * since it's sometimes meant. "operator right trigger starts Intake and Outtake while held: one
-   * press runs them together. If that's meant, make them one command; if not, bind one to another
-   * button".
-   */
-  public List<Finding> doubts() {
-    Map<String, List<Binding>> byButton = new LinkedHashMap<>();
-    for (Binding binding : all) {
-      byButton
-          .computeIfAbsent(
-              binding.gamepad() + " " + binding.button() + "\n" + binding.how(),
-              key -> new ArrayList<>())
-          .add(binding);
-    }
-    List<Finding> doubts = new ArrayList<>();
-    for (List<Binding> same : byButton.values()) {
-      if (same.size() < 2) {
-        continue;
-      }
-      Binding first = same.get(0);
-      String button = first.gamepad() + " " + first.button();
-      Set<String> commands = new LinkedHashSet<>();
-      same.forEach(binding -> commands.add(binding.command()));
-      doubts.add(
-          Finding.doubt(
-              button,
-              commands.size() == 1
-                  ? button
-                      + " starts "
-                      + first.command()
-                      + " "
-                      + first.how()
-                      + " twice: bind it once"
-                  : button
-                      + " starts "
-                      + and(List.copyOf(commands))
-                      + " "
-                      + first.how()
-                      + ": one "
-                      + (first.how().startsOnPress() ? "press" : "release")
-                      + " runs them together. If that's meant, make them one command; if not,"
-                      + " bind one to another button"));
-    }
-    return doubts;
-  }
-
-  /** "A and B", or "A, B and C". */
-  private static String and(List<String> names) {
-    int last = names.size() - 1;
-    return String.join(", ", names.subList(0, last)) + " and " + names.get(last);
-  }
-
-  /** Records a binding as it's made. */
-  void add(Binding binding) {
-    all.add(binding);
-    Logger.recordOutput(BINDINGS_KEY, all.stream().map(Binding::toString).toArray(String[]::new));
-  }
-
-  /** Logs a binding a press or a release started, this loop. */
-  void fired(Binding binding) {
-    fired.add(binding);
-    Logger.recordOutput(FIRED_KEY, fired.stream().map(Binding::toString).toArray(String[]::new));
-  }
-
-  /**
-   * The bindings a press or a release started this loop, as the scheduler polled the gamepads:
-   * empty in a loop that started none.
+   * The bindings a press or a release started this loop, as the scheduler polled the gamepads.
+   * Empty in a loop that started none.
    */
   public List<Binding> fired() {
     return List.copyOf(fired);
   }
 
-  private void nextLoop() {
-    if (!fired.isEmpty()) {
-      fired.clear();
-      Logger.recordOutput(FIRED_KEY, new String[0]);
+  /**
+   * A doubt for each button that has two commands bound to it in the same way, which therefore
+   * start together. It is a doubt and not a refusal because it is sometimes meant: "operator right
+   * trigger starts Intake and Outtake while held: one press runs them together. If that's meant,
+   * make them one command; if not, bind one to another button".
+   */
+  public List<Finding> doubts() {
+    List<Finding> doubts = new ArrayList<>();
+    for (List<Binding> together : bindingsByStart().values()) {
+      if (together.size() >= 2) {
+        doubts.add(doubt(together));
+      }
     }
+    return doubts;
+  }
+
+  /** The bindings that start together, grouped, in the order each group's first was made. */
+  private Map<Start, List<Binding>> bindingsByStart() {
+    Map<Start, List<Binding>> byStart = new LinkedHashMap<>();
+    for (Binding binding : all) {
+      Start start = new Start(binding.gamepad() + " " + binding.button(), binding.how());
+      byStart.computeIfAbsent(start, each -> new ArrayList<>()).add(binding);
+    }
+    return byStart;
+  }
+
+  /** The doubt about two or more bindings that start together. */
+  private static Finding doubt(List<Binding> together) {
+    Binding first = together.get(0);
+    String button = first.gamepad() + " " + first.button();
+    Set<String> commands = new LinkedHashSet<>();
+    for (Binding binding : together) {
+      commands.add(binding.command());
+    }
+    boolean isOneCommandBoundTwice = commands.size() == 1;
+    if (isOneCommandBoundTwice) {
+      return Finding.doubt(
+          button,
+          button + " starts " + first.command() + " " + first.how() + " twice: bind it once");
+    }
+    String edge = first.how().startsOnPress() ? "press" : "release";
+    return Finding.doubt(
+        button,
+        button
+            + " starts "
+            + listed(List.copyOf(commands))
+            + " "
+            + first.how()
+            + ": one "
+            + edge
+            + " runs them together. If that's meant, make them one command; if not,"
+            + " bind one to another button");
+  }
+
+  /** Two or more names as a list in a sentence: "A and B", or "A, B and C". */
+  private static String listed(List<String> names) {
+    int last = names.size() - 1;
+    return String.join(", ", names.subList(0, last)) + " and " + names.get(last);
+  }
+
+  /** Records a binding as it is made. */
+  void add(Binding binding) {
+    all.add(binding);
+    Logger.recordOutput(BINDINGS_KEY, shown(all));
+  }
+
+  /** Notes, and logs, a binding that a press or a release started this loop. */
+  void fired(Binding binding) {
+    fired.add(binding);
+    Logger.recordOutput(FIRED_KEY, shown(fired));
+  }
+
+  private void forgetLastLoopsFirings() {
+    if (fired.isEmpty()) {
+      return;
+    }
+    fired.clear();
+    Logger.recordOutput(FIRED_KEY, NONE);
+  }
+
+  /** Bindings as the log lists them, each in its own words. */
+  private static String[] shown(List<Binding> bindings) {
+    String[] shown = new String[bindings.size()];
+    for (int i = 0; i < shown.length; i++) {
+      shown[i] = bindings.get(i).toString();
+    }
+    return shown;
   }
 }

@@ -5,7 +5,6 @@ import static org.wpilib.units.Units.Seconds;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.command3.Trigger;
@@ -15,58 +14,82 @@ import org.wpilib.units.measure.Time;
 
 /**
  * A v3 {@link Trigger} on a drive team's gamepad that records each command bound to it ({@link
- * Bindings}): its gamepad's buttons are these ({@link RecordingGamepad}), so a binding is written
- * as on WPILib's, {@code operator.faceDown().onTrue(...)}, and recorded with the button's name. One
- * made from it is one too, named for what it reads: {@code
- * operator.rightBumper().and(readyToShoot)} is "right bumper and ready to shoot", a gate saying its
- * own name, any other condition "an unnamed condition".
+ * Bindings}). A gamepad's buttons are these ({@link RecordingGamepad}), so a binding is written as
+ * on WPILib's gamepad, {@code operator.faceDown().onTrue(...)}, and is recorded with the button's
+ * name.
  *
- * <p>Each press and release it sees logs the bindings it starts.
+ * <p>A trigger made from one of these is one of these too, named for what it reads. {@code
+ * operator.rightBumper().and(readyToShoot)} is "right bumper and ready to shoot": a gate goes by
+ * its own name, and any other condition is "an unnamed condition".
+ *
+ * <p>Each press and each release it sees logs the bindings that start on it.
  */
 public final class RecordingTrigger extends Trigger {
-  /** The trigger's condition as v3 polls it, once a loop: it sees each press and release. */
-  private static final class Signal implements BooleanSupplier {
+  /**
+   * The trigger's condition as v3 polls it, once a loop. It watches for the condition changing, and
+   * on each press and each release it logs the bindings that start then.
+   */
+  private static final class Presses implements BooleanSupplier {
     private final BooleanSupplier condition;
-    private @Nullable RecordingTrigger trigger;
-    private boolean polled;
-    private boolean high;
+    private final Bindings bindings;
 
-    Signal(BooleanSupplier condition) {
+    /** What is bound to the trigger, as recorded. */
+    private final List<Binding> bound = new ArrayList<>();
+
+    private boolean hasBeenPolled;
+    private boolean wasPressed;
+
+    Presses(BooleanSupplier condition, Bindings bindings) {
       this.condition = condition;
+      this.bindings = bindings;
     }
 
     @Override
     public boolean getAsBoolean() {
-      boolean now = condition.getAsBoolean();
-      RecordingTrigger owner = trigger;
-      // v3 takes the first poll as a change either way, so a button held as the robot starts
-      // starts what's bound to its press.
-      if (owner != null && (!polled || now != high)) {
-        owner.changed(now);
+      boolean pressed = condition.getAsBoolean();
+      // v3 takes a trigger's first poll as a change whichever way it reads, so a button that is
+      // held as the robot starts does start what is bound to its press. The log says the same.
+      boolean changed = !hasBeenPolled || pressed != wasPressed;
+      if (changed) {
+        logWhatStarts(pressed ? Binding.Edge.PRESS : Binding.Edge.RELEASE);
       }
-      polled = true;
-      high = now;
-      return now;
+      hasBeenPolled = true;
+      wasPressed = pressed;
+      return pressed;
     }
+
+    private void logWhatStarts(Binding.Edge edge) {
+      for (Binding binding : bound) {
+        if (binding.how().startsOn() == edge) {
+          bindings.fired(binding);
+        }
+      }
+    }
+  }
+
+  /** How many things a trigger's name says it reads. */
+  private enum Terms {
+    /** One: a button, "right bumper". */
+    ONE,
+    /**
+     * Several, joined: "right bumper and ready to shoot". Such a name is bracketed when it becomes
+     * a term of a longer one, so that the longer name reads only one way.
+     */
+    SEVERAL
   }
 
   private final Scheduler scheduler;
   private final EventLoop loop;
   private final String gamepad;
   private final String button;
-
-  /** Whether its name joins others' ("right bumper and ready to shoot"): it's bracketed in more. */
-  private final boolean compound;
-
+  private final Terms terms;
+  private final Presses presses;
   private final Bindings bindings;
-
-  /** What's bound to it, as recorded. */
-  private final List<Binding> bound = new ArrayList<>();
 
   /**
    * @param gamepad the gamepad's name: "driver"
    * @param button what it reads on that gamepad: "right trigger"
-   * @param condition whether it's pressed
+   * @param condition whether it is pressed
    */
   RecordingTrigger(
       Scheduler scheduler,
@@ -75,7 +98,7 @@ public final class RecordingTrigger extends Trigger {
       String button,
       BooleanSupplier condition,
       Bindings bindings) {
-    this(scheduler, loop, gamepad, button, false, new Signal(condition), bindings);
+    this(scheduler, loop, gamepad, button, Terms.ONE, new Presses(condition, bindings), bindings);
   }
 
   private RecordingTrigger(
@@ -83,17 +106,17 @@ public final class RecordingTrigger extends Trigger {
       EventLoop loop,
       String gamepad,
       String button,
-      boolean compound,
-      Signal signal,
+      Terms terms,
+      Presses presses,
       Bindings bindings) {
-    super(scheduler, loop, signal);
+    super(scheduler, loop, presses);
     this.scheduler = scheduler;
     this.loop = loop;
     this.gamepad = gamepad;
     this.button = button;
-    this.compound = compound;
+    this.terms = terms;
+    this.presses = presses;
     this.bindings = bindings;
-    signal.trigger = this;
   }
 
   /** As its bindings name it: "operator right trigger". */
@@ -174,19 +197,20 @@ public final class RecordingTrigger extends Trigger {
   }
 
   /**
-   * Debounced, named for how: "right trigger for 0.1 s" true once it's held that long, "face down,
-   * and 0.1 s after" until it's been let go that long, or "face down debounced 0.1 s" both.
+   * This trigger debounced, named for how. "right trigger for 0.1 s" becomes true once the button
+   * has been held that long. "face down, and 0.1 s after" stays true until the button has been let
+   * go for that long. "face down debounced 0.1 s" does both.
    */
   @Override
   public RecordingTrigger debounce(Time duration, Debouncer.DebounceType type) {
     double seconds = duration.in(Seconds);
-    return made(
-        super.debounce(duration, type),
+    String name =
         switch (type) {
           case RISING -> operand() + " for " + seconds + " s";
           case FALLING -> operand() + ", and " + seconds + " s after";
           case BOTH -> operand() + " debounced " + seconds + " s";
-        });
+        };
+    return made(super.debounce(duration, type), name);
   }
 
   @Override
@@ -207,23 +231,34 @@ public final class RecordingTrigger extends Trigger {
   }
 
   /**
-   * One made from this, named for what it reads: it holds what v3's trigger made from this does,
-   * read each loop just after v3 polls that one, since that one was made first.
+   * A recording trigger made from this one, named for what it reads. It holds whatever the v3
+   * trigger made from this one holds. v3 made that trigger first, so each loop it has been polled
+   * just before this one reads it.
    */
   private RecordingTrigger made(Trigger made, String name) {
-    return new RecordingTrigger(scheduler, loop, gamepad, name, true, new Signal(made), bindings);
+    Presses madePresses = new Presses(made, bindings);
+    return new RecordingTrigger(
+        scheduler, loop, gamepad, name, Terms.SEVERAL, madePresses, bindings);
   }
 
-  /** Its name as a term of another's, bracketed if it joins others' already. */
+  /** Its name as a term of another trigger's name. */
   private String operand() {
-    return compound ? "(" + button + ")" : button;
+    if (terms == Terms.SEVERAL) {
+      return "(" + button + ")";
+    }
+    return button;
   }
 
-  /** A term's name: another button's, on another gamepad with its name; a gate's; or none. */
+  /**
+   * The name of a condition this trigger is joined with. Another button goes by its own name, with
+   * its gamepad's name in front if it is on another gamepad. A gate goes by its name. Anything else
+   * has no name to give.
+   */
   private String nameOf(BooleanSupplier other) {
     if (other instanceof RecordingTrigger trigger) {
       String name = trigger.operand();
-      return trigger.gamepad.equals(gamepad) ? name : trigger.gamepad + " " + name;
+      boolean isOnThisGamepad = trigger.gamepad.equals(gamepad);
+      return isOnThisGamepad ? name : trigger.gamepad + " " + name;
     }
     if (other instanceof Gate gate) {
       return gate.name();
@@ -232,24 +267,16 @@ public final class RecordingTrigger extends Trigger {
   }
 
   /**
-   * Records a binding as it's made, unless it's made inside a running command, which it lives only
-   * as long as.
+   * Records a binding as it is made. A binding made inside a running command is not recorded: it
+   * lives only as long as that command runs.
    */
   private void record(Binding.How how, Command command) {
-    if (scheduler.currentCommand() != null) {
+    boolean isMadeInsideACommand = scheduler.currentCommand() != null;
+    if (isMadeInsideACommand) {
       return;
     }
     Binding binding = new Binding(gamepad, button, how, command.name());
-    bound.add(binding);
+    presses.bound.add(binding);
     bindings.add(binding);
-  }
-
-  /** A press or a release: logs the bindings it starts. */
-  private void changed(boolean pressed) {
-    for (Binding binding : bound) {
-      if (binding.how().startsOnPress() == pressed) {
-        bindings.fired(binding);
-      }
-    }
   }
 }
