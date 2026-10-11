@@ -290,22 +290,24 @@ final class SightLines implements Layer {
    * thread, and reads only its image's verdicts, a record the loop no longer touches.
    */
   private Inspection inspection(Line line) {
-    String title = line.camera + " → tag " + line.tag;
     FrameVerdict frame = line.frame;
     if (frame == null) {
-      return notMeasured(title);
+      return notMeasured(line);
     }
-    Optional<TagVerdict> verdict = verdictOn(frame, line.tag);
+    Optional<TagVerdict> found = verdictOn(frame, line.tag);
     Optional<FrameVerdict.Measured> measurement = frame.measured();
-    if (verdict.isEmpty() || measurement.isEmpty()) {
-      return notMeasured(title);
+    if (found.isEmpty() || measurement.isEmpty()) {
+      return notMeasured(line);
     }
+    TagVerdict verdict = found.get();
     Pose2d measured = measurement.get().pose();
+    // Pitwall's own Javadoc shows the first lines and the last line of this as its example of an
+    // inspection (Inspection), and the build checks that they are here as it shows them.
     Inspection said =
-        Inspection.of(title)
-            .detail("Verdict", inWords(verdict.get()))
-            .detail("Innovation", innovation(verdict.get()))
-            .detail("χ²", chiSquared(verdict.get()))
+        Inspection.of(line.camera + " → tag " + line.tag)
+            .detail("Verdict", verdict.accepted() ? "accepted" : "rejected: " + verdict.reason())
+            .detail("Innovation", innovation(verdict))
+            .detail("χ²", chiSquared(verdict))
             .detail("Distance", distanceToTheTag(measured, line.tag))
             .detail(
                 "Measured pose",
@@ -317,21 +319,11 @@ final class SightLines implements Layer {
                     measured.getRotation().getDegrees()))
             .detail("Solved", howItWasSolved(frame, measurement.get()));
     Optional<String> calibrate = cameraAction.apply(line.camera);
-    if (calibrate.isEmpty()) {
-      return said;
-    }
-    return said.action(calibrate.get());
+    return calibrate.isPresent() ? said.action(calibrate.get()) : said;
   }
 
-  private static Inspection notMeasured(String title) {
-    return Inspection.of(title).detail("Verdict", "not measured");
-  }
-
-  private static String inWords(TagVerdict verdict) {
-    if (verdict.accepted()) {
-      return "accepted";
-    }
-    return "rejected: " + verdict.reason();
+  private static Inspection notMeasured(Line line) {
+    return Inspection.of(line.camera + " → tag " + line.tag).detail("Verdict", "not measured");
   }
 
   /**
