@@ -287,8 +287,8 @@ its commands already written. These are the three you will use most.
   something cancels it. That fits a button you hold down.
 - `pivot.hold()` takes the joint and holds it at its goal until something cancels it.
 
-A command that moves a joint is called a move. Every move has a deadline, worked out from how
-long the trip should take, so a jammed joint cannot hang your auto forever.
+A command that moves a joint is called a move. A move to a place has a deadline, worked out from
+how long the trip should take, so a jammed joint cannot hang your auto forever.
 
 A move always ends with an outcome. `ARRIVED` means it got there. `TIMED_OUT` means the deadline
 passed. `CANCELED` means another command took over. `REFUSED` means it would not start. Your code
@@ -539,8 +539,11 @@ reads "roller: intaking until piece in: ARRIVED in" and the time.
 The trigger is still held down. Nothing starts again, because a binding starts its command on the
 change from up to down, and that already happened.
 
-`within(Seconds.of(8))` is the deadline. If no piece shows up, or the sensor's wire has come off,
-the move ends with `TIMED_OUT` after eight seconds, and the roller does not run forever.
+`within(Seconds.of(8))` is the deadline, and it is there because you wrote it. A `runUntil` has
+no deadline of its own, since nothing says how long a piece takes to show up. Without one it ends
+when its gate turns true or when something cancels it, and never before. With this one, if no
+piece shows up, or the sensor's wire has come off, the move ends with `TIMED_OUT` after eight
+seconds, and the roller does not run for as long as the trigger is held.
 
 ### A second button interrupts
 
@@ -579,7 +582,7 @@ Command deploy() {
 is skipped, and the command is done.
 
 Now say something is wedged in the intake. The pivot's motor pushes and the pivot does not move.
-Every move has a deadline, so this one ends anyway. In the test, where the pivot is jammed at
+A move to a place has a deadline, so this one ends anyway. In the test, where the pivot is jammed at
 rest, the log reads "pivot → out: TIMED_OUT after 1.62 s, pivot at 1.5°". The coroutine picks up
 on the next line, sees that the move did not arrive, and sends the pivot back in.
 
@@ -678,7 +681,8 @@ right on both sides.
 path passes through, with the way the robot should face there. A keyframe can have a name, and a
 command can wait for the path to pass it. [driving.md](driving.md) shows how.
 
-Drive moves have deadlines and outcomes, the same as a joint's.
+Drive moves have outcomes, the same as a joint's. A drive to a place or along a path has a
+deadline too. `drive.runUntil(...)` has none unless you give it one, like a joint's `runUntil`.
 
 ## Autos
 

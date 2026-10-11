@@ -10,6 +10,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
@@ -92,13 +93,14 @@ class SensorGatesSimTest {
 
   /**
    * A beam whose CAN device stops answering holds neither way: a gate on it never opens, and says
-   * the sensor is lost; a move waiting on it times out saying so, never runs its roller forever.
+   * the sensor is lost. A move waiting on it that was given a deadline times out saying so, and so
+   * never runs its roller forever; without one it would run until canceled.
    */
   @Test
   void aLostSensorHoldsNeitherWayAndWhatWaitedOnItSaysSo() {
     Gate clear = sim.joints.gate(CLAW_BEAM.clear());
     sim.sensors.silence(CLAW_BEAM, true);
-    Move intake = roller.runUntil(ROLLER_INTAKING, coralIn);
+    Move intake = roller.runUntil(ROLLER_INTAKING, coralIn).within(Seconds.of(3));
     sim.scheduler.schedule(intake);
 
     sim.run(3.1);

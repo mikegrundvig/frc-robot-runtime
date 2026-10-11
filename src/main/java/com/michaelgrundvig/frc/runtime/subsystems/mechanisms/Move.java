@@ -57,13 +57,14 @@ import org.wpilib.units.measure.Time;
  *       faulted, or its {@link #onlyIf} gate false.
  * </ul>
  *
- * <p>A move that ends on its own has a deadline, from the model: twice its profile's time from
- * where it starts, plus half a second, or 3 s for {@code runUntil}; {@link #within} overrides it.
- * One that never ends on its own, {@code run}, {@code follow} or {@code hold}, is for "while held"
- * and for background work. A move on a joint that's homing waits for it, and its deadline starts
- * once it has; one on a joint whose homing was canceled homes it again first, if the robot is
- * enabled, so it waits no longer than the homing may take, and a homing that faults refuses it.
- * Recovery is an {@code if}:
+ * <p>A move to a place has a deadline, from the model: twice its profile's time from where it
+ * starts, plus half a second; {@link #within} overrides it. A {@code runUntil} has no natural
+ * duration, so it has no deadline of its own: it ends when its condition holds, when the deadline
+ * {@link #within} gave it passes, or when it is canceled. One that never ends on its own, {@code
+ * run}, {@code follow} or {@code hold}, is for "while held" and for background work. A move on a
+ * joint that's homing waits for it, and its deadline starts once it has; one on a joint whose
+ * homing was canceled homes it again first, if the robot is enabled, so it waits no longer than the
+ * homing may take, and a homing that faults refuses it. Recovery is an {@code if}:
  *
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=recovery}
  *
@@ -80,7 +81,10 @@ public final class Move implements Command {
     ENDED
   }
 
-  /** A deadline that never passes, in seconds: for a move that runs until it is canceled. */
+  /**
+   * A deadline that never passes, in seconds: for a move that runs until it is canceled, or until a
+   * condition holds.
+   */
   private static final double NO_DEADLINE = Double.POSITIVE_INFINITY;
 
   /** The command scheduler its joints are registered with, which says whether the robot starts. */
@@ -292,11 +296,13 @@ public final class Move implements Command {
   }
 
   /**
-   * The same move with a deadline of its own, tighter or looser than the model's: {@code
-   * goTo(PIVOT_OUT).within(Seconds.of(1))}. A move that never ends on its own, which v3's {@code
-   * withTimeout} cancels instead, is refused as {@link #atSpeed} refuses what can't be. So is a
-   * deadline that is not a time above zero (none, a negative one, one without end, or one that is
-   * not a number), as the drivetrain's moves refuse one ({@link Outcome#whyNotADeadline}).
+   * The same move with a deadline of its own: tighter or looser than the model's for a move to a
+   * place, {@code goTo(PIVOT_OUT).within(Seconds.of(1))}, and the only one a run-until has, {@code
+   * roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8))}. A move that never ends on its own,
+   * which v3's {@code withTimeout} cancels instead, is refused as {@link #atSpeed} refuses what
+   * can't be. So is a deadline that is not a time above zero (none, a negative one, one without
+   * end, or one that is not a number), as the drivetrain's moves refuse one ({@link
+   * Outcome#whyNotADeadline}).
    *
    * @throws IllegalArgumentException with the move's name and why, for a move that never ends on
    *     its own or for such a deadline, as the robot starts
@@ -386,7 +392,8 @@ public final class Move implements Command {
   /**
    * When its latest run's deadline passes, in nanoseconds on the robot's clock: none ({@link
    * Long#MAX_VALUE}) while it waits for its joints to home, once it has ended, and for a move that
-   * never ends on its own. For tests that check every move ends by its deadline.
+   * has no deadline: one that never ends on its own, or a run-until its team gave none. For tests
+   * that check every move ends by its deadline.
    */
   long deadlineNanos() {
     return running && started ? deadlineNanos : Long.MAX_VALUE;
@@ -561,13 +568,13 @@ public final class Move implements Command {
   /**
    * The deadline the model gives a run whose team gave it none, in seconds from its start: for a
    * move to a place, twice the time its slowest joint needs and half a second more ({@link
-   * Outcome#deadline}); for one that runs until a condition holds, {@link
-   * Outcome#RUN_UNTIL_SECONDS}; and none for one that runs until it is canceled.
+   * Outcome#deadline}), and none for any other. A run until a condition holds has no natural
+   * duration, so the model has no deadline to give it.
    */
   private double modelDeadlineSeconds() {
     return switch (plan.task()) {
       case GoTo goTo -> Outcome.deadline(longestLegSeconds());
-      case Run run -> run.endsByItself() ? Outcome.RUN_UNTIL_SECONDS : NO_DEADLINE;
+      case Run run -> NO_DEADLINE;
       case Follow follow -> NO_DEADLINE;
       case Hold hold -> NO_DEADLINE;
       case Home home -> NO_DEADLINE;

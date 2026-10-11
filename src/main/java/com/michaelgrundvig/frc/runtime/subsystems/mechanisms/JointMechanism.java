@@ -692,11 +692,14 @@ public final class JointMechanism implements Mechanism {
 
   /**
    * Runs it at one of its outputs until a condition holds, which it ends on: {@link
-   * Outcome#ARRIVED}, or {@link Outcome#TIMED_OUT} after 3 s unless {@link Move#within} says
-   * otherwise. {@code roller.runUntil(INTAKING, coralIn)}. A {@link Gate} names it ("roller:
-   * intaking until coral in claw") and, timed out, says why it never held ("coral in claw is false:
-   * claw beam lost"). An output that isn't its own is refused as a position is by {@link
-   * #goTo(Position)}: thrown as the robot starts, {@link Outcome#REFUSED} once it runs.
+   * Outcome#ARRIVED}. {@code roller.runUntil(INTAKING, coralIn)}. It has no deadline of its own,
+   * since nothing says how long the condition takes: it runs until the condition holds or it is
+   * canceled. Give it one where running on would be wrong, a sensor lost or a piece that never
+   * comes: {@code runUntil(INTAKING, coralIn).within(Seconds.of(8))} ends {@link Outcome#TIMED_OUT}
+   * then. A {@link Gate} names it ("roller: intaking until coral in claw") and, timed out, says why
+   * it never held ("coral in claw is false: claw beam lost"). An output that isn't its own is
+   * refused as a position is by {@link #goTo(Position)}: thrown as the robot starts, {@link
+   * Outcome#REFUSED} once it runs.
    *
    * @throws IllegalArgumentException for an output not its own, built as the robot starts
    */

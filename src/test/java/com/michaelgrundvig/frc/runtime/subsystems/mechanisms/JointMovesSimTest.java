@@ -310,15 +310,34 @@ class JointMovesSimTest {
     assertThat(took).isLessThan(0.5);
   }
 
+  /**
+   * A run-until has no natural duration, so it has no deadline of its own: with a condition that
+   * never holds it runs on until it is canceled. Until 2026-10-11 it timed out after 3 s, which
+   * stopped a held intake early for no reason its code showed.
+   */
   @Test
-  void runUntilTimesOutAfterThreeSeconds() {
+  void runUntilHasNoDeadlineOfItsOwn() {
     Move never = roller.runUntil(ROLLER_INTAKING, () -> false);
 
-    double took = runToEnd(never, 5);
+    double took = runToEnd(never, 10);
+    double stillIntaking = sim.simulation.velocity(ROLLER);
+    sim.scheduler.cancel(never);
 
-    assertThat(never.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(never.reason()).isEqualTo("roller: intaking until: TIMED_OUT after 3.00 s");
-    assertThat(took).isCloseTo(3.02, within(0.001));
+    assertThat(took).as("it never ended in 10 s").isNaN();
+    assertThat(stillIntaking).isCloseTo(RPM.of(1500).baseUnitMagnitude(), within(0.03 * 157.08));
+    assertThat(never.reason()).isEqualTo("roller: intaking until: CANCELED after 9.98 s");
+  }
+
+  /** Given a deadline, a run-until whose condition never holds times out at it. */
+  @Test
+  void runUntilTimesOutAtTheDeadlineItIsGiven() {
+    Move brief = roller.runUntil(ROLLER_INTAKING, () -> false).within(Seconds.of(1));
+
+    double took = runToEnd(brief, 2);
+
+    assertThat(brief.outcome()).contains(Outcome.TIMED_OUT);
+    assertThat(brief.reason()).isEqualTo("roller: intaking until: TIMED_OUT after 1.00 s");
+    assertThat(took).isCloseTo(1.02, within(0.001));
   }
 
   /**

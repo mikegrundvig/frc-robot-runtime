@@ -147,6 +147,13 @@ public final class Monkey {
   /** How far inside the field's walls a drive move's poses lie, in meters. */
   private static final double FIELD_MARGIN = 0.5;
 
+  /**
+   * The deadline it gives each run-until, in seconds. A run-until has none of its own, and one
+   * whose condition never held would otherwise hold its joint or the drivetrain until something
+   * else happened to take it.
+   */
+  private static final double RUN_UNTIL_SECONDS = 3;
+
   /** How many of its last actions a failure shows. */
   private static final int SHOWN = 12;
 
@@ -515,9 +522,11 @@ public final class Monkey {
       case 1 -> drive.goTo(onTheField()).within(Seconds.of(timeout));
       case 2 -> drive.turnTo(Rotation2d.fromDegrees(random.nextDouble() * 360 - 180));
       case 3 ->
-          drive.runUntil(
-              new ChassisVelocities(stick() * 2, stick() * 2, stick() * 3),
-              () -> random.nextInt(100) == 0);
+          drive
+              .runUntil(
+                  new ChassisVelocities(stick() * 2, stick() * 2, stick() * 3),
+                  () -> random.nextInt(100) == 0)
+              .within(Seconds.of(RUN_UNTIL_SECONDS));
       default -> drive.follow(keyframes());
     };
   }
@@ -552,7 +561,8 @@ public final class Monkey {
     int choice = random.nextInt(joint.holdsPositions() ? 10 : 5);
     return switch (choice) {
       case 0 -> mechanism.run(output).withTimeout(Seconds.of(timeout));
-      case 1 -> mechanism.runUntil(output, mechanism.isAtGoal());
+      case 1 ->
+          mechanism.runUntil(output, mechanism.isAtGoal()).within(Seconds.of(RUN_UNTIL_SECONDS));
       case 2 -> follow(mechanism, false).withTimeout(Seconds.of(timeout));
       case 3 -> law(mechanism).withTimeout(Seconds.of(timeout));
       case 4 -> mechanism.home();

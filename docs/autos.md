@@ -48,8 +48,9 @@ A mistake in the declaration stops the robot starting, as a move to a place a jo
 - **Nothing you write starts or stops it.** When autonomous becomes enabled, the template schedules
   the chosen auto's command. When autonomous ends, disabled or into teleop, it cancels the command if
   it is still running. An auto that shoots until the buzzer is cut off, and the log says so.
-- **Every wait has a deadline.** A move times out and says why, so an auto never hangs on one. Give
-  your own waits one too (`co.waitUntil(gate, Seconds.of(2))`, `command.withTimeout(...)`).
+- **Give every wait a deadline.** A move to a place has one already: it times out and says why, so
+  an auto never hangs on one. A `runUntil` has none of its own, so give it one (`.within(...)`), and
+  your own waits too (`co.waitUntil(gate, Seconds.of(2))`, `command.withTimeout(...)`).
 - **It is logged.** `Auto/Chosen` is the choice, and `Auto/Outcome` how each run went, with its time:
   "Left Double: CUT OFF after 15.00 s, as autonomous ended".
 - **One that throws doesn't stop the robot.** An auto that throws as it is built runs nothing, says

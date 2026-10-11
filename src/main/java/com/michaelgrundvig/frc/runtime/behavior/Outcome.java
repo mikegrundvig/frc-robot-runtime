@@ -12,7 +12,7 @@ import java.util.Optional;
 public enum Outcome {
   /** It got there: it stayed inside its band for 40 ms, or its condition held. */
   ARRIVED,
-  /** Its deadline passed first. */
+  /** Its deadline passed first: its own, by its profile, or the one its team gave it. */
   TIMED_OUT,
   /** Another command took what it requires, its binding released, or its gate fell. */
   CANCELED,
@@ -22,13 +22,14 @@ public enum Outcome {
   /** How long a move must stay where it is going before it has arrived: 40 ms, two loops. */
   public static final long DWELL_NANOS = 40_000_000L;
 
-  /** The default deadline of a run-until, in seconds: what it waits on has 3 s to hold. */
-  public static final double RUN_UNTIL_SECONDS = 3;
-
   /**
-   * The default deadline of a move, in seconds: twice the time its profile takes, and half a second
-   * more. Doubling leaves room for a joint or a robot that is slower than its model. The half
-   * second leaves a short move time to settle.
+   * The default deadline of a move to a place, in seconds: twice the time its profile takes, and
+   * half a second more. Doubling leaves room for a joint or a robot that is slower than its model.
+   * The half second leaves a short move time to settle.
+   *
+   * <p>Only a move to a place has a default. A move that runs until a condition holds has no
+   * natural duration, since nothing says how long a piece takes to turn up, so it has no deadline
+   * unless its team gives it one ({@code within}).
    *
    * @param profileSeconds how long its profile takes, from where it starts
    */

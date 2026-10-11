@@ -189,22 +189,33 @@ class DriveMovesSimTest {
   }
 
   /**
-   * A gate that never opens times out the move, by default after 3 s, saying why; {@code within}
-   * sets another deadline.
+   * Driving until a gate opens has no deadline of its own: with a gate that never opens it drives
+   * on until it is canceled. Until 2026-10-11 it timed out after 3 s.
    */
   @Test
-  void runUntilTimesOutSayingWhy() {
+  void runUntilHasNoDeadlineOfItsOwn() {
     Gate never = Gate.of(harness.scheduler, "bumped", () -> false);
-    DriveMove out = drive.runUntil(new ChassisVelocities(0.5, 0, 0), never);
-    DriveMove brief = out.within(Seconds.of(1));
+    DriveMove out = drive.runUntil(new ChassisVelocities(0.2, 0, 0), never);
 
-    runToEnd(out, 4);
+    double took = runToEnd(out, 6);
+    harness.scheduler.cancel(out);
+
+    assertThat(took).as("it never ended in 6 s").isNaN();
+    assertThat(drive.getPose().getX()).as("still driving at 0.2 m/s").isGreaterThan(1.0);
+    assertThat(out.reason()).isEqualTo("drive until bumped: CANCELED after 5.98 s");
+  }
+
+  /** Given a deadline, a gate that never opens times out the move at it, saying why. */
+  @Test
+  void runUntilTimesOutAtTheDeadlineItIsGivenSayingWhy() {
+    Gate never = Gate.of(harness.scheduler, "bumped", () -> false);
+    DriveMove brief = drive.runUntil(new ChassisVelocities(0.5, 0, 0), never).within(Seconds.of(1));
+
     runToEnd(brief, 2);
 
-    assertThat(out.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(out.reason())
-        .isEqualTo("drive until bumped: TIMED_OUT after 3.00 s: bumped is false");
-    assertThat(brief.reason()).startsWith("drive until bumped: TIMED_OUT after 1.00 s");
+    assertThat(brief.outcome()).contains(Outcome.TIMED_OUT);
+    assertThat(brief.reason())
+        .isEqualTo("drive until bumped: TIMED_OUT after 1.00 s: bumped is false");
   }
 
   /** One of each kind of move, by name, made new each time it's asked for. */

@@ -310,8 +310,9 @@ public class Drive implements Mechanism, AutoCloseable {
 
   /**
    * Drives at robot-relative velocities until a condition holds, which it ends on: {@code
-   * drive.runUntil(new ChassisVelocities(1.5, 0, 0), bumped)}. ARRIVED, or TIMED_OUT after 3 s
-   * unless {@link DriveMove#within} says otherwise, saying why a gate never opened.
+   * drive.runUntil(new ChassisVelocities(1.5, 0, 0), bumped)}. ARRIVED when it holds. It has no
+   * deadline of its own: it drives until the condition holds or it is canceled. Give it one with
+   * {@link DriveMove#within}, and it ends TIMED_OUT then, saying why a gate never opened.
    */
   public DriveMove runUntil(ChassisVelocities robotRelative, BooleanSupplier condition) {
     return DriveMove.runUntil(this, robotRelative, condition);

@@ -3,13 +3,13 @@
 The driver's sticks drive the robot ([with the sticks](#driving-with-the-sticks)), and the robot can
 hold a heading while they do. The drivetrain also has moves, as a joint does
 ([mechanisms](mechanisms.md#3-use-it)). Each move is a
-Commands v3 command that ends on its own, with a deadline, an outcome (`ARRIVED`, `TIMED_OUT`,
+Commands v3 command that ends on its own, with an outcome (`ARRIVED`, `TIMED_OUT`,
 `CANCELED` or `REFUSED`) and a reason, logged as `Drive/Outcome`. For example: "drive → (2.00,
 1.00) 90.0°: ARRIVED in 2.04 s".
 
 | Move | Does | Ends |
 |---|---|---|
-| `drive.runUntil(new ChassisVelocities(1.5, 0, 0), bumped)` | Drives at a robot-relative velocity until a condition holds | When the condition holds; after 3 s otherwise, saying why a gate never opened |
+| `drive.runUntil(new ChassisVelocities(1.5, 0, 0), bumped)` | Drives at a robot-relative velocity until a condition holds | When the condition holds. It has no deadline of its own: give it one with `within`, and it times out then, saying why a gate never opened |
 | `drive.turnTo(Rotation2d.fromDegrees(90))` | Turns where it stands to a field heading, the nearer way round | Within 2°, nearly still, for 40 ms |
 | `drive.goTo(new Pose2d(2, 1, Rotation2d.fromDegrees(90)))` | Drives to a field pose in a straight line, turning on the way | Within 2 cm and 2°, nearly still, for 40 ms |
 | `drive.goTo(Rebuilt.TOWER)` | The same, to a `Place` as it is for the robot's alliance ([places](#places-for-either-alliance)) | As `goTo` to a pose; refused if the alliance is unknown |
@@ -18,7 +18,9 @@ Commands v3 command that ends on its own, with a deadline, an outcome (`ARRIVED`
 
 A move that drives a path has a default deadline: twice the path's time, plus half a second. A
 move that times out says where the robot got to: "TIMED_OUT after 0.50 s, at (0.30, 0.00) facing
-0.0°".
+0.0°". A `runUntil` has no default, because nothing says how long its condition takes to hold: it
+drives until the condition holds or it is canceled. Wherever driving on would be wrong, give it a
+deadline, as the example below does.
 
 `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Explorer.java` shows the moves in use. Its robot drives forward
 until its bumper switch trips, then turns a quarter turn either way, and repeats:

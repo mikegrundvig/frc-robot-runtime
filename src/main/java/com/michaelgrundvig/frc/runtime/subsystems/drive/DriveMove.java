@@ -40,8 +40,9 @@ import org.wpilib.units.measure.Time;
  *
  * <ul>
  *   <li>{@link Drive#runUntil}: at a velocity, robot-relative, until a condition holds: {@link
- *       Outcome#ARRIVED}; or {@link Outcome#TIMED_OUT} after 3 s, saying why a gate never opened
- *       ("bumped is false: front bumper lost").
+ *       Outcome#ARRIVED}. It has no deadline of its own. Given one ({@link #within}), it ends
+ *       {@link Outcome#TIMED_OUT} then, saying why a gate never opened ("bumped is false: front
+ *       bumper lost").
  *   <li>{@link Drive#goTo}: to a field pose, in a straight line, turning on the way; {@link
  *       Drive#turnTo}, turning where it stands; and {@link Drive#follow}, a smooth path through
  *       keyframes. Each plans a timed path as it starts, from where the robot is, under the robot's
@@ -52,10 +53,10 @@ import org.wpilib.units.measure.Time;
  *       where it got to; or {@link Outcome#REFUSED} if no path goes through its keyframes.
  * </ul>
  *
- * <p>{@link #within} sets another deadline, and {@link #passed} waits for a named keyframe.
- * Canceled, it's {@link Outcome#CANCELED}. It stops the drivetrain as it ends; the drive's default
- * command takes over from the next loop. Each run takes a loop at least, one that ends as it starts
- * too, so a command that awaits moves in a loop goes round once a loop.
+ * <p>{@link #within} sets a path's move another deadline, and {@link #passed} waits for a named
+ * keyframe. Canceled, it's {@link Outcome#CANCELED}. It stops the drivetrain as it ends; the
+ * drive's default command takes over from the next loop. Each run takes a loop at least, one that
+ * ends as it starts too, so a command that awaits moves in a loop goes round once a loop.
  *
  * <p><b>Inside</b>, what a move does is its {@link DriveTask}, one kind for each of the moves
  * above. This class is the command around the task: it starts a run, keeps the run's deadline, and
@@ -94,8 +95,8 @@ public final class DriveMove implements Command {
   private final String name;
 
   /**
-   * The deadline a team gave the move ({@link #within}), in seconds, or empty for the move's own: 3
-   * s for a run-until, and for a path a deadline worked out from the path's time. One that was
+   * The deadline a team gave the move ({@link #within}), in seconds, or empty for the move's own:
+   * for a path a deadline worked out from the path's time, and for a run-until none. One that was
    * given is a time above zero: {@link #within} refuses any other.
    */
   private final OptionalDouble within;
@@ -124,7 +125,8 @@ public final class DriveMove implements Command {
 
   /**
    * When the latest run's deadline passes, on the robot's clock. Empty until it is known: a path's
-   * deadline depends on the path, which is planned as the run starts.
+   * deadline depends on the path, which is planned as the run starts. Empty for the whole run of a
+   * run-until that was given none.
    */
   private OptionalLong deadlineNanos = OptionalLong.empty();
 
@@ -260,11 +262,11 @@ public final class DriveMove implements Command {
   // ---- Its options and its gates ----
 
   /**
-   * The same move with another deadline: {@code drive.turnTo(heading).within(Seconds.of(1))}. A
-   * deadline that is not a time above zero (none, a negative one, one without end, or one that is
-   * not a number) is refused, whatever kind of move it is, as a joint's move refuses an option that
-   * can't be ({@link Refusals}): thrown as the robot starts, and once it runs, the move ends {@link
-   * Outcome#REFUSED} as it starts, saying why.
+   * The same move with another deadline: {@code drive.turnTo(heading).within(Seconds.of(1))}. For a
+   * run-until it is the only deadline the move has. A deadline that is not a time above zero (none,
+   * a negative one, one without end, or one that is not a number) is refused, whatever kind of move
+   * it is, as a joint's move refuses an option that can't be ({@link Refusals}): thrown as the
+   * robot starts, and once it runs, the move ends {@link Outcome#REFUSED} as it starts, saying why.
    *
    * @throws IllegalArgumentException with the move's name and why, for such a deadline, as the
    *     robot starts
@@ -374,8 +376,8 @@ public final class DriveMove implements Command {
 
   /**
    * When its latest run's deadline passes, in nanoseconds on the robot's clock. Empty before its
-   * path is planned and once the run has ended. For tests that check every move ends by its
-   * deadline.
+   * path is planned, once the run has ended, and for a run-until that was given none. For tests
+   * that check every move ends by its deadline.
    */
   OptionalLong deadlineNanos() {
     return running ? deadlineNanos : OptionalLong.empty();
@@ -436,11 +438,16 @@ public final class DriveMove implements Command {
     }
   }
 
-  /** Drives at the task's velocity until its condition holds, or the deadline passes. */
+  /**
+   * Drives at the task's velocity until its condition holds. It has no deadline unless its team
+   * gave it one ({@link #within}): nothing says how long a condition takes to hold.
+   */
   private void driveUntil(Coroutine coroutine, DriveTask.RunUntil runUntil) {
-    long deadline = deadlineAfter(within.orElse(Outcome.RUN_UNTIL_SECONDS));
+    OptionalLong deadline = deadlineItWasGiven();
     while (!runUntil.until().getAsBoolean()) {
-      if (RobotController.getTime() >= deadline) {
+      boolean pastItsDeadline =
+          deadline.isPresent() && RobotController.getTime() >= deadline.getAsLong();
+      if (pastItsDeadline) {
         end(Outcome.TIMED_OUT, "", runUntil.whyItNeverHeld());
         return;
       }
@@ -517,6 +524,14 @@ public final class DriveMove implements Command {
    */
   private double deadlineSecondsFor(double pathSeconds) {
     return within.orElse(Outcome.deadline(pathSeconds));
+  }
+
+  /** Sets this run's deadline to the one its team gave the move, if they gave one. */
+  private OptionalLong deadlineItWasGiven() {
+    if (within.isEmpty()) {
+      return OptionalLong.empty();
+    }
+    return OptionalLong.of(deadlineAfter(within.getAsDouble()));
   }
 
   /** Sets this run's deadline to so many seconds after it started, and hands it back. */

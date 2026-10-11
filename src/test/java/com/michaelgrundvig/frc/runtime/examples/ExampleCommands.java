@@ -120,7 +120,7 @@ final class ExampleCommands {
   /** Intakes until the claw's beam trips, the loop it trips; then counts the piece. */
   Command intakeOne() {
     Move intake =
-        roller.runUntil(INTAKING, coralIn); // ends ARRIVED the loop it trips; TIMED_OUT after 3 s
+        roller.runUntil(INTAKING, coralIn); // ends ARRIVED the loop it trips, and has no deadline
     return Command.requiring(roller)
         .executing(
             co -> {

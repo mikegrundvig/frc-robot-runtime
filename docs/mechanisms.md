@@ -258,14 +258,18 @@ JointMechanism roller = joints.of(ROLLER);
 | `hood.follow(() -> Degrees.of(angleFor(distance())))` | Chases a target that changes every loop, a position or a speed | Never: cancel it |
 | `pivot.hold()` | Owns the joint and holds its goal | Never |
 | `roller.run(INTAKING)` | Runs at one of its outputs | Never: for "while held" |
-| `roller.runUntil(INTAKING, hasPiece)` | Runs until a condition holds | When it holds, or after 3 s |
+| `roller.runUntil(INTAKING, hasPiece)` | Runs until a condition holds | When it holds. It has no deadline of its own |
+| `roller.runUntil(INTAKING, hasPiece).within(Seconds.of(8))` | The same with a deadline | When it holds, or `TIMED_OUT` after 8 s |
 | `pivot.home()` | Homes it again by its recipe | When it's homed |
 | `joints.goTo(STOWED)` | Moves a configuration's joints together; requires exactly those joints | When every one is there |
 | `joints.run(FEEDING)` | Holds a configuration, outputs included | Never |
 
-A move's **default deadline** comes from the model: twice its profile's time from where it starts,
-plus half a second. A move that can't get there doesn't hang your auto: it times out, and says
-where it was.
+A move to a place has a **default deadline** from the model: twice its profile's time from where
+it starts, plus half a second. A move that can't get there doesn't hang your auto: it times out,
+and says where it was. A `runUntil` has no default, because nothing says how long its condition
+takes to hold: it runs until the condition holds or it is canceled, so a held intake runs for as
+long as it's held. Give it a deadline with `.within(...)` wherever running on would be wrong, as
+in an auto, where a lost sensor would otherwise hold the roller until autonomous ends.
 
 **When nothing drives it, a joint idles:**
 - **A joint held at positions holds its goal:** where its last move arrived, or, if that move was
@@ -391,13 +395,14 @@ becomes a gate the same way:
 Gate coralIn = joints.gate("coral in claw", CLAW_BEAM.tripped());
 Gate hopperFull = joints.gate("hopper full", HOPPER.nearerThan(Inches.of(6)));
 
-roller.runUntil(INTAKING, coralIn)      // ends ARRIVED the loop it trips; TIMED_OUT after 3 s
+roller.runUntil(INTAKING, coralIn)      // ends ARRIVED the loop it trips, and has no deadline
 co.waitUntil(coralIn);                  // holds a step
 coralIn.onTrue(countPiece());           // once each time it trips
 coralIn.debounce(Milliseconds.of(40), Debouncer.DebounceType.RISING)  // a beam that flickers
 ```
 
-A gate on a sensor that's lost never opens, and a move waiting on it says why: "roller: intaking
+A gate on a sensor that's lost never opens, and a move waiting on it runs until its deadline, if
+you gave it one (`.within(Seconds.of(3))`), and then says why: "roller: intaking
 until coral in claw: TIMED_OUT after 3.00 s: coral in claw is false: claw beam lost" ([Limit
 switches and sensors](#limit-switches-and-sensors)).
 
