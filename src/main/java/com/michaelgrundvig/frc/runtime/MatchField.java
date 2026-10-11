@@ -176,9 +176,9 @@ final class MatchField implements AutoCloseable {
    * second, and third start.
    */
   private Optional<Place> chosenStart() {
-    Place autoStart = autos.chosen().start();
-    if (autoStart != null) {
-      return Optional.of(autoStart);
+    Optional<Place> autoStart = autos.chosen().start();
+    if (autoStart.isPresent()) {
+      return autoStart;
     }
     List<Place> starts = field.starts();
     if (location.isEmpty() || location.getAsInt() < 1 || location.getAsInt() > starts.size()) {

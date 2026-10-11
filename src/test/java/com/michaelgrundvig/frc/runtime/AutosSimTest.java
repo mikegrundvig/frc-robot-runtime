@@ -76,7 +76,7 @@ class AutosSimTest {
 
     assertThat(autos().names()).containsExactly("Do nothing");
     assertThat(autos().chosen().name()).isEqualTo("Do nothing");
-    assertThat(autos().chosen().start()).as("starts where the Driver Station says").isNull();
+    assertThat(autos().chosen().start()).as("starts where the Driver Station says").isEmpty();
     assertThat(autos().lastRun().orElseThrow().describe()).startsWith("Do nothing: COMPLETED in ");
     assertThat(sim.simulation().truePose()).isEqualTo(before);
   }
@@ -139,7 +139,7 @@ class AutosSimTest {
 
     assertThat(autos().names()).containsExactly("Do nothing", "Late");
     assertThat(autos().refusal())
-        .isEqualTo("An auto was left out: two autos are named Late: name each once");
+        .contains("An auto was left out: two autos are named Late: name each once");
   }
 
   /** A fresh command each run: running autonomous twice in one boot is the same as once. */
@@ -242,13 +242,13 @@ class AutosSimTest {
     assertThat(autos().lastRun().orElseThrow().describe())
         .isEqualTo(
             "Broken: FAILED after 0.00 s: it couldn't be built: IllegalStateException: no path named Left 9");
-    assertThat(autos().failure()).contains("Broken").contains("no path named Left 9");
+    assertThat(autos().failure().orElseThrow()).contains("Broken").contains("no path named Left 9");
     assertThat(sim.scheduler().getRunningCommands()).noneMatch(c -> c.name().equals("Broken"));
 
     autos().choose("Fine");
     sim.loops(2);
     autonomous(0.2);
-    assertThat(autos().failure()).as("the next run clears it").isNull();
+    assertThat(autos().failure()).as("the next run clears it").isEmpty();
     assertThat(after.made).hasSize(1);
   }
 
@@ -283,7 +283,7 @@ class AutosSimTest {
     assertThat(autos().lastRun().orElseThrow().describe())
         .startsWith("Throws: FAILED after ")
         .endsWith(": IllegalStateException: boom");
-    assertThat(autos().failure()).contains("Throws").contains("boom");
+    assertThat(autos().failure().orElseThrow()).contains("Throws").contains("boom");
   }
 
   /** In the simulator a throw ends the loop, as any command's does, so the bug fails its test. */
