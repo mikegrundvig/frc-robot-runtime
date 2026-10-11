@@ -512,6 +512,10 @@ public class Drive implements Mechanism, AutoCloseable {
    * <p>With the target unknown (the alliance isn't, or the robot is on the place), the robot
    * doesn't turn, and the translation still drives.
    *
+   * <p>It reads the driver's sticks each time it starts, so it may be built before the robot hands
+   * them over ({@link #takeDriver}). Run on a drive that was never handed them, it ends as it
+   * starts, and its {@link DriveAssist#aimed} holds false saying so.
+   *
    * {@snippet class=com.michaelgrundvig.frc.runtime.examples.Aiming region=facing}
    */
   public DriveAssist facing(Heading heading) {

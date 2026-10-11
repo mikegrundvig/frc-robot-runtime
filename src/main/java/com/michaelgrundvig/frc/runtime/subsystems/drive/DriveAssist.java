@@ -63,12 +63,13 @@ public final class DriveAssist implements Command {
   /** How near the heading the robot must be for {@link #aimed} to open, in radians. */
   private final double toleranceRadians;
 
-  /** The driver's sticks, the field and the alliance, if the drive had them as this was built. */
-  private final Optional<Driver> driver;
-
   /**
-   * Why the assist cannot work at all, if it cannot: the drive has no driver's sticks, or its
-   * tolerance is not a positive angle. It then ends as it starts, and {@link #aimed} holds false.
+   * Why the assist cannot work as it was built, if it cannot: its tolerance is not a positive
+   * angle. It then ends as it starts, and {@link #aimed} holds false.
+   *
+   * <p>Having no driver's sticks is not decided here. The assist asks the drive for them each time
+   * it starts ({@link #whyNotNow}), so it does not matter whether the robot builds its assists
+   * before or after it hands the drive the sticks ({@link Drive#takeDriver}).
    */
   private final Optional<String> refused;
 
@@ -91,11 +92,20 @@ public final class DriveAssist implements Command {
     this.drive = drive;
     this.heading = heading;
     this.toleranceRadians = toleranceRadians;
-    this.driver = drive.driver();
     this.name = "Drive facing " + heading.name();
-    // Having no driver's sticks is the first thing to fix, so it is the reason said.
-    Optional<String> cannot = driver.isEmpty() ? Optional.of(Drive.NO_DRIVER) : whyNot;
-    this.refused = drive.refusedAsBuilt(cannot);
+    this.refused = drive.refusedAsBuilt(whyNot);
+  }
+
+  /**
+   * Why the assist cannot work right now, if it cannot: the drive has not been handed the driver's
+   * sticks, or the assist was refused as it was built. Having no sticks is the first thing to fix,
+   * so it is the reason said.
+   */
+  private Optional<String> whyNotNow() {
+    if (drive.driver().isEmpty()) {
+      return Optional.of(Drive.NO_DRIVER);
+    }
+    return refused;
   }
 
   static DriveAssist facing(Drive drive, Heading heading) {
@@ -131,7 +141,8 @@ public final class DriveAssist implements Command {
    * {@code 0.2} rad/s: still, for a fixed heading, and keeping up with the bearing while driving
    * past a place. It's a fact about the robot, so it's true or false whether or not this command is
    * running. Closed, it says how far off: "aimed at the Hub is false: 3.4° off the Hub"; or
-   * "alliance unknown", or "on the Hub".
+   * "alliance unknown", or "on the Hub". Until the drive is handed the driver's sticks, the field
+   * and the alliance ({@link Drive#takeDriver}), it holds false and says so.
    */
   public Gate aimed() {
     if (aimed.isEmpty()) {
@@ -145,16 +156,23 @@ public final class DriveAssist implements Command {
     if (refused.isPresent()) {
       return Refusals.gate(drive.getRegisteredScheduler(), gateName, refused.get());
     }
-    Driver sticks = driver.orElseThrow();
-    return new Gate(drive.getRegisteredScheduler(), gateName, whyNot -> isAimed(sticks, whyNot));
+    return new Gate(drive.getRegisteredScheduler(), gateName, this::isAimed);
   }
 
   /**
    * Whether the robot is aimed as of this loop: on the heading, and turning as the heading does.
+   * The field and the alliance are the ones the drive has now, so a gate made before the drive was
+   * handed them works once it is.
    *
    * @param whyNot takes each thing that keeps the robot from being aimed, in the gate's words
    */
-  private boolean isAimed(Driver sticks, List<String> whyNot) {
+  private boolean isAimed(List<String> whyNot) {
+    Optional<Driver> driver = drive.driver();
+    if (driver.isEmpty()) {
+      whyNot.add(Drive.NO_DRIVER);
+      return false;
+    }
+    Driver sticks = driver.get();
     Pose2d pose = drive.getPose();
     FieldModel field = sticks.field().get();
     Optional<Alliance> alliance = sticks.alliance().get();
@@ -208,13 +226,16 @@ public final class DriveAssist implements Command {
 
   @Override
   public void run(Coroutine coroutine) {
-    if (refused.isPresent()) {
-      // It never works. It takes its loop all the same, and the drive's default command goes on.
-      Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + refused.get());
+    // The driver's sticks are read here, as the assist starts, and not when it was built.
+    Optional<String> whyNot = whyNotNow();
+    if (whyNot.isPresent()) {
+      // It cannot work this time. It takes its loop all the same, and the drive's default command
+      // goes on.
+      Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + whyNot.get());
       coroutine.yield();
       return;
     }
-    Driver sticks = driver.orElseThrow();
+    Driver sticks = drive.driver().orElseThrow();
     // The turning rate asked for in the loop before, which the spin-up limit starts from. As the
     // command starts, that is how fast the robot is turning already.
     double lastTurnRateAsked = drive.getRobotRelativeVelocities().omega;

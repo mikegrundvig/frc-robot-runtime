@@ -108,9 +108,24 @@ public final class DriveSimHarness implements AutoCloseable {
             RobotLoop.PERIOD_SECONDS));
   }
 
+  /** Whether the harness hands the drive the driver's sticks as it builds it. */
+  private enum Sticks {
+    HANDED_OVER,
+    NOT_YET
+  }
+
   /** Wheels and sensors exactly as configured: odometry is the truth. */
   public DriveSimHarness(RobotConfig robot) {
     this(robot, SensorErrors.NONE);
+  }
+
+  /**
+   * The same, with a drive that has not been handed the driver's sticks, the field or the alliance:
+   * a robot program part-way through building itself. {@link #takeDriver} hands them over.
+   */
+  public static DriveSimHarness withoutDriver(RobotConfig robot) {
+    return new DriveSimHarness(
+        robot, SensorErrors.NONE, EstimatorConfig.DEFAULTS, Terrain.FLAT, Sticks.NOT_YET);
   }
 
   public DriveSimHarness(RobotConfig robot, SensorErrors errors) {
@@ -124,6 +139,15 @@ public final class DriveSimHarness implements AutoCloseable {
   /** On this terrain: the simulator rides over it, and localization knows it. */
   public DriveSimHarness(
       RobotConfig robot, SensorErrors errors, EstimatorConfig config, Terrain terrain) {
+    this(robot, errors, config, terrain, Sticks.HANDED_OVER);
+  }
+
+  private DriveSimHarness(
+      RobotConfig robot,
+      SensorErrors errors,
+      EstimatorConfig config,
+      Terrain terrain,
+      Sticks sticks) {
     estimator = estimatorAt(Pose2d.ZERO, config);
     localization = localizationFor(robot, estimator, terrain);
     service = localization.service();
@@ -144,6 +168,16 @@ public final class DriveSimHarness implements AutoCloseable {
             robot::drivetrain,
             scheduler,
             localization::pose);
+    if (sticks == Sticks.HANDED_OVER) {
+      takeDriver();
+    }
+  }
+
+  /**
+   * Hands the drive the driver's sticks, the field and the alliance, as the robot does once while
+   * it builds itself. Only a harness made {@link #withoutDriver} needs to call it.
+   */
+  public void takeDriver() {
     drive.takeDriver(() -> stick, () -> turnStick, () -> RobotSim.FIELD, () -> alliance);
   }
 

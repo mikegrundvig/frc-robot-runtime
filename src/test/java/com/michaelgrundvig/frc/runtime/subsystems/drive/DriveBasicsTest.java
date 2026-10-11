@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.localization.OdometrySample;
 import com.michaelgrundvig.frc.localization.SwerveKinematicsModel;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.world.field.Heading;
 import java.util.List;
@@ -154,20 +155,20 @@ class DriveBasicsTest {
   }
 
   /**
-   * A drivetrain the robot hasn't handed the driver's sticks has nothing to drive from: a command
-   * that needs them is refused as the robot starts, saying what to do, as any command that can't
-   * work is ({@code Refusals}).
+   * A drivetrain the robot hasn't handed the driver's sticks has nothing to drive from. Driving
+   * with the sticks is refused as the robot starts, saying what to do, as any command that can't
+   * work is ({@code Refusals}). An assist reads the sticks when it runs, so it is built all the
+   * same ({@code DriveAssistSticksSimTest} runs one), and its gate says what to do until then.
    */
   @Test
   void commandsOnTheSticksAreRefusedUntilTheRobotHandsThemOver() {
     try (Drive drive = drive("NoSticks", hardware(new GyroIO() {}, fourModules()))) {
       IllegalArgumentException driven = assertThrows(IllegalArgumentException.class, drive::driven);
-      IllegalArgumentException facing =
-          assertThrows(
-              IllegalArgumentException.class, () -> drive.facing(Heading.field(Rotation2d.ZERO)));
+      Gate aimed = drive.facing(Heading.field(Rotation2d.ZERO)).aimed();
 
       assertTrue(String.valueOf(driven.getMessage()).contains("drive.takeDriver"));
-      assertTrue(String.valueOf(facing.getMessage()).contains("drive.takeDriver"));
+      assertFalse(aimed.getAsBoolean());
+      assertTrue(aimed.why().contains("drive.takeDriver"));
     }
   }
 
