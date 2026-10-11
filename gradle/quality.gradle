@@ -9,7 +9,13 @@
 // (@SimulationTest, @EndToEndTest) unless --tests names what to run (docs/testing.md, the fast
 // loop). `ci` still enforces all of it, and refuses to run in quick mode.
 def quick = project.hasProperty("quick")
-def testsNamed = gradle.startParameter.taskRequests.any { it.args.contains("--tests") }
+// The command line is the outermost build's: built as part of another build (a team's robot
+// program includes this one), this build's own start parameters name no tasks.
+def outermostBuild = gradle
+while (outermostBuild.parent != null) {
+    outermostBuild = outermostBuild.parent
+}
+def testsNamed = outermostBuild.startParameter.taskRequests.any { it.args.contains("--tests") }
 
 // NullAway checks every package of the runtime's, and of the libraries it reads (the world model,
 // localization, the simulation, Pitwall), in every project, so a project that reads another trusts
