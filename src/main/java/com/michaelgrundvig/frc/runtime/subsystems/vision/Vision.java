@@ -469,10 +469,13 @@ public final class Vision implements AutoCloseable {
   /**
    * Whether the robot had stood still for long enough when an image was taken, counted from the
    * last loop it was seen moving. A robot that hasn't been seen moving since the program started
-   * has no such loop to count from, and doesn't count as standing still.
+   * has stood still all that time.
    */
   private boolean hadStoodStillAt(long takenNanos) {
-    return lastMovedNanos.isPresent() && takenNanos - lastMovedNanos.getAsLong() >= STILL_NANOS;
+    if (lastMovedNanos.isEmpty()) {
+      return true;
+    }
+    return takenNanos - lastMovedNanos.getAsLong() >= STILL_NANOS;
   }
 
   /**

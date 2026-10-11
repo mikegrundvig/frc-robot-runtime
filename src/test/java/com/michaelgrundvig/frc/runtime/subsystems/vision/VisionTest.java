@@ -26,6 +26,7 @@ import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.localization.VisionConfigBuilder;
 import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
+import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Alliance;
@@ -851,6 +852,21 @@ class VisionTest {
     assertThat(vision.mountDoubtMeters("front")).as("still places the robot right").isZero();
     assertThat(estimator.pose().getTranslation().getDistance(ROBOT.getTranslation()))
         .isLessThan(1e-6);
+  }
+
+  /**
+   * A robot that has not moved since its program started has stood still all that time, so a
+   * camera's calibration takes its sightings from the first image on.
+   */
+  @Test
+  void aRobotThatHasNeverMovedCountsAsStandingStillForAMountsCalibration() {
+    withASecondCamera();
+    CameraMountCalibration mount = new CameraMountCalibration(camera.robotToCamera());
+    vision.calibrateMount("front", mount);
+
+    imagesFrom(camera, 50);
+
+    assertThat(mount.sightings()).isPositive();
   }
 
   /**
