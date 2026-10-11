@@ -304,11 +304,22 @@ public final class DriveMove implements Command {
    * joint's gate on a place not its own is ({@link Refusals#gate}): thrown as the robot starts, and
    * once it runs, a gate that holds false saying why.
    *
-   * @throws IllegalArgumentException for a name none of its keyframes has, as the robot starts
+   * <p>Asked for with no name at all, it is refused the same way: a keyframe without a name has no
+   * gate.
+   *
+   * @throws IllegalArgumentException for a name none of its keyframes has, or none, as the robot
+   *     starts
    */
   public Gate passed(String keyframe) {
     List<Optional<String>> names = task.keyframeNames();
-    int index = names.indexOf(Optional.ofNullable(keyframe));
+    // A name is asked for, though the compiler can't stop a team's code passing none. Without this
+    // check, no name would find the path's first keyframe that has none, and open as it passed.
+    boolean namesAKeyframe = keyframe != null;
+    if (!namesAKeyframe) {
+      return Refusals.gate(
+          drive.getRegisteredScheduler(), "passed a keyframe with no name", whyNoName(names));
+    }
+    int index = names.indexOf(Optional.of(keyframe));
     boolean hasThatKeyframe = index >= 0;
     if (!hasThatKeyframe) {
       return Refusals.gate(
@@ -319,17 +330,33 @@ public final class DriveMove implements Command {
         asked -> Gate.of(drive.getRegisteredScheduler(), "passed " + asked, () -> passed[index]));
   }
 
+  /** What a gate asked for with no keyframe's name says, with what to do about it. */
+  private String whyNoName(List<Optional<String>> names) {
+    List<String> named = namesGiven(names);
+    String whatToDo = "its keyframes are " + String.join(", ", named);
+    if (named.isEmpty()) {
+      whatToDo = "name one, Keyframe.at(...).named(\"pickup\"), and ask for it by that name";
+    }
+    return name + ": passed() needs a keyframe's name, not null: " + whatToDo;
+  }
+
   /** What a gate on a keyframe the move doesn't have says, with what to do about it. */
   private String whyNoKeyframe(String keyframe, List<Optional<String>> names) {
-    List<String> named = new ArrayList<>();
-    for (Optional<String> each : names) {
-      each.ifPresent(named::add);
-    }
+    List<String> named = namesGiven(names);
     String whatToDo = "its keyframes are " + String.join(", ", named);
     if (named.isEmpty()) {
       whatToDo = "name one, Keyframe.at(...).named(\"" + keyframe + "\")";
     }
     return name + " has no keyframe " + keyframe + ": " + whatToDo;
+  }
+
+  /** The names its keyframes were given, in the keyframes' order. */
+  private static List<String> namesGiven(List<Optional<String>> names) {
+    List<String> named = new ArrayList<>();
+    for (Optional<String> each : names) {
+      each.ifPresent(named::add);
+    }
+    return named;
   }
 
   // ---- How its latest run went ----

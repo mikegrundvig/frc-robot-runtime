@@ -37,6 +37,12 @@ class DriveFollowSimTest {
     return Keyframe.at(new Pose2d(x, y, Rotation2d.fromDegrees(degrees)));
   }
 
+  /** No name at all, as code that the null checker doesn't see might pass. */
+  @SuppressWarnings("NullAway")
+  private static String noName() {
+    return null;
+  }
+
   private Pose2d truth() {
     return harness.simulation.truePose();
   }
@@ -184,12 +190,23 @@ class DriveFollowSimTest {
         .hasMessage(
             "drive → (1.00, 0.00) 0.0° has no keyframe pickup: name one,"
                 + " Keyframe.at(...).named(\"pickup\")");
+    assertThatThrownBy(() -> drive.follow(at(1, 0, 0), at(2, 0, 0).named("drop")).passed(noName()))
+        .as("no name at all isn't the keyframe without one")
+        .hasMessage(
+            "drive → (1.00, 0.00) → drop 0.0°: passed() needs a keyframe's name, not null: its"
+                + " keyframes are drop");
+    assertThatThrownBy(() -> drive.follow(at(1, 0, 0)).passed(noName()))
+        .hasMessage(
+            "drive → (1.00, 0.00) 0.0°: passed() needs a keyframe's name, not null: name one,"
+                + " Keyframe.at(...).named(\"pickup\"), and ask for it by that name");
     assertThatThrownBy(() -> at(1, 0, 0).named(" ")).hasMessage("a keyframe's name can't be blank");
   }
 
   /**
    * Made once the robot runs, inside a command, the same are refused, saying the same: the moves
    * end REFUSED as they start, the gate on a name it hasn't holds false, and the command runs on.
+   * So does a gate asked for with no name: until 2026-10-11 it was the gate of the path's first
+   * keyframe without one, and opened as the path passed it.
    */
   @Test
   void badKeyframesMadeWhileTheRobotRunsAreRefused() {
@@ -203,6 +220,9 @@ class DriveFollowSimTest {
                   moves.add(drive.follow());
                   moves.add(drive.follow(at(1, 0, 0).named("a"), at(2, 0, 0).named("a")));
                   gates.add(drive.follow(at(1, 0, 0)).passed("pickup"));
+                  DriveMove unnamedFirst = drive.follow(at(0.5, 0, 0), at(1, 0, 0).named("drop"));
+                  moves.add(unnamedFirst);
+                  gates.add(unnamedFirst.passed(noName()));
                   for (DriveMove move : moves) {
                     co.await(move);
                   }
@@ -211,7 +231,7 @@ class DriveFollowSimTest {
             .named("Bad keyframes");
     RobotSim.setEnabled(true);
     harness.scheduler.schedule(wrong);
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < RobotLoop.loops(5) && !ended[0]; i++) {
       harness.loop();
     }
 
@@ -225,7 +245,15 @@ class DriveFollowSimTest {
         .isEqualTo(
             "passed pickup is false: drive → (1.00, 0.00) 0.0° has no keyframe pickup: name one,"
                 + " Keyframe.at(...).named(\"pickup\")");
+    assertThat(moves.get(2).arrived()).as("the path with an unnamed keyframe, driven").isTrue();
+    assertThat(gates.get(1).getAsBoolean())
+        .as("asked for with no name, its gate never opens, though the path passed every keyframe")
+        .isFalse();
+    assertThat(gates.get(1).why())
+        .isEqualTo(
+            "passed a keyframe with no name is false: drive → (0.50, 0.00) → drop 0.0°: passed()"
+                + " needs a keyframe's name, not null: its keyframes are drop");
     assertThat(ended[0]).as("the command ran on to its end").isTrue();
-    assertThat(truth().getTranslation().getNorm()).isLessThan(0.01);
+    assertThat(truth().getTranslation().getDistance(new Translation2d(1, 0))).isLessThan(0.03);
   }
 }
