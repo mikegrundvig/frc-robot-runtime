@@ -141,7 +141,7 @@ class PoseFilterMonteCarloTest {
      * distances, as the vision pipeline does.
      */
     private void image(int camera, boolean withHeading) {
-      double estimated = yaw + filter.offset();
+      double estimated = yaw + filter.headingOffset();
       double sumX = 0;
       double sumY = 0;
       double leverX = 0;
@@ -220,7 +220,7 @@ class PoseFilterMonteCarloTest {
     }
 
     double headingNees() {
-      double error = MathUtil.angleModulus(yaw + filter.offset() - heading);
+      double error = MathUtil.angleModulus(yaw + filter.headingOffset() - heading);
       return error * error / filter.covariance().heading();
     }
   }

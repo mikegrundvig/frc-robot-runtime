@@ -29,7 +29,7 @@ class PoseFilterReferenceTest {
   private static final int TAGS = 4;
 
   /** The considered errors: the IMUs' scales, every camera's, and every tag's. */
-  private static final int C = 2 + PER_CAMERA * PoseFilter.MAX_CAMERAS + PER_TAG * TAGS;
+  private static final int C = 2 + PER_CAMERA * ConsideredErrors.MAX_CAMERAS + PER_TAG * TAGS;
 
   private static final int N = 3 + C;
 
@@ -61,12 +61,12 @@ class PoseFilterReferenceTest {
 
   /** A tag's placement's index in the augmented state, along x (0) or y (1). */
   private static int tagColumn(int tag, int which) {
-    return 3 + 2 + PER_CAMERA * PoseFilter.MAX_CAMERAS + PER_TAG * tag + which;
+    return 3 + 2 + PER_CAMERA * ConsideredErrors.MAX_CAMERAS + PER_TAG * tag + which;
   }
 
   /** A considered error's own variance as configured, by its index among them. */
   private static double considered(int k) {
-    if (k >= 2 + PER_CAMERA * PoseFilter.MAX_CAMERAS) {
+    if (k >= 2 + PER_CAMERA * ConsideredErrors.MAX_CAMERAS) {
       return TAG * TAG;
     }
     return k == 0
@@ -135,7 +135,7 @@ class PoseFilterReferenceTest {
         Math.exp(-Math.hypot(moveX, moveY) / SHIFT_METERS - Math.abs(turn) / SHIFT_RADIANS);
     double[][] fade = identity(N);
     double[][] q = new double[N][N];
-    for (int camera = 0; camera < PoseFilter.MAX_CAMERAS; camera++) {
+    for (int camera = 0; camera < ConsideredErrors.MAX_CAMERAS; camera++) {
       int k = column(camera, 3);
       fade[k][k] = remains;
       q[k][k] = (1 - remains * remains) * p[k][k]; // back to the camera's own variance
@@ -258,7 +258,7 @@ class PoseFilterReferenceTest {
             multiply(multiply(gain, r), transpose(gain)));
   }
 
-  private final double[] kept = new double[9 + 3 * C + 2 * PoseFilter.MAX_CAMERAS];
+  private final double[] kept = new double[9 + 3 * C + 2 * ConsideredErrors.MAX_CAMERAS];
 
   /** How far the filter is from the reference, relative to the estimate's own variances. */
   private double difference(PoseFilter filter) {
@@ -279,7 +279,7 @@ class PoseFilterReferenceTest {
     double moved =
         Math.max(
             Math.abs(filter.x() - mean[0]),
-            Math.max(Math.abs(filter.y() - mean[1]), Math.abs(filter.offset() - mean[2])));
+            Math.max(Math.abs(filter.y() - mean[1]), Math.abs(filter.headingOffset() - mean[2])));
     return Math.max(worst, 1e-3 * moved / Math.sqrt(scale));
   }
 
@@ -347,8 +347,8 @@ class PoseFilterReferenceTest {
     for (int sequence = 0; sequence < 60; sequence++) {
       SplittableRandom random = new SplittableRandom(sequence * 7919L + 1);
       PoseFilter filter = new PoseFilter(considered, TAGS, fixesTurnHeading);
-      assertThat(filter.considered()).isEqualTo(C);
-      assertThat(filter.uncertainty()).isEqualTo(kept.length);
+      assertThat(filter.consideredCount()).isEqualTo(C);
+      assertThat(filter.uncertaintyLength()).isEqualTo(kept.length);
       double start = logUniform(random, 0.01, 100);
       double startHeading = logUniform(random, 1e-3, 3);
       filter.set(
@@ -387,7 +387,7 @@ class PoseFilterReferenceTest {
         } else if (u < 0.90) {
           VisionMeasurement measurement = measurement(random, filter);
           int slot = random.nextInt(10);
-          int camera = slot < PoseFilter.MAX_CAMERAS ? slot : -1;
+          int camera = slot < ConsideredErrors.MAX_CAMERAS ? slot : -1;
           int[] tags = new int[measurement.tagIds().size()];
           for (int i = 0; i < tags.length; i++) {
             // A few seen tags, the same ones again and again, now and then one without a place.
@@ -438,7 +438,7 @@ class PoseFilterReferenceTest {
           setPosition(variance, 0, variance);
         } else if (u < 0.975) {
           // A camera's mount doubted, or no longer: its turn and shift raised, or back down.
-          int camera = random.nextInt(PoseFilter.MAX_CAMERAS);
+          int camera = random.nextInt(ConsideredErrors.MAX_CAMERAS);
           double turn = TURN * TURN * logUniform(random, 0.25, 40);
           double shift = SHIFT * SHIFT * logUniform(random, 0.25, 40);
           filter.setCameraVariances(camera, turn, shift);
@@ -453,9 +453,9 @@ class PoseFilterReferenceTest {
           setPosition(positionVariance, 0, positionVariance);
         } else {
           // What the history keeps, it gives back exactly.
-          double[] stored = new double[filter.uncertainty()];
+          double[] stored = new double[filter.uncertaintyLength()];
           filter.copyUncertaintyTo(stored, 0);
-          filter.restore(filter.x(), filter.y(), filter.offset(), stored, 0);
+          filter.restore(filter.x(), filter.y(), filter.headingOffset(), stored, 0);
         }
         operations++;
         worstDifference = Math.max(worstDifference, difference(filter));
@@ -491,10 +491,10 @@ class PoseFilterReferenceTest {
       VisionMeasurement sure =
           new VisionMeasurement(
               1,
-              new Pose2d(x, filter.y(), new Rotation2d(yaw + filter.offset())),
+              new Pose2d(x, filter.y(), new Rotation2d(yaw + filter.headingOffset())),
               PoseCovariance.fromStdDevs(1e-6, 1e-6, i % 7 == 0 ? 1e-6 : Double.POSITIVE_INFINITY),
               new VisionMeasurement.Lever(
-                  new Rotation2d(yaw + filter.offset()), new Translation2d(4, 1)),
+                  new Rotation2d(yaw + filter.headingOffset()), new Translation2d(4, 1)),
               "camera",
               List.of(1),
               VisionMeasurement.Solver.HEADING_CONSTRAINED);

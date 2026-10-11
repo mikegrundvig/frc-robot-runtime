@@ -8,84 +8,95 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.util.MathUtil;
 
 /**
- * The pose estimator's filter: the robot's position and a heading offset (the field heading is the
- * gyro's yaw plus the offset), with a 3x3 covariance of all three and how they relate. It predicts
- * through odometry steps and corrects with measurements; what to feed it, when, and whether to
- * believe a measurement is the estimator's business.
+ * The pose estimator's filter: a Kalman filter over the robot's position and a heading offset. The
+ * field heading is the gyro's yaw plus the offset, so the gyro turns the estimate and the filter
+ * only corrects the gyro's slow drift. It predicts through odometry steps ({@link #predict}) and
+ * corrects with camera measurements ({@link #innovation} then {@link #correct}). What to feed it,
+ * when, and whether to believe a measurement is the estimator's business.
+ *
+ * <p><b>What it holds.</b>
+ *
+ * <ul>
+ *   <li>The state: x and y in meters on the field, and the heading offset in radians.
+ *   <li>The state's covariance, P: 3 by 3, stored row by row in the order x, y, heading ({@link
+ *       #XX}, {@link #XY} and so on name its cells).
+ *   <li>The cross-covariance, C: how each of x, y and the heading offset has come to depend on each
+ *       error the filter considers, 3 rows by {@link #consideredCount()} columns ({@link
+ *       ConsideredErrors} says which column is which).
+ * </ul>
  *
  * <p><b>Errors it considers but never estimates.</b> Some errors repeat: in every image a camera
- * takes, or in every turn the gyro makes. Averaged as if each image's or turn's error were new,
- * they would shrink the uncertainty to millimeters while the estimate stays centimeters off. So the
- * filter keeps track of them as Schmidt "consider" parameters (Schmidt 1966; Zanetti and D'Souza
- * 2015): each has a fixed uncertainty, the filter never corrects it, and it follows how the
- * estimate's own errors have come to depend on it.
+ * takes, or in every turn the gyro makes. Averaged as if each image's or each turn's error were
+ * new, they would shrink the uncertainty to millimeters while the estimate stays centimeters off.
+ * So the filter treats them as Schmidt "consider" parameters (Schmidt 1966; Zanetti and D'Souza
+ * 2015). Each has a fixed variance, the filter never corrects it, and the filter keeps track of how
+ * the estimate's own errors have come to depend on it.
  *
  * <ul>
  *   <li><b>The heading, for a position a camera solved with it.</b> Such a position leans on the
- *       gyro's heading: off by an angle, it is off by the angle times the distance to the tags,
- *       square to them ({@link VisionMeasurement#lever}). So each fix measures the position and the
- *       heading's error together (its H is [I | J d], d the robot-to-tags vector and J a quarter
- *       turn), but by default such a fix doesn't correct the heading: the gyro owns it, and a
- *       measurement with a heading of its own corrects its drift, with all three of its rows (its
- *       position too, through how the position's error has come to depend on the heading's). With
- *       {@code fixesTurnHeading}, every fix corrects it: a full update.
- *   <li><b>Each IMU's scale:</b> a gyro that reads 0.3% too much turn is 1.1° off after a turn and
- *       5.4° after five, the same way each time, not a little more at random. The backup IMU's is
- *       its own: three turns one way on the gyro and three back on the backup don't cancel.
- *   <li><b>Each camera's turn on its mount</b>, what's left after calibrating it: it moves the
+ *       gyro's heading: if the heading is off by an angle, the position is off by that angle times
+ *       the distance to the tags, at right angles to them ({@link VisionMeasurement#lever}). So
+ *       each fix measures the position and the heading's error together. By default such a fix
+ *       still does not correct the heading: the gyro owns it, and only a measurement with a heading
+ *       of its own corrects its drift. With {@code positionFixesCorrectHeading}, every fix corrects
+ *       it, which is an ordinary full Kalman update.
+ *   <li><b>Each IMU's scale.</b> A gyro that reads 0.3% too much turn is 1.1° off after one turn
+ *       and 5.4° after five, the same way each time, not a little more at random. The backup IMU
+ *       has a scale error of its own: three turns one way on the gyro and three back on the backup
+ *       do not cancel.
+ *   <li><b>Each camera's turn on its mount</b>, what is left after calibrating it. It moves the
  *       camera's positions just as a heading error does, and its headings by the angle itself.
- *   <li><b>Each camera's shift on its mount:</b> what's left of where it sits, along the robot's
+ *   <li><b>Each camera's shift on its mount:</b> what is left of where it sits, along the robot's
  *       forward and left. It moves every position the camera finds by the same amount on the robot,
  *       so on the field it turns as the robot turns.
  *   <li><b>Each camera's headings' shift:</b> the rest of what its headings share from image to
- *       image, the tags it sees off the layout turning its multi-tag solves. Two tags a third of a
- *       meter apart, each half an inch from where the layout says, turn a multi-tag heading by up
- *       to 4°. It changes as the robot moves and turns and the camera sees other tags from
- *       elsewhere, so the filter lets go of it over a correlation distance and angle.
- *   <li><b>Each tag's placement</b> on the field, along the field and across it: a tag off the
+ *       image, from the tags it sees being a little off the layout. Two tags a third of a meter
+ *       apart, each half an inch from where the layout says, turn a multi-tag heading by up to 4°.
+ *       It changes as the robot moves and turns and the camera sees other tags from elsewhere, so
+ *       the filter lets go of it over a correlation distance and angle.
+ *   <li><b>Each tag's placement</b> on the field, along the field and across it. A tag off the
  *       layout puts every position solved from it off by its share of the solve, in every image of
  *       every camera that sees it. Two cameras seeing the same tags share its error, and turning
  *       away and back finds it again.
  * </ul>
  *
- * <p>Standing still, a camera seeing the same tags image after image still follows any change in
- * where the robot is, but can't place it better than its own repeated errors and its tags' allow;
- * several cameras, each with its own, together do better, but no better than the tags they share.
- *
- * <p>The covariance is row-major: x, y, offset. How the estimate relates to the considered errors
- * is a 3 by {@link #considered()} block, row-major too: their own variances stay fixed, and two
- * considered errors stay unrelated, since nothing ever corrects them. How many there are depends on
- * how many tags the field has.
+ * <p>The considered errors' own variances stay fixed, and two considered errors stay unrelated to
+ * each other, since nothing ever corrects them. So a robot standing still, its camera seeing the
+ * same tags image after image, still follows any change in where it is, but cannot place itself
+ * better than that camera's repeated errors and its tags' allow. Several cameras, each with errors
+ * of its own, together do better, but no better than the tags they share.
  */
 final class PoseFilter {
-  /** The most cameras whose errors the filter keeps apart; any more are treated as independent. */
-  static final int MAX_CAMERAS = 8;
+  // The state's three values, in the order every row and column here follows. A camera
+  // measurement's rows follow the same order: its x, its y, and its heading if it has one.
+  static final int X = 0;
+  static final int Y = 1;
+  static final int HEADING = 2;
+  private static final int STATES = 3;
+
+  /** A measurement of position alone has two rows; one with a heading of its own has three. */
+  private static final int POSITION_ROWS = 2;
+
+  private static final int POSE_ROWS = 3;
+
+  // The cells of a 3 by 3 matrix stored row by row, named by the row's and the column's value:
+  // XH is the covariance of x with the heading.
+  private static final int XX = 0;
+  private static final int XY = 1;
+  private static final int XH = 2;
+  private static final int YX = 3;
+  private static final int YY = 4;
+  private static final int YH = 5;
+  private static final int HX = 6;
+  private static final int HY = 7;
+  private static final int HH = 8;
+  private static final int CELLS = 9;
 
   /**
-   * How many errors the filter considers for each camera: its turn, its shift forward and left, and
-   * its headings' shift.
+   * Below this much turn, a step is taken as straight: the arc's formulas divide by the turn, and
+   * for a turn this small they give the straight line anyway.
    */
-  private static final int PER_CAMERA = 4;
-
-  /**
-   * Where a camera's headings' shift sits among its considered errors, after its turn and shift.
-   */
-  private static final int HEADINGS_SHIFT = 3;
-
-  /** And for each tag: its placement along x and along y. */
-  private static final int PER_TAG = 2;
-
-  /**
-   * How many errors the filter considers: the gyro's scale and the backup IMU's, then each camera's
-   * turn and shifts, then each tag's placement.
-   */
-  private final int considered;
-
-  /** How many tags' placement it keeps apart. */
-  private final int tags;
-
-  private static final int SCALE = 0;
-  private static final int BACKUP_SCALE = 1;
+  private static final double STRAIGHT_BELOW_RADIANS = 1e-9;
 
   /** An uncertainty as big as the field: the estimate knows nothing. */
   private static final PoseCovariance NO_IDEA = PoseCovariance.fromStdDevs(100, 100, Math.PI);
@@ -113,56 +124,123 @@ final class PoseFilter {
       double shiftCorrelationMeters,
       double shiftCorrelationRadians) {}
 
-  private final double scaleVariance;
+  /**
+   * How far a camera's measurement is from the estimate, and how surprising that is.
+   *
+   * @param xMeters the position's innovation along the field's x: measured less predicted
+   * @param yMeters and along y
+   * @param withHeading whether the measurement has a heading of its own
+   * @param headingRadians the heading's innovation; NaN for a measurement without a heading
+   * @param chiSquared the whole innovation's squared distance from zero, measured in its own
+   *     uncertainty (its squared Mahalanobis distance): what the estimator's gate tests
+   * @param positionChiSquared the same for the position alone
+   * @param stamp which of the filter's innovations this is. {@link #correct(Innovation)} applies
+   *     only the latest, because the filter holds the working of only one at a time
+   */
+  record Innovation(
+      double xMeters,
+      double yMeters,
+      boolean withHeading,
+      double headingRadians,
+      double chiSquared,
+      double positionChiSquared,
+      long stamp) {
+    double distanceMeters() {
+      return Math.hypot(xMeters, yMeters);
+    }
+  }
+
+  /** How many errors the filter considers, which is how many columns C has. */
+  private final int consideredCount;
+
+  /** How many tags' placements have columns of their own. */
+  private final int tagCount;
+
+  private final boolean positionFixesCorrectHeading;
+
+  // The considered errors' variances.
+  private final double gyroScaleVariance;
   private final double backupScaleVariance;
-  private final double turnVariance;
-  private final double shiftVariance;
-  private final boolean fixesTurnHeading;
-  private final double headingShiftVariance;
-  private final double tagVariance;
-  private final double shiftMeters;
-  private final double shiftRadians;
+  private final double headingsShiftVariance;
+  private final double tagPlacementVariance;
 
-  private double x;
-  private double y;
-  private double offset;
-  private final double[] covariance = new double[9];
+  /** What a camera's turn and shift on its mount are taken to be until a doubt raises them. */
+  private final double usualCameraTurnVariance;
 
-  /** How each of x, y, and the offset relates to each considered error: 3 by considered. */
-  private final double[] related;
+  private final double usualCameraShiftVariance;
 
   /**
-   * Each camera's turn's variance, and its shift's along each axis: as considered, unless a doubt
-   * about its mount has raised them ({@link #setCameraVariances}).
+   * Each camera's turn's variance, and its shift's along each axis, by the camera's place. They
+   * start as usual, and a doubt about a camera's mount raises them ({@link #setCameraVariances}).
    */
-  private final double[] cameraTurnVariance = new double[MAX_CAMERAS];
+  private final double[] cameraTurnVariance = new double[ConsideredErrors.MAX_CAMERAS];
 
-  private final double[] cameraShiftVariance = new double[MAX_CAMERAS];
+  private final double[] cameraShiftVariance = new double[ConsideredErrors.MAX_CAMERAS];
 
-  // Scratch space for a camera measurement, from its innovation to its correction: two rows for
-  // its position, a third for its heading if it has one. Row-major, three columns each.
-  private int rows;
-  private final double[] innovation3 = new double[3];
-  private final double[] h3 = new double[9]; // H: what each row measures of x, y, and the offset
-  // The considered errors it shares with other measurements: its camera's, and its tags'. For each,
-  // its place among the considered errors (-1 for one without a place, new in each image), its
-  // variance, and what each row measures of it (row-major, a row of `measuredCapacity` each).
-  private int measured;
-  private int measuredCapacity = PER_CAMERA + PER_TAG * 8;
-  private int[] measuredColumn = new int[measuredCapacity];
-  private double[] measuredVariance = new double[measuredCapacity];
-  private double[] hMeasured = new double[3 * measuredCapacity];
-  private final double[] hRelated; // H times the relations: rows x considered
-  private final double[] ph3 = new double[9]; // P H^T: 3 x rows
-  private final double[] s3 = new double[9]; // S = H P H^T + R: rows x rows
-  private final double[] sInverse3 = new double[9];
-  private final double[] gain = new double[9]; // K = P H^T S^-1: 3 x rows
-  private final double[] product = new double[9];
+  private final double shiftCorrelationMeters;
+  private final double shiftCorrelationRadians;
 
-  /** How many camera innovations the filter has worked out: the latest's stamp. */
+  // The state.
+  private double x;
+  private double y;
+  private double headingOffset;
+
+  /** P, the state's covariance: 3 by 3, row by row. */
+  private final double[] covariance = new double[CELLS];
+
+  /** C, the state's cross-covariance with the considered errors: 3 rows of consideredCount. */
+  private final double[] crossCovariance;
+
+  // The working of one camera measurement, from its innovation to its correction. The filter holds
+  // one measurement's working at a time: innovation() fills these, and correct() reads them. They
+  // are fields, not values made for each measurement, so that applying one allocates nothing.
+
+  /** How many rows the measurement has: {@link #POSITION_ROWS} or {@link #POSE_ROWS}. */
+  private int rowCount;
+
+  /** The measurement less what the estimate predicts for it: x, y in meters, heading in radians. */
+  private final double[] innovation = new double[POSE_ROWS];
+
+  /**
+   * H, the measurement's Jacobian with respect to the state: one row for each row of the
+   * measurement, one column for each of x, y and the heading offset.
+   */
+  private final double[] stateSeenBy = new double[CELLS];
+
+  /** The considered errors the measurement sees, with how much each of its rows sees of each. */
+  private final SharedErrors shared = new SharedErrors();
+
+  /**
+   * The covariance of the state's errors with the measurement's: P H^T, plus what reaches the
+   * measurement through the considered errors. 3 rows for the state, a column for each row of the
+   * measurement.
+   */
+  private final double[] stateWithMeasurement = new double[CELLS];
+
+  /** S, the innovation's covariance: rowCount by rowCount, in the top left of a 3 by 3. */
+  private final double[] innovationCovariance = new double[CELLS];
+
+  private final double[] innovationCovarianceInverse = new double[CELLS];
+
+  /** K, the gain: 3 rows for the state, a column for each row of the measurement. */
+  private final double[] gain = new double[CELLS];
+
+  /** K S, used once in the covariance's update. */
+  private final double[] gainTimesInnovationCovariance = new double[CELLS];
+
+  /**
+   * The covariance of the measurement's errors with each considered error: a row for each row of
+   * the measurement, of consideredCount columns.
+   */
+  private final double[] measurementWithConsidered;
+
+  /** How many camera innovations the filter has worked out: the latest one's stamp. */
   private long innovations;
 
   /**
+   * A filter in which a position fix leaves the heading to measurements with a heading of their
+   * own.
+   *
    * @param tags how many tags' placement to keep apart: the field's, each given a place from 0
    */
   PoseFilter(Considered sizes, int tags) {
@@ -171,77 +249,30 @@ final class PoseFilter {
 
   /**
    * @param tags how many tags' placement to keep apart: the field's, each given a place from 0
-   * @param fixesTurnHeading whether a position fix also corrects the heading, through its lever and
-   *     how the position's error has come to relate to the heading's: a full Kalman update. False
-   *     leaves the heading to measurements with a heading of their own: the gyro owns it.
+   * @param positionFixesCorrectHeading whether a position fix also corrects the heading, through
+   *     its lever and how the position's error has come to relate to the heading's: a full Kalman
+   *     update. False leaves the heading to measurements with a heading of their own: the gyro owns
+   *     it.
    */
-  PoseFilter(Considered sizes, int tags, boolean fixesTurnHeading) {
+  PoseFilter(Considered sizes, int tags, boolean positionFixesCorrectHeading) {
     if (tags < 0) {
       throw new IllegalArgumentException("how many tags to keep apart: " + tags);
     }
-    this.tags = tags;
-    considered = 2 + PER_CAMERA * MAX_CAMERAS + PER_TAG * tags;
-    related = new double[3 * considered];
-    hRelated = new double[3 * considered];
-    this.fixesTurnHeading = fixesTurnHeading;
-    scaleVariance = square(sizes.gyroScaleStdDev());
+    tagCount = tags;
+    consideredCount = ConsideredErrors.count(tags);
+    crossCovariance = new double[STATES * consideredCount];
+    measurementWithConsidered = new double[POSE_ROWS * consideredCount];
+    this.positionFixesCorrectHeading = positionFixesCorrectHeading;
+    gyroScaleVariance = square(sizes.gyroScaleStdDev());
     backupScaleVariance = square(sizes.backupScaleStdDev());
-    turnVariance = square(sizes.cameraTurnStdDevRadians());
-    shiftVariance = square(sizes.cameraShiftStdDevMeters());
-    headingShiftVariance = square(sizes.cameraShiftStdDevRadians());
-    tagVariance = square(sizes.tagPlacementStdDevMeters());
-    shiftMeters = sizes.shiftCorrelationMeters();
-    shiftRadians = sizes.shiftCorrelationRadians();
-    Arrays.fill(cameraTurnVariance, turnVariance);
-    Arrays.fill(cameraShiftVariance, shiftVariance);
-  }
-
-  /**
-   * Sets one camera's turn's and shift's variances, from now on: raised by a doubt about its mount,
-   * or back down. A variance that falls takes the estimate's relation to the error down with it, in
-   * proportion, so the joint covariance stays positive semidefinite (its Schur complement is
-   * unchanged).
-   */
-  void setCameraVariances(int camera, double turn, double shift) {
-    scaleRelations(turnColumn(camera), turn, cameraTurnVariance[camera]);
-    scaleRelations(turnColumn(camera) + 1, shift, cameraShiftVariance[camera]);
-    scaleRelations(turnColumn(camera) + 2, shift, cameraShiftVariance[camera]);
-    cameraTurnVariance[camera] = turn;
-    cameraShiftVariance[camera] = shift;
-  }
-
-  private void scaleRelations(int column, double to, double from) {
-    if (to < from) {
-      double factor = from > 0 ? Math.sqrt(to / from) : 0;
-      for (int row = 0; row < 3; row++) {
-        related[row * considered + column] *= factor;
-      }
-    }
-  }
-
-  /**
-   * How far a camera's measurement is from the estimate, and how surprising that is.
-   *
-   * @param x the position's innovation, meters
-   * @param y the position's innovation, meters
-   * @param withHeading whether the measurement has a heading
-   * @param heading the heading's innovation, radians; NaN for a measurement without heading
-   * @param chiSquared the innovation's squared distance under its uncertainty, all of it
-   * @param positionChiSquared the same for the position alone
-   * @param stamp which of the filter's innovations it is: {@link #correct(Innovation)} applies only
-   *     the latest, whose gain the filter still holds
-   */
-  record Innovation(
-      double x,
-      double y,
-      boolean withHeading,
-      double heading,
-      double chiSquared,
-      double positionChiSquared,
-      long stamp) {
-    double meters() {
-      return Math.hypot(x, y);
-    }
+    usualCameraTurnVariance = square(sizes.cameraTurnStdDevRadians());
+    usualCameraShiftVariance = square(sizes.cameraShiftStdDevMeters());
+    headingsShiftVariance = square(sizes.cameraShiftStdDevRadians());
+    tagPlacementVariance = square(sizes.tagPlacementStdDevMeters());
+    shiftCorrelationMeters = sizes.shiftCorrelationMeters();
+    shiftCorrelationRadians = sizes.shiftCorrelationRadians();
+    Arrays.fill(cameraTurnVariance, usualCameraTurnVariance);
+    Arrays.fill(cameraShiftVariance, usualCameraShiftVariance);
   }
 
   double x() {
@@ -252,80 +283,131 @@ final class PoseFilter {
     return y;
   }
 
-  double offset() {
-    return offset;
+  /** The heading offset, in radians: the field heading is the yaw plus this. */
+  double headingOffset() {
+    return headingOffset;
   }
 
-  Pose2d pose(double yaw) {
-    return new Pose2d(x, y, new Rotation2d(yaw + offset));
+  /** The estimated pose, given the yaw now. */
+  Pose2d pose(double yawRadians) {
+    return new Pose2d(x, y, new Rotation2d(yawRadians + headingOffset));
   }
+
+  // ---------------------------------------------------------------------------------------------
+  // Being told where the robot is.
+  // ---------------------------------------------------------------------------------------------
 
   /** Takes a reset's position and covariance, and its heading if it gives one. */
-  void set(PoseReset reset, double yaw) {
+  void set(PoseReset reset, double yawRadians) {
     x = reset.pose().getX();
     y = reset.pose().getY();
     PoseCovariance given = reset.covariance();
     if (given.hasHeading()) {
-      offset = reset.pose().getRotation().getRadians() - yaw;
-      covariance[8] = given.heading();
-      unrelate(2);
+      headingOffset = reset.pose().getRotation().getRadians() - yawRadians;
+      covariance[HH] = given.heading();
+      forgetDependenceOnConsideredErrors(HEADING);
     }
-    setPosition(given.xx(), given.xy(), given.yy());
+    setPositionCovariance(given.xx(), given.xy(), given.yy());
   }
 
-  /** A new heading, as sure as given, the position left where it is and unrelated to it. */
-  void resetHeading(double newOffset, double variance) {
-    offset = newOffset;
-    covariance[8] = variance;
-    clearCrossTerms();
-    unrelate(2);
+  /** A new heading, as sure as given. The position stays where it is, unrelated to the heading. */
+  void resetHeading(double newOffsetRadians, double variance) {
+    headingOffset = newOffsetRadians;
+    covariance[HH] = variance;
+    unrelatePositionAndHeading();
+    forgetDependenceOnConsideredErrors(HEADING);
   }
 
-  /** Moves the position, unrelated to the heading and as sure as given in each direction. */
-  void shift(double dx, double dy, double variance) {
-    x += dx;
-    y += dy;
-    setPosition(variance, 0, variance);
+  /** Moves the position, leaving it unrelated to the heading and as sure as given each way. */
+  void shift(double dxMeters, double dyMeters, double variance) {
+    x += dxMeters;
+    y += dyMeters;
+    setPositionCovariance(variance, 0, variance);
   }
 
   /** Turns the heading, with a fresh uncertainty for it and for the position. */
   void turn(double radians, double positionVariance, double headingVariance) {
-    offset += radians;
-    covariance[8] = headingVariance;
-    unrelate(2);
-    setPosition(positionVariance, 0, positionVariance);
+    headingOffset += radians;
+    covariance[HH] = headingVariance;
+    forgetDependenceOnConsideredErrors(HEADING);
+    setPositionCovariance(positionVariance, 0, positionVariance);
   }
 
   /**
-   * Moves through part of an odometry step: the wheels' travel along the arc the gyro turned
-   * through, starting at a yaw, and the uncertainty the move adds.
+   * Sets one camera's turn's and shift's variances, from now on: raised by a doubt about its mount,
+   * or brought back down.
    *
-   * @param startYaw the gyro's yaw where this part of the step starts
+   * <p>A variance that falls takes the estimate's dependence on that error down with it, in
+   * proportion. Otherwise the estimate would depend on the error more than an error that small
+   * allows, and the covariance of the estimate and the error together would no longer be one any
+   * real errors could have (it would not be positive semidefinite).
+   */
+  void setCameraVariances(int camera, double turnVariance, double shiftVariance) {
+    shrinkDependence(ConsideredErrors.cameraTurn(camera), turnVariance, cameraTurnVariance[camera]);
+    shrinkDependence(
+        ConsideredErrors.cameraShiftForward(camera), shiftVariance, cameraShiftVariance[camera]);
+    shrinkDependence(
+        ConsideredErrors.cameraShiftLeft(camera), shiftVariance, cameraShiftVariance[camera]);
+    cameraTurnVariance[camera] = turnVariance;
+    cameraShiftVariance[camera] = shiftVariance;
+  }
+
+  /**
+   * Scales the state's dependence on one considered error by the square root of how far its
+   * variance fell, which is how far its standard deviation fell. A variance that rose or stayed
+   * changes nothing.
+   */
+  private void shrinkDependence(int column, double newVariance, double oldVariance) {
+    boolean fell = newVariance < oldVariance;
+    if (!fell) {
+      return;
+    }
+    double factor = oldVariance > 0 ? Math.sqrt(newVariance / oldVariance) : 0;
+    for (int state = 0; state < STATES; state++) {
+      crossCovariance[cross(state, column)] *= factor;
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Predicting through odometry.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The Kalman filter's prediction, through part of an odometry step: moves the position by the
+   * wheels' travel along the arc the gyro turned through, and grows the uncertainty by what the
+   * move adds.
+   *
+   * @param startYaw the gyro's yaw where this part of the step starts, in radians
    * @param turn how far the gyro turned over it
-   * @param dx the wheels' travel forward over it, in the robot's frame at its start
-   * @param dy and to the left
-   * @param positionNoise variance to add to each position axis
-   * @param headingNoise variance to add to the heading
-   * @param turnedBy what turned it: an IMU's scale error grows the heading's error by the turn; the
-   *     wheels' own turning errors are in the heading noise
+   * @param forward the wheels' travel forward over it, in the robot's frame at its start, in meters
+   * @param left and to the left
+   * @param positionNoise the variance to add to each position axis
+   * @param headingNoise the variance to add to the heading
+   * @param turnedBy what turned the robot. An IMU's scale error grows the heading's error by the
+   *     turn. The wheels' own turning errors are already in the heading noise.
    */
   void predict(
       double startYaw,
       double turn,
-      double dx,
-      double dy,
+      double forward,
+      double left,
       double positionNoise,
       double headingNoise,
       YawSource turnedBy) {
-    double heading = startYaw + offset;
-    double along = dx;
-    double across = dy;
-    if (Math.abs(turn) > 1e-9) {
-      double s = Math.sin(turn) / turn;
-      double c = (1 - Math.cos(turn)) / turn;
-      along = s * dx - c * dy;
-      across = c * dx + s * dy;
+    // A robot that turns evenly while it drives traces an arc. The straight line from the arc's
+    // start to its end, in the robot's frame at the start, is the travel times these two factors:
+    // sin(turn)/turn along the way it was heading, (1 - cos(turn))/turn across it. (This is the
+    // exact integral, the same as WPILib's Twist2d.exp.)
+    double along = forward;
+    double across = left;
+    boolean turned = Math.abs(turn) > STRAIGHT_BELOW_RADIANS;
+    if (turned) {
+      double sineOverTurn = Math.sin(turn) / turn;
+      double oneMinusCosineOverTurn = (1 - Math.cos(turn)) / turn;
+      along = sineOverTurn * forward - oneMinusCosineOverTurn * left;
+      across = oneMinusCosineOverTurn * forward + sineOverTurn * left;
     }
+    double heading = startYaw + headingOffset;
     double cos = Math.cos(heading);
     double sin = Math.sin(heading);
     double moveX = cos * along - sin * across;
@@ -333,414 +415,577 @@ final class PoseFilter {
     x += moveX;
     y += moveY;
 
-    // P = F P F^T, where F = I plus a heading column: turning the offset swings the move.
-    double a = -moveY;
-    double b = moveX;
-    double p02 = covariance[2];
-    double p12 = covariance[5];
-    double p22 = covariance[8];
-    covariance[0] += 2 * a * p02 + a * a * p22;
-    covariance[1] += a * p12 + b * p02 + a * b * p22;
-    covariance[3] = covariance[1];
-    covariance[4] += 2 * b * p12 + b * b * p22;
-    covariance[2] += a * p22;
-    covariance[6] = covariance[2];
-    covariance[5] += b * p22;
-    covariance[7] = covariance[5];
-    // The same F for how the position relates to the considered errors.
-    for (int k = 0; k < considered; k++) {
-      double withHeading = related[2 * considered + k];
-      related[k] += a * withHeading;
-      related[considered + k] += b * withHeading;
+    swingUncertaintyWithHeading(moveX, moveY);
+    switch (turnedBy) {
+      case GYRO -> addScaleError(turn, ConsideredErrors.GYRO_SCALE, gyroScaleVariance);
+      case BACKUP -> addScaleError(turn, ConsideredErrors.BACKUP_SCALE, backupScaleVariance);
+      case WHEELS -> {}
     }
+    letGoOfHeadingsShifts(Math.hypot(moveX, moveY), Math.abs(turn));
 
-    // An IMU reading its turns a little large or small adds its scale error times the turn to the
-    // heading's error: the same error every turn, so it is related to all the others.
-    int scale = turnedBy == YawSource.GYRO ? SCALE : BACKUP_SCALE;
-    double variance = turnedBy == YawSource.GYRO ? scaleVariance : backupScaleVariance;
-    if (turnedBy != YawSource.WHEELS && variance > 0) {
-      covariance[8] += 2 * turn * related[2 * considered + scale] + turn * turn * variance;
-      covariance[2] += turn * related[scale];
-      covariance[6] = covariance[2];
-      covariance[5] += turn * related[considered + scale];
-      covariance[7] = covariance[5];
-      related[2 * considered + scale] += turn * variance;
-    }
-
-    // As the robot moves and turns, each camera sees other tags, or the same ones from elsewhere,
-    // and its headings' shift becomes a different one. Its mount's shift, and each tag's
-    // placement, stay what they are.
-    double kept = Math.exp(-Math.hypot(moveX, moveY) / shiftMeters - Math.abs(turn) / shiftRadians);
-    if (kept < 1) {
-      for (int slot = 0; slot < MAX_CAMERAS; slot++) {
-        for (int row = 0; row < 3; row++) {
-          related[row * considered + turnColumn(slot) + HEADINGS_SHIFT] *= kept;
-        }
-      }
-    }
-
-    covariance[0] += positionNoise;
-    covariance[4] += positionNoise;
-    covariance[8] += headingNoise;
+    covariance[XX] += positionNoise;
+    covariance[YY] += positionNoise;
+    covariance[HH] += headingNoise;
   }
 
   /**
-   * A camera measurement's innovation against the estimate, readying {@link #correct(Innovation)}
-   * to apply it.
+   * The covariance's prediction, P = F P F^T, for a move over the field.
+   *
+   * <p>F is the Jacobian of the new state with respect to the old. It is the identity except in its
+   * heading column, because a heading offset that is a little off swings the move about its start:
+   * an offset off by dθ puts x off by -moveY dθ and y off by moveX dθ. So F is
+   *
+   * <pre>
+   *   1  0  -moveY
+   *   0  1   moveX
+   *   0  0   1
+   * </pre>
+   *
+   * <p>The lines below are F P F^T multiplied out, each cell changed by what the heading column
+   * adds to it. C, the dependence on the considered errors, is predicted by the same F: C = F C.
+   */
+  private void swingUncertaintyWithHeading(double moveX, double moveY) {
+    double xPerHeading = -moveY;
+    double yPerHeading = moveX;
+    double xWithHeading = covariance[XH];
+    double yWithHeading = covariance[YH];
+    double headingVariance = covariance[HH];
+    covariance[XX] += 2 * xPerHeading * xWithHeading + xPerHeading * xPerHeading * headingVariance;
+    covariance[XY] +=
+        xPerHeading * yWithHeading
+            + yPerHeading * xWithHeading
+            + xPerHeading * yPerHeading * headingVariance;
+    covariance[YX] = covariance[XY];
+    covariance[YY] += 2 * yPerHeading * yWithHeading + yPerHeading * yPerHeading * headingVariance;
+    covariance[XH] += xPerHeading * headingVariance;
+    covariance[HX] = covariance[XH];
+    covariance[YH] += yPerHeading * headingVariance;
+    covariance[HY] = covariance[YH];
+    for (int column = 0; column < consideredCount; column++) {
+      double headingWithError = crossCovariance[cross(HEADING, column)];
+      crossCovariance[cross(X, column)] += xPerHeading * headingWithError;
+      crossCovariance[cross(Y, column)] += yPerHeading * headingWithError;
+    }
+  }
+
+  /**
+   * An IMU that reads its turns a little large or small adds its scale error times the turn to the
+   * heading's error. It is the same error every turn, so the heading comes to depend on it: with s
+   * the scale error and v its variance, the heading's error grows by turn times s, which adds
+   *
+   * <pre>
+   *   to the heading's variance          2 turn cov(heading, s) + turn² v
+   *   to cov(x, heading)                 turn cov(x, s)
+   *   to cov(y, heading)                 turn cov(y, s)
+   *   to cov(heading, s)                 turn v
+   * </pre>
+   *
+   * <p>A scale with no variance is not considered at all.
+   */
+  private void addScaleError(double turn, int scaleColumn, double scaleVariance) {
+    boolean considered = scaleVariance > 0;
+    if (!considered) {
+      return;
+    }
+    covariance[HH] +=
+        2 * turn * crossCovariance[cross(HEADING, scaleColumn)] + turn * turn * scaleVariance;
+    covariance[XH] += turn * crossCovariance[cross(X, scaleColumn)];
+    covariance[HX] = covariance[XH];
+    covariance[YH] += turn * crossCovariance[cross(Y, scaleColumn)];
+    covariance[HY] = covariance[YH];
+    crossCovariance[cross(HEADING, scaleColumn)] += turn * scaleVariance;
+  }
+
+  /**
+   * As the robot moves and turns, each camera sees other tags, or the same ones from elsewhere, and
+   * its headings' shift becomes a different one. So the state's dependence on each camera's
+   * headings' shift decays, by a factor of e for each correlation distance moved and each
+   * correlation angle turned. A camera's shift on its mount and each tag's placement stay what they
+   * are, and their columns are left alone.
+   */
+  private void letGoOfHeadingsShifts(double movedMeters, double turnedRadians) {
+    double kept =
+        Math.exp(-movedMeters / shiftCorrelationMeters - turnedRadians / shiftCorrelationRadians);
+    if (kept < 1) {
+      for (int camera = 0; camera < ConsideredErrors.MAX_CAMERAS; camera++) {
+        for (int state = 0; state < STATES; state++) {
+          crossCovariance[cross(state, ConsideredErrors.cameraHeadingsShift(camera))] *= kept;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Correcting with a camera measurement.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * Works out a camera measurement's innovation against the estimate, and everything {@link
+   * #correct(Innovation)} needs to apply it: the first half of a Kalman update, up to the gain. The
+   * estimator gates the innovation between the two halves.
    *
    * @param yawThen the gyro's yaw when the image was taken
-   * @param camera which camera, from 0 to {@link #MAX_CAMERAS} - 1, whose turn and shifts it shares
-   *     with the camera's other images; -1 for one without a place, whose turn and shifts are taken
-   *     as new in each image
-   * @param tags each of its tags' place, as the filter was made to keep them apart, in the order of
-   *     its {@link VisionMeasurement#tagIds}: the placement it shares with every image of the tag;
-   *     -1 for one without a place, whose placement is taken as new in each image
-   * @return null if its uncertainty and the estimate's together are degenerate
+   * @param camera the camera's place, from 0 to {@link ConsideredErrors#MAX_CAMERAS} - 1: its turn
+   *     and shifts are the ones it shares with its other images. {@link ConsideredErrors#NO_PLACE}
+   *     for a camera without a place, whose turn and shifts are taken as new in each image
+   * @param tagPlaces each of its tags' place, in the order of its {@link VisionMeasurement#tagIds}:
+   *     the placement it shares with every image of that tag. {@link ConsideredErrors#NO_PLACE} for
+   *     a tag without a place, whose placement is taken as new in each image
+   * @return the innovation, or null when the measurement cannot be compared with the estimate at
+   *     all: its uncertainty and the estimate's together leave no spread to measure a distance in
    */
   @Nullable Innovation innovation(
-      VisionMeasurement measurement, double yawThen, int camera, int[] tags) {
+      VisionMeasurement measurement, double yawThen, int camera, int[] tagPlaces) {
     PoseCovariance noise = measurement.covariance();
-    rows = noise.hasHeading() ? 3 : 2;
-    // H: each position row sees its own axis, and the heading through the tags' lever: a heading
-    // off by dθ moves the fix dθ times the robot-to-tags vector, turned a quarter turn.
-    double leverX = measurement.lever().robotToTags().getX();
-    double leverY = measurement.lever().robotToTags().getY();
-    h3[0] = 1;
-    h3[1] = 0;
-    h3[2] = -leverY;
-    h3[3] = 0;
-    h3[4] = 1;
-    h3[5] = leverX;
-    h3[6] = 0;
-    h3[7] = 0;
-    h3[8] = 1;
-    // And what it shares with other measurements. The camera's turn moves its position as a
-    // heading error does, and its heading by the turn itself; its mount's shift moves the position
-    // along the robot's forward and left, as the robot is turned; its headings' shift, the heading.
-    // A tag off the layout moves the position the other way, by the tag's share of it.
-    measured = 0;
-    double facing = yawThen + offset;
-    double cos = Math.cos(facing);
-    double sin = Math.sin(facing);
-    int first = camera >= 0 ? turnColumn(camera) : -1;
-    double turned = camera >= 0 ? cameraTurnVariance[camera] : turnVariance;
-    double shifted = camera >= 0 ? cameraShiftVariance[camera] : shiftVariance;
-    measure(first, turned, -leverY, leverX, 1);
-    measure(first >= 0 ? first + 1 : -1, shifted, cos, sin, 0);
-    measure(first >= 0 ? first + 2 : -1, shifted, -sin, cos, 0);
-    measure(first >= 0 ? first + HEADINGS_SHIFT : -1, headingShiftVariance, 0, 0, 1);
-    List<Double> shares = measurement.tagShares();
-    for (int i = 0; i < shares.size(); i++) {
-      double share = shares.get(i);
-      int tag = i < tags.length && tags[i] >= 0 && tags[i] < this.tags ? tagColumn(tags[i]) : -1;
-      measure(tag, tagVariance, -share, 0, 0);
-      measure(tag >= 0 ? tag + 1 : -1, tagVariance, 0, -share, 0);
-    }
-    // The position was solved with the heading of its lever, and the estimate's heading then may
-    // have moved since (a measurement applied late, in the history): what the estimate predicts
-    // for it is its position turned by the difference, through the lever.
-    double solvedOff =
-        MathUtil.angleModulus(measurement.lever().heading().getRadians() - (yawThen + offset));
-    innovation3[0] = measurement.pose().getX() - x - solvedOff * leverY;
-    innovation3[1] = measurement.pose().getY() - y + solvedOff * leverX;
-    innovation3[2] =
-        rows == 3
-            ? MathUtil.angleModulus(
-                measurement.pose().getRotation().getRadians() - (yawThen + offset))
-            : Double.NaN;
-    // P H^T, for the estimate's rows: through the estimate's own covariance, and through how it
-    // relates to the errors the measurement shares.
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < rows; j++) {
-        double sum =
-            covariance[i * 3] * h3[j * 3]
-                + covariance[i * 3 + 1] * h3[j * 3 + 1]
-                + covariance[i * 3 + 2] * h3[j * 3 + 2];
-        for (int m = 0; m < measured; m++) {
-          int k = measuredColumn[m];
-          if (k >= 0) {
-            sum += related[i * considered + k] * hMeasured[j * measuredCapacity + m];
-          }
-        }
-        ph3[i * 3 + j] = sum;
-      }
-    }
-    // S = H P H^T + R: the estimate's part, then the shared errors': how they relate to the
-    // estimate, and their own variances. One without a place among the considered errors is still
-    // in every image: it's taken as new in each, unrelated to anything.
-    for (int i = 0; i < rows; i++) {
-      for (int j = 0; j < rows; j++) {
-        double sum = h3[i * 3] * ph3[j] + h3[i * 3 + 1] * ph3[3 + j] + h3[i * 3 + 2] * ph3[6 + j];
-        for (int m = 0; m < measured; m++) {
-          double hm = hMeasured[i * measuredCapacity + m];
-          if (hm != 0) {
-            double own = measuredVariance[m] * hMeasured[j * measuredCapacity + m];
-            int k = measuredColumn[m];
-            if (k >= 0) {
-              own +=
-                  related[k] * h3[j * 3]
-                      + related[considered + k] * h3[j * 3 + 1]
-                      + related[2 * considered + k] * h3[j * 3 + 2];
-            }
-            sum += hm * own;
-          }
-        }
-        s3[i * 3 + j] = sum;
-      }
-    }
-    s3[0] += noise.xx();
-    s3[1] += noise.xy();
-    s3[3] += noise.xy();
-    s3[4] += noise.yy();
-    if (rows == 3) {
-      s3[8] += noise.heading();
-    }
-    symmetrizeS();
-    // The position's own agreement, from the position block of S.
-    double s00 = s3[0];
-    double s01 = s3[1];
-    double s11 = s3[4];
-    double determinant = s00 * s11 - s01 * s01;
-    if (!(determinant > 0)) {
+    rowCount = noise.hasHeading() ? POSE_ROWS : POSITION_ROWS;
+    double headingThen = yawThen + headingOffset;
+
+    describeWhatItSees(measurement, headingThen, camera, tagPlaces);
+    subtractThePrediction(measurement, headingThen);
+    covarianceOfStateWithMeasurement();
+    covarianceOfInnovation(noise);
+
+    // The position's own chi-squared, d^T S^-1 d for the 2 by 2 position block of S, with the
+    // inverse of a 2 by 2 written out: [a b; b c]^-1 = [c -b; -b a] / (a c - b²).
+    double sxx = innovationCovariance[XX];
+    double sxy = innovationCovariance[XY];
+    double syy = innovationCovariance[YY];
+    double determinant = sxx * syy - sxy * sxy;
+    // Written so a determinant that is not a number counts as degenerate too.
+    boolean positionHasSpread = determinant > 0;
+    if (!positionHasSpread) {
       return null;
     }
     double positionChiSquared =
-        (s11 * innovation3[0] * innovation3[0]
-                - 2 * s01 * innovation3[0] * innovation3[1]
-                + s00 * innovation3[1] * innovation3[1])
+        (syy * innovation[X] * innovation[X]
+                - 2 * sxy * innovation[X] * innovation[Y]
+                + sxx * innovation[Y] * innovation[Y])
             / determinant;
     double chiSquared = positionChiSquared;
-    if (rows == 3) {
-      if (!Matrices.invert3(s3, sInverse3)) {
+    if (rowCount == POSE_ROWS) {
+      if (!Matrices.invert3(innovationCovariance, innovationCovarianceInverse)) {
         return null;
       }
-      chiSquared = Matrices.quadratic3(sInverse3, innovation3);
+      chiSquared = Matrices.quadratic3(innovationCovarianceInverse, innovation);
     } else {
-      sInverse3[0] = s11 / determinant;
-      sInverse3[1] = -s01 / determinant;
-      sInverse3[3] = -s01 / determinant;
-      sInverse3[4] = s00 / determinant;
+      innovationCovarianceInverse[XX] = syy / determinant;
+      innovationCovarianceInverse[XY] = -sxy / determinant;
+      innovationCovarianceInverse[YX] = -sxy / determinant;
+      innovationCovarianceInverse[YY] = sxx / determinant;
     }
-    // K = P H^T S^-1. A measurement without a heading of its own leaves the heading alone: its gain
-    // for the offset is zero, as it is for every considered error.
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < rows; j++) {
-        double sum = 0;
-        for (int k = 0; k < rows; k++) {
-          sum += ph3[i * 3 + k] * sInverse3[k * 3 + j];
-        }
-        gain[i * 3 + j] = i == 2 && rows == 2 && !fixesTurnHeading ? 0 : sum;
-      }
-    }
+    workOutGain();
     return new Innovation(
-        innovation3[0],
-        innovation3[1],
-        rows == 3,
-        innovation3[2],
+        innovation[X],
+        innovation[Y],
+        rowCount == POSE_ROWS,
+        innovation[HEADING],
         chiSquared,
         positionChiSquared,
         ++innovations);
   }
 
   /**
-   * One error the measurement shares with others: its place among the considered errors (-1 for
-   * none), its variance, and what the measurement's x, y, and heading rows see of it. One with no
-   * variance is left out: nothing can relate to it.
+   * Fills in H, what each row of the measurement sees of the state, and the considered errors the
+   * measurement shares with other measurements.
+   *
+   * <p>Each position row sees its own axis, and sees the heading through the tags' lever: a heading
+   * off by dθ moves a position solved with it by dθ times the robot-to-tags vector, turned a
+   * quarter turn. With the lever (lx, ly), H is
+   *
+   * <pre>
+   *   1  0  -ly
+   *   0  1   lx
+   *   0  0   1     (the heading row, used only by a measurement with a heading of its own)
+   * </pre>
    */
-  private void measure(int column, double variance, double hx, double hy, double hHeading) {
-    if (!(variance > 0)) {
-      return;
+  private void describeWhatItSees(
+      VisionMeasurement measurement, double headingThen, int camera, int[] tagPlaces) {
+    double leverX = measurement.lever().robotToTags().getX();
+    double leverY = measurement.lever().robotToTags().getY();
+    stateSeenBy[cell(X, X)] = 1;
+    stateSeenBy[cell(X, Y)] = 0;
+    stateSeenBy[cell(X, HEADING)] = -leverY;
+    stateSeenBy[cell(Y, X)] = 0;
+    stateSeenBy[cell(Y, Y)] = 1;
+    stateSeenBy[cell(Y, HEADING)] = leverX;
+    stateSeenBy[cell(HEADING, X)] = 0;
+    stateSeenBy[cell(HEADING, Y)] = 0;
+    stateSeenBy[cell(HEADING, HEADING)] = 1;
+
+    // A camera with a place shares its errors with its other images, at their own variances. One
+    // without a place has the usual variances and no columns.
+    int turnColumn = ConsideredErrors.NO_COLUMN;
+    int shiftForwardColumn = ConsideredErrors.NO_COLUMN;
+    int shiftLeftColumn = ConsideredErrors.NO_COLUMN;
+    int headingsShiftColumn = ConsideredErrors.NO_COLUMN;
+    double turnVariance = usualCameraTurnVariance;
+    double shiftVariance = usualCameraShiftVariance;
+    if (ConsideredErrors.hasPlace(camera)) {
+      turnColumn = ConsideredErrors.cameraTurn(camera);
+      shiftForwardColumn = ConsideredErrors.cameraShiftForward(camera);
+      shiftLeftColumn = ConsideredErrors.cameraShiftLeft(camera);
+      headingsShiftColumn = ConsideredErrors.cameraHeadingsShift(camera);
+      turnVariance = cameraTurnVariance[camera];
+      shiftVariance = cameraShiftVariance[camera];
     }
-    if (measured == measuredCapacity) {
-      int capacity = 2 * measuredCapacity;
-      double[] h = new double[3 * capacity];
-      for (int row = 0; row < 3; row++) {
-        System.arraycopy(hMeasured, row * measuredCapacity, h, row * capacity, measured);
+    double cos = Math.cos(headingThen);
+    double sin = Math.sin(headingThen);
+    shared.clear();
+    // The camera's turn on its mount moves its position as a heading error does, and its heading by
+    // the turn itself.
+    shared.add(turnColumn, turnVariance, -leverY, leverX, 1);
+    // Its shift on its mount moves the position along the robot's forward, and along its left, as
+    // the robot was turned on the field.
+    shared.add(shiftForwardColumn, shiftVariance, cos, sin, 0);
+    shared.add(shiftLeftColumn, shiftVariance, -sin, cos, 0);
+    // Its headings' shift moves only its heading.
+    shared.add(headingsShiftColumn, headingsShiftVariance, 0, 0, 1);
+    // A tag that is off the layout moves the position the other way, by the tag's share of it.
+    List<Double> shares = measurement.tagShares();
+    for (int index = 0; index < shares.size(); index++) {
+      double share = shares.get(index);
+      int alongXColumn = ConsideredErrors.NO_COLUMN;
+      int alongYColumn = ConsideredErrors.NO_COLUMN;
+      if (index < tagPlaces.length && isOneOfTheFilterTags(tagPlaces[index])) {
+        alongXColumn = ConsideredErrors.tagAlongX(tagPlaces[index]);
+        alongYColumn = ConsideredErrors.tagAlongY(tagPlaces[index]);
       }
-      hMeasured = h;
-      measuredColumn = Arrays.copyOf(measuredColumn, capacity);
-      measuredVariance = Arrays.copyOf(measuredVariance, capacity);
-      measuredCapacity = capacity;
+      shared.add(alongXColumn, tagPlacementVariance, -share, 0, 0);
+      shared.add(alongYColumn, tagPlacementVariance, 0, -share, 0);
     }
-    measuredColumn[measured] = column;
-    measuredVariance[measured] = variance;
-    hMeasured[measured] = hx;
-    hMeasured[measuredCapacity + measured] = hy;
-    hMeasured[2 * measuredCapacity + measured] = hHeading;
-    measured++;
+  }
+
+  private boolean isOneOfTheFilterTags(int tagPlace) {
+    return ConsideredErrors.hasPlace(tagPlace) && tagPlace < tagCount;
   }
 
   /**
-   * Applies the camera measurement last given to {@link #innovation}: a Kalman update of what it
-   * may correct, considering the rest.
+   * Fills in the innovation: the measurement less what the estimate predicts for it.
+   *
+   * <p>The position was solved with the heading its lever carries, and the estimate's heading for
+   * that moment may have moved since (a measurement applied late, in the history). What the
+   * estimate predicts for such a position is its own position turned about the tags by the
+   * difference between the two headings, which is that difference times the lever, turned a quarter
+   * turn.
    */
-  void correct(Innovation innovation) {
-    if (innovation.stamp() != innovations) {
-      throw new IllegalStateException(
-          "a camera's innovation is applied right after it's worked out: "
-              + (innovations - innovation.stamp())
-              + " more came between");
+  private void subtractThePrediction(VisionMeasurement measurement, double headingThen) {
+    double leverX = measurement.lever().robotToTags().getX();
+    double leverY = measurement.lever().robotToTags().getY();
+    double solvedHeadingOff =
+        MathUtil.angleModulus(measurement.lever().heading().getRadians() - headingThen);
+    innovation[X] = measurement.pose().getX() - x - solvedHeadingOff * leverY;
+    innovation[Y] = measurement.pose().getY() - y + solvedHeadingOff * leverX;
+    if (rowCount == POSE_ROWS) {
+      innovation[HEADING] =
+          MathUtil.angleModulus(measurement.pose().getRotation().getRadians() - headingThen);
+    } else {
+      innovation[HEADING] = Double.NaN;
     }
-    for (int i = 0; i < 3; i++) {
-      double move = 0;
-      for (int j = 0; j < rows; j++) {
-        move += gain[i * 3 + j] * innovation3[j];
-      }
-      if (i == 0) {
-        x += move;
-      } else if (i == 1) {
-        y += move;
-      } else {
-        offset += move;
-      }
-    }
-    // P = P - K C^T - C K^T + K S K^T, with C = P H^T: right for any gain, so for one that leaves
-    // the heading or a considered error alone too. (For the full Kalman gain, the last two terms
-    // cancel to P - K C^T.)
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < rows; j++) {
-        double sum = 0;
-        for (int k = 0; k < rows; k++) {
-          sum += gain[i * 3 + k] * s3[k * 3 + j];
+  }
+
+  /**
+   * Fills in the covariance of the state's errors with the measurement's. In a plain Kalman filter
+   * this is P H^T. Here the measurement also sees considered errors the state depends on, so each
+   * adds the state's dependence on it (its column of C) times how much the measurement sees of it.
+   * An error without a column is one the state does not depend on.
+   */
+  private void covarianceOfStateWithMeasurement() {
+    for (int state = 0; state < STATES; state++) {
+      for (int row = 0; row < rowCount; row++) {
+        double sum =
+            covariance[cell(state, X)] * stateSeenBy[cell(row, X)]
+                + covariance[cell(state, Y)] * stateSeenBy[cell(row, Y)]
+                + covariance[cell(state, HEADING)] * stateSeenBy[cell(row, HEADING)];
+        for (int error = 0; error < shared.count(); error++) {
+          int column = shared.column(error);
+          if (ConsideredErrors.hasColumn(column)) {
+            sum += crossCovariance[cross(state, column)] * shared.seenBy(row, error);
+          }
         }
-        product[i * 3 + j] = sum; // K S
-      }
-    }
-    for (int i = 0; i < 3; i++) {
-      for (int j = 0; j < 3; j++) {
-        double change = 0;
-        for (int k = 0; k < rows; k++) {
-          change +=
-              -gain[i * 3 + k] * ph3[j * 3 + k]
-                  - ph3[i * 3 + k] * gain[j * 3 + k]
-                  + product[i * 3 + k] * gain[j * 3 + k];
-        }
-        covariance[i * 3 + j] += change;
-      }
-    }
-    symmetrize();
-    // How the estimate relates to each considered error changes by the gain times how the
-    // measurement related to it: C's considered rows, H times P's considered columns, and for an
-    // error it shares, its own variance through what it measures of it.
-    for (int r = 0; r < rows; r++) {
-      for (int k = 0; k < considered; k++) {
-        hRelated[r * considered + k] =
-            related[k] * h3[r * 3]
-                + related[considered + k] * h3[r * 3 + 1]
-                + related[2 * considered + k] * h3[r * 3 + 2];
-      }
-      for (int m = 0; m < measured; m++) {
-        int k = measuredColumn[m];
-        if (k >= 0) {
-          hRelated[r * considered + k] += measuredVariance[m] * hMeasured[r * measuredCapacity + m];
-        }
-      }
-    }
-    for (int i = 0; i < 3; i++) {
-      for (int k = 0; k < considered; k++) {
-        double change = 0;
-        for (int r = 0; r < rows; r++) {
-          change += gain[i * 3 + r] * hRelated[r * considered + k];
-        }
-        related[i * considered + k] -= change;
+        stateWithMeasurement[cell(state, row)] = sum;
       }
     }
   }
 
-  /** The covariance, as the estimate reports it. */
+  /**
+   * Fills in S, the innovation's covariance: how far apart the measurement and the estimate's
+   * prediction of it are expected to be. In a plain Kalman filter this is H P H^T + R. Here each
+   * shared error adds two more things: its own variance, through how much two rows see of it, and
+   * its covariance with the state (its column of C), through what the other row sees of the state.
+   * An error without a column is unrelated to the state and adds only its own variance.
+   *
+   * <p>Each cell is S[rowA][rowB]. The first term, H times the covariance of the state with the
+   * measurement, already holds H P H^T and one of the two cross terms. The loop adds the other
+   * cross term and the errors' own variances.
+   */
+  private void covarianceOfInnovation(PoseCovariance noise) {
+    for (int rowA = 0; rowA < rowCount; rowA++) {
+      for (int rowB = 0; rowB < rowCount; rowB++) {
+        double sum =
+            stateSeenBy[cell(rowA, X)] * stateWithMeasurement[cell(X, rowB)]
+                + stateSeenBy[cell(rowA, Y)] * stateWithMeasurement[cell(Y, rowB)]
+                + stateSeenBy[cell(rowA, HEADING)] * stateWithMeasurement[cell(HEADING, rowB)];
+        for (int error = 0; error < shared.count(); error++) {
+          double seenByRowA = shared.seenBy(rowA, error);
+          if (seenByRowA != 0) {
+            double errorWithRowB = shared.variance(error) * shared.seenBy(rowB, error);
+            int column = shared.column(error);
+            if (ConsideredErrors.hasColumn(column)) {
+              errorWithRowB +=
+                  crossCovariance[cross(X, column)] * stateSeenBy[cell(rowB, X)]
+                      + crossCovariance[cross(Y, column)] * stateSeenBy[cell(rowB, Y)]
+                      + crossCovariance[cross(HEADING, column)] * stateSeenBy[cell(rowB, HEADING)];
+            }
+            sum += seenByRowA * errorWithRowB;
+          }
+        }
+        innovationCovariance[cell(rowA, rowB)] = sum;
+      }
+    }
+    // R, the measurement's own noise.
+    innovationCovariance[XX] += noise.xx();
+    innovationCovariance[XY] += noise.xy();
+    innovationCovariance[YX] += noise.xy();
+    innovationCovariance[YY] += noise.yy();
+    if (rowCount == POSE_ROWS) {
+      innovationCovariance[HH] += noise.heading();
+    }
+    makeInnovationCovarianceSymmetric();
+  }
+
+  /**
+   * Fills in the gain, K = C S^-1, where C is the covariance of the state with the measurement.
+   *
+   * <p>A measurement without a heading of its own leaves the heading alone unless the filter was
+   * made to let every fix correct it: its gain for the heading offset is set to zero. That is not
+   * the gain a Kalman filter would choose, which is why {@link #correct} updates the covariance in
+   * the form that is right for any gain.
+   */
+  private void workOutGain() {
+    boolean leavesHeadingAlone = rowCount == POSITION_ROWS && !positionFixesCorrectHeading;
+    for (int state = 0; state < STATES; state++) {
+      for (int row = 0; row < rowCount; row++) {
+        double sum = 0;
+        for (int k = 0; k < rowCount; k++) {
+          sum += stateWithMeasurement[cell(state, k)] * innovationCovarianceInverse[cell(k, row)];
+        }
+        if (state == HEADING && leavesHeadingAlone) {
+          gain[cell(state, row)] = 0;
+        } else {
+          gain[cell(state, row)] = sum;
+        }
+      }
+    }
+  }
+
+  /**
+   * Applies the camera measurement last given to {@link #innovation}: the second half of the Kalman
+   * update. It corrects the state, and the covariance of what the measurement may correct, while
+   * only keeping account of the errors it considers (a Schmidt-Kalman update).
+   */
+  void correct(Innovation applied) {
+    if (applied.stamp() != innovations) {
+      throw new IllegalStateException(
+          "a camera's innovation is applied right after it's worked out: "
+              + (innovations - applied.stamp())
+              + " more came between");
+    }
+    // The state: x = x + K d, with d the innovation.
+    x += gainTimesInnovation(X);
+    y += gainTimesInnovation(Y);
+    headingOffset += gainTimesInnovation(HEADING);
+
+    // The covariance: P = P - K C^T - C K^T + K S K^T, with C the covariance of the state with the
+    // measurement. This form is right for any gain, so also for one that leaves the heading alone.
+    // (For the full Kalman gain K = C S^-1 the last two terms cancel, leaving the textbook
+    // P - K C^T.)
+    for (int state = 0; state < STATES; state++) {
+      for (int row = 0; row < rowCount; row++) {
+        double sum = 0;
+        for (int k = 0; k < rowCount; k++) {
+          sum += gain[cell(state, k)] * innovationCovariance[cell(k, row)];
+        }
+        gainTimesInnovationCovariance[cell(state, row)] = sum;
+      }
+    }
+    for (int stateA = 0; stateA < STATES; stateA++) {
+      for (int stateB = 0; stateB < STATES; stateB++) {
+        double change = 0;
+        for (int row = 0; row < rowCount; row++) {
+          change +=
+              -gain[cell(stateA, row)] * stateWithMeasurement[cell(stateB, row)]
+                  - stateWithMeasurement[cell(stateA, row)] * gain[cell(stateB, row)]
+                  + gainTimesInnovationCovariance[cell(stateA, row)] * gain[cell(stateB, row)];
+        }
+        covariance[cell(stateA, stateB)] += change;
+      }
+    }
+    makeCovarianceSymmetric();
+
+    // The dependence on the considered errors: C = C - K M, where M is the covariance of the
+    // measurement's errors with each considered error. The measurement relates to an error through
+    // the state (H times that error's column of C) and, for an error it sees itself, through the
+    // error's own variance times how much each row sees of it.
+    for (int row = 0; row < rowCount; row++) {
+      for (int column = 0; column < consideredCount; column++) {
+        measurementWithConsidered[cross(row, column)] =
+            crossCovariance[cross(X, column)] * stateSeenBy[cell(row, X)]
+                + crossCovariance[cross(Y, column)] * stateSeenBy[cell(row, Y)]
+                + crossCovariance[cross(HEADING, column)] * stateSeenBy[cell(row, HEADING)];
+      }
+      for (int error = 0; error < shared.count(); error++) {
+        int column = shared.column(error);
+        if (ConsideredErrors.hasColumn(column)) {
+          measurementWithConsidered[cross(row, column)] +=
+              shared.variance(error) * shared.seenBy(row, error);
+        }
+      }
+    }
+    for (int state = 0; state < STATES; state++) {
+      for (int column = 0; column < consideredCount; column++) {
+        double change = 0;
+        for (int row = 0; row < rowCount; row++) {
+          change += gain[cell(state, row)] * measurementWithConsidered[cross(row, column)];
+        }
+        crossCovariance[cross(state, column)] -= change;
+      }
+    }
+  }
+
+  /** One state's correction: its row of the gain times the innovation. */
+  private double gainTimesInnovation(int state) {
+    double correction = 0;
+    for (int row = 0; row < rowCount; row++) {
+      correction += gain[cell(state, row)] * innovation[row];
+    }
+    return correction;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Reporting and storing the uncertainty.
+  // ---------------------------------------------------------------------------------------------
+
+  /**
+   * The covariance, as the estimate reports it: the position's block and the heading's variance,
+   * with rounding that would make it impossible (a variance a hair below zero, x and y varying
+   * together a hair more than their variances allow) taken out.
+   */
   PoseCovariance covariance() {
-    if (!Double.isFinite(covariance[0])
-        || !Double.isFinite(covariance[1])
-        || !Double.isFinite(covariance[4])
-        || !Double.isFinite(covariance[8])) {
-      // Only a bug gets here (every input is checked on the way in): say the estimate knows
+    if (!Double.isFinite(covariance[XX])
+        || !Double.isFinite(covariance[XY])
+        || !Double.isFinite(covariance[YY])
+        || !Double.isFinite(covariance[HH])) {
+      // Only a bug gets here, since every input is checked on the way in. Say the estimate knows
       // nothing, rather than throw in the robot loop.
       return NO_IDEA;
     }
-    double xx = Math.max(0, covariance[0]);
-    double yy = Math.max(0, covariance[4]);
-    double limit = Math.sqrt(xx * yy);
-    double xy = Math.clamp(covariance[1], -limit, limit);
-    return new PoseCovariance(xx, xy, yy, Math.max(0, covariance[8]));
+    double xx = Math.max(0, covariance[XX]);
+    double yy = Math.max(0, covariance[YY]);
+    double mostXyCanBe = Math.sqrt(xx * yy);
+    double xy = Math.clamp(covariance[XY], -mostXyCanBe, mostXyCanBe);
+    return new PoseCovariance(xx, xy, yy, Math.max(0, covariance[HH]));
   }
 
-  /** How many errors it considers: the IMUs' scales, each camera's four, and each tag's two. */
-  int considered() {
-    return considered;
+  /** How many errors it considers: the two IMUs' scales, each camera's four, and each tag's two. */
+  int consideredCount() {
+    return consideredCount;
   }
 
   /**
-   * How many numbers its uncertainty takes to store: the covariance, its relations, and each
-   * camera's turn's and shift's variances.
+   * How many numbers its uncertainty takes to store: P's nine, then C's three rows, then each
+   * camera's turn variance, then each camera's shift variance. {@link #copyUncertaintyTo} writes
+   * them in that order and {@link #restore} reads them back.
    */
-  int uncertainty() {
-    return 9 + 3 * considered + 2 * MAX_CAMERAS;
+  int uncertaintyLength() {
+    return CELLS + crossCovariance.length + 2 * ConsideredErrors.MAX_CAMERAS;
   }
 
-  /** Copies the uncertainty, {@link #uncertainty()} numbers, for the history to keep. */
+  /** Copies the uncertainty, {@link #uncertaintyLength()} numbers, for the history to keep. */
   void copyUncertaintyTo(double[] into, int at) {
-    System.arraycopy(covariance, 0, into, at, 9);
-    System.arraycopy(related, 0, into, at + 9, related.length);
-    int cameras = at + 9 + related.length;
-    System.arraycopy(cameraTurnVariance, 0, into, cameras, MAX_CAMERAS);
-    System.arraycopy(cameraShiftVariance, 0, into, cameras + MAX_CAMERAS, MAX_CAMERAS);
+    System.arraycopy(covariance, 0, into, at, CELLS);
+    int crossAt = at + CELLS;
+    System.arraycopy(crossCovariance, 0, into, crossAt, crossCovariance.length);
+    int turnVariancesAt = crossAt + crossCovariance.length;
+    System.arraycopy(cameraTurnVariance, 0, into, turnVariancesAt, ConsideredErrors.MAX_CAMERAS);
+    int shiftVariancesAt = turnVariancesAt + ConsideredErrors.MAX_CAMERAS;
+    System.arraycopy(cameraShiftVariance, 0, into, shiftVariancesAt, ConsideredErrors.MAX_CAMERAS);
   }
 
-  void restore(double x, double y, double offset, double[] uncertainties, int at) {
+  /**
+   * Puts the filter back to a state, and to an uncertainty that {@link #copyUncertaintyTo} kept.
+   */
+  void restore(double x, double y, double headingOffset, double[] uncertainty, int at) {
     this.x = x;
     this.y = y;
-    this.offset = offset;
-    System.arraycopy(uncertainties, at, covariance, 0, 9);
-    System.arraycopy(uncertainties, at + 9, related, 0, related.length);
-    int cameras = at + 9 + related.length;
-    System.arraycopy(uncertainties, cameras, cameraTurnVariance, 0, MAX_CAMERAS);
-    System.arraycopy(uncertainties, cameras + MAX_CAMERAS, cameraShiftVariance, 0, MAX_CAMERAS);
+    this.headingOffset = headingOffset;
+    System.arraycopy(uncertainty, at, covariance, 0, CELLS);
+    int crossAt = at + CELLS;
+    System.arraycopy(uncertainty, crossAt, crossCovariance, 0, crossCovariance.length);
+    int turnVariancesAt = crossAt + crossCovariance.length;
+    System.arraycopy(
+        uncertainty, turnVariancesAt, cameraTurnVariance, 0, ConsideredErrors.MAX_CAMERAS);
+    int shiftVariancesAt = turnVariancesAt + ConsideredErrors.MAX_CAMERAS;
+    System.arraycopy(
+        uncertainty, shiftVariancesAt, cameraShiftVariance, 0, ConsideredErrors.MAX_CAMERAS);
   }
 
-  /** A camera's turn's column; its shift forward and left, and its headings' shift, follow it. */
-  private static int turnColumn(int camera) {
-    return 2 + PER_CAMERA * camera;
+  // ---------------------------------------------------------------------------------------------
+  // The matrices' layouts.
+  // ---------------------------------------------------------------------------------------------
+
+  /** Where a cell of a 3 by 3 matrix sits in its array, stored row by row. */
+  private static int cell(int row, int column) {
+    return row * STATES + column;
   }
 
-  /** A tag's placement's column along x; along y follows it. */
-  private static int tagColumn(int tag) {
-    return 2 + PER_CAMERA * MAX_CAMERAS + PER_TAG * tag;
+  /**
+   * Where a cell of a matrix with one column for each considered error sits in its array, stored
+   * row by row: C, whose rows are the state's, and the measurement's covariance with the considered
+   * errors, whose rows are the measurement's.
+   */
+  private int cross(int row, int column) {
+    return row * consideredCount + column;
   }
 
-  /** The position's own block, and nothing relating it to the heading or to considered errors. */
-  private void setPosition(double xx, double xy, double yy) {
-    covariance[0] = xx;
-    covariance[1] = xy;
-    covariance[3] = xy;
-    covariance[4] = yy;
-    clearCrossTerms();
-    unrelate(0);
-    unrelate(1);
+  /**
+   * Sets the position's own block of P, and leaves the position unrelated to the heading and to
+   * every considered error: it was just set afresh, so nothing that came before bears on it.
+   */
+  private void setPositionCovariance(double xx, double xy, double yy) {
+    covariance[XX] = xx;
+    covariance[XY] = xy;
+    covariance[YX] = xy;
+    covariance[YY] = yy;
+    unrelatePositionAndHeading();
+    forgetDependenceOnConsideredErrors(X);
+    forgetDependenceOnConsideredErrors(Y);
   }
 
-  /** The heading unrelated to the position. */
-  private void clearCrossTerms() {
-    covariance[2] = 0;
-    covariance[6] = 0;
-    covariance[5] = 0;
-    covariance[7] = 0;
+  private void unrelatePositionAndHeading() {
+    covariance[XH] = 0;
+    covariance[HX] = 0;
+    covariance[YH] = 0;
+    covariance[HY] = 0;
   }
 
-  /** One of x, y, or the offset, unrelated to every considered error: it was just set afresh. */
-  private void unrelate(int row) {
-    Arrays.fill(related, row * considered, (row + 1) * considered, 0);
+  /** Clears one state's row of C: that state was just set afresh. */
+  private void forgetDependenceOnConsideredErrors(int state) {
+    Arrays.fill(crossCovariance, cross(state, 0), cross(state + 1, 0), 0);
   }
 
-  private void symmetrize() {
-    covariance[1] = covariance[3] = (covariance[1] + covariance[3]) / 2;
-    covariance[2] = covariance[6] = (covariance[2] + covariance[6]) / 2;
-    covariance[5] = covariance[7] = (covariance[5] + covariance[7]) / 2;
+  private void makeCovarianceSymmetric() {
+    covariance[XY] = covariance[YX] = (covariance[XY] + covariance[YX]) / 2;
+    covariance[XH] = covariance[HX] = (covariance[XH] + covariance[HX]) / 2;
+    covariance[YH] = covariance[HY] = (covariance[YH] + covariance[HY]) / 2;
   }
 
-  private void symmetrizeS() {
-    for (int i = 0; i < rows; i++) {
-      for (int j = i + 1; j < rows; j++) {
-        s3[i * 3 + j] = s3[j * 3 + i] = (s3[i * 3 + j] + s3[j * 3 + i]) / 2;
+  private void makeInnovationCovarianceSymmetric() {
+    for (int rowA = 0; rowA < rowCount; rowA++) {
+      for (int rowB = rowA + 1; rowB < rowCount; rowB++) {
+        double mean =
+            (innovationCovariance[cell(rowA, rowB)] + innovationCovariance[cell(rowB, rowA)]) / 2;
+        innovationCovariance[cell(rowA, rowB)] = mean;
+        innovationCovariance[cell(rowB, rowA)] = mean;
       }
     }
   }

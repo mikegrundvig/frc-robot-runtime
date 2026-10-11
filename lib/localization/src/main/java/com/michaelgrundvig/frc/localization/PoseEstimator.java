@@ -215,7 +215,7 @@ public final class PoseEstimator {
     history =
         new OdometryHistory(
             Math.max(16, (int) Math.ceil(config.historySeconds() * 1000) + 1),
-            filter.uncertainty());
+            filter.uncertaintyLength());
     filter.set(initial, yaw);
   }
 
@@ -343,9 +343,9 @@ public final class PoseEstimator {
   }
 
   /**
-   * The cameras beyond the {@value PoseFilter#MAX_CAMERAS} whose repeated errors the estimator
-   * keeps apart: each image's turn and shift are taken as new, so their images, averaged, grow
-   * surer than they should. Empty unless a robot has more cameras than that.
+   * The cameras beyond the {@value ConsideredErrors#MAX_CAMERAS} whose repeated errors the
+   * estimator keeps apart: each image's turn and shift are taken as new, so their images, averaged,
+   * grow surer than they should. Empty unless a robot has more cameras than that.
    */
   public List<String> camerasWithoutPlaces() {
     return List.copyOf(camerasWithoutPlaces);
@@ -481,7 +481,7 @@ public final class PoseEstimator {
           ? Optional.of(pose())
           : Optional.empty();
     }
-    return Optional.of(history.poseAt(timestampNanos, filter.offset()));
+    return Optional.of(history.poseAt(timestampNanos, filter.headingOffset()));
   }
 
   /** The current pose: cheap, for driving every loop. */
@@ -494,7 +494,7 @@ public final class PoseEstimator {
     long now = started ? history.newestTime() : 0;
     OdometryHistory.Motion motion =
         started
-            ? history.motionOver(VELOCITY_WINDOW_NANOS, filter.offset())
+            ? history.motionOver(VELOCITY_WINDOW_NANOS, filter.headingOffset())
             : OdometryHistory.Motion.NONE;
     boolean gyroConnected = !started || lastSource != YawSource.WHEELS;
     double visionAge =
@@ -677,9 +677,9 @@ public final class PoseEstimator {
     if (!fresh && chiSquared <= gate) {
       return true;
     }
-    lastInnovationMeters = innovation.meters();
+    lastInnovationMeters = innovation.distanceMeters();
     // A camera's own heading that agrees with a driver's reset backs it.
-    if (innovation.withHeading() && Math.abs(innovation.heading()) <= agreementRadians) {
+    if (innovation.withHeading() && Math.abs(innovation.headingRadians()) <= agreementRadians) {
       headingInDoubt = false;
     }
     // Written so a measurement that isn't a number fails the gate instead of passing it.
@@ -690,23 +690,25 @@ public final class PoseEstimator {
       recovery.rejected(
           new Recovery.Rejected(
               camera.time(),
-              innovation.x(),
-              innovation.y(),
-              innovation.heading(),
+              innovation.xMeters(),
+              innovation.yMeters(),
+              innovation.headingRadians(),
               innovation.positionChiSquared() <= config.gateChiSquaredPosition(),
               !(leansOnHeading && headingInDoubt)));
       decisions.add(
-          new VisionDecision(measurement, Verdict.GATED, innovation.meters(), chiSquared, gate));
+          new VisionDecision(
+              measurement, Verdict.GATED, innovation.distanceMeters(), chiSquared, gate));
       return false;
     }
     acceptedCount++;
     consecutiveRejections = 0;
     recovery.clear();
     lastAcceptedNanos = Math.max(lastAcceptedNanos, camera.time());
-    agreements.add(new Agreement(camera.time(), innovation.meters()));
+    agreements.add(new Agreement(camera.time(), innovation.distanceMeters()));
     placed = true;
     decisions.add(
-        new VisionDecision(measurement, Verdict.ACCEPTED, innovation.meters(), chiSquared, gate));
+        new VisionDecision(
+            measurement, Verdict.ACCEPTED, innovation.distanceMeters(), chiSquared, gate));
     return true;
   }
 
@@ -787,7 +789,7 @@ public final class PoseEstimator {
     if (slot != null) {
       return slot;
     }
-    if (cameraSlots.size() >= PoseFilter.MAX_CAMERAS) {
+    if (cameraSlots.size() >= ConsideredErrors.MAX_CAMERAS) {
       camerasWithoutPlaces.add(camera);
       return -1;
     }

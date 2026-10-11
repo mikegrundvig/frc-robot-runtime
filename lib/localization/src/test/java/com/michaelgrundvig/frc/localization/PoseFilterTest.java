@@ -159,9 +159,10 @@ class PoseFilterTest {
   }
 
   /**
-   * A camera without a place among the considered errors (beyond {@link PoseFilter#MAX_CAMERAS})
-   * still has its turn and shift, in every image: they're taken as new each time, so its images
-   * average them down with their noise, as the textbook would. A tag without a place, likewise.
+   * A camera without a place among the considered errors (beyond {@link
+   * ConsideredErrors#MAX_CAMERAS}) still has its turn and shift, in every image: they're taken as
+   * new each time, so its images average them down with their noise, as the textbook would. A tag
+   * without a place, likewise.
    */
   @Test
   void aCameraAndATagWithoutAPlaceCountEachImagesErrorsAsNew() {
@@ -333,7 +334,7 @@ class PoseFilterTest {
 
     apply(filter, withHeading(new Rotation2d(0.1), 1.0, 0.1), 0);
 
-    assertThat(filter.offset()).isCloseTo(0.05, within(1e-9));
+    assertThat(filter.headingOffset()).isCloseTo(0.05, within(1e-9));
   }
 
   /** What the history keeps, it gives back exactly: the covariance and every relation. */
@@ -342,11 +343,11 @@ class PoseFilterTest {
     PoseFilter filter = placed(CONSIDERED, 0.1, 0.02);
     filter.predict(0, 1, 1, 0.5, 0.001, 0.0001, YawSource.GYRO);
     apply(filter, fix(new Translation2d(1, 0.6), new Translation2d(2, 1), 0.05), 3);
-    double[] kept = new double[filter.uncertainty()];
+    double[] kept = new double[filter.uncertaintyLength()];
     filter.copyUncertaintyTo(kept, 0);
     PoseFilter other = new PoseFilter(CONSIDERED, TAGS);
 
-    other.restore(filter.x(), filter.y(), filter.offset(), kept, 0);
+    other.restore(filter.x(), filter.y(), filter.headingOffset(), kept, 0);
     apply(filter, fix(new Translation2d(1.1, 0.5), new Translation2d(2, 1), 0.05), 3);
     apply(other, fix(new Translation2d(1.1, 0.5), new Translation2d(2, 1), 0.05), 3);
 
@@ -363,7 +364,7 @@ class PoseFilterTest {
   @Test
   void theCovarianceReportedIsAlwaysOne() {
     PoseFilter filter = placed(TEXTBOOK, 0.1, 0.1);
-    double[] kept = new double[filter.uncertainty()];
+    double[] kept = new double[filter.uncertaintyLength()];
     filter.copyUncertaintyTo(kept, 0);
     // Row by row: x, y, and the heading's offset; xx at 0, xy at 1, yy at 4, the heading's at 8.
     double[] underZero = kept.clone();

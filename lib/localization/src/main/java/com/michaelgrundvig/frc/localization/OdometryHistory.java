@@ -96,7 +96,7 @@ final class OdometryHistory {
   /**
    * @param capacity how many steps it keeps before each new one drops the oldest
    * @param uncertaintyLength how many numbers the filter's uncertainty takes to store ({@link
-   *     PoseFilter#uncertainty()})
+   *     PoseFilter#uncertaintyLength()})
    */
   OdometryHistory(int capacity, int uncertaintyLength) {
     this.capacity = capacity;
@@ -244,7 +244,7 @@ final class OdometryHistory {
     int slot = slotOf(step);
     filterXAfter[slot] = filter.x();
     filterYAfter[slot] = filter.y();
-    filterHeadingOffsetAfter[slot] = filter.offset();
+    filterHeadingOffsetAfter[slot] = filter.headingOffset();
     filter.copyUncertaintyTo(filterUncertaintyAfter, slot * uncertaintyLength);
   }
 

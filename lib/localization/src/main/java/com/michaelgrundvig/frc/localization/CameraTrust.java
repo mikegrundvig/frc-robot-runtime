@@ -12,8 +12,8 @@ import io.soabase.recordbuilder.core.RecordBuilder;
  *     then
  * @param keptApart whether the estimator keeps this camera's repeated errors (its turn and shift on
  *     its mount) apart from the others'; a camera beyond the estimator's places ({@value
- *     PoseFilter#MAX_CAMERAS}) counts each image's errors as new, so its images, averaged, grow
- *     surer than they should
+ *     ConsideredErrors#MAX_CAMERAS}) counts each image's errors as new, so its images, averaged,
+ *     grow surer than they should
  */
 @OutputRecord
 public record CameraTrust(
