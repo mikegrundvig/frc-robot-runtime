@@ -17,7 +17,7 @@ import org.wpilib.units.Measure;
  * @param cruiseShare the share of each joint's cruise speed a move to a place is profiled at, above
  *     0 and at most 1
  * @param within the deadline a team gave the move, in seconds, or empty for the one worked out from
- *     the model
+ *     the model. One that was given is a time above zero: {@link Move#within} refuses any other.
  * @param onlyIf a gate that must hold for the move to start, if it has one
  * @param onlyWhile a gate that must hold for the move to start and to carry on, if it has one
  * @param refused why the move cannot run at all, if it cannot: it then ends refused as it starts

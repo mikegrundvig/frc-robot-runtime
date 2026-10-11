@@ -340,7 +340,9 @@ and the test that builds every robot fails too:
   own";
 - an option that can't be: `.atSpeed(Percent.of(150))`, past all of its cruise; `.atSpeed(...)` on
   a move that isn't to a place; `.within(...)` on one that never ends on its own (`run`, `hold`,
-  `follow`: use `withTimeout`); an angle for a joint that slides, or a distance for one that turns.
+  `follow`: use `withTimeout`); `.within(...)` with a deadline that isn't a time above zero (none,
+  a negative one, one without end, or one that isn't a number); an angle for a joint that slides,
+  or a distance for one that turns.
 
 Built once the robot runs, in a command or anywhere else, the same move ends `REFUSED` as it
 starts, with the same reason: a robot on the field is never stopped by one. A gate that can't be

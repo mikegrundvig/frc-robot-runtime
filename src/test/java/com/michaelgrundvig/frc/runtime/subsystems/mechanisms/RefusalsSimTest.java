@@ -75,8 +75,26 @@ class RefusalsSimTest {
   /** What can't be, each with why: what a move built of it ends REFUSED for, or a gate is false. */
   private record CantBe(String why, Supplier<Object> built) {}
 
+  /** Why a deadline that isn't a time above zero is refused, given how the refusal shows it. */
+  private static String notADeadline(String shown) {
+    return "a deadline is a time above 0 s, not "
+        + shown
+        + " s: give within() how long the move may take";
+  }
+
   private List<CantBe> whatCantBe() {
     return List.of(
+        new CantBe(notADeadline("NaN"), () -> pivot.goTo(PIVOT_OUT).within(Seconds.of(Double.NaN))),
+        new CantBe(
+            notADeadline("Infinity"),
+            () -> pivot.goTo(PIVOT_OUT).within(Seconds.of(Double.POSITIVE_INFINITY))),
+        new CantBe(
+            notADeadline("-Infinity"),
+            () -> elevator.goTo(Meters.of(0.3)).within(Seconds.of(Double.NEGATIVE_INFINITY))),
+        new CantBe(notADeadline("0"), () -> pivot.goTo(PIVOT_OUT).within(Seconds.of(0))),
+        new CantBe(
+            notADeadline("-1.5"),
+            () -> roller.runUntil(ROLLER_INTAKING, () -> false).within(Seconds.of(-1.5))),
         new CantBe(
             "a share of its cruise speed is above 0% and at most 100%, not 150%",
             () -> pivot.goTo(PIVOT_OUT).atSpeed(Percent.of(150))),
@@ -127,6 +145,10 @@ class RefusalsSimTest {
     assertThatThrownBy(() -> roller.run(ROLLER_INTAKING).within(Seconds.of(1)))
         .hasMessage(
             "roller: intaking: it never ends on its own, so it has no deadline: use withTimeout");
+    assertThatThrownBy(() -> pivot.goTo(PIVOT_OUT).within(Seconds.of(Double.NaN)))
+        .hasMessage(
+            "pivot → out: a deadline is a time above 0 s, not NaN s: give within() how long the"
+                + " move may take");
   }
 
   /**
@@ -169,7 +191,7 @@ class RefusalsSimTest {
                 })
             .named("What can't be");
 
-    sim.run(wrong, 0.5);
+    sim.run(wrong, 1);
     Move out = pivot.goTo(PIVOT_OUT);
     sim.run(out, 2);
 

@@ -8,7 +8,6 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
-import com.michaelgrundvig.frc.world.config.Rules;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
@@ -272,12 +271,9 @@ public final class DriveMove implements Command {
    */
   public DriveMove within(Time deadline) {
     double seconds = deadline.in(Seconds);
-    boolean isATimeAboveZero = Double.isFinite(seconds) && seconds > 0;
-    if (!isATimeAboveZero) {
-      return refusedFor(
-          "a deadline is a time above 0 s, not "
-              + Rules.shown(seconds)
-              + " s: give within() how long the move may take");
+    Optional<String> notADeadline = Outcome.whyNotADeadline(seconds);
+    if (notADeadline.isPresent()) {
+      return refusedFor(notADeadline.get());
     }
     return new DriveMove(drive, task, name, OptionalDouble.of(seconds), refused);
   }

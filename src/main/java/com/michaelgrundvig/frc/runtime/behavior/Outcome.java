@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
+import com.michaelgrundvig.frc.world.config.Rules;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -33,6 +34,24 @@ public enum Outcome {
    */
   public static double deadline(double profileSeconds) {
     return 2 * profileSeconds + 0.5;
+  }
+
+  /**
+   * Why a time cannot be the deadline a team gives a move ({@code within}), if it cannot. A
+   * deadline is a time above zero. None, a negative one, one without end, and one that is not a
+   * number are all refused, the same for a joint's move and the drivetrain's.
+   *
+   * @param seconds the deadline the team gave
+   */
+  public static Optional<String> whyNotADeadline(double seconds) {
+    boolean isATimeAboveZero = Double.isFinite(seconds) && seconds > 0;
+    if (isATimeAboveZero) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        "a deadline is a time above 0 s, not "
+            + Rules.shown(seconds)
+            + " s: give within() how long the move may take");
   }
 
   /**

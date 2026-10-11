@@ -293,15 +293,23 @@ public final class Move implements Command {
   /**
    * The same move with a deadline of its own, tighter or looser than the model's: {@code
    * goTo(PIVOT_OUT).within(Seconds.of(1))}. A move that never ends on its own, which v3's {@code
-   * withTimeout} cancels instead, is refused as {@link #atSpeed} refuses what can't be.
+   * withTimeout} cancels instead, is refused as {@link #atSpeed} refuses what can't be. So is a
+   * deadline that is not a time above zero (none, a negative one, one without end, or one that is
+   * not a number), as the drivetrain's moves refuse one ({@link Outcome#whyNotADeadline}).
    *
-   * @throws IllegalArgumentException for a move that never ends on its own, as the robot starts
+   * @throws IllegalArgumentException with the move's name and why, for a move that never ends on
+   *     its own or for such a deadline, as the robot starts
    */
   public Move within(Time deadline) {
     if (!plan.task().endsByItself()) {
       return refused("it never ends on its own, so it has no deadline: use withTimeout");
     }
-    return with(plan.within(deadline.in(Seconds)));
+    double seconds = deadline.in(Seconds);
+    Optional<String> notADeadline = Outcome.whyNotADeadline(seconds);
+    if (notADeadline.isPresent()) {
+      return refused(notADeadline.get());
+    }
+    return with(plan.within(seconds));
   }
 
   /**
