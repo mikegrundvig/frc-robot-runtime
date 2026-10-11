@@ -10,10 +10,10 @@ import java.util.Optional;
 import java.util.function.Function;
 
 /**
- * Each camera's full view, out as far as it reads tags (its sensor's sight range): off until
- * switched on, since four of them reach across the field, and shown for one camera while it's
- * clicked ({@link RobotLayer}'s camera reveals its own). It draws in the cameras' frames, which the
- * robot's layer adds.
+ * Each camera's full view, out as far as it reads tags (its sensor's sight range). The layer is off
+ * until switched on, since four views reach across the field. One camera's view is also shown while
+ * that camera is clicked, because {@link RobotLayer}'s camera reveals its own. The views are drawn
+ * in the cameras' frames, which the robot's layer adds.
  */
 final class CameraViews implements Layer {
   private final List<CameraConfig> cameras;
@@ -24,7 +24,7 @@ final class CameraViews implements Layer {
     this.cameraAction = cameraAction;
   }
 
-  /** A camera's full view's shape. */
+  /** The id of the shape that is a camera's full view. */
   static String view(CameraConfig camera) {
     return WorldView.cameraFrame(camera.id()) + ".view";
   }
@@ -42,10 +42,10 @@ final class CameraViews implements Layer {
   @Override
   public void describe(SceneBuilder scene) {
     for (CameraConfig camera : cameras) {
-      double[] fov = RobotLayer.fieldOfView(camera.sensor());
+      RobotLayer.FieldOfView sees = RobotLayer.fieldOfView(camera.sensor());
       scene
           .frustum(view(camera), WorldView.cameraFrame(camera.id()))
-          .fov(fov[0], fov[1])
+          .fov(sees.acrossRadians(), sees.upAndDownRadians())
           .range(0, camera.sensor().sightRange().in(Meters))
           .inspect(() -> WorldView.camera(camera, cameraAction));
     }

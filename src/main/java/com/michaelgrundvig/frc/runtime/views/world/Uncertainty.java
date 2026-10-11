@@ -11,23 +11,32 @@ import java.util.Locale;
 import org.jspecify.annotations.Nullable;
 
 /**
- * How sure localization is of where the robot is: an ellipse two standard deviations across its
- * position's uncertainty, about the estimate, dashed since it's a bound and not a thing. Drawn in
- * the color of what's wrong while the estimate is lost or the gyro is.
+ * How sure localization is of where the robot is. It is an ellipse around the estimate that reaches
+ * two standard deviations of the position's uncertainty each way. The ellipse is dashed, since it's
+ * a bound and not a thing, and it is drawn in the color of what's wrong while the estimate is lost
+ * or the gyro is.
  */
 final class Uncertainty implements Layer {
-  /** The ellipse's frame on the page: at the estimate, turned along its longest axis. */
+  /** The ellipse's frame on the page, which sits at the estimate, turned along its longest axis. */
   private static final String FRAME = "uncertainty";
 
   /** How many standard deviations the ellipse reaches. */
   private static final double SIGMAS = 2;
 
-  /** The largest radius drawn: an estimate not yet placed is uncertain across the whole field. */
+  /**
+   * The largest radius drawn, in meters. An estimate not yet placed is uncertain across the whole
+   * field, and beyond.
+   */
   private static final double MAX_RADIUS = 20;
 
   private final WorldView.Readings readings;
 
-  /** The estimate last drawn, for a click to describe: an immutable record, published whole. */
+  /**
+   * The estimate last drawn, for a click to describe, or null before any was. A click reads it on a
+   * web server thread, so the loop hands the record over whole, through a volatile field. It is a
+   * plain reference because the loop sets it every loop, where an {@code Optional} would be made
+   * again each time.
+   */
   private volatile @Nullable LocalizationEstimate drawn;
 
   Uncertainty(WorldView.Readings readings) {
@@ -60,24 +69,47 @@ final class Uncertainty implements Layer {
         .inspect(this::inspection);
   }
 
+  /**
+   * Places the ellipse at the estimate and sizes it by the position's covariance.
+   *
+   * <p>The covariance of the position is the matrix {@code [xx xy; xy yy]}. Its eigenvectors are
+   * the ellipse's axes, and its eigenvalues are the variances along them:
+   *
+   * <pre>
+   * mean   = (xx + yy) / 2
+   * spread = sqrt(((xx - yy) / 2)² + xy²)
+   * variance along the longer axis  = mean + spread
+   * variance along the shorter axis = mean - spread
+   * angle of the longer axis        = atan2(2 xy, xx - yy) / 2
+   * </pre>
+   */
   @Override
   public void update(SceneState state) {
     LocalizationEstimate estimate = readings.estimate();
     drawn = estimate;
     PoseCovariance covariance = estimate.covariance();
-    // The covariance's axes: its eigenvectors, the longest first.
     double mean = (covariance.xx() + covariance.yy()) / 2;
     double spread = Math.hypot((covariance.xx() - covariance.yy()) / 2, covariance.xy());
     double angle = 0.5 * Math.atan2(2 * covariance.xy(), covariance.xx() - covariance.yy());
     state.pose(FRAME, estimate.pose().getX(), estimate.pose().getY(), angle);
     state.value("uncertainty.major", radius(mean + spread));
     state.value("uncertainty.minor", radius(mean - spread));
-    boolean wrong =
+    boolean somethingIsWrong =
         estimate.mode() == LocalizationEstimate.Mode.LOST
             || estimate.mode() == LocalizationEstimate.Mode.IMU_FAULT;
-    state.style("uncertainty.ellipse", wrong ? Style.BAD.dashed() : null);
+    if (somethingIsWrong) {
+      state.style("uncertainty.ellipse", Style.BAD.dashed());
+    } else {
+      // Pitwall takes null for "as it was described".
+      state.style("uncertainty.ellipse", null);
+    }
   }
 
+  /**
+   * How far the ellipse reaches along an axis with this variance: two standard deviations, and no
+   * farther than the largest radius drawn. Rounding can leave the shorter axis's variance a hair
+   * below zero, which is taken as zero.
+   */
   private static double radius(double variance) {
     return Math.min(MAX_RADIUS, SIGMAS * Math.sqrt(Math.max(0, variance)));
   }
@@ -89,6 +121,7 @@ final class Uncertainty implements Layer {
       return Inspection.of("Uncertainty").detail("Estimate", "not drawn yet");
     }
     PoseCovariance covariance = estimate.covariance();
+    LocalizationEstimate.Health health = estimate.health();
     return Inspection.of("Uncertainty of the estimate")
         .detail("Based on", estimate.mode().name().toLowerCase(Locale.ROOT).replace('_', ' '))
         .detail(
@@ -99,21 +132,33 @@ final class Uncertainty implements Layer {
                 100 * covariance.xStdDev(),
                 100 * covariance.yStdDev(),
                 100 * covariance.largestPositionStdDev()))
-        .detail(
-            "Heading, 1σ",
-            covariance.hasHeading()
-                ? String.format(Locale.ROOT, "%.2f°", Math.toDegrees(covariance.headingStdDev()))
-                : "unknown")
+        .detail("Heading, 1σ", headingSpread(covariance))
         .detail(
             "Cameras",
             String.format(
                 Locale.ROOT,
                 "%d accepted, %d rejected; last accepted %s",
-                estimate.health().accepted(),
-                estimate.health().rejected(),
-                Double.isFinite(estimate.health().visionAgeSeconds())
-                    ? String.format(Locale.ROOT, "%.1f s ago", estimate.health().visionAgeSeconds())
-                    : "never"))
+                health.accepted(),
+                health.rejected(),
+                lastAccepted(health)))
         .detail("Drawn", "two standard deviations across, about the estimate");
+  }
+
+  private static String headingSpread(PoseCovariance covariance) {
+    if (!covariance.hasHeading()) {
+      return "unknown";
+    }
+    return String.format(Locale.ROOT, "%.2f°", Math.toDegrees(covariance.headingStdDev()));
+  }
+
+  /**
+   * How long ago the last accepted image was taken. The estimate's health carries an infinite age
+   * until one has been accepted.
+   */
+  private static String lastAccepted(LocalizationEstimate.Health health) {
+    if (!Double.isFinite(health.visionAgeSeconds())) {
+      return "never";
+    }
+    return String.format(Locale.ROOT, "%.1f s ago", health.visionAgeSeconds());
   }
 }

@@ -329,9 +329,9 @@ class WorldViewTest {
 
   @Test
   void aCamerasFieldOfViewComesFromItsDiagonal() {
-    double[] fov = RobotLayer.fieldOfView(ROBOT.cameras().getFirst().sensor());
+    RobotLayer.FieldOfView sees = RobotLayer.fieldOfView(ROBOT.cameras().getFirst().sensor());
     // 80° across the diagonal of a 1280 x 800 image.
-    assertThat(Math.toDegrees(fov[0])).isBetween(70.0, 71.0);
-    assertThat(Math.toDegrees(fov[1])).isBetween(47.0, 48.5);
+    assertThat(Math.toDegrees(sees.acrossRadians())).isBetween(70.0, 71.0);
+    assertThat(Math.toDegrees(sees.upAndDownRadians())).isBetween(47.0, 48.5);
   }
 }

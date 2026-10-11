@@ -24,20 +24,32 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
 
 /**
- * Each camera's sight lines to the tags its measurement used: solid where localization accepted the
- * tag's measurement, dashed where it refused it. A click on one says why, from the tag's verdict
- * itself ({@link TagVerdict}), and offers the camera's calibration. A line stays a moment after its
- * measurement, so it doesn't flicker; the robot keeps what a click says for two seconds after it's
- * gone, and the page's Hold keeps it drawn.
+ * Each camera's sight lines to the tags its measurement used. A line is solid where localization
+ * accepted the tag's measurement, and dashed where it refused it. A click on one says why, from the
+ * tag's verdict itself ({@link TagVerdict}), and offers the camera's calibration.
+ *
+ * <p>A line stays a moment after its measurement, so that it doesn't flicker between images. The
+ * robot keeps what a click says for two seconds after the line is gone, and the page's Hold keeps
+ * it drawn.
+ *
+ * <p>{@link #update} runs every loop while the World is shown, so it makes nothing new but a sight
+ * seen for the first time. That is why a few things here are kept as plain fields that can be null
+ * where an {@code Optional} would be made again every loop.
  */
 final class SightLines implements Layer {
   /** How long a line stays after its camera's last measurement of its tag. */
   private static final long HOLD_NANOS = 300_000_000L;
 
+  /** Which of a sight's two lines is drawn. */
+  private enum Drawn {
+    NEITHER,
+    ACCEPTED,
+    REJECTED
+  }
+
   /**
-   * One camera's sight line to one tag, with one verdict, made once: its id, how it's drawn, and
-   * what a click on it says, from its latest measurement. A click reads that on a web server
-   * thread, so it's records the loop hands over whole.
+   * One camera's sight line to one tag, with one verdict. It is made once, with its id, how it's
+   * drawn, and what a click on it says, which comes from its latest measurement.
    */
   private final class Line {
     final String id;
@@ -47,51 +59,82 @@ final class SightLines implements Layer {
     final String tagFrame;
     final Style style;
 
-    /** What a click says: the same supplier while the line stands, so Pitwall keeps it as is. */
+    /**
+     * What a click says. It is the same supplier for as long as the line stands, so Pitwall keeps
+     * it as it is.
+     */
     final Supplier<Inspection> inspection = () -> inspection(this);
 
-    /** The latest image whose measurement went through this line's tag with its verdict. */
+    /**
+     * The latest image whose measurement went through this line's tag with this line's verdict, or
+     * null before there is one.
+     *
+     * <p>A click reads it on a web server thread, so the loop hands the record over whole, through
+     * a volatile field. It is a plain reference because the loop sets it for every verdict of every
+     * loop.
+     */
     volatile @Nullable FrameVerdict frame;
 
-    Line(CameraConfig camera, int tag, boolean accepted) {
-      id = "ray." + camera.id() + "." + tag + (accepted ? ".ok" : ".bad");
+    Line(CameraConfig camera, int tag, Drawn verdict) {
+      boolean accepted = verdict == Drawn.ACCEPTED;
+      String ending = ".bad";
+      if (accepted) {
+        ending = ".ok";
+      }
+      id = "ray." + camera.id() + "." + tag + ending;
       this.camera = camera.name();
       cameraFrame = WorldView.cameraFrame(camera.id());
       this.tag = tag;
       tagFrame = WorldView.tagFrame(tag);
-      style = accepted ? Style.OK : Style.BAD.dashed();
+      if (accepted) {
+        style = Style.OK;
+      } else {
+        style = Style.BAD.dashed();
+      }
     }
   }
 
-  /**
-   * One camera's sight to one tag: its two lines, which is drawn, and since its last measurement.
-   */
+  /** One camera's sight to one tag: its two lines, which of them is drawn, and since when. */
   private static final class Sight {
     final Line accepted;
     final Line rejected;
-    @Nullable Line drawn;
+    Drawn drawn = Drawn.NEITHER;
+
+    /** When the camera's latest measurement of the tag was decided. */
     long decidedNanos;
 
     Sight(Line accepted, Line rejected) {
       this.accepted = accepted;
       this.rejected = rejected;
     }
+
+    /** The line for a verdict. Ask only for one of the two that are drawn. */
+    Line line(Drawn verdict) {
+      if (verdict == Drawn.ACCEPTED) {
+        return accepted;
+      }
+      return rejected;
+    }
   }
 
   private final Supplier<FieldModel> field;
 
-  /** The cameras, by name: what their measurements say. */
+  /** The cameras, by name, which is how their measurements name them. */
   private final Map<String, CameraConfig> cameras;
 
   private final WorldView.Readings readings;
   private final Function<String, Optional<String>> cameraAction;
 
-  /** Each camera's sights, by tag; null for a tag the field doesn't have. Made as first seen. */
-  private final Map<String, Map<Integer, @Nullable Sight>> sights = new HashMap<>();
+  /**
+   * Each camera's sights, by tag, made as each is first seen. A tag the field doesn't have has no
+   * sight, and that is kept too (as an empty), so the field is asked about a tag only once.
+   */
+  private final Map<String, Map<Integer, Optional<Sight>>> sights = new HashMap<>();
 
-  /** Every sight, in the order first seen: the order the lines are drawn in. */
+  /** Every sight, in the order first seen, which is the order the lines are drawn in. */
   private final List<Sight> seen = new ArrayList<>();
 
+  /** The verdicts taken last. The loop hands over a new list each time it has new ones. */
   private List<FrameVerdict> lastFrames = List.of();
 
   SightLines(
@@ -117,121 +160,153 @@ final class SightLines implements Layer {
     return "Sight lines (dashed: rejected)";
   }
 
-  /** Its lines run between the robot's cameras and the field's tags: it adds no frames. */
+  /** Its lines run between the robot's cameras and the field's tags, so it adds no frames. */
   @Override
   public void describe(SceneBuilder scene) {}
 
   /**
-   * Takes the loop's verdicts into the lines they're drawn as, and draws the lines again only when
-   * which there are changes. Every loop while the World is shown, so nothing here is made but a
-   * sight seen for the first time.
+   * Takes the loop's verdicts into the lines they're drawn as, lets go of lines held long enough,
+   * and draws the lines again only when which ones there are has changed.
    */
   @Override
   public void update(SceneState state) {
     long now = state.nowNanos();
-    boolean changed = false;
-    List<FrameVerdict> frames = readings.frames();
-    if (frames != lastFrames) {
-      lastFrames = frames;
-      for (int i = 0; i < frames.size(); i++) {
-        FrameVerdict frame = frames.get(i);
-        CameraConfig camera = cameras.get(frame.camera());
-        // Lines are drawn to the tags a measurement rested on: an image refused before it became
-        // one has none.
-        if (camera == null || frame.measured().isEmpty()) {
-          continue;
-        }
-        List<TagVerdict> tags = frame.tags();
-        for (int t = 0; t < tags.size(); t++) {
-          TagVerdict verdict = tags.get(t);
-          Sight sight = sight(camera, verdict.tag());
-          if (sight == null) {
-            continue;
-          }
-          Line line = verdict.accepted() ? sight.accepted : sight.rejected;
-          line.frame = frame;
-          changed |= sight.drawn != line;
-          sight.drawn = line;
-          sight.decidedNanos = now;
-        }
-      }
+    boolean changed = takeNewVerdicts(now);
+    changed |= dropLinesHeldLongEnough(now);
+    if (changed) {
+      // Asking the state for its shapes starts this layer's shapes over, so it is asked only now.
+      draw(state.shapes());
     }
-    for (int i = 0; i < seen.size(); i++) {
-      Sight sight = seen.get(i);
-      if (sight.drawn != null && now - sight.decidedNanos > HOLD_NANOS) {
-        sight.drawn = null;
-        changed = true;
-      }
-    }
-    if (!changed) {
-      return;
-    }
-    Shapes shapes = state.shapes();
-    for (Sight sight : seen) {
-      Line line = sight.drawn;
-      if (line != null) {
-        shapes
-            .line(line.id, SceneBuilder.ROOT)
-            .between(line.cameraFrame, line.tagFrame)
-            .style(line.style)
-            .inspect(line.inspection);
-      }
-    }
-  }
-
-  /** A camera's sight to a tag, made the first time it's seen; null for a tag not on the field. */
-  private @Nullable Sight sight(CameraConfig camera, Integer tag) {
-    Map<Integer, @Nullable Sight> byTag =
-        sights.computeIfAbsent(camera.name(), name -> new HashMap<>());
-    if (!byTag.containsKey(tag)) {
-      Sight sight =
-          field.get().tag(tag).isPresent()
-              ? new Sight(new Line(camera, tag, true), new Line(camera, tag, false))
-              : null;
-      byTag.put(tag, sight);
-      if (sight != null) {
-        seen.add(sight);
-      }
-    }
-    return byTag.get(tag);
   }
 
   /**
-   * What a click on a line says, from its image's verdicts alone (a record the loop no longer
-   * touches): the tag's verdict and its numbers, called on a web server thread.
+   * Takes the loop's verdicts, if they are new, into the sights they belong to.
+   *
+   * @return whether any sight's drawn line changed
+   */
+  private boolean takeNewVerdicts(long now) {
+    List<FrameVerdict> frames = readings.frames();
+    if (frames == lastFrames) {
+      return false;
+    }
+    lastFrames = frames;
+    boolean changed = false;
+    for (int i = 0; i < frames.size(); i++) {
+      FrameVerdict frame = frames.get(i);
+      // A camera the robot's configuration doesn't have can't be drawn from.
+      CameraConfig camera = cameras.get(frame.camera());
+      // Lines are drawn to the tags a measurement rested on. An image that was refused before it
+      // became a measurement has none.
+      if (camera == null || frame.measured().isEmpty()) {
+        continue;
+      }
+      List<TagVerdict> tags = frame.tags();
+      for (int t = 0; t < tags.size(); t++) {
+        changed |= take(tags.get(t), frame, camera, now);
+      }
+    }
+    return changed;
+  }
+
+  /**
+   * Takes one tag's verdict into its sight.
+   *
+   * @return whether the sight's drawn line changed
+   */
+  private boolean take(TagVerdict verdict, FrameVerdict frame, CameraConfig camera, long now) {
+    Optional<Sight> onTheField = sight(camera, verdict.tag());
+    if (onTheField.isEmpty()) {
+      return false;
+    }
+    Sight sight = onTheField.get();
+    Drawn as = Drawn.REJECTED;
+    if (verdict.accepted()) {
+      as = Drawn.ACCEPTED;
+    }
+    sight.line(as).frame = frame;
+    boolean changed = sight.drawn != as;
+    sight.drawn = as;
+    sight.decidedNanos = now;
+    return changed;
+  }
+
+  /**
+   * Stops drawing each line whose camera hasn't measured its tag for a moment.
+   *
+   * @return whether any line was dropped
+   */
+  private boolean dropLinesHeldLongEnough(long now) {
+    boolean dropped = false;
+    for (int i = 0; i < seen.size(); i++) {
+      Sight sight = seen.get(i);
+      if (sight.drawn != Drawn.NEITHER && now - sight.decidedNanos > HOLD_NANOS) {
+        sight.drawn = Drawn.NEITHER;
+        dropped = true;
+      }
+    }
+    return dropped;
+  }
+
+  private void draw(Shapes shapes) {
+    for (Sight sight : seen) {
+      if (sight.drawn == Drawn.NEITHER) {
+        continue;
+      }
+      Line line = sight.line(sight.drawn);
+      shapes
+          .line(line.id, SceneBuilder.ROOT)
+          .between(line.cameraFrame, line.tagFrame)
+          .style(line.style)
+          .inspect(line.inspection);
+    }
+  }
+
+  /**
+   * A camera's sight to a tag, made the first time the pair is seen, or empty for a tag that isn't
+   * on the field.
+   */
+  private Optional<Sight> sight(CameraConfig camera, Integer tag) {
+    Map<Integer, Optional<Sight>> byTag =
+        sights.computeIfAbsent(camera.name(), name -> new HashMap<>());
+    Optional<Sight> known = byTag.get(tag);
+    if (known != null) {
+      return known;
+    }
+    Optional<Sight> made = Optional.empty();
+    if (field.get().tag(tag).isPresent()) {
+      Sight sight =
+          new Sight(new Line(camera, tag, Drawn.ACCEPTED), new Line(camera, tag, Drawn.REJECTED));
+      seen.add(sight);
+      made = Optional.of(sight);
+    }
+    byTag.put(tag, made);
+    return made;
+  }
+
+  // ---- What a click says ----
+
+  /**
+   * What a click on a line says: the tag's verdict and its numbers. It is called on a web server
+   * thread, and reads only its image's verdicts, a record the loop no longer touches.
    */
   private Inspection inspection(Line line) {
+    String title = line.camera + " → tag " + line.tag;
     FrameVerdict frame = line.frame;
-    TagVerdict verdict = frame == null ? null : verdictOn(frame, line.tag);
-    FrameVerdict.Measured measurement = frame == null ? null : frame.measured().orElse(null);
-    if (frame == null || verdict == null || measurement == null) {
-      return Inspection.of(line.camera + " → tag " + line.tag).detail("Verdict", "not measured");
+    if (frame == null) {
+      return notMeasured(title);
     }
-    Pose2d measured = measurement.pose();
-    Optional<Pose3d> tag = field.get().tag(line.tag);
+    Optional<TagVerdict> verdict = verdictOn(frame, line.tag);
+    Optional<FrameVerdict.Measured> measurement = frame.measured();
+    if (verdict.isEmpty() || measurement.isEmpty()) {
+      return notMeasured(title);
+    }
+    Pose2d measured = measurement.get().pose();
     Inspection said =
-        Inspection.of(line.camera + " → tag " + line.tag)
-            .detail("Verdict", verdict.accepted() ? "accepted" : "rejected: " + verdict.reason())
-            .detail(
-                "Innovation",
-                Double.isFinite(verdict.innovationMeters())
-                    ? WorldView.offset(verdict.innovationMeters())
-                        + " from the estimate, before this measurement moved it"
-                    : "not compared")
-            .detail(
-                "χ²",
-                Double.isFinite(verdict.chiSquared())
-                    ? WorldView.chiSquared(verdict.chiSquared())
-                    : "not compared")
-            .detail(
-                "Distance",
-                tag.isPresent()
-                    ? WorldView.meters(
-                            measured
-                                .getTranslation()
-                                .getDistance(tag.get().toPose2d().getTranslation()))
-                        + " from the measured pose to the tag"
-                    : "the field has no such tag")
+        Inspection.of(title)
+            .detail("Verdict", inWords(verdict.get()))
+            .detail("Innovation", innovation(verdict.get()))
+            .detail("χ²", chiSquared(verdict.get()))
+            .detail("Distance", distanceToTheTag(measured, line.tag))
             .detail(
                 "Measured pose",
                 String.format(
@@ -240,24 +315,72 @@ final class SightLines implements Layer {
                     measured.getX(),
                     measured.getY(),
                     measured.getRotation().getDegrees()))
-            .detail(
-                "Solved",
-                measurement.solver().name().toLowerCase(Locale.ROOT).replace('_', ' ')
-                    + " from tags "
-                    + frame.tags().stream()
-                        .map(seen -> String.valueOf(seen.tag()))
-                        .collect(Collectors.joining(", ")));
+            .detail("Solved", howItWasSolved(frame, measurement.get()));
     Optional<String> calibrate = cameraAction.apply(line.camera);
-    return calibrate.isPresent() ? said.action(calibrate.get()) : said;
+    if (calibrate.isEmpty()) {
+      return said;
+    }
+    return said.action(calibrate.get());
   }
 
-  /** An image's verdict on one of its tags; null if the image didn't use it. */
-  private static @Nullable TagVerdict verdictOn(FrameVerdict frame, int tag) {
+  private static Inspection notMeasured(String title) {
+    return Inspection.of(title).detail("Verdict", "not measured");
+  }
+
+  private static String inWords(TagVerdict verdict) {
+    if (verdict.accepted()) {
+      return "accepted";
+    }
+    return "rejected: " + verdict.reason();
+  }
+
+  /**
+   * How far the measurement was from the estimate. A verdict carries a number that isn't one for a
+   * measurement that was refused before it was compared.
+   */
+  private static String innovation(TagVerdict verdict) {
+    if (!Double.isFinite(verdict.innovationMeters())) {
+      return "not compared";
+    }
+    return WorldView.offset(verdict.innovationMeters())
+        + " from the estimate, before this measurement moved it";
+  }
+
+  /** The measurement's χ² against the estimate, which likewise isn't a number if not compared. */
+  private static String chiSquared(TagVerdict verdict) {
+    if (!Double.isFinite(verdict.chiSquared())) {
+      return "not compared";
+    }
+    return WorldView.chiSquared(verdict.chiSquared());
+  }
+
+  private String distanceToTheTag(Pose2d measured, int tag) {
+    Optional<Pose3d> onTheField = field.get().tag(tag);
+    if (onTheField.isEmpty()) {
+      return "the field has no such tag";
+    }
+    double meters =
+        measured.getTranslation().getDistance(onTheField.get().toPose2d().getTranslation());
+    return WorldView.meters(meters) + " from the measured pose to the tag";
+  }
+
+  /** How the image was solved, and from which tags: "multi tag from tags 25, 26". */
+  private static String howItWasSolved(FrameVerdict frame, FrameVerdict.Measured measurement) {
+    String solver = measurement.solver().name().toLowerCase(Locale.ROOT).replace('_', ' ');
+    String tags =
+        frame.tags().stream()
+            .map(seen -> String.valueOf(seen.tag()))
+            .collect(Collectors.joining(", "));
+    return solver + " from tags " + tags;
+  }
+
+  /** An image's verdict on one of its tags, or empty if the image didn't use the tag. */
+  private static Optional<TagVerdict> verdictOn(FrameVerdict frame, int tag) {
     for (TagVerdict verdict : frame.tags()) {
       if (verdict.tag() == tag) {
-        return verdict;
+        return Optional.of(verdict);
       }
     }
-    return null;
+    return Optional.empty();
   }
 }

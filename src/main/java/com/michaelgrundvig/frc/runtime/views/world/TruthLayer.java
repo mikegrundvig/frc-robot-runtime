@@ -11,11 +11,17 @@ import java.util.function.Supplier;
 import org.wpilib.math.geometry.Pose3d;
 
 /**
- * The simulator only: where the robot really is, as a dashed ghost of its bumpers beside the
- * estimate. The gap between the two is what localization gets wrong.
+ * Where the robot really is, as a dashed ghost of its bumpers beside the estimate. Only the
+ * simulator knows that, so only the simulator has this layer. The gap between the ghost and the
+ * estimate is what localization gets wrong.
  */
 final class TruthLayer implements Layer {
   private static final String FRAME = "truth";
+
+  /** How far above the ghost's top its arrow out the front is drawn, and how far past its front. */
+  private static final double FRONT_ARROW_RISE = 0.02;
+
+  private static final double FRONT_ARROW_REACH = 0.2;
 
   private final Body body;
   private final Supplier<Pose3d> truth;
@@ -48,8 +54,8 @@ final class TruthLayer implements Layer {
         .style(Style.TRUTH.dashed());
     scene
         .arrow("truth.front", FRAME)
-        .from(0, 0, height + 0.02)
-        .to(length / 2 + 0.2, 0, height + 0.02)
+        .from(0, 0, height + FRONT_ARROW_RISE)
+        .to(length / 2 + FRONT_ARROW_REACH, 0, height + FRONT_ARROW_RISE)
         .style(Style.TRUTH.dashed());
   }
 
