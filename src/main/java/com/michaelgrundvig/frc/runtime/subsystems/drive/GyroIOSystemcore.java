@@ -22,12 +22,27 @@ import org.wpilib.system.RobotController;
  * another IMU: its axes, signs, scale, and drift.
  */
 public final class GyroIOSystemcore implements GyroIO {
+  /**
+   * The robot's tilt.
+   *
+   * @param rollRadians how far it has rolled about its forward axis: positive is its left side up
+   * @param pitchRadians how far it has pitched about its left axis: positive is its nose down
+   */
+  record Attitude(double rollRadians, double pitchRadians) {}
+
   private final OnboardIMU imu;
-  private final boolean flat;
+
+  /** Whether the board lies flat on the robot, its face up or down, and not on an edge. */
+  private final boolean mountedFlat;
+
+  /** How the board is turned on the robot: the rotation that takes its axes into the robot's. */
   private final Rotation3d orientation;
-  private boolean read;
-  private double lastYaw;
-  private long lastTime;
+
+  /** Whether the IMU has been read before, so that there is a reading to take a yaw rate from. */
+  private boolean hasReadBefore;
+
+  private double lastYawRadians;
+  private long lastReadNanos;
 
   /**
    * @param orientation how the board is turned on the robot, from the robot's definition: the
@@ -37,7 +52,7 @@ public final class GyroIOSystemcore implements GyroIO {
   public GyroIOSystemcore(Rotation3d orientation) {
     OnboardIMU.MountOrientation mount = mount(orientation);
     imu = new OnboardIMU(mount);
-    flat = mount == OnboardIMU.MountOrientation.FLAT;
+    mountedFlat = mount == OnboardIMU.MountOrientation.FLAT;
     this.orientation = orientation;
   }
 
@@ -48,14 +63,19 @@ public final class GyroIOSystemcore implements GyroIO {
    * on a real unit, as its axes are.
    */
   static OnboardIMU.MountOrientation mount(Rotation3d orientation) {
+    // An axis whose vertical part is more than this lies within 45° of straight up or down.
+    double nearerVerticalThanLevel = Math.sqrt(0.5);
     Translation3d face = new Translation3d(0, 0, 1).rotateBy(orientation);
-    if (Math.abs(face.getZ()) > Math.sqrt(0.5)) {
+    boolean facePointsUpOrDown = Math.abs(face.getZ()) > nearerVerticalThanLevel;
+    if (facePointsUpOrDown) {
       return OnboardIMU.MountOrientation.FLAT;
     }
     Translation3d longSide = new Translation3d(1, 0, 0).rotateBy(orientation);
-    return Math.abs(longSide.getZ()) < Math.sqrt(0.5)
-        ? OnboardIMU.MountOrientation.LANDSCAPE
-        : OnboardIMU.MountOrientation.PORTRAIT;
+    boolean longSideLiesLevel = Math.abs(longSide.getZ()) < nearerVerticalThanLevel;
+    if (longSideLiesLevel) {
+      return OnboardIMU.MountOrientation.LANDSCAPE;
+    }
+    return OnboardIMU.MountOrientation.PORTRAIT;
   }
 
   @Override
@@ -64,20 +84,22 @@ public final class GyroIOSystemcore implements GyroIO {
     double yaw = imu.getYawRadians();
     inputs.connected = true;
     inputs.yaw = new Rotation2d(yaw);
-    // From successive readings, which works however the board is mounted.
-    inputs.yawVelocityRadPerSec =
-        read && now > lastTime
-            ? MathUtil.angleModulus(yaw - lastYaw) / Timestamps.toSeconds(now - lastTime)
-            : 0;
-    read = true;
-    lastYaw = yaw;
-    lastTime = now;
-    double[] attitude =
-        flat
-            ? robotAttitude(orientation, imu.getAngleX(), imu.getAngleY())
-            : new double[] {imu.getAngleX(), imu.getAngleY()};
-    inputs.rollRad = attitude[0];
-    inputs.pitchRad = attitude[1];
+    inputs.yawVelocityRadPerSec = yawRate(yaw, now);
+    hasReadBefore = true;
+    lastYawRadians = yaw;
+    lastReadNanos = now;
+
+    double boardRoll = imu.getAngleX();
+    double boardPitch = imu.getAngleY();
+    if (mountedFlat) {
+      Attitude robots = robotAttitude(orientation, boardRoll, boardPitch);
+      inputs.rollRad = robots.rollRadians();
+      inputs.pitchRad = robots.pitchRadians();
+    } else {
+      // On an edge, WPILib already gives the angles for that mount.
+      inputs.rollRad = boardRoll;
+      inputs.pitchRad = boardPitch;
+    }
     Translation3d acceleration =
         robotAxes(orientation, imu.getAccelX(), imu.getAccelY(), imu.getAccelZ());
     inputs.accelerationXMetersPerSecSq = acceleration.getX();
@@ -87,22 +109,34 @@ public final class GyroIOSystemcore implements GyroIO {
   }
 
   /**
-   * The robot's roll and pitch, from the board's: which way is up along the board's axes, turned
-   * into the robot's. WPILib's attitude: a positive roll is the left side up, a positive pitch the
-   * nose down.
-   *
-   * @return the robot's roll and pitch, in radians, in that order
+   * How fast the yaw is turning, in radians a second, from this reading and the one before. Taking
+   * it from successive yaws works however the board is mounted. The first reading has none before
+   * it, and two readings at the same time say nothing, so both give zero.
    */
-  static double[] robotAttitude(Rotation3d orientation, double boardRoll, double boardPitch) {
-    Translation3d up =
+  private double yawRate(double yawRadians, long nowNanos) {
+    boolean hasAnEarlierReading = hasReadBefore && nowNanos > lastReadNanos;
+    if (!hasAnEarlierReading) {
+      return 0;
+    }
+    double turnedRadians = MathUtil.angleModulus(yawRadians - lastYawRadians);
+    return turnedRadians / Timestamps.toSeconds(nowNanos - lastReadNanos);
+  }
+
+  /**
+   * The robot's roll and pitch, from the board's, for a board mounted flat. The board's roll and
+   * pitch say which way is up along the board's own axes. That direction is turned into the robot's
+   * axes, and the robot's roll and pitch are read back from it.
+   */
+  static Attitude robotAttitude(Rotation3d orientation, double boardRoll, double boardPitch) {
+    Translation3d upAlongTheBoard =
         new Translation3d(
-                -Math.sin(boardPitch),
-                Math.sin(boardRoll) * Math.cos(boardPitch),
-                Math.cos(boardRoll) * Math.cos(boardPitch))
-            .rotateBy(orientation);
-    return new double[] {
-      Math.atan2(up.getY(), up.getZ()), Math.asin(Math.clamp(-up.getX(), -1.0, 1.0))
-    };
+            -Math.sin(boardPitch),
+            Math.sin(boardRoll) * Math.cos(boardPitch),
+            Math.cos(boardRoll) * Math.cos(boardPitch));
+    Translation3d up = upAlongTheBoard.rotateBy(orientation);
+    double rollRadians = Math.atan2(up.getY(), up.getZ());
+    double pitchRadians = Math.asin(Math.clamp(-up.getX(), -1.0, 1.0));
+    return new Attitude(rollRadians, pitchRadians);
   }
 
   /** What the board's accelerometer reads, along the robot's axes. */

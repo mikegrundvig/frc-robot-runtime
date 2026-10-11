@@ -16,11 +16,20 @@ import org.wpilib.system.RobotController;
 
 /**
  * Reads the drivetrain's odometry signals as fast as the devices publish them (250 Hz), on its own
- * thread, so odometry sees every turn of the wheels whatever the main loop is doing. It waits until
- * every signal has a new value, then records them together, stamped with when they were measured:
- * now, less the signals' average time in transit; a signal that didn't come reads no number. The
- * main loop drains the readings every loop through the IO layer, so they're logged, and a replay
- * sees exactly what the robot saw.
+ * thread, so odometry sees every turn of the wheels whatever the main loop is doing.
+ *
+ * <p>The thread waits until every signal has a new value, then records one reading of them all,
+ * stamped with the time they were measured: the time now, less the signals' average time in
+ * transit. A signal that didn't come is recorded as NaN, not as the last value its device sent.
+ *
+ * <p>Each signal has a queue, and so does each device's copy of the readings' times. The main loop
+ * drains the queues every loop through the IO layer ({@link ModuleIOTalonFX}, {@link
+ * GyroIOPigeon2}), so the readings are logged, and a replay sees exactly what the robot saw.
+ *
+ * <p><b>The lock.</b> One lock guards the list of signals and every queue. This thread holds it
+ * while it records a reading, into every queue at once. The main loop holds it while it drains
+ * every device's queues ({@link #lock}). So every queue always holds the same number of readings,
+ * and a reading's values and its time are never split across two loops.
  *
  * <p>On Systemcore, waiting works on every CAN bus and Phoenix shares the robot's clock (Phoenix
  * 26.70). Register every signal before starting the thread.
@@ -33,7 +42,7 @@ final class PhoenixOdometryThread extends Thread {
   private static final int CAPACITY = 20;
 
   /** A signal longer than two periods in transit is stale: its device has stopped answering. */
-  private static final double STALE = 2 / FREQUENCY_HZ;
+  private static final double STALE_SECONDS = 2 / FREQUENCY_HZ;
 
   private static final long PERIOD_MILLIS = Math.round(1000 / FREQUENCY_HZ);
 
@@ -49,7 +58,16 @@ final class PhoenixOdometryThread extends Thread {
      * device has stopped answering is. A time that isn't valid says nothing either way.
      */
     boolean came() {
-      return ok && !(transitSeconds > STALE);
+      boolean isStale = transitSeconds > STALE_SECONDS;
+      return ok && !isStale;
+    }
+
+    /**
+     * Whether its time in transit can be trusted to time the whole reading by: it read without an
+     * error, its time is valid, and it is not stale.
+     */
+    boolean saysWhenItWasMeasured() {
+      return ok && transitSeconds >= 0 && transitSeconds <= STALE_SECONDS;
     }
   }
 
@@ -152,6 +170,7 @@ final class PhoenixOdometryThread extends Thread {
     }
   }
 
+  /** Waits for one reading of every registered signal, and records it. */
   private void readOnce() throws InterruptedException {
     BaseStatusSignal[] registered;
     lock.lock();
@@ -174,7 +193,7 @@ final class PhoenixOdometryThread extends Thread {
     }
     // A wait that fails at once would spin: then it waits a period.
     long before = System.nanoTime();
-    StatusCode status = BaseStatusSignal.waitForAll(2 / FREQUENCY_HZ, signals);
+    StatusCode status = BaseStatusSignal.waitForAll(STALE_SECONDS, signals);
     if (!status.isOK() && System.nanoTime() - before < PERIOD_MILLIS * 1_000_000L) {
       Thread.sleep(PERIOD_MILLIS);
     }
@@ -203,6 +222,10 @@ final class PhoenixOdometryThread extends Thread {
     }
   }
 
+  /**
+   * Records one reading of every signal: each signal's value into its queue, and the time the
+   * reading was measured into every queue of times.
+   */
   private void record(Batch batch) {
     List<Reading> readings = batch.readings();
     if (readings.isEmpty()) {
@@ -210,32 +233,42 @@ final class PhoenixOdometryThread extends Thread {
     }
     lock.lock();
     try {
-      // The signals' average time in transit, over the ones that arrived fresh: a device that's
-      // gone stale would otherwise skew every reading's time early.
-      double latency = 0;
-      int timed = 0;
-      for (Reading reading : readings) {
-        double transit = reading.transitSeconds();
-        if (reading.ok() && transit >= 0 && transit <= STALE) {
-          latency += transit;
-          timed++;
-        }
-      }
-      long measured = batch.nanos() - (timed == 0 ? 0 : Timestamps.fromSeconds(latency / timed));
-      // Each registered signal's queue takes its reading, in the order they were registered: one
-      // that didn't come reads no number, rather than the last its device sent. A wheel's is left
-      // out of odometry from that reading on, not once its module has been silent long enough to
-      // read disconnected.
+      long measuredNanos = batch.nanos() - averageTransitNanos(readings);
+      // Each registered signal's queue takes its reading, in the order they were registered. A
+      // signal that didn't come is recorded as NaN, not as the last value its device sent. That
+      // leaves a wheel out of odometry from this very reading, without waiting for its module to
+      // have been silent long enough to count as disconnected.
       for (int i = 0; i < values.size(); i++) {
         Reading reading = readings.get(i);
         keepNewest(values.get(i), reading.came() ? reading.value() : Double.NaN);
       }
       for (Queue<Long> queue : timestamps) {
-        keepNewest(queue, measured);
+        keepNewest(queue, measuredNanos);
       }
     } finally {
       lock.unlock();
     }
+  }
+
+  /**
+   * How long the signals of one reading took to arrive, on average, in nanoseconds. Only the
+   * signals that arrived fresh are averaged: a device that has gone stale reports a long time in
+   * transit, and would make every reading seem to have been measured earlier than it was. With no
+   * signal to go by, the reading is taken to have been measured as it was read.
+   */
+  private static long averageTransitNanos(List<Reading> readings) {
+    double totalTransitSeconds = 0;
+    int timed = 0;
+    for (Reading reading : readings) {
+      if (reading.saysWhenItWasMeasured()) {
+        totalTransitSeconds += reading.transitSeconds();
+        timed++;
+      }
+    }
+    if (timed == 0) {
+      return 0;
+    }
+    return Timestamps.fromSeconds(totalTransitSeconds / timed);
   }
 
   /**

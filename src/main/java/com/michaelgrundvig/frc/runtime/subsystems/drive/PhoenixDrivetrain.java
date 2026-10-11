@@ -36,7 +36,7 @@ public final class PhoenixDrivetrain implements AutoCloseable {
   public static final double ENCODER_FREQUENCY_HZ = 100;
 
   private final PhoenixOdometryThread odometry = new PhoenixOdometryThread();
-  private final ModuleIO[] modules = new ModuleIO[4];
+  private final ModuleIO[] modules = new ModuleIO[Module.COUNT];
   private final GyroIO gyro;
 
   /**
@@ -50,22 +50,35 @@ public final class PhoenixDrivetrain implements AutoCloseable {
       SwerveWiring wiring, DrivetrainGeometry drivetrain, Rotation3d gyroOrientation) {
     SignalLogger.enableAutoLogging(false);
     CANBus bus = bus(wiring.canBus());
-    for (int i = 0; i < 4; i++) {
-      DrivetrainGeometry.ModuleType hardware = drivetrain.module(i);
-      SwerveWiring.ModuleWiring module = wiring.modules().get(i);
-      modules[i] =
-          wiring.driveController() == MechanismWiring.Controller.TALON_FX
-              ? new ModuleIOTalonFX(module, bus, hardware, hardware.couplingRatio(), odometry)
-              : new ModuleIOSpark(
-                  module,
-                  CanPorts.of(((CanBus.Port) wiring.canBus()).port()),
-                  wiring.driveController(),
-                  wiring.steerController(),
-                  hardware);
+    for (int i = 0; i < Module.COUNT; i++) {
+      modules[i] = module(wiring, wiring.modules().get(i), drivetrain.module(i), bus);
     }
     gyro =
         new GyroIOPigeon2(wiring.gyroId(), bus, wiring.gyroYawScale(), gyroOrientation, odometry);
     odometry.start();
+  }
+
+  /**
+   * One module's hardware, on the motor controllers the wiring names: TalonFXs, read at 250 Hz by
+   * the odometry thread, or SPARKs, read once a loop.
+   */
+  private ModuleIO module(
+      SwerveWiring wiring,
+      SwerveWiring.ModuleWiring module,
+      DrivetrainGeometry.ModuleType hardware,
+      CANBus bus) {
+    if (wiring.driveController() == MechanismWiring.Controller.TALON_FX) {
+      return new ModuleIOTalonFX(module, bus, hardware, hardware.couplingRatio(), odometry);
+    }
+    // SPARKs are on one of Systemcore's own CAN ports: a drivetrain of SPARKs on a CANivore is
+    // refused by the robot's definition before this is built.
+    CanBus.Port port = (CanBus.Port) wiring.canBus();
+    return new ModuleIOSpark(
+        module,
+        CanPorts.of(port.port()),
+        wiring.driveController(),
+        wiring.steerController(),
+        hardware);
   }
 
   /** The modules: front left, front right, back left, back right. */

@@ -55,7 +55,7 @@ final class GyroIOPigeon2 implements GyroIO {
   private final Queue<Double> odometryYaws;
 
   /** The last high-rate yaw that came, in radians. */
-  private double lastYaw;
+  private double lastYawRadians;
 
   /** Disconnected once silent for half a second, not at one glitch. */
   private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
@@ -111,27 +111,35 @@ final class GyroIOPigeon2 implements GyroIO {
     inputs.accelerationXMetersPerSecSq = acceleration.getX();
     inputs.accelerationYMetersPerSecSq = acceleration.getY();
 
-    // The drivetrain holds the odometry thread's lock while reading, so these are in step with the
-    // modules' readings.
+    drainOdometryYaws(inputs);
+  }
+
+  /**
+   * Takes every high-rate yaw the odometry thread has recorded since the last loop, oldest first,
+   * with the time each was measured. The drivetrain holds the thread's lock while it reads, so
+   * these are in step with the modules' readings.
+   */
+  private void drainOdometryYaws(GyroIOInputs inputs) {
     int readings = Math.min(odometryTimes.size(), odometryYaws.size());
-    long[] times = new long[readings];
-    double[] yaws = new double[readings];
-    for (int k = 0; k < readings; k++) {
-      Long time = odometryTimes.poll();
-      Double reading = odometryYaws.poll();
-      if (time == null || reading == null) {
+    long[] timesNanos = new long[readings];
+    double[] yawsRadians = new double[readings];
+    for (int reading = 0; reading < readings; reading++) {
+      Long timeNanos = odometryTimes.poll();
+      Double yaw = odometryYaws.poll();
+      if (timeNanos == null || yaw == null) {
         break; // cannot happen while the lock is held
       }
-      // A yaw that didn't come reads no number: the last that did stands, as the Pigeon's last
-      // frame would, and its connection says when it's lost.
-      if (!reading.isNaN()) {
-        lastYaw = yawScale * reading * radiansPerYawUnit;
+      // The thread records NaN for a yaw that didn't come. The last yaw that did come stands in
+      // for it, as the Pigeon's last frame would, and the Pigeon's connection says when it's lost.
+      boolean yawCame = !yaw.isNaN();
+      if (yawCame) {
+        lastYawRadians = yawScale * yaw * radiansPerYawUnit;
       }
-      times[k] = time;
-      yaws[k] = lastYaw;
+      timesNanos[reading] = timeNanos;
+      yawsRadians[reading] = lastYawRadians;
     }
-    inputs.odometryTimestampsNanos = times;
-    inputs.odometryYawsRad = yaws;
+    inputs.odometryTimestampsNanos = timesNanos;
+    inputs.odometryYawsRad = yawsRadians;
   }
 
   /** A vector the case reads, along the robot's axes. */

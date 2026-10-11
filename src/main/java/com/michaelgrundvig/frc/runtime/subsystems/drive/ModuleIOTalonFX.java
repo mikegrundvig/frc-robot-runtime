@@ -63,6 +63,11 @@ final class ModuleIOTalonFX implements ModuleIO {
   private final double wheelRadiusMeters;
   private final TalonFXConfiguration driveConfig = new TalonFXConfiguration();
   private final TalonFXConfiguration steerConfig = new TalonFXConfiguration();
+
+  /**
+   * Whether the motor controllers have been sent their whole configuration yet. The first time, at
+   * startup, it is sent whole and waited for. After that, only the gains and limits are sent.
+   */
   private boolean configured;
 
   /** The devices that didn't confirm their configuration at startup, for the drivetrain's alert. */
@@ -191,8 +196,15 @@ final class ModuleIOTalonFX implements ModuleIO {
     odometrySteerCurrent = odometry.register(steerStatorCurrent.clone());
   }
 
-  private static InvertedValue direction(boolean clockwise) {
-    return clockwise ? InvertedValue.Clockwise_Positive : InvertedValue.CounterClockwise_Positive;
+  /**
+   * Which way a motor turns for a positive output, as Phoenix says it: counterclockwise, unless the
+   * wiring says the motor is inverted.
+   */
+  private static InvertedValue direction(boolean inverted) {
+    if (inverted) {
+      return InvertedValue.Clockwise_Positive;
+    }
+    return InvertedValue.CounterClockwise_Positive;
   }
 
   /** Configuring at startup, where waiting is fine: tries a few times before giving up. */
@@ -274,30 +286,38 @@ final class ModuleIOTalonFX implements ModuleIO {
     inputs.steerStatorCurrentAmps =
         mostAmps(odometrySteerCurrent, steerStatorCurrent.getValueAsDouble());
 
-    // The drivetrain holds the odometry thread's lock while reading, so these are in step.
+    drainOdometryReadings(inputs);
+    inputs.unconfigured = String.join(", ", unconfigured);
+  }
+
+  /**
+   * Takes every high-rate reading the odometry thread has recorded since the last loop, oldest
+   * first: the time each was measured, and the wheel's position and the module's angle then. The
+   * drivetrain holds the thread's lock while it reads, so every module's readings are in step.
+   */
+  private void drainOdometryReadings(ModuleIOInputs inputs) {
     int readings =
         Math.min(
             odometryTimes.size(),
             Math.min(odometryDriveRotations.size(), odometrySteerRotations.size()));
-    long[] times = new long[readings];
-    double[] drivePositions = new double[readings];
-    double[] steerAngles = new double[readings];
-    for (int k = 0; k < readings; k++) {
-      Long time = odometryTimes.poll();
+    long[] timesNanos = new long[readings];
+    double[] drivePositionsRad = new double[readings];
+    double[] steerAnglesRad = new double[readings];
+    for (int reading = 0; reading < readings; reading++) {
+      Long timeNanos = odometryTimes.poll();
       Double driveRotations = odometryDriveRotations.poll();
       Double moduleRotations = odometrySteerRotations.poll();
-      if (time == null || driveRotations == null || moduleRotations == null) {
+      if (timeNanos == null || driveRotations == null || moduleRotations == null) {
         break; // cannot happen while the lock is held; the arrays keep what was read
       }
-      times[k] = time;
-      steerAngles[k] = TWO_PI * moduleRotations;
-      drivePositions[k] =
+      timesNanos[reading] = timeNanos;
+      steerAnglesRad[reading] = TWO_PI * moduleRotations;
+      drivePositionsRad[reading] =
           TWO_PI * wheelRotations(driveRotations, moduleRotations, couplingRatio, driveGearing);
     }
-    inputs.odometryTimestampsNanos = times;
-    inputs.odometryDrivePositionsRad = drivePositions;
-    inputs.odometrySteerAnglesRad = steerAngles;
-    inputs.unconfigured = String.join(", ", unconfigured);
+    inputs.odometryTimestampsNanos = timesNanos;
+    inputs.odometryDrivePositionsRad = drivePositionsRad;
+    inputs.odometrySteerAnglesRad = steerAnglesRad;
   }
 
   /**
@@ -327,15 +347,32 @@ final class ModuleIOTalonFX implements ModuleIO {
     steerConfig.Slot0.kD = gains.steerKd() * TWO_PI;
     steerConfig.CurrentLimits.StatorCurrentLimit = limits.steerStatorCurrent().in(Amps);
     if (!configured) {
-      if (!tryUntilOk(() -> drive.getConfigurator().apply(driveConfig, STARTUP_TIMEOUT_SECONDS))) {
-        unconfigured.add("drive motor " + drive.getDeviceID());
-      }
-      if (!tryUntilOk(() -> steer.getConfigurator().apply(steerConfig, STARTUP_TIMEOUT_SECONDS))) {
-        unconfigured.add("steering motor " + steer.getDeviceID());
-      }
+      configureAtStartup();
       configured = true;
       return;
     }
+    retuneWhileRunning();
+  }
+
+  /**
+   * Sends each motor controller its whole configuration and waits for it to confirm. One that
+   * doesn't is noted, for the drivetrain's alert.
+   */
+  private void configureAtStartup() {
+    if (!tryUntilOk(() -> drive.getConfigurator().apply(driveConfig, STARTUP_TIMEOUT_SECONDS))) {
+      unconfigured.add("drive motor " + drive.getDeviceID());
+    }
+    if (!tryUntilOk(() -> steer.getConfigurator().apply(steerConfig, STARTUP_TIMEOUT_SECONDS))) {
+      unconfigured.add("steering motor " + steer.getDeviceID());
+    }
+  }
+
+  /**
+   * Sends the gains and the current limits, which are all that tuning changes, without waiting for
+   * the motor controllers to confirm: a timeout of zero. A robot loop that waits on a device
+   * stutters.
+   */
+  private void retuneWhileRunning() {
     drive.getConfigurator().apply(driveConfig.Slot0, 0);
     drive.getConfigurator().apply(driveConfig.CurrentLimits, 0);
     steer.getConfigurator().apply(steerConfig.Slot0, 0);
@@ -344,10 +381,14 @@ final class ModuleIOTalonFX implements ModuleIO {
 
   @Override
   public void setDriveVelocity(double wheelRadPerSec, double feedforwardVolts) {
-    // The drive's reading includes the coupling, so aim for the wheel's speed plus it.
-    double target =
-        wheelRadPerSec / TWO_PI + couplingRatio * steerRotationsPerSecond / driveGearing;
-    drive.setControl(velocityRequest.withVelocity(target).withFeedForward(feedforwardVolts));
+    // The drive's own reading of its speed includes what the module's turning adds through the
+    // bevel gear. So the speed it is told to hold is the wheel's, plus that share.
+    double wheelRotationsPerSecond = wheelRadPerSec / TWO_PI;
+    double addedByTurning = couplingRatio * steerRotationsPerSecond / driveGearing;
+    drive.setControl(
+        velocityRequest
+            .withVelocity(wheelRotationsPerSecond + addedByTurning)
+            .withFeedForward(feedforwardVolts));
   }
 
   @Override

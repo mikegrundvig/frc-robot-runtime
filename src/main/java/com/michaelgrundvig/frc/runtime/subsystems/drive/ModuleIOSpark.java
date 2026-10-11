@@ -70,6 +70,10 @@ final class ModuleIOSpark implements ModuleIO {
   /** Added to the absolute encoder's reading, in turns, so it reads zero pointing ahead. */
   private final double encoderOffset;
 
+  /**
+   * Whether the SPARKs have been sent their gains and limits yet. The first time, at startup, they
+   * are saved on the SPARKs and waited for. After that they are sent without waiting.
+   */
   private boolean configured;
 
   /** The steering's damping, volts per radian per second of its turning. */
@@ -157,19 +161,26 @@ final class ModuleIOSpark implements ModuleIO {
     steerLoop = steer.getClosedLoopController();
   }
 
+  /** A SPARK of the kind the wiring names, a Flex or a MAX, driving a brushless motor. */
   private static SparkBase spark(MechanismWiring.Controller controller, CANPort port, int id) {
-    return controller == MechanismWiring.Controller.SPARK_FLEX
-        ? new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless)
-        : new SparkMax(port, id, SparkLowLevel.MotorType.kBrushless);
+    if (controller == MechanismWiring.Controller.SPARK_FLEX) {
+      return new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless);
+    }
+    return new SparkMax(port, id, SparkLowLevel.MotorType.kBrushless);
   }
 
   /** An empty configuration for a SPARK: only what's set on it is applied. */
   private static SparkBaseConfig blank(MechanismWiring.Controller controller) {
-    return controller == MechanismWiring.Controller.SPARK_FLEX
-        ? new SparkFlexConfig()
-        : new SparkMaxConfig();
+    if (controller == MechanismWiring.Controller.SPARK_FLEX) {
+      return new SparkFlexConfig();
+    }
+    return new SparkMaxConfig();
   }
 
+  /**
+   * Whether a SPARK took a configuration. At startup, where waiting is fine, it is tried a few
+   * times before giving up.
+   */
   private static boolean applied(Supplier<REVLibError> attempt) {
     for (int i = 0; i < TRIES; i++) {
       if (attempt.get() == REVLibError.kOk) {
@@ -249,18 +260,7 @@ final class ModuleIOSpark implements ModuleIO {
     steerConfig.smartCurrentLimit((int) Math.round(limits.steerStatorCurrent().in(Amps)));
     steerConfig.closedLoop.p(steerKp / Motor.NOMINAL_VOLTS, ClosedLoopSlot.kSlot0);
     if (!configured) {
-      if (!applied(
-          () ->
-              drive.configure(
-                  driveConfig, ResetMode.kNoResetSafeParameters, PersistMode.kPersistParameters))) {
-        unconfigured.add("drive motor's gains");
-      }
-      if (!applied(
-          () ->
-              steer.configure(
-                  steerConfig, ResetMode.kNoResetSafeParameters, PersistMode.kPersistParameters))) {
-        unconfigured.add("steering motor's gains");
-      }
+      saveAtStartup(driveConfig, steerConfig);
       configured = true;
       return;
     }
@@ -270,12 +270,39 @@ final class ModuleIOSpark implements ModuleIO {
         steerConfig, ResetMode.kNoResetSafeParameters, PersistMode.kNoPersistParameters);
   }
 
+  /**
+   * Saves the gains and limits on the SPARKs, on top of what the constructor saved, and waits for
+   * each to confirm. One that doesn't is noted, for the drivetrain's alert.
+   */
+  private void saveAtStartup(SparkBaseConfig driveConfig, SparkBaseConfig steerConfig) {
+    boolean driveTookIt =
+        applied(
+            () ->
+                drive.configure(
+                    driveConfig, ResetMode.kNoResetSafeParameters, PersistMode.kPersistParameters));
+    if (!driveTookIt) {
+      unconfigured.add("drive motor's gains");
+    }
+    boolean steerTookIt =
+        applied(
+            () ->
+                steer.configure(
+                    steerConfig, ResetMode.kNoResetSafeParameters, PersistMode.kPersistParameters));
+    if (!steerTookIt) {
+      unconfigured.add("steering motor's gains");
+    }
+  }
+
   @Override
   public void setDriveVelocity(double wheelRadPerSec, double feedforwardVolts) {
-    // The drive's reading includes the coupling, so aim for the wheel's speed plus it.
-    double wheel = wheelRadPerSec / TWO_PI + couplingRatio * steerRotationsPerSecond / driveGearing;
+    // The drive's own reading of its speed includes what the module's turning adds through the
+    // bevel gear. So the speed it is told to hold is the wheel's, plus that share.
+    double wheelRotationsPerSecond =
+        wheelRadPerSec / TWO_PI + couplingRatio * steerRotationsPerSecond / driveGearing;
+    // The SPARK's loop runs on its rotor's speed, in turns a minute.
+    double rotorRpm = wheelRotationsPerSecond * driveGearing * 60;
     driveLoop.setSetpoint(
-        wheel * driveGearing * 60,
+        rotorRpm,
         SparkLowLevel.ControlType.kVelocity,
         ClosedLoopSlot.kSlot0,
         feedforwardVolts,
@@ -284,14 +311,17 @@ final class ModuleIOSpark implements ModuleIO {
 
   @Override
   public void setSteerAngle(Rotation2d angle) {
-    // In the encoder's own reading, its offset taken back off, from 0 to 1.
-    double reading = angle.getRotations() - encoderOffset;
-    reading -= Math.floor(reading);
+    // The SPARK's loop runs on the encoder's own reading, which is the module's angle with the
+    // offset taken back off, as a share of a turn from 0 to 1.
+    double encoderTurns = angle.getRotations() - encoderOffset;
+    double encoderReading = encoderTurns - Math.floor(encoderTurns);
+    // The steering's damping: volts against the module's measured turning speed.
+    double dampingVolts = -steerKd * TWO_PI * steerRotationsPerSecond;
     steerLoop.setSetpoint(
-        reading,
+        encoderReading,
         SparkLowLevel.ControlType.kPosition,
         ClosedLoopSlot.kSlot0,
-        -steerKd * TWO_PI * steerRotationsPerSecond,
+        dampingVolts,
         SparkClosedLoopController.ArbFFUnits.kVoltage);
   }
 
