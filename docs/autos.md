@@ -9,7 +9,7 @@ when autonomous begins.
 `Controls` gets the robot's `Autos` list. Add an auto with `autos.add(name, start, factory)`. The start
 is one of the field's starts, written for blue like any place; the factory is a method that returns
 the auto's command. This is the guide's robot ([mechanisms](mechanisms.md#where-behavior-goes)), with
-one auto, from `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Controls.java`:
+its first auto, from `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Controls.java`:
 
 ```java fragment
 private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
@@ -87,7 +87,7 @@ line, so a failure reads without a debugger:
 Grab one on RED: ended at (10.53, 5.07) 180.0°, Grab one: COMPLETED in 2.82 s
     pivot → out: ARRIVED in 0.60 s
     drive → Pickup: ARRIVED in 2.22 s
-    roller: intaking: CANCELED after 2.22 s
+    roller: intaking until piece in: CANCELED after 2.22 s
     pivot → in: ARRIVED in 0.60 s
 ```
 

@@ -1,13 +1,18 @@
 # Start here: how a robot is written
 
-This is the readable way in. It takes about twenty minutes, top to bottom, and it explains what
-your team writes, what the program builds from it, and the calls you will use most. It is not a
-reference, and it links to the guides that have the detail.
+This is the readable way in. It takes about half an hour, top to bottom. It explains what your
+team writes, what the program builds from it, how the program runs, and the calls you will use
+most. It is not a reference, and it links to the guides that have the detail.
 
-Every block of code below is copied from code that compiles. Most of it is the guide's robot,
-`runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java`, and the examples beside
-its tests in `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/`. A test fails when
-this page and that code drift apart.
+The whole page follows one robot. It is the guide's robot, `ExampleRobot`, and its `Controls`
+class. Every block of code below is copied from code that compiles, and nearly all of it is from
+those two files:
+
+- `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleRobot.java`
+- `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Controls.java`
+
+A test fails when this page and that code drift apart. Another test, `ControlsSimTest`, runs each
+behaviour described here in the simulator.
 
 ## The idea
 
@@ -31,25 +36,45 @@ the program starts, in the simulator as well as on the robot. It also happens in
 builds every robot your team has, so a bad number fails the build on your laptop.
 
 It will not catch everything. It knows nothing about a loose wire or a bad strategy. What it
-catches are mistakes of arithmetic and bookkeeping, which are the ones that are easy to make at
-midnight before an event.
+catches are mistakes of arithmetic and bookkeeping, which are the ones people make at midnight
+before an event.
 
-## The four pieces
+## If you are new to FRC
 
-The code comes in four parts, and you write only the last one. The **model** is the vocabulary
-for describing a robot and a field. It runs nothing, and it is where the checks live. The
-**runtime** is the robot program every robot shares. It builds mechanisms from your description,
-runs commands, drives, works out where the robot is on the field, and logs. **Pitwall** is a web
-page the robot serves for your pit crew, and the simulator serves it too. The **template** is
-your team's own code, in `src/main/java/frc/robot`. The rest of this page is about what goes
-there.
+Skip this if you have written robot code before.
+
+The robot carries a small computer. On a 2027 robot it is called Systemcore, and older robots
+have a roboRIO. It runs one Java program, and that program is what this page is about.
+
+The drive team's laptop runs the Driver Station. It sends the robot the gamepads' sticks and
+buttons, and it says whether the robot is enabled. A disabled robot runs its program but its
+motors get no power. A match has two enabled periods. In autonomous the robot drives itself for
+the first seconds. In teleop the drivers drive.
+
+The program does not run once from top to bottom. It runs the same short pass again and again,
+fifty times a second, so each pass has 20 milliseconds. A pass is called a loop.
+
+Each motor is run by a motor controller, a box that feeds the motor power. The controllers and
+many sensors hang on one shared cable called the CAN bus. Each device on it has a number, its
+CAN ID.
+
+WPILib is the library every FRC Java program is built on. Two of its words matter here. A command
+is a job the robot does over many loops, such as "swing the intake out". A mechanism is a part of
+the robot that only one command may use at a time. Older WPILib code calls that a subsystem.
+
+## The pieces
+
+The **model** is the vocabulary for describing a robot and a field. It runs nothing, and it is
+where the checks live. The **runtime** is the robot program every robot shares. It builds
+mechanisms from your description, runs commands, drives, works out where the robot is on the
+field, and logs. **Pitwall** is a web page the robot serves for your pit crew, and the simulator
+serves it too. You write none of those three.
 
 ## What you write
 
 There are three kinds of file.
 
-**`Main`** is where the program starts. It is one call that hands the runtime three things. This
-is the guide's own `Main`, from the examples folder:
+**`Main`** is where the program starts. It is one call that hands the runtime three things:
 
 ```java
 RobotProgram.start(
@@ -61,17 +86,15 @@ RobotProgram.start(
 The first argument answers "which robot is this?". The second is the season's field, which the
 model already describes. The third is your `Controls` class.
 
-The template's own `Main` differs in three small ways, because it carries more than one robot. It
-passes `Robots::current` first, a method in `Robots.java` that picks the robot the program is
-running on. It passes `Robots::controls` third, which makes the controls written for that robot.
-And it passes a fourth argument, a stamp that tells the log which build of the code ran.
-
-**The robot's description** is a class of constants, one class for each design. The guide's is
-`ExampleRobot`. The template also carries two real ones, `BetaRobot` and `DeltaRobot`, which are
-one team's two 2026 robots described this way.
+**The robot's description** is a class of constants. The guide's is `ExampleRobot`. It has an
+intake, which is a pivot with a roller on its end. It has an elevator with an arm on it. It has a
+shooter, with a feeder and an indexer that push pieces into it, and a hood over it.
 
 **`Controls`** is where behaviour goes. It holds your commands, your button bindings and your
-autos. The template never edits it, so pulling a newer template does not collide with your work.
+autos.
+
+If you know WPILib: there is no `RobotContainer`, no `Constants` and no subsystem classes for you
+to write. `Main`, a description and `Controls` are the whole of a team's code.
 
 ## Describing a robot
 
@@ -88,9 +111,10 @@ Body.builder()
     .weight(WEIGHT)
 ```
 
-Every value has a name, and its unit is written beside the number. You cannot swap the length and
-the width by accident. The builder also asks for each required value in turn, so the code does
-not compile if you leave one out.
+Every value is set by name, so you cannot swap the length and the width by accident. Most carry
+their unit, like `Inches.of(27.5)`. A few are bare numbers whose unit you have to know. You will
+meet two below. A `Translation3d` is a point in meters, and a gain is a plain number. The builder
+also asks for each required value in turn, so the code does not compile if you leave one out.
 
 The drivetrain is described the same way. You give the swerve modules, where they sit on the
 frame, and how they are driven. A swerve module is one wheel that can both spin and steer.
@@ -170,7 +194,8 @@ one of them. That is called homing.
 
 **How it is driven.** `.control(...)` says how the program moves the joint. `position(30)` means
 the joint is held at positions, and 30 is its kP. The kP is how hard the motor pushes for each
-unit of error between where the joint is and where it should be. `withProfile(...)` caps the
+unit of error between where the joint is and where it should be. Here it means 30 volts for each
+radian of error. `withProfile(...)` caps the
 speed and the acceleration of every move, so the pivot ramps up and ramps down. It does not lurch.
 
 A second part of the control is the feedforward. That is the voltage you already know the motor
@@ -217,14 +242,8 @@ public static final Configuration INTAKE =
 The description checks it against the interlocks. A configuration that ran the roller with the
 pivot stowed would be refused.
 
-The robot's description ends with three lists, from `ExampleRobot`. A joint, a sensor or a
-configuration that is not listed is not part of the robot.
-
-```java fragment
-.joints(List.of(PIVOT, ROLLER, HOOD, ELEVATOR, ARM, FEEDER, INDEXER, SHOOTER))
-.sensors(List.of(CLAW_BEAM, HOPPER))
-.configurations(List.of(FEEDING, STOWED, INTAKE))
-```
+The robot's description ends by listing its joints, its sensors and its configurations. One that
+is not listed is not part of the robot.
 
 ### A practice robot
 
@@ -258,75 +277,46 @@ joint, sensor and interlock.
 
 ### A joint's commands
 
-In your behaviour code you look a joint up by its constant:
-
-```java
-JointMechanism pivot = joints.of(PIVOT);
-JointMechanism roller = joints.of(ROLLER);
-```
-
-Each one comes with its commands already written. These are the three you will use most.
+In `Controls` you look a joint up by its constant, as in `joints.of(PIVOT)`. Each one comes with
+its commands already written. These are the three you will use most.
 
 - `pivot.goTo(PIVOT_OUT)` moves the joint to one of its places and ends when it gets there.
 - `roller.run(INTAKING)` runs the joint at one of its named outputs, a speed or a voltage, until
   something cancels it. That fits a button you hold down.
 - `pivot.hold()` takes the joint and holds it at its goal until something cancels it.
 
-A command that moves a joint is called a move, and a move can be adjusted. This line is from the
-runtime's tests:
-
-```java fragment
-Move out = pivot.goTo(PIVOT_OUT).within(Seconds.of(5));
-```
-
-`within` sets a deadline. Every move already has one, worked out from how long the trip should
-take, so a jammed joint cannot hang your auto forever. `within` replaces that deadline with yours.
+A command that moves a joint is called a move. Every move has a deadline, worked out from how
+long the trip should take, so a jammed joint cannot hang your auto forever.
 
 A move always ends with an outcome. `ARRIVED` means it got there. `TIMED_OUT` means the deadline
 passed. `CANCELED` means another command took over. `REFUSED` means it would not start. Your code
-can ask what happened and react. This is from `ExampleCommands`. The `co.await` call runs a
-command and waits for it, and the next section explains it:
-
-```java fragment
-var deploy = pivot.goTo(PIVOT_OUT);
-co.await(deploy);
-if (!deploy.arrived()) {
-  co.await(pivot.goTo(PIVOT_IN)); // back off
-}
-```
+can ask what happened and react. A worked example further down does that.
 
 ### Gates
 
-A gate is a yes or no question with a name. Each joint has a few. This one is from the runtime's
-tests:
-
-```java fragment
-Gate atOut = pivot.isAt(PIVOT_OUT);
-```
-
-`shooter.isAtGoal()` is another. It asks whether the shooter is at the speed it was told to
-reach. You can wait on a gate, bind a button to one, or combine several. When a gate is false it
-logs why, so "why isn't it shooting?" has an answer you can read.
+A gate is a yes or no question with a name. Each joint has a few. `pivot.isAt(PIVOT_OUT)` asks
+whether the pivot is at its "out" place. `shooter.isAtGoal()` asks whether the shooter is at the
+speed it was told to reach. You can wait on a gate, bind a button to one, or combine several.
+When a gate is false it logs why, so "why isn't it shooting?" has an answer you can read.
 
 ### Refusals and doubts
 
 A refusal is the description saying no. The program does not start, in the simulator or on the
-robot, and the message names the value and the limit. These three are copied from the tests that
-check them.
+robot, and the message names the value and the limit. These three are copied from the model's own
+tests, which use a pivot and a roller with the same numbers as the guide's.
 
-One team's 2026 autos ran a feeder roller at 5000 rpm. Through that roller's gearing, its motor
-tops out at 1500:
+A roller's speed set to 5000 rpm, when its motor through its gearing tops out at 2000:
 
 ```text
-RobotDefinition[beta].joints: full send's feeding, 5000 rpm, is 3.333 times its free speed,
-1500 rpm: its motors can't turn it that fast; give it a speed under that
+RobotDefinition[test].joints: roller's intaking, 5000 rpm, is 2.5 times its free speed, 2000 rpm:
+its motors can't turn it that fast; give it a speed under that
 ```
 
-A configuration that runs the intake roller while the pivot is stowed breaks the interlock:
+A configuration that runs the roller while the pivot is stowed, which breaks the interlock:
 
 ```text
-RobotDefinition[beta].configurations: configuration intaking runs intake, but intake runs only
-when pivot at least 110°, and pivot is at 1.5°, where it rests
+configuration rolling runs roller, but roller runs only when pivot at least run, and pivot is at
+1.5°, where it rests
 ```
 
 A practice robot whose "out" was moved past the hard stop:
@@ -335,23 +325,85 @@ A practice robot whose "out" was moved past the hard stop:
 pivot's out, 140°, is outside its hard stops, 0° to 135°: it can't get there
 ```
 
-A doubt is softer. The value is allowed, but it looks wrong, so the robot starts and says so. The
-same team's intake asks for exactly the fastest its motor can spin:
+A doubt is softer. The value is allowed, but it looks wrong, so the robot starts and says so.
+This one is about a roller asked for exactly the fastest its motor can spin:
 
 ```text
-intake's intaking, 2000 rpm, is 100% of its free speed, 2000 rpm: a velocity loop has little or
+roller's intaking, 2000 rpm, is 100% of its free speed, 2000 rpm: a velocity loop has little or
 nothing left to hold it under load
 ```
 
 Doubts go in the log under `Robot/Doubts`. On a real robot they also show on the Driver Station's
 console. Read them after every change to the description.
 
+## How the program runs
+
+You never write the loop, but everything you write runs inside it, so it helps to know its shape.
+
+### One pass
+
+Fifty times a second the runtime makes one pass. These are the four steps, from the runtime's
+`Robot.loop`, with the timing code between them left out:
+
+```java fragment
+pitwall.periodic();
+container.periodic();
+runTheCommands(scheduler, loopHealth, afterAThrow);
+container.afterCommands();
+```
+
+First, anything the pit asked for on the Pitwall page is taken in.
+
+Second, the robot looks at the world. This is that step, from `RobotContainer.periodic`:
+
+```java fragment
+takeThePitsChoices(enabled);
+Optional<Pose2d> placed = matchField.read(enabled);
+stepTheSimulatedWorld(placed);
+startOrEndTheAuto();
+readTheSensors(enabled);
+localize(placed, enabled);
+judgeTheField();
+```
+
+The names say what happens. The pit's choice of auto is taken, and the match state is read from
+the Driver Station. In the simulator, the pretend world moves forward one tick. If autonomous
+began on this pass, the chosen auto's command is started. Then every sensor is read, the
+drivetrain's first and then the joints'. Then the robot works out where it is on the field from
+its wheels, its gyro and its cameras. Last, it judges that position. It checks whether the robot
+is on its starting mark, for one.
+
+Third, the command scheduler runs. The scheduler is the part of WPILib that keeps the list of
+running commands. It checks every button binding and every gate. It starts the commands those
+call for. Then it gives each running command its turn.
+
+Fourth, each joint is told what to do. A joint does what a command asked of it on this pass. If
+no command asked anything, it does what it does when idle, which comes up below.
+
+The order matters. Sensors are read before commands run, so a command always decides on fresh
+readings. Joints are told after commands run, so what a command asks takes effect on the same
+pass.
+
+### Enabled, disabled, autonomous, teleop
+
+The loop runs in every mode. What changes is what the robot may do.
+
+**Disabled** means the loop still reads sensors and still works out where the robot is, but no
+joint is driven. The pit's choice of auto is taken only while the robot is disabled. When the
+robot is enabled again, each joint holds wherever it is at that moment. It does not jump back to
+an old target.
+
+**Autonomous** is enabled with nobody driving. On the pass it begins, the runtime starts the
+chosen auto's command. On the pass it ends, the runtime cancels that command if it is still
+running.
+
+**Teleop** is enabled with the drivers driving. The gamepads' bindings start commands.
+
 ## Behaviour in Controls
 
 The runtime builds your `Controls` once, after the mechanisms exist. It hands the constructor
 everything behaviour can reach. That is the command scheduler, the robot's description, the
-joints, the drivetrain, the two gamepads and the list of autos. This is the guide's, from the
-examples folder:
+joints, the drivetrain, the two gamepads and the list of autos. This is the guide's constructor:
 
 ```java
 Controls(
@@ -362,22 +414,34 @@ Controls(
     RecordingGamepad driver,
     RecordingGamepad operator,
     Autos autos) {
+  this.joints = joints;
   this.drive = drive;
   pivot = joints.of(PIVOT);
   roller = joints.of(ROLLER);
+  shooter = joints.of(SHOOTER);
+  feeder = joints.of(FEEDER);
+  indexer = joints.of(INDEXER);
+  pieceIn = joints.gate("piece in", CLAW_BEAM.tripped());
 
   operator.rightTrigger().whileTrue(intake());
   operator.faceRight().onTrue(pivot.goTo(PIVOT_IN));
+  operator.faceDown().onTrue(deploy());
+  driver.rightTrigger().whileTrue(shoot());
 
   autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
+  autos.add("Grab and shoot", Rebuilt.starts(robot.body()).center(), this::grabAndShoot);
 }
 ```
 
-The two `operator` lines are bindings. `whileTrue` runs a command for as long as the button is
-held. `onTrue` starts it on the press and lets it finish. The gamepads are WPILib's, so anything
-you have seen in a WPILib binding works here.
+It does three things. It looks up the joints it will use. It makes one gate, `pieceIn`, from a
+beam-break sensor in the description. A beam-break is a light beam across the intake that a game
+piece blocks. Then it binds four buttons and declares two autos.
 
-A command that uses more than one joint is a method that returns a `Command`. This is `intake()`:
+The four button lines are bindings. `whileTrue` starts a command when the button goes down and
+cancels it when the button comes up. `onTrue` starts a command on the press and lets it finish.
+The gamepads are WPILib's, so any binding you have seen in WPILib works here.
+
+Each thing the robot does is a method that returns a `Command`. This is `intake()`:
 
 ```java
 Command intake() {
@@ -385,30 +449,187 @@ Command intake() {
       .executing(
           co -> {
             co.fork(pivot.goTo(PIVOT_OUT));
-            co.await(roller.run(INTAKING));
+            co.await(roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8)));
           })
       .named("Intake");
 }
 ```
 
 This is WPILib's Commands v3, and the body is a coroutine. A coroutine is a function that can
-pause and pick up again on a later pass of the robot's loop. So you write the steps in order, top
-to bottom, with plain `if` and `while`. `co.await(x)` runs `x` and waits for it. `co.fork(x)`
-starts `x` and moves on without waiting. `co.waitUntil(gate)` pauses until a gate is true. Above,
-the pivot starts swinging out and the roller command starts at once. The interlock keeps the
-roller still until the pivot is clear.
+pause part way through and pick up from the same line on a later pass of the loop. So you write
+the steps in order, top to bottom, with plain `if` and `while`. `co.fork(x)` starts `x` and moves
+on without waiting. `co.await(x)` starts `x` and pauses until `x` ends. `co.waitUntil(gate)`
+pauses until a gate is true.
 
-`Command.requiring(pivot, roller)` says which joints this command owns while it runs. Each joint
-is owned separately, so intaking does not cancel a command that is spinning up the shooter.
+`Command.requiring(pivot, roller)` says which joints this command owns while it runs. Only one
+command can own a joint at a time. Each joint is owned separately, so intaking does not cancel a
+command that is spinning up the shooter.
 
-A sensor becomes a gate in one line. `CLAW_BEAM` is a beam-break sensor in the description:
+If you know WPILib: a command here has no `initialize`, `execute` and `isFinished`. The coroutine
+replaces all three. You also do not write a subsystem class for each mechanism. Every joint in the
+description is already a v3 `Mechanism`, with its commands written.
+
+## One button press, start to finish
+
+Follow the operator's right trigger, which is bound to `intake()`. Each step below is what the
+code does, and `ControlsSimTest` checks the result.
+
+**The press is seen.** On some pass, the Driver Station's data arrives with the trigger down. In
+the scheduler step, the binding sees that the trigger went from up to down. That change is
+what starts a command, so the binding starts `Intake`. The log records which bindings fired on
+each pass under `Controls/Fired`. This one reads "operator right trigger: while held: Intake".
+
+**The command takes its joints.** `Intake` requires the pivot and the roller. If another command
+owned either one, that command is cancelled now. Here nothing did, so both joints were idle.
+
+**The coroutine runs until it pauses.** On the same pass, the scheduler gives `Intake` its first
+turn. It runs `co.fork(pivot.goTo(PIVOT_OUT))`, which starts the pivot's move. It runs
+`co.await(...)`, which starts the roller's move and then pauses. That is all `Intake` does on
+this pass.
+
+**The joints are told.** Still on the same pass, the last step of the loop tells each joint what
+its command asked. The pivot's move plans a profile from where the pivot is now to 130 degrees,
+and the pivot's motor controller is sent the first point on it.
+
+**The interlock holds the roller.** The roller was asked for 2000 rpm. Before that reaches the
+motor, the roller's interlock is checked. The pivot is still inside the frame, so the roller is
+held still. The log says why under `Joints/roller/HeldBy`, in words like "roller runs only when
+pivot at least 110°". The command does not know and does not need to.
+
+**Every pass after that.** The scheduler gives `Intake` a turn. It is still waiting on the
+roller's move, so it pauses again at once. Underneath, the pivot's move sends the next point of
+its profile, and the motor controller's own fast loop keeps the motor on it.
+
+**The pivot passes 110 degrees.** The interlock lets go and the roller spins up. Nothing in
+`intake()` ordered that. You told two joints to move at once, and the rule in the description
+produced the right order.
+
+**The pivot arrives.** Its move ends, and the log gets one line under `Joints/pivot/Outcome`. In
+the simulator it reads "pivot → out: ARRIVED in 0.60 s". The pivot now holds at 130 degrees.
+
+**It ends.** There are three ways, and the next section shows each. The beam can see a piece.
+The operator can let go of the trigger. Another command can take one of the joints. In every case
+the roller goes idle, and an idle roller stops. Unless another command took it, the pivot goes
+idle too, and an idle pivot holds where it is. It stays out until something sends it in.
+
+If you know WPILib: you do not need a default command to hold an arm up, because idle already
+does that. A default command still works and replaces the idle. Interlocks are also not written
+in commands. They sit below every command, in the description.
+
+## Worked examples
+
+All four are in the guide's `Controls`, and each has a test in `ControlsSimTest`.
+
+### A sensor ends the intake
+
+Look again at the line in `intake()` that runs the roller:
 
 ```java fragment
-Gate coralIn = joints.gate("coral in claw", CLAW_BEAM.tripped());
+co.await(roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8)));
 ```
 
-For a whole robot's behaviour in one file, read `src/main/java/frc/robot/BetaControls.java`. It
-is one team's 2026 intake, shot, bindings and two autos.
+`runUntil` runs the roller until the gate `pieceIn` is true. Every pass, the sensor step reads the
+beam, and the scheduler step works out the gate. On the pass the beam is blocked, the gate turns
+true and the roller's move ends with `ARRIVED`. The `co.await` returns, the coroutine reaches its
+last line, and `Intake` is over. The roller goes idle and stops with the piece in it. The log
+reads "roller: intaking until piece in: ARRIVED in" and the time.
+
+The trigger is still held down. Nothing starts again, because a binding starts its command on the
+change from up to down, and that already happened.
+
+`within(Seconds.of(8))` is the deadline. If no piece shows up, or the sensor's wire has come off,
+the move ends with `TIMED_OUT` after eight seconds, and the roller does not run forever.
+
+### A second button interrupts
+
+The operator's face right button is bound to `pivot.goTo(PIVOT_IN)`. Suppose it is pressed while
+the trigger is still held and the intake is running.
+
+On that pass the binding starts the move to "in". That move requires the pivot. `Intake` owns the
+pivot, and only one command can, so the scheduler cancels `Intake`. The whole of it is cancelled,
+and its roller move with it. The log reads "roller: intaking until piece in: CANCELED after" and
+the time.
+
+Now look at each joint. The roller has no command, so it is idle and it stops. The pivot has a
+new command, so it swings in, and its line reads "pivot → in: ARRIVED in" and the time. One
+button undid the other, and you wrote no code that said so. The ownership rule did it.
+
+### A move that fails, and what to do then
+
+`deploy()` swings the intake out without rolling. It checks how the move ended:
+
+```java
+Command deploy() {
+  return Command.requiring(pivot)
+      .executing(
+          co -> {
+            var out = pivot.goTo(PIVOT_OUT);
+            co.await(out);
+            if (!out.arrived()) {
+              co.await(pivot.goTo(PIVOT_IN)); // back off
+            }
+          })
+      .named("Deploy");
+}
+```
+
+`co.await(out)` pauses until the move ends, however it ends. Normally that is `ARRIVED`, the `if`
+is skipped, and the command is done.
+
+Now say something is wedged in the intake. The pivot's motor pushes and the pivot does not move.
+Every move has a deadline, so this one ends anyway. In the test, where the pivot is jammed at
+rest, the log reads "pivot → out: TIMED_OUT after 1.62 s, pivot at 1.5°". The coroutine picks up
+on the next line, sees that the move did not arrive, and sends the pivot back in.
+
+Without the `if`, the command would end and the pivot would hold wherever it had got to. That is
+safe, and it may not be what you want. The outcome lets you choose.
+
+### An aimed shot
+
+The driver's right trigger is bound to `shoot()`. It is the busiest command on the robot:
+
+```java
+Command shoot() {
+  DriveAssist aim = drive.facing(Heading.toward(Rebuilt.HUB));
+  Gate ready = Gate.all("ready to feed", aim.aimed(), shooter.isAtGoal());
+  return Command.requiring(drive, shooter, feeder, indexer)
+      .executing(
+          co -> {
+            co.fork(shooter.follow(() -> RPM.of(3000)));
+            co.fork(aim); // the sticks drive, and the robot holds its aim...
+            while (true) {
+              co.waitUntil(ready); // ...and the feed runs only while it is aimed
+              co.await(joints.run(FEEDING).onlyWhile(ready));
+            }
+          })
+      .named("Shoot");
+}
+```
+
+The first two lines set things up. `aim` is a drive command that turns the robot to face the hub,
+the season's goal, while the driver's left stick still moves the robot. `ready` is one gate made
+of two. It is true when the robot is aimed and the shooter is at its speed.
+
+On the pass the trigger goes down, `Shoot` takes the drivetrain, the shooter, the feeder and the
+indexer. Stick driving was the drivetrain's default command, and it gives way. The coroutine
+forks two things that never end by themselves. One spins the shooter toward 3000 rpm. The other
+starts turning the robot. Then it reaches `co.waitUntil(ready)` and pauses.
+
+For the next passes nothing is fed. The shooter is still spinning up and the robot is still
+turning. The log says which half is missing under `Gates/ready to feed/Blocking`.
+
+On the pass both are true, the wait ends. `joints.run(FEEDING)` runs the feeder and the indexer
+together at their feeding speeds. `FEEDING` is a configuration from the description.
+`onlyWhile(ready)` checks the gate on every pass.
+
+Say the robot gets bumped and its aim swings off. `ready` turns false, the feed is cancelled on
+that pass, and both rollers stop. The `while` loop goes round, and the coroutine waits for
+`ready` again. The shooter keeps spinning the whole time. When the aim comes back, feeding
+resumes.
+
+When the driver lets go, `Shoot` is cancelled, and everything it forked is cancelled with it. The
+feeder and the indexer stop. The shooter coasts down, because its description says it coasts. The
+drivetrain goes back to stick driving.
 
 ## Driving
 
@@ -420,11 +641,15 @@ drive.setDefaultCommand(drive.driven());
 
 `drive.driven()` is stick driving. The left stick moves the robot and the right stick turns it.
 Forward on the stick is always away from your own driver station, whichever alliance you are on.
-A default command is the one that runs when nothing else is using the drivetrain.
+A default command is the one that runs when nothing else owns the drivetrain.
 
 `drive.facing(...)` is stick driving with help. The left stick still moves the robot, and the
-robot turns itself to hold a heading. A `Heading` says what to face. These bindings are from the
-examples' `Aiming` class:
+robot turns itself to hold a heading. You saw it face the hub in `shoot()`. `aim.aimed()` is its
+gate. It is true when the robot faces the heading to within 2 degrees and has nearly stopped
+turning.
+
+A heading can also be an angle. These bindings are from `Aiming`, a small class in the same
+examples folder:
 
 ```java
 driver.faceDown().whileTrue(drive.facing(Heading.downfield(Degrees.of(-20))));
@@ -435,50 +660,67 @@ driver.faceLeft().whileTrue(drive.lockWheels());
 The first two hold the robot 20 degrees either side of straight downfield while a button is held.
 `drive.lockWheels()` turns the wheels into an X, which makes the robot hard to push.
 
-A heading can also be a spot on the field, and `aimed()` is the gate that says the robot is
-facing it. These two lines open a shot in `Aiming`:
+The drivetrain can also drive itself. `drive.goTo(place)` drives to a spot and stops. These are
+the two spots the guide's `Controls` uses:
 
 ```java
-DriveAssist aim = drive.facing(Heading.toward(Rebuilt.HUB));
-Gate ready = Gate.all("ready to feed", aim.aimed(), shooter.isAtGoal());
+private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
+private static final Place SHOT = Place.at("Shot", new Pose2d(3, 3, Rotation2d.ZERO));
 ```
 
-The shot then feeds only while `ready` is true. The driver keeps driving with the left stick the
-whole time.
+A `Place` is written once, for the blue alliance, in meters from the field's corner. When a move
+starts, the robot finds the matching spot for the alliance it is on. You write one path and it is
+right on both sides.
 
-The drivetrain can also drive itself. `drive.goTo(place)` drives to a spot and stops.
-`drive.follow(...)` drives a smooth path through a list of keyframes. A keyframe is a spot the
-path passes through, with the way the robot should face there. These are from `PlaceMoves`:
+`drive.follow(...)` drives one smooth path through several keyframes. A keyframe is a spot the
+path passes through, with the way the robot should face there. A keyframe can have a name, and a
+command can wait for the path to pass it. [driving.md](driving.md) shows how.
 
-```java fragment
-static final Place PICKUP = Place.at("Pickup", new Pose2d(5, 2, Rotation2d.CCW_90DEG));
-DriveMove toTower = drive.goTo(Rebuilt.TOWER);
-DriveMove leg = drive.follow(Keyframe.at(PICKUP), Keyframe.at(Rebuilt.TOWER));
-```
-
-A `Place` is written once, for the blue alliance. When the move starts, the robot finds the
-matching spot for the alliance it is on. You write one path and it is right on both sides. These
-moves have deadlines and outcomes, the same as a joint's. [driving.md](driving.md) has the rest.
+Drive moves have deadlines and outcomes, the same as a joint's.
 
 ## Autos
 
 An auto is the routine the robot runs alone in the first seconds of a match. You declare one with
-a name, the place the robot starts, and a method that makes its command. The guide's `Controls`
-constructor did that with `autos.add("Grab one", ...)`. This is the method it names:
+a name, the place the robot starts, and a method that makes its command. The guide's constructor
+declared two. This is the longer one:
 
 ```java
-Command grabOne() {
+Command grabAndShoot() {
   return Command.noRequirements(
           co -> {
-            co.awaitAny(drive.goTo(PICKUP), intake());
-            co.await(pivot.goTo(PIVOT_IN));
+            co.awaitAny(drive.goTo(PICKUP), intake()); // the first leg ends the intake
+            co.fork(pivot.goTo(PIVOT_IN)); // the intake comes in on the way back
+            co.await(drive.goTo(SHOT));
+            co.await(shoot().withTimeout(Seconds.of(3)));
           })
-      .named("Grab one");
+      .named("Grab and shoot");
 }
 ```
 
-`co.awaitAny` runs both commands and moves on when the first one ends. Here the drive arrives at
-the pickup, and that ends the intake too.
+It reuses `intake()` and `shoot()`, the same methods the buttons use. An auto is ordinary
+commands in a row.
+
+Take it a line at a time. `co.awaitAny` starts both commands and moves on when the first one
+ends, cancelling the other. So the robot drives to the pickup with the intake running, and
+arriving ends the intake. Then the pivot starts in, and the coroutine does not wait for it. The
+robot drives to the shot spot. Then `shoot()` runs for three seconds, which `withTimeout` cuts
+off.
+
+A test runs this auto in the simulator on each alliance. These are lines from its report for
+blue, in the order the moves ended:
+
+```text
+pivot → out: ARRIVED in 0.60 s
+drive → Pickup: ARRIVED in 2.22 s
+roller: intaking until piece in: CANCELED after 2.22 s
+pivot → in: ARRIVED in 0.60 s
+drive → Shot: ARRIVED in 2.36 s
+at feeding: CANCELED after 2.38 s
+```
+
+You can read the match from them. The roller ran for the whole first leg and was cancelled when
+the drive arrived. The last line says the feed ran for 2.38 of the 3 seconds. The first 0.62
+seconds were the wait for `ready`, while the shooter spun up and the robot turned to the hub.
 
 The runtime adds an auto called "Do nothing" by itself. It is first in the list and it is the
 default, so there is always a safe choice. The pit chooses an auto on Pitwall before the match.
@@ -493,8 +735,7 @@ robot was set down on the wrong mark, you find out while you can still move it.
 The simulator runs the same program on your laptop:
 
 ```bash
-./gradlew run                # the guide's robot
-./gradlew run -Probot=beta   # another robot from Robots.all(), by name
+./gradlew run
 ```
 
 Nothing in your code changes for the simulator. The joints are simulated from the description,
@@ -503,13 +744,10 @@ you gave it. The cameras see the tags they would see from where you mounted them
 
 Then open http://localhost:5820 in a browser. That is Pitwall. Its Pit view has the robot's
 status, which includes whether it stands on its start and whether it knows where it is well
-enough to score. The Tune view changes gains while the robot runs. The Experiment view runs a
-test motion and scores it. The World view draws the field in 3D with the robot where the code
-believes it is. In the simulator it also draws where the robot really is, so you can watch the
-two drift apart.
-
-The Sim view exists only in the simulator. It stands in for the Driver Station. You enable the
-robot there and drive it from the keyboard or a gamepad.
+enough to score. The Tune view changes gains while the robot runs. The World view draws the field
+in 3D with the robot where the code believes it is, and where it really is beside that. The Sim
+view stands in for the Driver Station. You enable the robot there and drive it from the keyboard
+or a gamepad.
 
 The Sim view can also break things on purpose. You can unplug a camera, freeze the gyro, or shove
 the robot sideways, all while it runs. The robot's code is never told. It has to notice from its
@@ -517,15 +755,38 @@ sensors, the way it would on the field. Failing a joint's motor or encoder is po
 today only a test can do that. The page cannot yet.
 
 Tests run the whole robot the same way, with no window and no waiting. A test builds the robot,
-presses buttons or pushes sticks, steps the clock, and checks what happened. The clock moves only
-when the test steps it, so the answer is the same on any laptop. `DrivingSimTest` in the examples
-folder is a short one to read first.
+presses buttons, steps the clock, and checks what happened. The clock moves only when the test
+steps it, so the answer is the same on any laptop. `ControlsSimTest` is the one to read first. It
+has a test for each worked example above, and each is about a dozen lines.
 
-One line runs every auto you declared, on both alliances. It fails if an auto throws, leaves the
-field, or has a move refused. This is from `ExampleAutosSimTest`:
+`AutoCheck.check(sim, ExampleRobot.COMPETITION, Controls::new)` runs every auto you declared, on
+both alliances. It fails if an auto throws, leaves the field, or has a move refused. The report
+quoted above came from it, in `ExampleAutosSimTest`.
 
-```java fragment
-var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, Controls::new);
+## In the template
+
+Everything above is the guide's robot. The template is the project your team starts from, in
+`src/main/java/frc/robot`, and it differs in a few ways. Each exists because a real team has
+more than one robot.
+
+**`Controls` starts empty.** The template's `Controls` binds nothing, so the guide's robot sits
+still in the simulator until you add bindings. The guide's `Controls` lives in the runtime's
+examples folder. Copy from it.
+
+**`Robots.java` lists every robot.** `Robots.all()` returns each robot your team has. A test
+builds every one, which is how a bad number in any of them fails the build.
+
+**`Main` picks a robot when the program starts.** The template passes `Robots::current` where the
+guide's `Main` named one robot. `Robots.current()` decides which robot the program is running on.
+It passes `Robots::controls` third, which makes the `Controls` written for that robot. It also
+passes a fourth argument, a stamp that tells the log which build of the code ran.
+
+**Two real robots are included.** `BetaRobot` and `DeltaRobot` are one team's two 2026 robots
+described this way, with their behaviour in `BetaControls` and `DeltaControls`. Read them when
+you want a whole robot that was built and played. The simulator runs either by name:
+
+```bash
+./gradlew run -Probot=beta
 ```
 
 ## Where to go next

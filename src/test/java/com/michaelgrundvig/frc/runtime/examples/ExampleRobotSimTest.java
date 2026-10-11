@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ARM;
+import static com.michaelgrundvig.frc.runtime.ExampleRobot.CLAW_BEAM;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ELEVATOR_DOWN;
@@ -55,6 +56,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.command3.Command;
 import org.wpilib.math.geometry.Translation3d;
 
 /**
@@ -410,5 +412,31 @@ class ExampleRobotSimTest {
     sim.run(commands.deployOrBackOff(), 1.5);
 
     assertThat(sim.simulation.position(PIVOT)).isCloseTo(Math.toRadians(130), within(0.03));
+  }
+
+  /**
+   * The guide's sensor example: the roller intakes until the claw's beam trips, the command ends in
+   * that loop with the move arrived, and the roller, idle again, stops.
+   */
+  @Test
+  void intakingOneEndsWhenTheBeamTrips() {
+    JointsSimHarness sim = new JointsSimHarness(ExampleRobot.COMPETITION.definition());
+    ExampleCommands commands = new ExampleCommands(sim.scheduler, sim.joints, () -> 0, () -> 3);
+    JointMechanism roller = sim.joints.of(ROLLER);
+    sim.run(sim.joints.of(PIVOT).goTo(PIVOT_OUT), 1.5); // out, so the interlock lets the roller run
+    Command intakeOne = commands.intakeOne();
+
+    sim.run(intakeOne, 1);
+    double running = sim.simulation.velocity(ROLLER);
+    boolean stillRunning = sim.scheduler.isRunning(intakeOne);
+    sim.sensors.trip(CLAW_BEAM, true);
+    sim.run(1);
+
+    assertThat(running).as("intaking, 2000 rpm").isCloseTo(2000 * 2 * Math.PI / 60, within(20.0));
+    assertThat(stillRunning).isTrue();
+    assertThat(sim.scheduler.isRunning(intakeOne)).isFalse();
+    assertThat(roller.lastOutcome())
+        .startsWith("roller: intaking until coral in claw: ARRIVED in ");
+    assertThat(sim.simulation.velocity(ROLLER)).as("idle, it stops").isCloseTo(0, within(1.0));
   }
 }

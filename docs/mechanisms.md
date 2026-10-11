@@ -437,12 +437,13 @@ bind it in the constructor:
 
 ```java fragment
 public final class Controls {
-  private final JointMechanism pivot, roller;
+  private final JointMechanism pivot, roller, shooter, feeder, indexer;
 
   Controls(Scheduler scheduler, RobotDefinition robot, Joints joints, Drive drive,
       RecordingGamepad driver, RecordingGamepad operator, Autos autos) {
     pivot = joints.of(PIVOT);
     roller = joints.of(ROLLER);
+    pieceIn = joints.gate("piece in", CLAW_BEAM.tripped());
 
     operator.rightTrigger().whileTrue(intake());
     operator.faceRight().onTrue(pivot.goTo(PIVOT_IN));
@@ -450,11 +451,11 @@ public final class Controls {
     autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
   }
 
-  /** Deploy and roll. The interlock holds the roller until the pivot passes 110°. */
+  /** Deploy, and roll until a piece is in. The interlock holds the roller until 110°. */
   Command intake() {
     return Command.requiring(pivot, roller).executing(co -> {
       co.fork(pivot.goTo(PIVOT_OUT));
-      co.await(roller.run(INTAKING));
+      co.await(roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8)));
     }).named("Intake");
   }
 }
