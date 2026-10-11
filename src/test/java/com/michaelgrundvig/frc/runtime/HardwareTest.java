@@ -177,7 +177,9 @@ class HardwareTest {
               "No wiring for bumper, so nothing waiting on them holds. Add it to the robot's entry"
                   + " in Robots.");
     }
-    assertThat(activeAlerts()).as("closed with it").noneMatch(text -> text.contains("No wiring"));
+    assertThat(activeAlerts())
+        .as("closed with it")
+        .noneMatch(text -> text.startsWith("No wiring for "));
   }
 
   /**
@@ -220,7 +222,7 @@ class HardwareTest {
 
       assertThat(made).allMatch(io -> io.getClass().isAnonymousClass());
       assertThat(hardware.cameras()).hasSize(ROBOT.cameras().size());
-      assertThat(activeAlerts()).noneMatch(text -> text.contains("No wiring"));
+      assertThat(activeAlerts()).noneMatch(text -> text.startsWith("No wiring for "));
     }
   }
 

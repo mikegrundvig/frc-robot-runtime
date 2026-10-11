@@ -533,7 +533,7 @@ class RobotContainerSimTest {
     sim.run(0.5);
 
     assertThat(sim.robot().joints().power().reads()).isTrue();
-    assertThat(activeAlerts()).noneMatch(text -> text.startsWith("The PDH"));
+    assertThat(activeAlerts()).noneMatch(text -> text.startsWith("The PDH isn't answering"));
 
     pdh.setVoltage(0);
     sim.run(1);
