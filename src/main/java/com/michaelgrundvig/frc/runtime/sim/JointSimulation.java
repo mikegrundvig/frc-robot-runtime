@@ -7,6 +7,7 @@ import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -17,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Transform3d;
@@ -55,17 +57,12 @@ public final class JointSimulation {
     for (Joint joint : Joints.driven(definition)) {
       JointIOSim simulated = new JointIOSim(math, joint, ControllerPins.of(definition, joint));
       joints.add(simulated);
-      if (Joints.readsAbsolute(joint) != null) {
-        encoders.put(
-            joint,
-            new AbsoluteEncoderIOSim(
-                simulated,
-                Objects.requireNonNull(math.absoluteEncoder(joint)),
-                joint
-                    .driven()
-                    .absoluteEncoder()
-                    .flatMap(Driven.AbsoluteEncoder::port)
-                    .orElse(null)));
+      boolean robotReadsItsEncoder = Joints.readsAbsolute(joint) != null;
+      if (robotReadsItsEncoder) {
+        Sensor.Encoder model = Objects.requireNonNull(math.absoluteEncoder(joint));
+        Optional<MechanismWiring.PortEncoder> port =
+            joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::port);
+        encoders.put(joint, new AbsoluteEncoderIOSim(simulated, model, port));
       }
     }
   }
@@ -101,11 +98,17 @@ public final class JointSimulation {
     }
   }
 
-  /** Whether the switch on one of a joint's controller's limits reads tripped: never for none. */
+  /**
+   * Whether the switch on one of a joint's controller's limits reads tripped. A limit with no
+   * switch on it never does.
+   */
   private BooleanSupplier limit(
       SensorSimulation sensors, Joint joint, SensorWiring.Direction direction) {
-    Sensor.Switch on = ControllerPins.onLimit(definition, joint, direction);
-    return on == null ? () -> false : sensors.tripped(on);
+    Sensor.Switch onTheLimit = ControllerPins.onLimit(definition, joint, direction);
+    if (onTheLimit == null) {
+      return () -> false;
+    }
+    return sensors.tripped(onTheLimit);
   }
 
   /**
@@ -152,12 +155,7 @@ public final class JointSimulation {
    * @throws IllegalArgumentException for a joint without one
    */
   public void freeze(Joint joint, boolean frozen) {
-    AbsoluteEncoderIOSim encoder = encoders.get(joint);
-    if (encoder != null) {
-      encoder.frozen = frozen;
-    } else {
-      withEncoder(joint).encoderFrozen = frozen;
-    }
+    encoderReading(joint).freeze(frozen);
   }
 
   /**
@@ -168,33 +166,39 @@ public final class JointSimulation {
    * @throws IllegalArgumentException for a joint without one
    */
   public void slip(Joint joint, double off) {
-    AbsoluteEncoderIOSim encoder = encoders.get(joint);
-    if (encoder != null) {
-      encoder.slip = off;
-    } else {
-      withEncoder(joint).encoderSlip = off;
-    }
+    encoderReading(joint).slip(off);
   }
 
-  /** A joint whose motor controller reads its absolute encoder, as the robot's block has it. */
-  private JointIOSim withEncoder(Joint joint) {
-    JointIOSim simulated = sim(joint);
-    if (simulated
-        .joint()
-        .driven()
-        .absoluteEncoder()
-        .map(Driven.AbsoluteEncoder::readByController)
-        .orElse(false)) {
-      return simulated;
+  /**
+   * A joint's absolute encoder's reading, for a test to fail: the encoder the robot reads itself,
+   * or else the one the joint's motor controller reads.
+   *
+   * @throws IllegalArgumentException for a joint with neither
+   */
+  private EncoderReading encoderReading(Joint joint) {
+    AbsoluteEncoderIOSim readByTheRobot = encoders.get(joint);
+    if (readByTheRobot != null) {
+      return readByTheRobot.reading();
     }
-    throw new IllegalArgumentException(joint.label() + " has no absolute encoder to fail");
+    JointIOSim simulated = sim(joint);
+    boolean readByItsController =
+        simulated
+            .joint()
+            .driven()
+            .absoluteEncoder()
+            .map(Driven.AbsoluteEncoder::readByController)
+            .orElse(false);
+    if (!readByItsController) {
+      throw new IllegalArgumentException(joint.label() + " has no absolute encoder to fail");
+    }
+    return simulated.encoder();
   }
 
   /** Unplugs a joint's absolute encoder, or plugs it back in: it reads nothing while unplugged. */
   public void unplug(Joint joint, boolean unplugged) {
-    Objects.requireNonNull(encoders.get(joint), joint.label() + " has no simulated encoder")
-            .connected =
-        !unplugged;
+    AbsoluteEncoderIOSim encoder =
+        Objects.requireNonNull(encoders.get(joint), joint.label() + " has no simulated encoder");
+    encoder.plugIn(!unplugged);
   }
 
   /** One loop: every joint runs for a time, with gravity where the joints stand as it starts. */

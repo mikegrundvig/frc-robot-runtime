@@ -23,22 +23,36 @@ import org.wpilib.units.measure.Distance;
  * controller, as a robot's is, which stops on it there ({@link JointIOSim}).
  */
 public final class SensorSimulation {
+  /** A switch's wire: whole, or cut, when the switch reads one way whatever happens at it. */
+  private enum Wire {
+    WHOLE,
+    /** Cut on a normally closed switch: an open circuit is what a tripped one looks like. */
+    CUT_READS_TRIPPED,
+    /** Cut on a normally open switch: an open circuit is what a clear one looks like. */
+    CUT_READS_CLEAR
+  }
+
   /** One simulated sensor: its device's reading, as a test leaves it. */
   private static final class Simulated implements SensorIO {
     final Sensor.Placed sensor;
     final JointSimulation joints;
-    boolean tripped;
-    double meters;
-    boolean silent;
 
-    /** A cut wire's reading, whatever trips it: null while its wire is whole. */
-    @Nullable Boolean cut;
+    /** Whether a test has tripped it: a switch that does not follow a simulated joint. */
+    boolean trippedByATest;
+
+    /** What a rangefinder sees: the distance to the nearest thing, in meters. */
+    double meters;
+
+    boolean silent;
+    Wire wire = Wire.WHOLE;
 
     Simulated(Sensor.Placed sensor, JointSimulation joints) {
       this.sensor = sensor;
       this.joints = joints;
-      meters =
-          sensor instanceof Sensor.Rangefinder rangefinder ? rangefinder.range().in(Meters) : 0;
+      if (sensor instanceof Sensor.Rangefinder rangefinder) {
+        // Nothing in sight: it sees out to its range.
+        meters = rangefinder.range().in(Meters);
+      }
     }
 
     /**
@@ -46,16 +60,18 @@ public final class SensorSimulation {
      * a limit switch on a simulated joint, else as a test left it.
      */
     boolean tripped() {
-      Boolean stuck = cut;
-      if (stuck != null) {
-        return stuck;
+      if (wire == Wire.CUT_READS_TRIPPED) {
+        return true;
+      }
+      if (wire == Wire.CUT_READS_CLEAR) {
+        return false;
       }
       if (sensor instanceof Sensor.Switch onSwitch
           && onSwitch.kind() instanceof Sensor.Switch.Limit limit
           && joints.simulates(limit.joint())) {
         return limit.trippedAt(joints.position(limit.joint()));
       }
-      return tripped;
+      return trippedByATest;
     }
 
     @Override
@@ -127,7 +143,7 @@ public final class SensorSimulation {
       throw new IllegalArgumentException(
           sensor.label() + " trips where " + limit.joint().label() + " really is: move it there");
     }
-    simulated(sensor).tripped = tripped;
+    simulated(sensor).trippedByATest = tripped;
   }
 
   /**
@@ -144,8 +160,16 @@ public final class SensorSimulation {
    * normally closed one tripped and a normally open one clear. Null mends it.
    */
   public void cut(Sensor.Switch sensor, SensorWiring.@Nullable Polarity polarity) {
-    simulated(sensor).cut =
-        polarity == null ? null : polarity == SensorWiring.Polarity.NORMALLY_CLOSED;
+    Simulated simulated = simulated(sensor);
+    if (polarity == null) {
+      simulated.wire = Wire.WHOLE;
+      return;
+    }
+    simulated.wire =
+        switch (polarity) {
+          case NORMALLY_CLOSED -> Wire.CUT_READS_TRIPPED;
+          case NORMALLY_OPEN -> Wire.CUT_READS_CLEAR;
+        };
   }
 
   /**

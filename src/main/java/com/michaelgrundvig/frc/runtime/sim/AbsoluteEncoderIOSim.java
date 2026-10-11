@@ -4,49 +4,57 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Sensor;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 
 /**
- * A joint's absolute encoder in the simulator: it reads where the joint really is, as its port
- * would, its offset and direction undone, so the joint's mechanism seeds from it as from a real
- * one. Unplugged, frozen or slipped on a test's word ({@link JointSimulation#unplug}, {@link
- * JointSimulation#freeze}, {@link JointSimulation#slip}).
+ * A joint's absolute encoder in the simulator, where the robot reads the encoder itself. It reads
+ * where the joint really is and reports it as its port would: as a share of a turn, with the port's
+ * offset and direction in it, so the joint's mechanism undoes them and seeds from it exactly as it
+ * does from a real one. A test can unplug it, freeze it, or slip it on its shaft ({@link
+ * JointSimulation#unplug}, {@link JointSimulation#freeze}, {@link JointSimulation#slip}).
  */
 final class AbsoluteEncoderIOSim implements AbsoluteEncoderIO {
   private final JointIOSim joint;
 
-  /** Its signal's turns for each of the joint's units: radians, or meters. */
-  private final double perUnit;
+  /** The encoder's turns for each of the joint's units: for each radian, or for each meter. */
+  private final double turnsPerUnit;
 
-  private final MechanismWiring.@Nullable PortEncoder port;
+  /**
+   * The Systemcore port it is wired to, which turns a position into the raw signal the port reads.
+   * Empty for an encoder with no wiring, which reports the share of a turn as it is.
+   */
+  private final Optional<MechanismWiring.PortEncoder> port;
 
-  boolean connected = true;
-
-  /** Whether its reading is stuck where it was, as a frozen encoder's is. */
-  boolean frozen;
-
-  /** How far off it reads the joint, in the joint's units: its magnet turned on its shaft. */
-  double slip;
-
-  /** Its reading as last read: what it reads while frozen. */
-  private double share = Double.NaN;
+  private final EncoderReading reading = new EncoderReading();
+  private boolean connected = true;
 
   AbsoluteEncoderIOSim(
-      JointIOSim joint, Sensor.Encoder model, MechanismWiring.@Nullable PortEncoder port) {
+      JointIOSim joint, Sensor.Encoder model, Optional<MechanismWiring.PortEncoder> port) {
     this.joint = joint;
-    double perTurn = joint.joint() instanceof Joint.Revolute ? 2 * Math.PI : 1;
-    perUnit = Math.abs(model.ratio(joint.joint())) / perTurn;
+    double unitsPerTurn = joint.joint() instanceof Joint.Revolute ? 2 * Math.PI : 1;
+    turnsPerUnit = Math.abs(model.ratio(joint.joint())) / unitsPerTurn;
     this.port = port;
+  }
+
+  /** Unplugs it, or plugs it back in: it reads nothing while unplugged. */
+  void plugIn(boolean connected) {
+    this.connected = connected;
+  }
+
+  /** Its reading, for a test to freeze or slip. */
+  EncoderReading reading() {
+    return reading;
   }
 
   @Override
   public void updateInputs(AbsoluteEncoderIOInputs inputs) {
     inputs.connected = connected;
-    if (!frozen || Double.isNaN(share)) {
-      double reading = (joint.position() + slip) * perUnit;
-      MechanismWiring.PortEncoder wired = port;
-      share = wired != null ? wired.raw(reading) : reading - Math.floor(reading);
+    double turns = reading.of(joint.position()) * turnsPerUnit;
+    if (port.isPresent()) {
+      inputs.share = port.get().raw(turns);
+      return;
     }
-    inputs.share = share;
+    // An absolute encoder tells one turn from the next only by the share of the turn it is in.
+    inputs.share = turns - Math.floor(turns);
   }
 }

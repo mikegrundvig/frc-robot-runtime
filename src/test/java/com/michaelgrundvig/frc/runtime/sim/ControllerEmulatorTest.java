@@ -52,9 +52,10 @@ class ControllerEmulatorTest {
   void aTalonFxsSlotRunsTheWholeLawWhereItReadsTheJoint() {
     TalonFxEmulator talon = new TalonFxEmulator(PLAN);
 
-    talon.hold(1.0, 0.5, 0.3, 0.9, 0.1, true);
-    double first = talon.holding(0.95, 0.4, 0.001);
-    double second = talon.holding(0.95, 0.4, 0.001);
+    talon.startPositionLoopAfresh();
+    talon.hold(1.0, 0.5, 0.3, 0.1);
+    double first = talon.voltsToHold(0.95, 0.4, 0.001);
+    double second = talon.voltsToHold(0.95, 0.4, 0.001);
     talon.run(2.0, 0.9);
 
     double feedback = PLAN.kP() * 0.05 + PLAN.kD() * (0.5 - 0.4);
@@ -63,7 +64,7 @@ class ControllerEmulatorTest {
             feedback + PLAN.kI() * 0.05 * 0.001 + PLAN.feedforward(0.95, 0.5, 0) + 0.3,
             within(1e-12));
     assertThat(second - first).as("its integral grows").isCloseTo(2 * 0.05 * 0.001, within(1e-12));
-    assertThat(talon.running(1.1, 1.5))
+    assertThat(talon.voltsToRun(1.1, 1.5))
         .isCloseTo(PLAN.kP() * 0.5 + PLAN.feedforward(1.1, 2.0, 0), within(1e-12));
   }
 
@@ -76,10 +77,11 @@ class ControllerEmulatorTest {
   void aSparkRunsItsKpAndHoldsWhatTheRobotWorkedOut() {
     SparkEmulator spark = new SparkEmulator(PLAN);
 
-    spark.hold(1.0, 0.5, 0.3, 0.9, 0.1, true);
+    spark.startPositionLoopAfresh();
+    spark.hold(1.0, 0.5, 0.3, 0.1);
     double held = 0.3 + PLAN.feedforward(1.0, 0.5, 0) + PLAN.kD() * (0.5 - 0.1);
-    double near = spark.holding(0.95, 0.4, 0.001);
-    double there = spark.holding(1.0, 7, 0.001);
+    double near = spark.voltsToHold(0.95, 0.4, 0.001);
+    double there = spark.voltsToHold(1.0, 7, 0.001);
     spark.run(2.0, 0.9);
 
     double integral = PLAN.kI() * 0.05 * 0.001;
@@ -87,7 +89,7 @@ class ControllerEmulatorTest {
     assertThat(there)
         .as("no damping on the device; the integral kept")
         .isCloseTo(held + integral, within(1e-12));
-    assertThat(spark.running(1.1, 1.5))
+    assertThat(spark.voltsToRun(1.1, 1.5))
         .as("gravity where it was last read")
         .isCloseTo(PLAN.kP() * 0.5 + PLAN.feedforward(0.9, 2.0, 0), within(1e-12));
   }

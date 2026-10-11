@@ -18,59 +18,60 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
-import org.jspecify.annotations.Nullable;
 
 /**
- * A simulated joint: its motor controller, as the joint's control and wiring describe it, driving
- * the joint's plant, its motors moving its link, built from the robot's definition alone ({@link
- * JointPlant}, in the simulation library: the motors through the transmission, the inertia,
- * gravity, the hard stops).
+ * A simulated joint, as the robot's code reads and drives it: the joint's motor controller,
+ * emulated here, driving the joint's plant ({@link JointPlant}, in the simulation library: the
+ * motors through the transmission, the inertia, gravity, the hard stops).
  *
- * <p>Gravity is the plant's: what the kG tuned in the joint's block holds, through its motors, or,
- * where its block tunes none, its links' weight. It's the robot's, from its block in the definition
- * the simulator was built from, not its motor controller's: a test can run the controller with
- * another kG, re-tuning the joint ({@code PIVOT.retuned(control -> control.withKg(0))}) in a robot
- * whose definition keeps its own, and live tuning doesn't move it.
+ * <p><b>The motor controller</b> runs every millisecond, on where it reads the joint ({@link
+ * #deviceLoop}). It is the controller the joint's block names, running what its vendor's helper
+ * would configure from the joint's plan ({@link ControllerPlan}): a TalonFX or TalonFXS runs the
+ * plan's whole law on the device ({@link TalonFxEmulator}), and a SPARK runs kP on the device with
+ * the feedforward the robot sends ({@link SparkEmulator}). A joint wired to nothing runs on the
+ * controller its motor usually runs on: a SPARK MAX for a NEO, a TalonFX for a Kraken ({@link
+ * ControllerPlan#controllers}). Whichever it is, it has a stator current limit, soft limits past
+ * which it drives no further, and a neutral that brakes or coasts as the joint's control says.
  *
- * <p>The motor controller runs as the controller its block names runs what its vendor's helper
- * configures, from the joint's plan ({@link ControllerPlan}), its loop every millisecond on the
- * joint's own position and speed: a TalonFX's slot, the plan's whole law on the device ({@link
- * TalonFxEmulator}), for a TalonFX or a TalonFXS; a SPARK's kP on the device, with the plan's
- * feedforward the robot works out as it asks ({@link SparkEmulator}). A joint wired to nothing runs
- * on the controller its motor runs on, as its settings are checked: a NEO's a SPARK MAX, a Kraken's
- * a TalonFX ({@link ControllerPlan#controllers}). Either way: its stator current limit; its soft
- * limits, past which it drives no further; and neutral as its control says, braking or coasting.
- * Like a real one, it knows only where its own count says the joint is: from where the joint was at
- * power on, taken to be where it rests, until homing tells it otherwise ({@link #powerOnAt}, {@link
- * #resetPosition}). The battery holds 12 V, and the supply current limit isn't modeled, as the
- * drivetrain's isn't ({@code ModuleIOSim}).
+ * <p><b>Where it reads the joint.</b> Like a real controller, it knows only its own count: where
+ * the joint was at power on, taken to be where the joint rests, plus how far its motor has turned
+ * since. Homing tells it otherwise ({@link #powerOnAt}, {@link #resetPosition}). A controller that
+ * reads an absolute encoder, a CANcoder or one on a SPARK's data port, is seeded from the encoder
+ * instead, and where the robot's IO reads that encoder each loop beside the count, so does this
+ * ({@link JointIO.JointIOInputs#absolutePosition}).
  *
- * <p>Its limits are what the robot's IO for the joint is given ({@link ControllerPins#of}): a
- * switch on one of its controller's own pins, which it reads to the robot with the joint ({@link
- * JointIO.JointIOInputs#forwardLimit}), and a limit switch on a CANdi a TalonFX reads over CAN,
- * which the robot reads as a sensor of its own. On a limit switch it stops by itself, in its
- * millisecond loop, homing's push included: it drives no further toward the switch's end while the
- * switch reads tripped, as the simulated world has it ({@link SensorSimulation}), whatever the
- * robot asks. Its forward limit stops it moving the joint forward, as the template takes a
- * controller's forward to be (open question M22).
+ * <p><b>Its limit switches</b> are what the robot's IO for the joint is given ({@link
+ * ControllerPins#of}): a switch on one of the controller's own pins, which it reports to the robot
+ * with the joint ({@link JointIO.JointIOInputs#forwardLimit}), or a switch on a CANdi that a
+ * TalonFX reads over CAN, which the robot reads as a sensor of its own. The controller stops on a
+ * tripped switch by itself, in its millisecond loop, whatever the robot asks, a homing push
+ * included. Its forward limit stops it driving the joint forward, as the template takes a
+ * controller's forward to be (open question M22). Whether a switch reads tripped comes from the
+ * simulated world ({@link SensorSimulation}).
  *
- * <p>An absolute encoder it reads, a CANcoder or one on a SPARK's data port, tells it where the
- * joint is, as a real one's IO seeds it from the encoder, and is read each loop beside its count
- * where the robot's IO reads it so ({@link JointIO.JointIOInputs#absolutePosition}): a CANcoder its
- * TalonFX reads its rotor beside, or a data port. A test can freeze that encoder, or slip it on its
- * shaft ({@link JointSimulation#freeze}, {@link JointSimulation#slip}).
+ * <p><b>Gravity</b> is the plant's, from the joint's block in the definition the simulator was
+ * built from. It is not the motor controller's: a test can run the controller with another kG
+ * ({@code PIVOT.retuned(control -> control.withKg(0))}) in a robot whose definition keeps its own,
+ * and live tuning does not move it.
  *
- * <p>A test can fail it as a robot's fails ({@link JointSimulation}): silent, as one off the CAN
- * bus is, it answers nothing and hears nothing, so it goes neutral; restarted, as one whose breaker
- * reset is, it says so once, goes neutral until it's asked again, and counts from 0, or reads the
- * absolute encoder its block has it read, as a real one is seeded from it again; jammed, it stays
- * where it is whatever its motors do, which stall against what holds it. One of its followers can
- * go off the bus alone: neutral, drawing nothing, the joint driven by the rest. It keeps its tuning
- * through a restart: a TalonFX's is saved on it, and a SPARK's IO tells it again.
+ * <p><b>How a test can fail it</b>, as a robot's fails ({@link JointSimulation}):
  *
- * <p>What the robot would refuse of the joint's settings, its configuration refused before the
- * simulator started; what it would doubt, the robot says at startup, in the simulator as on the
- * robot ({@link ControllerSettings#findings}).
+ * <ul>
+ *   <li><b>Silent</b>, as a controller off the CAN bus is: it answers nothing and hears nothing, so
+ *       it goes neutral.
+ *   <li><b>Restarted</b>, as one whose breaker reset is: it says so once, goes neutral until it is
+ *       asked again, and counts from 0, or from the absolute encoder it reads. It keeps its tuning:
+ *       a TalonFX's is saved on it, and a SPARK's IO tells it again.
+ *   <li><b>Jammed</b>: the joint stays where it is whatever its motors do, and they stall.
+ *   <li><b>A follower off the bus</b> alone: neutral, drawing nothing, the joint driven by the
+ *       rest.
+ *   <li><b>Its absolute encoder frozen or slipped</b> on its shaft ({@link EncoderReading}).
+ * </ul>
+ *
+ * <p><b>What is left out.</b> The battery holds 12 V, and the supply current limit is not modeled,
+ * as the drivetrain's is not ({@code ModuleIOSim}). What the robot would refuse of the joint's
+ * settings, its configuration refused before the simulator started, and what it would doubt, the
+ * robot says at startup, in the simulator as on the robot ({@link ControllerSettings#findings}).
  */
 final class JointIOSim implements JointIO {
   /**
@@ -79,13 +80,30 @@ final class JointIOSim implements JointIO {
    */
   static final double DEVICE_LOOP_SECONDS = 0.001;
 
-  private enum Mode {
+  /**
+   * How far short of a whole millisecond the time owed may be for a device loop to run, in seconds.
+   * Robot loops add up to whole milliseconds only to within rounding, and without this a device
+   * loop would now and then run a robot loop late.
+   */
+  private static final double DEVICE_LOOP_SLACK_SECONDS = 1e-12;
+
+  /** What the robot last asked of the motor controller. */
+  private enum Asked {
+    /** Nothing: the motors brake or coast, as the joint's control says. */
     NEUTRAL,
+    /** To hold a point of a profile, on its own position loop. */
     POSITION,
+    /** To run at a speed, on its own velocity loop. */
     VELOCITY,
+    /** A voltage, within its soft limits. */
     VOLTAGE,
+    /** A share of the battery's voltage, within its soft limits. */
     DUTY_CYCLE,
-    HOMING
+    /**
+     * A voltage for homing, which ignores its soft limits: they are in the wrong place until the
+     * joint is homed.
+     */
+    HOMING_PUSH
   }
 
   private final Joint joint;
@@ -93,78 +111,81 @@ final class JointIOSim implements JointIO {
   private final JointPlant plant;
   private final ControllerEmulator controller;
 
-  /** What its motor controller has on its limits, as the robot's IO is told. */
-  private final ControllerPins pins;
-
-  /**
-   * Whether the switch on each of its limits reads tripped, as the simulated world has it: never,
-   * until the world's sensors are simulated ({@link #readsLimits}).
-   */
-  private BooleanSupplier forwardTripped = () -> false;
-
-  private BooleanSupplier reverseTripped = () -> false;
-
   /** How its motor controller drives it: its block's control, or as the pit tunes it. */
   private ControllerPlan plan;
 
-  /** Where the motor controller reads the joint, less where it really is: 0 until misplaced. */
-  private double offset;
+  private Asked asked = Asked.NEUTRAL;
+
+  /** The volts last asked for, as a voltage or as a homing push. */
+  private double askedVolts;
+
+  /** The share of the battery's voltage last asked for, from -1 to 1. */
+  private double askedDutyCycle;
+
+  /**
+   * Where the motor controller reads the joint by its motor's count, less where the joint really
+   * is. Zero while the count is right. It is not zero for a joint powered on away from where it
+   * rests, until homing tells the controller where the joint is.
+   */
+  private double countOffset;
 
   /** Where, and how fast, the motor controller last told the robot the joint is. */
-  private double read;
+  private double lastReadPosition;
 
-  private double readVelocity;
+  private double lastReadVelocity;
 
-  private Mode mode = Mode.NEUTRAL;
-  private double setVolts;
+  /** Seconds of the robot's loop not yet run, always under a millisecond: the next step's. */
+  private double owedSeconds;
 
-  /** Seconds of the robot's loop not yet run, under a millisecond: the next step's. */
-  private double owed;
-
-  /** Whether it's silent, off the bus: it answers nothing and hears nothing. */
+  /** Whether it is off the CAN bus: it answers nothing and hears nothing. */
   private boolean silent;
 
   /** Whether it restarted since the robot last read it. */
   private boolean restarted;
 
-  /**
-   * The absolute encoder it reads beside its count, where the robot's IO reads it so; null for
-   * none.
-   */
-  private final Sensor.@Nullable Encoder absolute;
+  // What is on its two limit inputs, as the robot's IO for the joint is told (ControllerPins), and
+  // whether the switch on each reads tripped, as the simulated world has it. Until the world's
+  // sensors are simulated (readsLimits), no switch ever reads tripped.
+  private final boolean stopsOnForwardLimit;
+  private final boolean stopsOnReverseLimit;
+  private final boolean reportsForwardLimit;
+  private final boolean reportsReverseLimit;
+  private BooleanSupplier forwardTripped = () -> false;
+  private BooleanSupplier reverseTripped = () -> false;
 
   /**
-   * The absolute encoder its motor controller reads and is seeded from, as a real one is at power
-   * on and after it restarts: inside the window its turn tells apart. Null for none.
+   * The absolute encoder the robot's IO reads each loop beside the motor's count: a CANcoder that
+   * its TalonFX reads its rotor beside, or a SPARK's data port. Empty where the IO reads none so.
    */
-  private final Sensor.@Nullable Encoder seedsFrom;
+  private final Optional<Sensor.Encoder> readBesideCount;
 
   /**
-   * Whether its motor controller's own loop runs on the absolute encoder it reads, not on its
-   * motor's count: a TalonFX's on its CANcoder (remote, fused or sync), a SPARK's on its data port.
-   * Its position is then the encoder's.
+   * The absolute encoder the motor controller is seeded from, as a real one is at power on and
+   * after it restarts. Empty where the controller reads no absolute encoder.
    */
-  private final boolean loopOnEncoder;
-
-  /** Whether the absolute encoder it reads is stuck, as a frozen encoder's is. */
-  boolean encoderFrozen;
-
-  /** How far off the absolute encoder it reads says the joint is, in its units: a loose magnet. */
-  double encoderSlip;
-
-  /** Where that encoder last said the joint is, unwrapped: what it says while frozen. */
-  private double encoderSaid = Double.NaN;
+  private final Optional<Sensor.Encoder> seedsFrom;
 
   /**
-   * Its devices, as its block wires them: its motor controllers, the leader first, then a CANcoder
-   * if it has one; and its followers. None faults, and its followers answer with it.
+   * Whether the motor controller's own loop runs on the absolute encoder it reads, and not on its
+   * motor's count: a TalonFX's on its CANcoder (remote, fused or sync), or a SPARK's on its data
+   * port. Where it reads the joint is then where the encoder says the joint is.
    */
-  private final int devices;
+  private final boolean loopRunsOnEncoder;
 
-  private final int followers;
+  /** What the absolute encoder the controller reads says, as a test has failed it. */
+  private final EncoderReading encoder = new EncoderReading();
 
-  /** Which of its followers are off the CAN bus, neutral, the joint driven without them. */
-  private final boolean[] silentFollowers;
+  /**
+   * How many devices it reports faults for, as its block wires them: its motor controllers, and its
+   * CANcoder if it has one. None of them ever faults here.
+   */
+  private final int deviceCount;
+
+  /** How many motor controllers follow its leader. */
+  private final int followerCount;
+
+  /** Which of its followers are off the CAN bus: neutral, with the joint driven without them. */
+  private final boolean[] followerSilent;
 
   /**
    * @param math what the robot's definition derives: its joint's block sets the gravity on it
@@ -182,31 +203,42 @@ final class JointIOSim implements JointIO {
   JointIOSim(RobotMath math, Joint joint, ControllerPins pins) {
     this.joint = joint;
     this.math = math;
-    this.pins = pins;
     plan = ControllerPlan.of(math, joint, ControllerSettings.control(joint));
     plant = JointPlant.of(math, joint);
     controller = ControllerEmulator.of(plan);
-    read = plant.position();
-    absolute = readsBeside(joint) ? math.absoluteEncoder(joint) : null;
-    int controllers = joint.driven().motors().map(motors -> motors.controllers().size()).orElse(0);
-    followers = Math.max(0, controllers - 1);
-    silentFollowers = new boolean[followers];
-    devices =
-        controllers
-            + (joint
-                    .driven()
-                    .absoluteEncoder()
-                    .flatMap(Driven.AbsoluteEncoder::cancoder)
-                    .isPresent()
-                ? 1
-                : 0);
-    loopOnEncoder =
-        joint
-            .driven()
-            .absoluteEncoder()
-            .map(Driven.AbsoluteEncoder::runsControllerLoop)
-            .orElse(false);
-    seedsFrom = readsEncoder() ? math.absoluteEncoder(joint) : null;
+    lastReadPosition = plant.position();
+
+    stopsOnForwardLimit = pins.forward().map(ControllerPins.Limit::stops).orElse(false);
+    stopsOnReverseLimit = pins.reverse().map(ControllerPins.Limit::stops).orElse(false);
+    reportsForwardLimit = pins.forward().filter(ControllerPins.OnPin.class::isInstance).isPresent();
+    reportsReverseLimit = pins.reverse().filter(ControllerPins.OnPin.class::isInstance).isPresent();
+
+    Optional<Driven.AbsoluteEncoder> wired = joint.driven().absoluteEncoder();
+    Optional<Sensor.Encoder> model = Optional.ofNullable(math.absoluteEncoder(joint));
+    readBesideCount = wired.filter(JointIOSim::isReadBesideCount).flatMap(encoder -> model);
+    seedsFrom = wired.filter(Driven.AbsoluteEncoder::readByController).flatMap(encoder -> model);
+    loopRunsOnEncoder = wired.map(Driven.AbsoluteEncoder::runsControllerLoop).orElse(false);
+
+    int controllerCount =
+        joint.driven().motors().map(motors -> motors.controllers().size()).orElse(0);
+    followerCount = Math.max(0, controllerCount - 1);
+    followerSilent = new boolean[followerCount];
+    boolean hasCancoder = wired.flatMap(Driven.AbsoluteEncoder::cancoder).isPresent();
+    deviceCount = hasCancoder ? controllerCount + 1 : controllerCount;
+  }
+
+  /**
+   * Whether the robot's IO reads an absolute encoder each loop beside the motor's count: one on a
+   * SPARK's data port, or a CANcoder that a TalonFX reads its own rotor beside.
+   */
+  private static boolean isReadBesideCount(Driven.AbsoluteEncoder encoder) {
+    if (encoder.dataPort().isPresent()) {
+      return true;
+    }
+    return encoder
+        .cancoder()
+        .filter(cancoder -> cancoder.feedback() == MechanismWiring.Feedback.ROTOR)
+        .isPresent();
   }
 
   /** The joint. */
@@ -239,6 +271,20 @@ final class JointIOSim implements JointIO {
     return plant.supplyAmps();
   }
 
+  /**
+   * The current one of its motor controllers draws from the battery, in amps: what its PDH channel
+   * reads. Each that drives the joint draws alike, and a follower off the bus draws nothing.
+   *
+   * @param controller which, from 0 for the leader
+   */
+  double supplyAmps(int controller) {
+    boolean isAFollower = controller > 0 && controller <= followerCount;
+    if (isAFollower && followerSilent[controller - 1]) {
+      return 0;
+    }
+    return plant.supplyAmps();
+  }
+
   /** Where the joint really is, in its units. */
   double position() {
     return plant.position();
@@ -249,11 +295,16 @@ final class JointIOSim implements JointIO {
     return plant.velocity();
   }
 
+  /** The absolute encoder its motor controller reads, for a test to freeze or slip. */
+  EncoderReading encoder() {
+    return encoder;
+  }
+
   /** Silences it, or brings it back: off the CAN bus, it answers nothing and goes neutral. */
   void silence(boolean silent) {
     this.silent = silent;
     if (silent) {
-      mode = Mode.NEUTRAL;
+      asked = Asked.NEUTRAL;
     }
   }
 
@@ -266,28 +317,18 @@ final class JointIOSim implements JointIO {
    * @throws IllegalArgumentException for a follower it hasn't
    */
   void silenceFollower(int follower, boolean silent) {
-    if (follower < 0 || follower >= followers) {
+    if (follower < 0 || follower >= followerCount) {
       throw new IllegalArgumentException(
-          joint.label() + " has " + followers + " followers, not one numbered " + follower);
+          joint.label() + " has " + followerCount + " followers, not one numbered " + follower);
     }
-    silentFollowers[follower] = silent;
-    int driving = 1;
-    for (boolean each : silentFollowers) {
-      driving += each ? 0 : 1;
+    followerSilent[follower] = silent;
+    int stillDriving = 1; // the leader
+    for (boolean eachSilent : followerSilent) {
+      if (!eachSilent) {
+        stillDriving++;
+      }
     }
-    plant.drivenBy(driving);
-  }
-
-  /**
-   * The current one of its motor controllers draws from the battery, in amps: what its PDH channel
-   * reads. Each that drives the joint draws alike; a follower off the bus draws nothing.
-   *
-   * @param controller which, from 0 for the leader
-   */
-  double supplyAmps(int controller) {
-    return controller > 0 && controller <= followers && silentFollowers[controller - 1]
-        ? 0
-        : plant.supplyAmps();
+    plant.drivenBy(stillDriving);
   }
 
   /**
@@ -299,208 +340,211 @@ final class JointIOSim implements JointIO {
   }
 
   /**
-   * Restarts it: neutral until it's asked again, it counts from 0, or reads where the joint is from
-   * the absolute encoder its controller reads, inside the window the encoder's turn tells apart, as
-   * a real one is seeded, a joint that turns past it included; and it says it restarted the next
-   * time it's read.
+   * Restarts it. It goes neutral until it is asked again, and it says it restarted the next time it
+   * is read. Its count starts again: from 0, or, for a controller that reads an absolute encoder,
+   * from where that encoder says the joint is, as a real one is seeded.
    */
   void restart() {
-    mode = Mode.NEUTRAL;
+    asked = Asked.NEUTRAL;
     restarted = true;
-    Sensor.Encoder seeds = seedsFrom;
-    offset = (seeds != null ? inWindow(seeds) : 0) - plant.position();
-  }
-
-  /** Whether its motor controller reads an absolute encoder, and is seeded from it. */
-  private boolean readsEncoder() {
-    return joint
-        .driven()
-        .absoluteEncoder()
-        .map(Driven.AbsoluteEncoder::readByController)
-        .orElse(false);
-  }
-
-  /**
-   * Whether the robot's IO reads the absolute encoder its motor controller reads each loop, beside
-   * its count: a CANcoder its TalonFX reads its rotor beside, or a SPARK's data port.
-   */
-  private static boolean readsBeside(Joint joint) {
-    return joint
-        .driven()
-        .absoluteEncoder()
-        .map(
-            encoder ->
-                encoder.dataPort().isPresent()
-                    || encoder
-                        .cancoder()
-                        .filter(on -> on.feedback() == MechanismWiring.Feedback.ROTOR)
-                        .isPresent())
-        .orElse(false);
+    double countsFrom = 0;
+    if (seedsFrom.isPresent()) {
+      countsFrom = withinTheEncodersWindow(seedsFrom.get());
+    }
+    countOffset = countsFrom - plant.position();
   }
 
   /** Puts the joint somewhere, still, where its motor controller reads it too: a test's start. */
   void place(double position) {
     plant.place(position);
-    offset = 0;
+    countOffset = 0;
   }
 
   /**
-   * Powers it on somewhere other than where it rests, still: its motor controller reads it where it
-   * rests anyway, as a joint read by its motor alone does, until it's homed; or, seeded from the
-   * absolute encoder it reads, inside the window the encoder's turn tells apart.
+   * Powers it on somewhere other than where it rests, still. Its motor controller reads it where it
+   * rests anyway, as a joint read by its motor alone does, until it is homed. A controller that
+   * reads an absolute encoder is seeded from it instead.
    */
   void powerOnAt(double position) {
     plant.place(position);
-    Sensor.Encoder seeds = seedsFrom;
-    offset = (seeds != null ? inWindow(seeds) : joint.restPosition()) - position;
+    double countsFrom = joint.restPosition();
+    if (seedsFrom.isPresent()) {
+      countsFrom = withinTheEncodersWindow(seedsFrom.get());
+    }
+    countOffset = countsFrom - position;
   }
 
   /**
    * Runs the motor controller and the joint for a time, a millisecond at a time as the motor
-   * controller does.
+   * controller does. Time short of a whole millisecond is kept for the next step.
    *
    * @param gravityTorque gravity's torque on the joint through the step, positive turning it
    *     forward: newton meters, or newtons for a slide
    */
   void step(double seconds, double gravityTorque) {
-    owed += seconds;
-    while (owed >= DEVICE_LOOP_SECONDS - 1e-12) {
-      owed -= DEVICE_LOOP_SECONDS;
+    owedSeconds += seconds;
+    while (owedSeconds >= DEVICE_LOOP_SECONDS - DEVICE_LOOP_SLACK_SECONDS) {
+      owedSeconds -= DEVICE_LOOP_SECONDS;
       deviceLoop(gravityTorque);
     }
   }
 
-  /** One millisecond: the motor controller's loop, then the joint, held at its stops. */
+  /**
+   * One millisecond: the motor controller reads the joint and decides what to put across its
+   * motors, and the joint moves under that for the millisecond, held at its stops.
+   */
   private void deviceLoop(double gravityTorque) {
-    double position = controllerReads(); // where the motor controller reads it
+    double position = controllerReads();
     double velocity = plant.velocity();
-    double limit = plan.currentLimits().stator().in(Amps);
-    if (mode == Mode.NEUTRAL) {
-      if (plan.brakes()) {
-        plant.run(0, limit, gravityTorque, DEVICE_LOOP_SECONDS);
-      } else {
-        plant.coast(gravityTorque, DEVICE_LOOP_SECONDS);
-      }
+    double statorLimitAmps = plan.currentLimits().stator().in(Amps);
+    if (asked == Asked.NEUTRAL) {
+      runInNeutral(statorLimitAmps, gravityTorque);
       return;
     }
-    double volts = Math.clamp(volts(position, velocity), -Motor.NOMINAL_VOLTS, Motor.NOMINAL_VOLTS);
-    if (mode != Mode.HOMING && pastSoftLimit(position, volts)) {
-      volts = 0; // homing ignores the soft limits
+    double loopVolts = loopVolts(position, velocity);
+    double volts = Math.clamp(loopVolts, -Motor.NOMINAL_VOLTS, Motor.NOMINAL_VOLTS);
+    boolean obeysSoftLimits = asked != Asked.HOMING_PUSH;
+    if (obeysSoftLimits && drivesPastASoftLimit(position, volts)) {
+      volts = 0;
     }
-    if (atLimitSwitch(volts)) {
-      volts = 0; // and stops on its limit switches, as everything else does
+    // A limit switch stops everything, a homing push included.
+    if (drivesIntoATrippedLimitSwitch(volts)) {
+      volts = 0;
     }
-    plant.run(volts, limit, gravityTorque, DEVICE_LOOP_SECONDS);
+    plant.run(volts, statorLimitAmps, gravityTorque, DEVICE_LOOP_SECONDS);
   }
 
-  /** Whether it's at or past a soft limit, driven on past it. */
-  private boolean pastSoftLimit(double position, double volts) {
-    return plan.softLimits()
-        .map(
-            limits ->
-                (position >= limits.upper() && volts > 0)
-                    || (position <= limits.lower() && volts < 0))
-        .orElse(false);
+  /**
+   * A millisecond in neutral. A controller set to brake shorts its motors, which is 0 V across
+   * them: the back EMF drives a current that slows the joint. One set to coast opens them, so no
+   * current flows and only gravity moves the joint.
+   */
+  private void runInNeutral(double statorLimitAmps, double gravityTorque) {
+    if (plan.brakes()) {
+      plant.run(0, statorLimitAmps, gravityTorque, DEVICE_LOOP_SECONDS);
+      return;
+    }
+    plant.coast(gravityTorque, DEVICE_LOOP_SECONDS);
   }
 
-  /** Whether a limit switch it stops on reads tripped, driven on toward it. */
-  private boolean atLimitSwitch(double volts) {
-    return (volts > 0 && stops(pins.forward()) && forwardTripped.getAsBoolean())
-        || (volts < 0 && stops(pins.reverse()) && reverseTripped.getAsBoolean());
-  }
-
-  private static boolean stops(Optional<ControllerPins.Limit> limit) {
-    return limit.map(ControllerPins.Limit::stops).orElse(false);
-  }
-
-  /** Whether a limit is a switch on its own pin, which it reads to the robot with the joint. */
-  private static boolean onPin(Optional<ControllerPins.Limit> limit) {
-    return limit.orElse(null) instanceof ControllerPins.OnPin;
-  }
-
-  /** What the motor controller asks of the motors this millisecond. */
-  private double volts(double position, double velocity) {
-    return switch (mode) {
-      case POSITION -> controller.holding(position, velocity, DEVICE_LOOP_SECONDS);
-      case VELOCITY -> controller.running(position, velocity);
-      case VOLTAGE, HOMING -> setVolts;
-      case DUTY_CYCLE -> setVolts * Motor.NOMINAL_VOLTS;
+  /** What the motor controller's loop asks to put across the motors this millisecond. */
+  private double loopVolts(double position, double velocity) {
+    return switch (asked) {
+      case POSITION -> controller.voltsToHold(position, velocity, DEVICE_LOOP_SECONDS);
+      case VELOCITY -> controller.voltsToRun(position, velocity);
+      case VOLTAGE, HOMING_PUSH -> askedVolts;
+      case DUTY_CYCLE -> askedDutyCycle * Motor.NOMINAL_VOLTS;
       case NEUTRAL -> 0;
     };
+  }
+
+  /**
+   * Whether it is at or past one of its soft limits and these volts would drive it further past.
+   */
+  private boolean drivesPastASoftLimit(double position, double volts) {
+    if (plan.softLimits().isEmpty()) {
+      return false;
+    }
+    MechanismControl.SoftLimits limits = plan.softLimits().get();
+    boolean pastUpperDrivenUp = position >= limits.upper() && volts > 0;
+    boolean pastLowerDrivenDown = position <= limits.lower() && volts < 0;
+    return pastUpperDrivenUp || pastLowerDrivenDown;
+  }
+
+  /**
+   * Whether these volts would drive it toward a limit switch that it stops on and that reads
+   * tripped. Its forward limit stops positive volts, and its reverse limit negative ones.
+   */
+  private boolean drivesIntoATrippedLimitSwitch(double volts) {
+    if (volts > 0 && stopsOnForwardLimit && forwardTripped.getAsBoolean()) {
+      return true;
+    }
+    return volts < 0 && stopsOnReverseLimit && reverseTripped.getAsBoolean();
   }
 
   @Override
   public void updateInputs(JointIOInputs inputs) {
     if (silent) {
-      inputs.connected = false; // its last readings stand, as a robot's do
+      // Off the bus, nothing new arrives: its last readings stand, as a robot's do.
+      inputs.connected = false;
       Arrays.fill(inputs.followersConnected, false);
       return;
     }
     inputs.restarted = restarted;
     restarted = false;
     inputs.connected = true;
-    if (inputs.faults.length != devices) {
-      inputs.faults = new int[devices];
-      inputs.followersConnected = new boolean[followers];
-      inputs.followersRestarted = new boolean[followers];
+    if (inputs.faults.length != deviceCount) {
+      inputs.faults = new int[deviceCount];
+      inputs.followersConnected = new boolean[followerCount];
+      inputs.followersRestarted = new boolean[followerCount];
     }
-    for (int i = 0; i < followers; i++) {
-      inputs.followersConnected[i] = !silentFollowers[i];
+    for (int i = 0; i < followerCount; i++) {
+      inputs.followersConnected[i] = !followerSilent[i];
     }
     inputs.position = controllerReads();
-    // A SPARK's loop closed on its data port: its motor's count beside, as its IO reads it.
-    inputs.motorPosition =
-        loopOnEncoder && absolute != null ? plant.position() + offset : Double.NaN;
+    inputs.motorPosition = motorPositionBesideEncoder();
     inputs.velocity = plant.velocity();
     inputs.appliedVolts = plant.appliedVolts();
     inputs.statorCurrentAmps = plant.statorAmps();
     inputs.supplyCurrentAmps = plant.supplyAmps();
-    inputs.absolutePosition = absolutePosition();
-    inputs.forwardLimit = onPin(pins.forward()) && forwardTripped.getAsBoolean();
-    inputs.reverseLimit = onPin(pins.reverse()) && reverseTripped.getAsBoolean();
+    inputs.absolutePosition = absolutePositionBesideCount();
+    inputs.forwardLimit = reportsForwardLimit && forwardTripped.getAsBoolean();
+    inputs.reverseLimit = reportsReverseLimit && reverseTripped.getAsBoolean();
     inputs.unconfigured = "";
-    read = inputs.position;
-    readVelocity = inputs.velocity;
+    lastReadPosition = inputs.position;
+    lastReadVelocity = inputs.velocity;
   }
 
   /**
-   * Where its motor controller reads the joint: its motor's count, or the absolute encoder its loop
-   * runs on.
+   * Where its motor controller reads the joint: where the absolute encoder its loop runs on says,
+   * or else by its motor's count.
    */
   private double controllerReads() {
-    return loopOnEncoder ? encoderReads() : plant.position() + offset;
-  }
-
-  /**
-   * Where the absolute encoder its motor controller reads says the joint is, unwrapped: where it
-   * really is, as far off as the encoder slipped, or where it was while it's frozen.
-   */
-  private double encoderReads() {
-    if (!encoderFrozen || Double.isNaN(encoderSaid)) {
-      encoderSaid = plant.position() + encoderSlip;
+    if (loopRunsOnEncoder) {
+      return encoder.of(plant.position());
     }
-    return encoderSaid;
+    return motorCount();
+  }
+
+  /** Where its motor's count says the joint is. */
+  private double motorCount() {
+    return plant.position() + countOffset;
   }
 
   /**
-   * Where the absolute encoder it reads beside its count says the joint is, wrapped into the window
-   * its turn tells apart, as a real one's IO reads it: NaN for none.
+   * The motor's count, for a controller whose loop runs on an encoder that the IO also reads beside
+   * the count: a SPARK closed on its data port, whose IO reads its motor's count too. The IO's
+   * inputs say NaN for every other joint.
    */
-  private double absolutePosition() {
-    Sensor.Encoder model = absolute;
-    return model == null ? Double.NaN : inWindow(model);
+  private double motorPositionBesideEncoder() {
+    if (loopRunsOnEncoder && readBesideCount.isPresent()) {
+      return motorCount();
+    }
+    return Double.NaN;
   }
 
   /**
-   * Where an absolute encoder the joint's motor controller reads says the joint is, wrapped into
-   * the window its turn tells apart, as a real one reads it.
+   * Where the absolute encoder read beside the count says the joint is, as a real one's IO reads
+   * it. The IO's inputs say NaN for a joint with no such encoder.
    */
-  private double inWindow(Sensor.Encoder model) {
-    double reading =
-        encoderReads()
-            * Math.abs(model.ratio(joint))
-            / (joint instanceof Joint.Revolute ? 2 * Math.PI : 1);
-    return math.fromAbsolute(model, reading - Math.floor(reading));
+  private double absolutePositionBesideCount() {
+    if (readBesideCount.isEmpty()) {
+      return Double.NaN;
+    }
+    return withinTheEncodersWindow(readBesideCount.get());
+  }
+
+  /**
+   * Where an absolute encoder the motor controller reads says the joint is, as a real one reads it.
+   * An absolute encoder knows only the share of a turn it is in, so the reading is that share, put
+   * back into the joint's units inside the window of positions the encoder's one turn tells apart.
+   */
+  private double withinTheEncodersWindow(Sensor.Encoder model) {
+    double unitsPerTurn = joint instanceof Joint.Revolute ? 2 * Math.PI : 1;
+    double encoderTurns =
+        encoder.of(plant.position()) * Math.abs(model.ratio(joint)) / unitsPerTurn;
+    double shareOfATurn = encoderTurns - Math.floor(encoderTurns);
+    return math.fromAbsolute(model, shareOfATurn);
   }
 
   @Override
@@ -508,9 +552,11 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    controller.hold(
-        position, velocity, feedforwardVolts, read, readVelocity, mode != Mode.POSITION);
-    mode = Mode.POSITION;
+    if (asked != Asked.POSITION) {
+      controller.startPositionLoopAfresh();
+    }
+    controller.hold(position, velocity, feedforwardVolts, lastReadVelocity);
+    asked = Asked.POSITION;
   }
 
   @Override
@@ -518,8 +564,8 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    controller.run(velocity, read);
-    mode = Mode.VELOCITY;
+    controller.run(velocity, lastReadPosition);
+    asked = Asked.VELOCITY;
   }
 
   @Override
@@ -527,8 +573,8 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    mode = Mode.VOLTAGE;
-    setVolts = volts;
+    asked = Asked.VOLTAGE;
+    askedVolts = volts;
   }
 
   @Override
@@ -536,13 +582,13 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    mode = Mode.DUTY_CYCLE;
-    setVolts = share;
+    asked = Asked.DUTY_CYCLE;
+    askedDutyCycle = share;
   }
 
   @Override
   public void stop() {
-    mode = Mode.NEUTRAL;
+    asked = Asked.NEUTRAL;
   }
 
   @Override
@@ -550,8 +596,8 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    mode = Mode.HOMING;
-    setVolts = volts;
+    asked = Asked.HOMING_PUSH;
+    askedVolts = volts;
   }
 
   @Override
@@ -559,7 +605,7 @@ final class JointIOSim implements JointIO {
     if (silent) {
       return;
     }
-    offset = position - plant.position();
+    countOffset = position - plant.position();
   }
 
   /** Takes the pit's tuning: its gains and current limits, as its motor controller would. */
