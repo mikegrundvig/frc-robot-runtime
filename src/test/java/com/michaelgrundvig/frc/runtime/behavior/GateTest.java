@@ -7,13 +7,16 @@ import static org.wpilib.units.Units.Milliseconds;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.simulation.AlertSim;
+import org.wpilib.simulation.SimHooks;
 
 /**
  * Gates on their own: worked out once a loop, before what the scheduler runs, with their reasons.
@@ -137,6 +140,44 @@ class GateTest {
     assertThat(early).isFalse();
     assertThat(why).containsExactly("ready settling");
     assertThat(gate.getAsBoolean()).isTrue();
+  }
+
+  /**
+   * A gate debounced for a whole number of loops (0.1 s is five) changes on the same loop whatever
+   * the robot's clock read as it was made: one script, run with the clock stepped an odd amount
+   * before each run, answers the same every time. Until 2026-10-11 the edge came a loop early or
+   * late with the clock's reading, because WPILib's debouncer subtracts seconds held in doubles.
+   */
+  @Test
+  void aDebounceOfWholeLoopsChangesOnTheSameLoopWhateverTheClockReads() {
+    loop(); // the robot runs, so every run's gate is made the same way
+    // A debounced gate holds nothing until it has first held, so a falling one starts false.
+    Map<Debouncer.DebounceType, String> gates =
+        Map.of(
+            Debouncer.DebounceType.RISING, DebounceTest.ANSWERS.get(Debouncer.DebounceType.RISING),
+            Debouncer.DebounceType.FALLING, "001111111111111000",
+            Debouncer.DebounceType.BOTH, DebounceTest.ANSWERS.get(Debouncer.DebounceType.BOTH));
+    Map<String, String> answered = new LinkedHashMap<>();
+    Map<String, String> expected = new LinkedHashMap<>();
+
+    for (Debouncer.DebounceType type : Debouncer.DebounceType.values()) {
+      for (int run = 0; run < DebounceTest.CLOCK_STEPS.length; run++) {
+        SimHooks.stepTiming(DebounceTest.CLOCK_STEPS[run]);
+        boolean[] ready = {false};
+        Gate gate =
+            Gate.of(scheduler, "ready", () -> ready[0]).debounce(Milliseconds.of(100), type);
+        StringBuilder answers = new StringBuilder();
+        for (char condition : DebounceTest.SCRIPT.toCharArray()) {
+          ready[0] = condition == '1';
+          loop();
+          answers.append(gate.getAsBoolean() ? '1' : '0');
+        }
+        answered.put(type + " run " + run, answers.toString());
+        expected.put(type + " run " + run, gates.get(type));
+      }
+    }
+
+    assertThat(answered).containsExactlyEntriesOf(expected);
   }
 
   /** A gate binds and awaits like any trigger: a command waits on it, and a binding runs on it. */

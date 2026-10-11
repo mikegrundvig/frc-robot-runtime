@@ -200,6 +200,10 @@ public final class RecordingTrigger extends Trigger {
    * This trigger debounced, named for how. "right trigger for 0.1 s" becomes true once the button
    * has been held that long. "face down, and 0.1 s after" stays true until the button has been let
    * go for that long. "face down debounced 0.1 s" does both.
+   *
+   * <p>The debounced trigger is made here, as v3 makes its own, but with a debounce that keeps its
+   * time in whole nanoseconds ({@link Debounce}): a time that is a whole number of loops ends on
+   * the same loop every run.
    */
   @Override
   public RecordingTrigger debounce(Time duration, Debouncer.DebounceType type) {
@@ -210,7 +214,9 @@ public final class RecordingTrigger extends Trigger {
           case FALLING -> operand() + ", and " + seconds + " s after";
           case BOTH -> operand() + " debounced " + seconds + " s";
         };
-    return made(super.debounce(duration, type), name);
+    Debounce debounce = new Debounce(seconds, type);
+    Trigger debounced = new Trigger(scheduler, loop, () -> debounce.calculate(getAsBoolean()));
+    return made(debounced, name);
   }
 
   @Override

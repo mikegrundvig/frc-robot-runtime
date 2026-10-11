@@ -169,11 +169,12 @@ public final class Gate extends Trigger {
    * only once this gate has been true for the time.
    *
    * <p>The debounced gate is logged under the same name, in place of this one. It holds nothing
-   * until this gate has first held.
+   * until this gate has first held. Its time is kept in whole nanoseconds ({@link Debounce}), so a
+   * time that is a whole number of loops ends on the same loop every run.
    */
   @Override
   public Gate debounce(Time time, Debouncer.DebounceType type) {
-    Debouncer debouncer = new Debouncer(time.in(Seconds), type);
+    Debounce debouncer = new Debounce(time.in(Seconds), type);
     GateState undebounced = state;
     undebounced.stopLogging();
     Remembered everHeld = new Remembered();

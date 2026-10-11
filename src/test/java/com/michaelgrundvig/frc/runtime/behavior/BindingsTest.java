@@ -5,6 +5,7 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.config.Finding;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +14,7 @@ import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.internal.DriverStationBackend;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.simulation.GamepadSim;
+import org.wpilib.simulation.SimHooks;
 
 /**
  * The drive team's gamepads record each binding as it's made, composed ones too, with the button's
@@ -110,6 +112,42 @@ class BindingsTest {
             "driver dpad down rising: on press: Rise",
             "driver dpad left falling: on press: Fall",
             "driver dpad right pressed 2 times in 0.5 s: on press: Twice");
+  }
+
+  /**
+   * A button held for a whole number of loops (0.1 s is five) starts its command on the same loop
+   * whatever the robot's clock read as it was pressed: pressed again and again, with the clock
+   * stepped an odd amount before each press, the command starts on the fifth loop every time. Until
+   * 2026-10-11 it started a loop early or late with the clock's reading.
+   */
+  @Test
+  void aButtonHeldForWholeLoopsStartsItsCommandOnTheSameLoopWhateverTheClockReads() {
+    GamepadSim driverPad = new GamepadSim(0);
+    int[] sincePressed = {0};
+    List<Integer> startedOn = new ArrayList<>();
+    driver
+        .faceDown()
+        .debounce(Seconds.of(0.1))
+        .onTrue(Command.noRequirements(co -> startedOn.add(sincePressed[0])).named("Held"));
+    loop();
+
+    for (double step : DebounceTest.CLOCK_STEPS) {
+      SimHooks.stepTiming(step);
+      driverPad.setFaceDownButton(false);
+      driverPad.notifyNewData();
+      loop();
+      loop();
+      driverPad.setFaceDownButton(true);
+      driverPad.notifyNewData();
+      for (sincePressed[0] = 1; sincePressed[0] <= 8; sincePressed[0]++) {
+        loop();
+      }
+    }
+
+    assertThat(startedOn)
+        .hasSize(DebounceTest.CLOCK_STEPS.length)
+        .as("the loop after the press that each run's command started on")
+        .containsOnly(5);
   }
 
   /**

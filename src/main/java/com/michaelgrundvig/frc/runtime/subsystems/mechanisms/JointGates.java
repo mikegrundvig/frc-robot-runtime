@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
@@ -120,7 +121,7 @@ final class JointGates {
    * JointMechanism#STALL_SECONDS}.
    */
   Gate.Logic stalled() {
-    Debouncer stalling = new Debouncer(JointMechanism.STALL_SECONDS, Debouncer.DebounceType.RISING);
+    Debounce stalling = new Debounce(JointMechanism.STALL_SECONDS, Debouncer.DebounceType.RISING);
     return why -> {
       double asked = speedAsked();
       boolean isTooSlow = Math.abs(readings.velocity()) < JointMechanism.STALL_SHARE * asked;
