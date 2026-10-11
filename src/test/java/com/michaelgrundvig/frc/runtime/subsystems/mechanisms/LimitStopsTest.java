@@ -95,6 +95,9 @@ class LimitStopsTest {
     assertThat(turret.at(Sensor.Switch.Limit.End.UPPER)).contains(TURRET_RIGHT);
     assertThat(turret.at(Sensor.Switch.Limit.End.LOWER)).isEmpty();
     assertThat(new LimitStops(List.of()).at(Sensor.Switch.Limit.End.UPPER)).isEmpty();
+    assertThat(new LimitStops(List.of(TURRET_RIGHT)).at(Sensor.Switch.Limit.End.LOWER))
+        .as("a switch at the other end only")
+        .isEmpty();
   }
 
   /** Two tripped at once, a cut wire on one: each says so, and the joint goes neither way. */

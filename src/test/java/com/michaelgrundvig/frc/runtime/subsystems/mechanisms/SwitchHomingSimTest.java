@@ -24,7 +24,9 @@ import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Sensor.Switch.Limit.End;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -129,6 +131,36 @@ class SwitchHomingSimTest {
         .isEqualTo(
             "pivot's homing didn't trip pivot down in 1.6 s (its travel takes 0.6 s at 2.0 V):"
                 + " pivot down is lost");
+  }
+
+  /**
+   * A joint homes by the recipe in its block, which its mechanism reads once as it is built. A
+   * control changed by live tuning brings new gains and limits and nothing else: handed one that
+   * names a homing to a switch the pivot does not have, the pivot is not homed by it. It stays
+   * ready where its block assumes it rests, and nothing pushes it.
+   */
+  @Test
+  void aRecipeChangedByLiveTuningHomesNothing() {
+    Homing toASwitchItLacks = Homing.toSwitch(Sensor.Switch.Limit.End.LOWER);
+    JointsSimHarness tuned =
+        new JointsSimHarness(
+            JointFixtures.ROBOT,
+            joint -> () -> homed(ControllerSettings.control(joint), toASwitchItLacks));
+    JointMechanism tunedPivot = tuned.joints.of(PIVOT);
+    Set<JointMechanism.State> states = EnumSet.noneOf(JointMechanism.State.class);
+    double furthest = 0;
+
+    for (int i = 0; i < 150; i++) {
+      tuned.loop();
+      states.add(tunedPivot.state());
+      furthest =
+          Math.max(furthest, Math.abs(tuned.simulation.position(PIVOT) - Math.toRadians(1.5)));
+    }
+
+    assertThat(states).containsExactly(JointMechanism.State.READY);
+    assertThat(tunedPivot.homesToAStop()).isFalse();
+    assertThat(tunedPivot.fault()).isEmpty();
+    assertThat(degrees(furthest)).as("held where it rests, at 1.5°, not pushed").isLessThan(0.5);
   }
 
   /**

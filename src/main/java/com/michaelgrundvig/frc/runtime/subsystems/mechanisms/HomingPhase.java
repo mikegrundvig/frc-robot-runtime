@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
+import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
@@ -138,8 +139,11 @@ sealed interface HomingPhase {
    * @param toward what it is driven toward and for how long at most, as the log says it
    * @param since when it set off, in nanoseconds
    * @param approach how far it has got
+   * @param onto the switch it is driven onto. A joint is in this phase only with a switch to seek,
+   *     which is what lets every loop of the push be timed by reading it.
    */
-  record SeekingSwitch(String toward, long since, Approach approach) implements HomingPhase {
+  record SeekingSwitch(String toward, long since, Approach approach, Sensor.Switch onto)
+      implements HomingPhase {
     @Override
     public State state() {
       return State.HOMING;

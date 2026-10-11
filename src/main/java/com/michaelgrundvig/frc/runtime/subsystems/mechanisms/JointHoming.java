@@ -49,6 +49,8 @@ import org.wpilib.units.measure.Time;
  *      │                      │
  *      └──disabled, canceled──┘──out of time──▶ Faulted
  *
+ *   Unhomed ──enabled, homing to a switch it does not have──▶ Faulted (never pushed)
+ *
  *   AwaitingEncoder ──a reading──▶ JustFound ──▶ Ready
  *         │                                        │ the encoder its loop closes on is lost
  *         └──none for 2 s──▶ EncoderSilent ◀───────┘
@@ -420,10 +422,14 @@ final class JointHoming {
    * @param sensors the robot's sensors, as read this loop
    */
   void switchRead(long now, double at, Sensors sensors) {
-    if (!(phase instanceof SeekingSwitch seeking) || toSwitch.isEmpty() || homingSwitch.isEmpty()) {
+    if (!(phase instanceof SeekingSwitch seeking)) {
       return;
     }
-    Sensor.Switch limit = homingSwitch.get();
+    // A joint seeking a switch always has the switch: the phase carries it, and a joint with none
+    // to seek is faulted before it sets off ({@link #begin}). So every loop of the push comes
+    // through here, and the push ends when the switch trips or, at the latest, when it is out of
+    // time.
+    Sensor.Switch limit = seeking.onto();
     boolean tripped = sensors.holds(limit.tripped());
     if (seeking.approach() instanceof Approach.HeadingIn headingIn && tripped) {
       // The switch tripped somewhere in this loop's travel. The middle of it is the best guess,
@@ -436,10 +442,10 @@ final class JointHoming {
     Approach approach = nextApproach(seeking.approach(), tripped, at);
     boolean outOfTime = now - seeking.since() >= Math.round(secondsAllowed * 1e9);
     if (!outOfTime) {
-      phase = new SeekingSwitch(seeking.toward(), seeking.since(), approach);
+      phase = new SeekingSwitch(seeking.toward(), seeking.since(), approach, limit);
       return;
     }
-    Homing.ToSwitch recipe = toSwitch.get();
+    Homing.ToSwitch recipe = toSwitch.orElseThrow();
     phase =
         new Faulted(
             String.format(
@@ -473,12 +479,18 @@ final class JointHoming {
   /**
    * A command asked for the joint to be homed again: by its recipe, or from its absolute encoder's
    * next reading. A joint that homes by moving starts now if the robot is enabled, and otherwise on
-   * the next enable.
+   * the next enable. A joint with nothing to home by stays as it is: there is no stop or switch to
+   * push it toward, so nothing is started.
    */
   void homeAgain(long now, boolean enabled) {
     if (homesByEncoder()) {
       awaitEncoder(now);
-    } else if (enabled) {
+      return;
+    }
+    if (!homesByMoving()) {
+      return;
+    }
+    if (enabled) {
       begin(now);
     } else {
       phase = new Unhomed();
@@ -602,29 +614,50 @@ final class JointHoming {
     }
   }
 
-  /** Starts homing by moving: toward the hard stop, or onto the switch. */
+  /**
+   * Starts homing by moving: toward the hard stop, or onto the switch. Only a joint that homes by
+   * moving is ever started.
+   *
+   * <p>Every push that starts here has a deadline: a joint pushed into its stop is timed in {@link
+   * #pushedOn}, and one driven onto its switch in {@link #switchRead}. A joint whose recipe homes
+   * it to a switch that it does not have could never be timed by its switch's readings, so it is
+   * not started at all. It is faulted here instead, before anything pushes it.
+   *
+   * <p>That last case should not arise. A robot's definition is refused as it is built if a joint
+   * homes to a limit switch that it lacks at that end, or whose position is not known, so no
+   * mechanism is made for such a joint. The fault is here so that this class does not depend on
+   * that to keep its pushes bounded.
+   */
   private void begin(long now) {
-    String toward =
-        String.format(
-            Locale.ROOT, "toward %s, for at most %.1f s", whatItHomesToward(), secondsAllowed);
-    if (toSwitch.isPresent()) {
-      phase = new SeekingSwitch(toward, now, new Approach.SwitchNotYetRead());
-    } else {
-      phase = new PushingToStop(toward, now, OptionalLong.empty());
+    if (toHardStop.isPresent()) {
+      String stop = "its " + shown(toHardStop.get().end()) + " stop";
+      phase = new PushingToStop(toward(stop), now, OptionalLong.empty());
+      return;
     }
+    if (homingSwitch.isPresent()) {
+      Sensor.Switch onto = homingSwitch.get();
+      phase = new SeekingSwitch(toward(onto.label()), now, new Approach.SwitchNotYetRead(), onto);
+      return;
+    }
+    phase = new Faulted(whyItHasNoSwitchToHomeTo(), false);
   }
 
   /**
-   * What the joint is homed toward, as the log says it: "its lower stop", or its switch's label.
+   * What a homing joint is pushed toward and for how long at most, as the log says it: "toward its
+   * lower stop, for at most 9.5 s".
    */
-  private String whatItHomesToward() {
-    if (toHardStop.isPresent()) {
-      return "its " + shown(toHardStop.get().end()) + " stop";
-    }
-    if (homingSwitch.isPresent()) {
-      return homingSwitch.get().label();
-    }
-    return "its switch";
+  private String toward(String what) {
+    return String.format(Locale.ROOT, "toward %s, for at most %.1f s", what, secondsAllowed);
+  }
+
+  /** Why a joint whose recipe homes it to a limit switch it does not have is faulted. */
+  private String whyItHasNoSwitchToHomeTo() {
+    return String.format(
+        Locale.ROOT,
+        "%s's homing has no %s limit switch with a known position to home to, so it isn't pushed:"
+            + " give its block one where it trips",
+        label,
+        shown(toSwitch.orElseThrow().end()));
   }
 
   /**

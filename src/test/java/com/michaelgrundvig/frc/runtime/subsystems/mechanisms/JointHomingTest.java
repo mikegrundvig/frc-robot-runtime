@@ -4,12 +4,15 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.ArrayList;
 import java.util.List;
@@ -208,6 +211,142 @@ class JointHomingTest {
         .contains(
             "pivot's homing didn't trip pivot down in 1.6 s (its travel takes 0.6 s at 2.0 V):"
                 + " pivot down is lost");
+  }
+
+  /**
+   * A joint told to home to a switch it does not have is faulted the moment it would set off,
+   * saying why, and is never pushed: not on the enable, not in any loop after, not when it is asked
+   * to home again and not when a move waits on it.
+   *
+   * <p>No robot gets this far: its definition is refused as it is built ({@link
+   * #noDefinitionHomesAJointToASwitchItLacks}). This is what the joint does if one ever did.
+   */
+  @Test
+  void homedToASwitchItDoesNotHaveItIsFaultedAndNeverPushed() {
+    SwitchReadings switches = new SwitchReadings(PIVOT_DOWN);
+    JointHoming homing = homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER));
+    homing.robotStarted(now);
+    State beforeItIsEnabled = homing.state();
+    List<State> states = new ArrayList<>();
+
+    loop(homing, true, true, 0);
+    states.add(homing.state());
+    // Its allowed time is 1.6 s. These loops run for 4 s.
+    for (int i = 0; i < 200; i++) {
+      loop(homing, true, false, 0);
+      homing.switchRead(now, 0.5, switches.sensors());
+      states.add(homing.state());
+    }
+    homing.homeAgain(now, true);
+    states.add(homing.state());
+    boolean aMoveWaits = homing.moveWaits(now, true);
+    states.add(homing.state());
+
+    assertThat(beforeItIsEnabled).isEqualTo(State.UNHOMED);
+    assertThat(states).as("never homing, so never pushed").containsOnly(State.FAULTED);
+    assertThat(aMoveWaits).isFalse();
+    assertThat(homing.shown())
+        .isEqualTo(
+            "FAULTED: pivot's homing has no lower limit switch with a known position to home to,"
+                + " so it isn't pushed: give its block one where it trips");
+    assertThat(found).isEmpty();
+  }
+
+  /**
+   * The same joint, disabled when it is asked to home again, is faulted on the next enable: asking
+   * with the robot disabled only leaves it to home then.
+   */
+  @Test
+  void homedToASwitchItDoesNotHaveItIsFaultedOnTheNextEnableToo() {
+    JointHoming homing = homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER));
+    homing.robotStarted(now);
+    loop(homing, true, true, 0);
+    loop(homing, false, false, 0);
+
+    homing.homeAgain(now, false);
+    State disabled = homing.state();
+    loop(homing, true, true, 0);
+
+    assertThat(disabled).isEqualTo(State.UNHOMED);
+    assertThat(homing.state()).isEqualTo(State.FAULTED);
+  }
+
+  /**
+   * Every way a robot's definition could give a joint a switch to home to that it lacks is refused
+   * as the definition is built, so no mechanism is ever made for one: no switch at all, a switch at
+   * the other end only, a switch whose position is not known, and a practice robot that changes a
+   * sound robot's joint into any of those.
+   */
+  @Test
+  void noDefinitionHomesAJointToASwitchItLacks() {
+    Homing toLowerSwitch = Homing.toSwitch(Sensor.Switch.Limit.End.LOWER);
+    Joint.Revolute homesToItsSwitch =
+        PIVOT.retuned(control -> JointFixtures.homed(control, toLowerSwitch));
+    Sensor.Switch atTheOtherEnd =
+        JointFixtures.limit("pivot up", PIVOT, Sensor.Switch.Limit.End.UPPER, Math.toRadians(130));
+    Sensor.Switch notMeasured =
+        JointFixtures.limit("pivot down", PIVOT, Sensor.Switch.Limit.End.LOWER);
+    RobotDefinition sound =
+        RobotDefinitionBuilder.builder(ROBOT)
+            .sensors(List.of(PIVOT_DOWN))
+            .build()
+            .with(homesToItsSwitch);
+
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> ROBOT.with(homesToItsSwitch))
+        .withMessageContaining("pivot homes to its lower limit switch, and its block has none");
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> withSensors(ROBOT, atTheOtherEnd).with(homesToItsSwitch))
+        .withMessageContaining("pivot homes to its lower limit switch, and its block has none");
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> withSensors(ROBOT, notMeasured).with(homesToItsSwitch))
+        .withMessageContaining("pivot homes to pivot down, whose position isn't known");
+    assertThatIllegalArgumentException()
+        .as("a practice robot that takes the switch away")
+        .isThrownBy(() -> withSensors(sound))
+        .withMessageContaining("pivot homes to its lower limit switch, and its block has none");
+    assertThatIllegalArgumentException()
+        .as("a practice robot whose switch has not been measured")
+        .isThrownBy(() -> withSensors(sound, notMeasured))
+        .withMessageContaining("pivot homes to pivot down, whose position isn't known");
+    assertThatIllegalArgumentException()
+        .as("a practice robot that homes to the other end")
+        .isThrownBy(
+            () ->
+                sound.with(
+                    PIVOT.retuned(
+                        control ->
+                            JointFixtures.homed(
+                                control, Homing.toSwitch(Sensor.Switch.Limit.End.UPPER)))))
+        .withMessageContaining("pivot homes to its upper limit switch, and its block has none");
+    // The sound robot's joint finds its switch by the same lookup its mechanism uses.
+    Joint homing = sound.joints().stream().filter(PIVOT::equals).findFirst().orElseThrow();
+    LimitStops stops = new LimitStops(LimitStops.switchesOf(sound.math(), homing));
+    assertThat(stops.homingSwitch(ControllerSettings.control(homing).homing()))
+        .contains(PIVOT_DOWN);
+  }
+
+  /** The same robot with these sensors in place of its own list. */
+  private static RobotDefinition withSensors(RobotDefinition robot, Sensor... sensors) {
+    return RobotDefinitionBuilder.builder(robot).sensors(List.of(sensors)).build();
+  }
+
+  /**
+   * Asked to home again, a joint with nothing to home by stays as it is: it has no stop or switch
+   * to be pushed toward, so there is nothing to start.
+   */
+  @Test
+  void askedToHomeAgainAJointWithNothingToHomeByStaysAsItIs() {
+    JointHoming homing = homing(PIVOT, null);
+    homing.robotStarted(now);
+
+    homing.homeAgain(now, true);
+    State enabled = homing.state();
+    homing.homeAgain(now, false);
+
+    assertThat(enabled).isEqualTo(State.READY);
+    assertThat(homing.state()).isEqualTo(State.READY);
+    assertThat(homing.pushVolts()).isZero();
   }
 
   /**
