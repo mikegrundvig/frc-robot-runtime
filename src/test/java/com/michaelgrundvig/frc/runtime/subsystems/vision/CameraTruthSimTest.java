@@ -30,6 +30,8 @@ import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.util.Units;
+import org.wpilib.simulation.SimHooks;
+import org.wpilib.system.RobotController;
 
 /**
  * The truth suite's cameras: what the simulated cameras see from a known pose, against a pinhole
@@ -186,6 +188,42 @@ class CameraTruthSimTest {
     assertThat(spread)
         .isCloseTo(
             VisionSim.LATENCY_STD_DEV_MILLIS, within(0.1 * VisionSim.LATENCY_STD_DEV_MILLIS));
+  }
+
+  /**
+   * A camera's images are its own, and stamped the same whatever ran before it. A test run builds
+   * one robot after another in one process, where they share NetworkTables, and a camera made with
+   * the name of an earlier one must not find that one's last image waiting for it. Such an image
+   * would be the new camera's first, stamped on the earlier robot's clock, which is a different
+   * time ago on every run: between tests the simulator's clock runs on the computer's.
+   */
+  @Test
+  void aCamerasFirstImageIsNotAnEarlierCamerasLast() {
+    CameraConfig config = CAMERAS.get(0);
+    List<Long> first = stampsSinceItWasMade(config);
+    // Some time passes between one robot and the next, and not a whole number of loops.
+    SimHooks.stepTiming(0.7031);
+    List<Long> second = stampsSinceItWasMade(config);
+
+    assertThat(second).as("the same images, as long after the camera was made").isEqualTo(first);
+  }
+
+  /**
+   * When each image a new camera sends over 0.2 s was taken and when it arrived, in nanoseconds
+   * since the camera was made: an image's two times, then the next image's.
+   */
+  private static List<Long> stampsSinceItWasMade(CameraConfig config) {
+    // The clock stands still until it is stepped, so this is when the camera is made.
+    long made = RobotController.getMonotonicTime();
+    List<Long> stamps = new ArrayList<>();
+    for (PhotonPipelineResult image : run(config, SURVEYED.get(0), 0.2)) {
+      assertThat(image.metadata.publishTimestampNanos)
+          .as("an image arrives after its camera was made")
+          .isGreaterThanOrEqualTo(made);
+      stamps.add(image.metadata.captureTimestampNanos - made);
+      stamps.add(image.metadata.publishTimestampNanos - made);
+    }
+    return stamps;
   }
 
   /** A tag one camera saw, as it truly sits, and what the camera made of it. */

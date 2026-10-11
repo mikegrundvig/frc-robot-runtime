@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.IntToLongFunction;
+import org.photonvision.PhotonCamera;
 import org.photonvision.simulation.PhotonCameraSim;
 import org.photonvision.simulation.SimCameraProperties;
 import org.photonvision.simulation.VisionSystemSim;
@@ -98,6 +99,31 @@ public final class VisionSim implements AutoCloseable {
   /** Where the robot really was, loop by loop, by seconds since the world began. */
   private final TimeInterpolatableBuffer<Pose3d> truths =
       TimeInterpolatableBuffer.createBuffer(HISTORY_SECONDS);
+
+  /**
+   * PhotonVision's simulated camera, which stops publishing when it is closed.
+   *
+   * <p>PhotonVision's own {@code close} lets go of its video and leaves its NetworkTables topics
+   * published, the camera's results among them, so NetworkTables keeps the last image the camera
+   * sent for as long as the process runs. A test run builds one robot after another in one process.
+   * The next robot's camera of the same name then found that image waiting, and took it for its own
+   * first one. It was stamped on the earlier robot's clock, and between tests the simulator's clock
+   * runs on the computer's, so how long ago that seemed was different on every run.
+   *
+   * <p>With nothing publishing a topic any more, NetworkTables forgets its value, and the next
+   * camera starts with none.
+   */
+  private static final class OwnTopicsCameraSim extends PhotonCameraSim {
+    OwnTopicsCameraSim(PhotonCamera camera, SimCameraProperties properties, Field layout) {
+      super(camera, properties, layout);
+    }
+
+    @Override
+    public void close() {
+      super.close();
+      ts.removeEntries();
+    }
+  }
 
   /**
    * A camera as added.
@@ -256,7 +282,7 @@ public final class VisionSim implements AutoCloseable {
     CameraIOPhotonVision io = new CameraIOPhotonVision(config.name());
     // Seeded, one seed per camera, so a simulated run repeats exactly.
     PhotonCameraSim simulated =
-        new PhotonCameraSim(
+        new OwnTopicsCameraSim(
             io.camera(),
             properties(config.sensor(), cameraSeeds.applyAsLong(cameras.size()), noise),
             layout);
