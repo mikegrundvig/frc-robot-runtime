@@ -393,9 +393,11 @@ public final class Joints implements AutoCloseable {
 
   /** Why a joint has no mechanism: the template doesn't drive it, or it isn't the robot's. */
   private String noMechanism(Joint joint) {
-    return definition.joints().contains(joint)
-        ? joint.label() + " has no mechanism: " + whyNotDriven(definition.math(), joint)
-        : joint.label() + " isn't one of " + possessive(definition.name()) + " joints";
+    boolean isTheRobots = definition.joints().contains(joint);
+    if (!isTheRobots) {
+      return joint.label() + " isn't one of " + possessive(definition.name()) + " joints";
+    }
+    return joint.label() + " has no mechanism: " + whyNotDriven(definition.math(), joint);
   }
 
   /**
@@ -464,15 +466,24 @@ public final class Joints implements AutoCloseable {
   public Gate isAt(Configuration configuration) {
     List<Gate> terms = new ArrayList<>();
     for (Condition.At target : configuration.targets()) {
-      JointMechanism mechanism = byJoint.get(target.joint());
-      terms.add(
-          mechanism != null
-              ? target.isOutput()
-                  ? mechanism.isAt(target.output().orElseThrow())
-                  : mechanism.isAt(target.position().orElseThrow())
-              : Gate.of(scheduler, target.joint().label() + " driven", () -> false));
+      terms.add(isAt(target));
     }
     return Gate.all("at " + configuration.name(), terms.toArray(Gate[]::new));
+  }
+
+  /**
+   * A gate on one of a configuration's targets: its joint at its named place, or running at its
+   * named output. For a joint the template does not drive, it is a gate that never holds.
+   */
+  private Gate isAt(Condition.At target) {
+    JointMechanism mechanism = byJoint.get(target.joint());
+    if (mechanism == null) {
+      return Gate.of(scheduler, target.joint().label() + " driven", () -> false);
+    }
+    if (target.isOutput()) {
+      return mechanism.isAt(target.output().orElseThrow());
+    }
+    return mechanism.isAt(target.position().orElseThrow());
   }
 
   /**
@@ -518,9 +529,10 @@ public final class Joints implements AutoCloseable {
         if (mechanism == null) {
           yield Refusals.gate(scheduler, name, noMechanism(at.joint()));
         }
-        yield at.isOutput()
-            ? mechanism.isAt(name, mechanism.joint().output(at.name()))
-            : mechanism.isAt(name, mechanism.joint().position(at.name()));
+        if (at.isOutput()) {
+          yield mechanism.isAt(name, mechanism.joint().output(at.name()));
+        }
+        yield mechanism.isAt(name, mechanism.joint().position(at.name()));
       }
       case Condition.OnJoint where ->
           reading(

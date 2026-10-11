@@ -8,10 +8,14 @@ import java.util.Optional;
 import org.littletonrobotics.junction.Logger;
 
 /**
- * The robot's PDH, as its program reads it: once a loop, through its IO ({@link PdhIO}), each
- * channel's current, their total and the battery's voltage, logged under {@code PDH}; and each
- * device it feeds, by name, as the definition says which channel feeds it ({@code
- * PDH/Devices/<name>}). A robot that declares no PDH reads none, and logs nothing of it.
+ * The robot's power distribution hub (PDH), as the robot program reads it.
+ *
+ * <p>Once a loop it is read through its IO ({@link PdhIO}): the current on each channel, their
+ * total, and the battery's voltage, all logged under {@code PDH}. The current of each device the
+ * PDH feeds is also logged by the device's name ({@code PDH/Devices/<name>}), since the robot's
+ * definition says which channel feeds which device.
+ *
+ * <p>A robot whose definition declares no PDH reads none, and logs nothing of it.
  */
 public final class Power {
   /** One device the PDH feeds, and where its current is logged. */
@@ -49,23 +53,29 @@ public final class Power {
   }
 
   /**
-   * Whether the robot declares a PDH, and it answers this loop: its channels' currents are read.
+   * Whether the channels' currents are read this loop: the robot declares a PDH, and the PDH
+   * answers.
    */
   public boolean reads() {
     return pdh.isPresent() && inputs.connected;
   }
 
   /**
-   * The current a channel draws this loop, in amps: NaN while the PDH isn't read, or for a channel
-   * it doesn't report.
+   * The current a channel draws this loop, in amps. It is NaN while the PDH is not read, and for a
+   * channel the PDH does not report.
    */
   public double amps(int channel) {
-    return reads() && channel < inputs.channelCurrentAmps.length
-        ? inputs.channelCurrentAmps[channel]
-        : Double.NaN;
+    boolean isReported = reads() && channel < inputs.channelCurrentAmps.length;
+    if (!isReported) {
+      return Double.NaN;
+    }
+    return inputs.channelCurrentAmps[channel];
   }
 
-  /** The current its channels draw together this loop, in amps: NaN while it isn't read. */
+  /**
+   * The current all the channels draw together this loop, in amps, or NaN while the PDH is not
+   * read.
+   */
   public double totalAmps() {
     return reads() ? inputs.totalCurrentAmps : Double.NaN;
   }

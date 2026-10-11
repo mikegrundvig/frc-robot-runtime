@@ -12,8 +12,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
-import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Scheduler;
 
@@ -38,15 +38,24 @@ import org.wpilib.command3.Scheduler;
  */
 public final class Sensors {
   /**
-   * One sensor, as read: through its IO, or, for a switch on a joint's limit input, by its joint.
+   * One sensor, and what it read this loop.
+   *
+   * <p>Most sensors are read here, through their IO. A switch on a joint's motor controller's limit
+   * input has no IO of its own: its joint reads it from the controller and hands the reading over
+   * ({@link #pinned}).
    */
   private static final class Reading {
     final Sensor.Placed sensor;
-    final @Nullable SensorIO io;
+
+    /** The sensor's hardware, or empty for a switch that its joint reads from its controller. */
+    final Optional<SensorIO> io;
+
     final SensorIOInputsAutoLogged inputs = new SensorIOInputsAutoLogged();
+
+    /** Where the sensor logs, {@code Sensors/<label>}. */
     final String key;
 
-    Reading(Sensor.Placed sensor, @Nullable SensorIO io) {
+    Reading(Sensor.Placed sensor, Optional<SensorIO> io) {
       this.sensor = sensor;
       this.io = io;
       key = "Sensors/" + sensor.label();
@@ -69,8 +78,10 @@ public final class Sensors {
     List<Reading> built = new ArrayList<>();
     for (Sensor sensor : definition.math().sensors()) {
       if (sensor instanceof Sensor.Placed placed) {
-        Reading reading =
-            new Reading(placed, ControllerPins.onPin(placed) != null ? null : io.apply(placed));
+        boolean isReadByItsJoint = ControllerPins.onPin(placed) != null;
+        Optional<SensorIO> own =
+            isReadByItsJoint ? Optional.empty() : Optional.of(io.apply(placed));
+        Reading reading = new Reading(placed, own);
         built.add(reading);
         bySensor.put(placed, reading);
       }
@@ -94,9 +105,8 @@ public final class Sensors {
   /** Reads every sensor: once a loop, after the joints and before the command scheduler. */
   void read() {
     for (Reading reading : readings) {
-      SensorIO io = reading.io;
-      if (io != null) {
-        io.updateInputs(reading.inputs);
+      if (reading.io.isPresent()) {
+        reading.io.get().updateInputs(reading.inputs);
       }
       Logger.processInputs(reading.key, reading.inputs);
     }

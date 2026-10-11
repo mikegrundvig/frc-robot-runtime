@@ -153,7 +153,6 @@ public final class JointMechanism implements Mechanism {
 
   private final Joint joint;
   private final String label;
-  private final RobotMath math;
   private final Scheduler scheduler;
 
   /**
@@ -186,17 +185,11 @@ public final class JointMechanism implements Mechanism {
 
   // What it reads and drives.
 
-  private final JointIO io;
-
   /** What the joint reads each loop. */
   private final JointReadings readings;
 
-  /**
-   * The loop the joint closes itself on its absolute encoder, each loop, where its port's wiring
-   * says so ({@code PortEncoder#closesLoop}). Empty where the motor controller runs the loop on the
-   * motor's own encoder.
-   */
-  private Optional<EncoderLoop> encoderLoop;
+  /** What it tells its motor controller each loop. */
+  private final JointOutput output;
 
   /** The robot's sensors, which the joint's limit switches and interlocks read. */
   private final Sensors sensors;
@@ -378,11 +371,9 @@ public final class JointMechanism implements Mechanism {
       Scheduler scheduler,
       Optional<String> standsIn) {
     this.joint = joint;
-    this.math = math;
     this.tuned = tuned;
     this.standsIn = standsIn;
     this.scheduler = scheduler;
-    this.io = io;
     this.sensors = sensors;
     label = joint.label();
     String key = "Joints/" + label;
@@ -428,7 +419,7 @@ public final class JointMechanism implements Mechanism {
         absolute.map(encoderIo -> JointReadings.RobotReadEncoder.of(math, joint, encoderIo));
     boolean closesLoopOnEncoder =
         robotReadEncoder.isPresent() && robotReadEncoder.get().closesLoop();
-    encoderLoop =
+    Optional<EncoderLoop> encoderLoop =
         closesLoopOnEncoder
             ? Optional.of(ControllerSettings.encoderLoop(math, joint, control))
             : Optional.empty();
@@ -443,6 +434,8 @@ public final class JointMechanism implements Mechanism {
             sensors,
             hasCancoder);
 
+    output = new JointOutput(math, joint, io, readings, profile, kA, encoderLoop);
+
     Optional<MechanismControl.Homing> recipe = holdsPositions ? control.homing() : Optional.empty();
     homing =
         new JointHoming(
@@ -451,10 +444,7 @@ public final class JointMechanism implements Mechanism {
             recipe,
             stops.homingSwitch(recipe),
             robotReadEncoder.map(JointReadings.RobotReadEncoder::forHoming),
-            at -> {
-              io.resetPosition(at);
-              idle.holdAt(clamp(at));
-            });
+            this::found);
     if (standsIn.isPresent()) {
       homing.faultFor(standsIn.get());
     }
@@ -497,6 +487,15 @@ public final class JointMechanism implements Mechanism {
                     readings,
                     homing))
             : Optional.empty();
+  }
+
+  /**
+   * Homing has found where the joint is. The joint's motor controller is told, and the joint's idle
+   * holds it there.
+   */
+  private void found(double at) {
+    output.tellWhereItIs(at);
+    idle.holdAt(clamp(at));
   }
 
   private static MechanismControl.Bands bands(double enter, double stay) {
@@ -1055,21 +1054,14 @@ public final class JointMechanism implements Mechanism {
     homing.advance(nowNanos, enabled, enabling, readings.velocity());
   }
 
-  /**
-   * Takes the joint's control from the pit if it was tuned since the last loop: the motor
-   * controller takes the new gains and current limits now, and so does the loop the joint closes
-   * itself, if it closes one.
-   */
+  /** Takes the joint's control from the pit, if it was tuned since the last loop. */
   private void takeTuningFromThePit() {
     MechanismControl control = tuned.get();
     if (control.equals(retuned)) {
       return;
     }
     retuned = control;
-    io.retune(control);
-    if (encoderLoop.isPresent()) {
-      encoderLoop = Optional.of(ControllerSettings.encoderLoop(math, joint, control));
-    }
+    output.retune(control);
   }
 
   /**
@@ -1107,7 +1099,7 @@ public final class JointMechanism implements Mechanism {
               : OptionalDouble.empty();
       homing.encoderRead(nowNanos, reading);
     }
-    if (encoderLoop.isPresent()) {
+    if (output.closesLoopOnEncoder()) {
       homing.loopEncoderWatched(
           nowNanos,
           enabled,
@@ -1181,7 +1173,7 @@ public final class JointMechanism implements Mechanism {
   void write() {
     if (mayBeDriven()) {
       Demand demand = decide();
-      drive(demand);
+      output.drive(demand);
       applied = demand;
     } else {
       applied = writeUndriven();
@@ -1231,54 +1223,6 @@ public final class JointMechanism implements Mechanism {
     return asked.demand();
   }
 
-  /** Tells the joint's motor controller what the joint is to do this loop. */
-  private void drive(Demand demand) {
-    if (demand.restartProfile()) {
-      profile.restart();
-    }
-    switch (demand.ask()) {
-      case JointAsk.ToPosition toPosition -> followProfile(toPosition);
-      case JointAsk.AtVelocity atVelocity -> io.setVelocity(atVelocity.speed());
-      case JointAsk.AtVoltage atVoltage -> io.setVoltage(atVoltage.volts());
-      case JointAsk.AtDutyCycle atDutyCycle -> io.setDutyCycle(atDutyCycle.share());
-      case JointAsk.Neutral neutral -> io.stop();
-    }
-    boolean isOnItsProfile = demand.ask() instanceof JointAsk.ToPosition;
-    if (!isOnItsProfile) {
-      // The profile has lost track of a joint that is driven some other way. When the joint is
-      // next sent to a position, the profile starts from where the joint is then.
-      profile.restart();
-    }
-  }
-
-  /**
-   * Moves the joint one loop on along its profile toward a position. The motor controller is told
-   * the profile's point and speed, and the volts for its acceleration (kA). A joint that closes its
-   * loop here, on its absolute encoder, works out the volts for that point itself and sends those.
-   */
-  private void followProfile(JointAsk.ToPosition toPosition) {
-    double acceleration =
-        profile.step(
-            toPosition.position(),
-            toPosition.cruiseShare(),
-            readings.position(),
-            readings.velocity());
-    if (encoderLoop.isEmpty()) {
-      io.setPosition(profile.position(), profile.velocity(), kA * acceleration);
-      return;
-    }
-    double volts =
-        encoderLoop
-            .get()
-            .volts(
-                profile.position(),
-                profile.velocity(),
-                kA * acceleration,
-                readings.position(),
-                readings.velocity());
-    io.setVoltage(volts);
-  }
-
   /**
    * Writes a loop in which the joint may not be driven where it is asked. Three things can still
    * happen to it, and all need the robot enabled: its homing pushes it toward its stop or its
@@ -1289,15 +1233,14 @@ public final class JointMechanism implements Mechanism {
     Applied told = Applied.Undriven.NOTHING;
     OptionalDouble heldOnMotor = homing.heldOnMotor();
     if (enabled && homing.state() == State.HOMING) {
-      io.home(homing.pushVolts());
+      output.pushHome(homing.pushVolts());
       told = Applied.Undriven.HOMING;
     } else if (enabled && heldOnMotor.isPresent()) {
-      io.setPosition(heldOnMotor.getAsDouble(), 0, 0);
+      output.holdOnMotor(heldOnMotor.getAsDouble());
     } else {
-      io.stop();
+      output.stop();
     }
     homing.foundLoopWritten();
-    profile.restart();
     drivenName = Optional.empty();
     return told;
   }
