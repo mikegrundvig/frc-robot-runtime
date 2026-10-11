@@ -31,10 +31,10 @@ import org.wpilib.math.geometry.Rotation2d;
  *   <li><b>M4.</b> The steering's velocity is how fast that angle changes, in radians a second.
  *   <li><b>M8.</b> Each applied voltage is the voltage across that motor with its sign: positive
  *       rolls the wheel forward, or turns the module counterclockwise.
- *   <li><b>M9.</b> The drive's stator current is a size: never negative. Known difference: the CTRE
- *       module's is signed, negative while the motor sends current back.
- *   <li><b>M10.</b> The drive's supply current is a size: never negative. Known difference: the
- *       CTRE module's is signed.
+ *   <li><b>M9.</b> The drive's stator current is a size, on every driver: never negative, whichever
+ *       way the current flows, even while the motor brakes and sends current back.
+ *   <li><b>M10.</b> The drive's supply current is a size, on every driver: never negative, even
+ *       while the motor sends current back to the battery.
  *   <li><b>M11.</b> The steering's stator current is the largest size it had since the last loop.
  *   <li><b>M12.</b> The odometry readings are three lists of one length, oldest first: when each
  *       was taken, on the robot's clock in nanoseconds and never after now, the wheel's position
@@ -84,7 +84,11 @@ public interface ModuleIO {
     public double drivePositionRad = 0.0;
     public double driveVelocityRadPerSec = 0.0;
     public double driveAppliedVolts = 0.0;
+
+    /** The current through the drive motor, either way: never negative. */
     public double driveStatorCurrentAmps = 0.0;
+
+    /** The current between the drive's controller and the battery, either way: never negative. */
     public double driveSupplyCurrentAmps = 0.0;
 
     /**

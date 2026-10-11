@@ -375,8 +375,10 @@ final class ModuleIOTalonFX implements ModuleIO {
                 couplingRatio,
                 driveGearing);
     inputs.driveAppliedVolts = driveVolts.getValueAsDouble();
-    inputs.driveStatorCurrentAmps = driveStatorCurrent.getValueAsDouble();
-    inputs.driveSupplyCurrentAmps = driveSupplyCurrent.getValueAsDouble();
+    // Phoenix signs both currents: negative while the motor brakes and sends current back. The
+    // inputs hold sizes, as every driver's do.
+    inputs.driveStatorCurrentAmps = Math.abs(driveStatorCurrent.getValueAsDouble());
+    inputs.driveSupplyCurrentAmps = Math.abs(driveSupplyCurrent.getValueAsDouble());
     inputs.driveTorqueLimited = Boolean.TRUE.equals(driveTorqueLimited.getValue());
 
     inputs.steerConnected = steerConnected.calculate(steerAnswered);

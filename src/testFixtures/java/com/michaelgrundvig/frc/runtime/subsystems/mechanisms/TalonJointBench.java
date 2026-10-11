@@ -150,10 +150,6 @@ public final class TalonJointBench implements JointBench {
   @Override
   public Optional<String> knownDifference(JointClause clause) {
     return switch (clause) {
-      case J23 ->
-          Optional.of(
-              "a TalonFX's supply current is signed: negative while its motor sends current back"
-                  + " to the battery");
       case J29 ->
           Optional.of(
               "Phoenix keeps a TalonFX's last reading and the driver does not say when a frame"

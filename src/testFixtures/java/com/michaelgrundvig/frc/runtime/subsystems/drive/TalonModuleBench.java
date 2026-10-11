@@ -64,19 +64,7 @@ public final class TalonModuleBench implements ModuleBench {
 
   @Override
   public Optional<String> knownDifference(ModuleClause clause) {
-    return switch (clause) {
-      case M9 ->
-          Optional.of(
-              "the CTRE module reports its drive's stator current with its sign, negative while"
-                  + " the motor sends current back, where the REV module and the simulator report"
-                  + " its size");
-      case M10 ->
-          Optional.of(
-              "the CTRE module reports its drive's supply current with its sign, negative while"
-                  + " the motor sends current back, where the REV module and the simulator report"
-                  + " its size");
-      default -> Optional.empty();
-    };
+    return Optional.empty();
   }
 
   /** One CTRE module, powered on. */

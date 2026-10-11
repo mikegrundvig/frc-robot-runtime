@@ -597,8 +597,10 @@ public final class JointIOTalon implements JointIO {
     inputs.position = rotations.fromRotations(rotorRotationsThisLoop());
     inputs.velocity = rotations.fromRotations(velocity.getValueAsDouble());
     inputs.appliedVolts = motorVolts.getValueAsDouble();
+    // Phoenix signs both currents: negative while the motor brakes and sends current back. The
+    // inputs hold sizes, as every driver's do.
     inputs.statorCurrentAmps = Math.abs(statorCurrent.getValueAsDouble());
-    inputs.supplyCurrentAmps = supplyCurrent.getValueAsDouble();
+    inputs.supplyCurrentAmps = Math.abs(supplyCurrent.getValueAsDouble());
     inputs.forwardLimit =
         forwardPin.tripped(forwardLimit.getValue() == ForwardLimitValue.ClosedToGround);
     inputs.reverseLimit =

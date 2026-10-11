@@ -247,7 +247,7 @@ public abstract class ModuleIOConformance {
           () -> Math.abs(rig.driveVolts() - volts) <= VOLTS + 0.05 * Math.abs(volts));
       if (bench.lacks(Ability.RUN_THE_DRIVE_MOTOR).isEmpty()) {
         assertThat(Math.signum(inputs.driveAppliedVolts)).as("M8").isEqualTo(Math.signum(speed));
-        assertThat(Math.abs(inputs.driveStatorCurrentAmps)).as("stalled").isGreaterThan(1);
+        assertThat(inputs.driveStatorCurrentAmps).as("M9: stalled").isGreaterThan(1);
       }
     }
     ask(() -> rig.io().stop());
@@ -265,7 +265,7 @@ public abstract class ModuleIOConformance {
     ModuleBench.Rig rig = powerOn();
     rig.wheelIs(0, 60);
     ask(() -> rig.io().setDriveVelocity(60, 3));
-    eventually("current flows", () -> Math.abs(inputs.driveStatorCurrentAmps) > 5);
+    eventually("current flows", () -> inputs.driveStatorCurrentAmps > 5);
 
     double leastStator = Double.POSITIVE_INFINITY;
     double leastSupply = Double.POSITIVE_INFINITY;

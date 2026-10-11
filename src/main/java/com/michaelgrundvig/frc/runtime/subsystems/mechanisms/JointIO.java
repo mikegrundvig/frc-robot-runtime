@@ -107,8 +107,9 @@ import org.littletonrobotics.junction.AutoLog;
  *       its sign: positive drives the joint forward.
  *   <li><b>J22.</b> {@link JointIOInputs#statorCurrentAmps} is a size: never negative, whichever
  *       way the current flows.
- *   <li><b>J23.</b> {@link JointIOInputs#supplyCurrentAmps} is a size: never negative, even while
- *       the motor sends current back to the battery. Known difference: a TalonFX's is signed.
+ *   <li><b>J23.</b> {@link JointIOInputs#supplyCurrentAmps} is a size, on every driver: never
+ *       negative, even while the motor sends current back to the battery. Which way the current
+ *       flows is read from the applied voltage and the velocity, not from a current's sign.
  *   <li><b>J24.</b> {@link JointIOInputs#unconfigured} is empty when every device took its settings
  *       at startup.
  *   <li><b>J25.</b> {@link JointIOInputs#faults} has one number for each device, in order: the
@@ -232,7 +233,10 @@ public interface JointIO {
     /** The current through the leading motor, either way: what its stator limit holds. */
     public double statorCurrentAmps = 0.0;
 
-    /** The current the leading motor draws from the battery. */
+    /**
+     * The current between the leading motor's controller and the battery, either way: what it draws
+     * while it drives, and what it sends back while it brakes. Never negative.
+     */
     public double supplyCurrentAmps = 0.0;
 
     /**
