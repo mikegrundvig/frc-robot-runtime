@@ -113,6 +113,9 @@ public final class JointIOTalon implements JointIO {
   private final PhoenixTalon leader;
   private final List<FollowingTalon> followers;
 
+  /** Where the devices' frames are read from: Phoenix, unless a test stands in. */
+  private final Frames frames;
+
   /** Converts between the joint's units (radians or meters) and Phoenix's rotations. */
   private final MechanismRotations rotations;
 
@@ -230,8 +233,8 @@ public final class JointIOTalon implements JointIO {
     private final BooleanSupplier startFrameSeen;
     private boolean askedBefore;
 
-    Restarts(ParentDevice device) {
-      startFrameSeen = device.getResetOccurredChecker();
+    Restarts(BooleanSupplier startFrameSeen) {
+      this.startFrameSeen = startFrameSeen;
     }
 
     boolean happened() {
@@ -245,17 +248,54 @@ public final class JointIOTalon implements JointIO {
   }
 
   /**
+   * Where the joint's devices are heard from: the status frames each sends, and the frame each
+   * sends as it starts. On a robot this is Phoenix, as here.
+   *
+   * <p>CTRE's simulated devices always answer and never restart. So the tests of what the joint
+   * does when a frame is lost, a device goes silent or a device restarts put their own in its
+   * place, which says a frame did not come, or that a device started again.
+   *
+   * <p>The devices are numbered as their faults are listed ({@link JointIOInputs#faults}): 0 for
+   * the leader, then each follower in block order, then the CANcoder.
+   */
+  static class Frames {
+    /** Takes the newest frame of each of a device's signals, and says whether they all came. */
+    StatusCode refresh(int device, BaseStatusSignal[] signals) {
+      return BaseStatusSignal.refreshAll(signals);
+    }
+
+    /** Takes the newest frame of one of a device's signals, and says whether it came. */
+    StatusCode refresh(int device, StatusSignal<?> signal) {
+      return signal.refresh().getStatus();
+    }
+
+    /** Whether a device has sent the frame it sends as it starts, since this was last asked. */
+    BooleanSupplier startFrames(int device, ParentDevice parent) {
+      return parent.getResetOccurredChecker();
+    }
+  }
+
+  /** The leader's number among the joint's devices ({@link Frames}). */
+  private static final int LEADER = 0;
+
+  /**
    * One motor controller that follows the leader.
    *
+   * @param number its number among the joint's devices ({@link Frames})
    * @param faults its fault field, which also shows that it is still on the bus
    * @param answers whether it has answered within the last half second
    */
   private record FollowingTalon(
-      PhoenixTalon talon, Restarts restarts, StatusSignal<Integer> faults, Debouncer answers) {}
+      PhoenixTalon talon,
+      int number,
+      Restarts restarts,
+      StatusSignal<Integer> faults,
+      Debouncer answers) {}
 
   /**
    * The joint's CANcoder, as the robot reads it.
    *
+   * @param number its number among the joint's devices ({@link Frames})
    * @param absolutePosition where its magnet is, with the CANcoder's own offset, direction and wrap
    *     point already applied
    * @param reader converts its reading into the joint's units, as the definition's encoder that
@@ -266,6 +306,7 @@ public final class JointIOTalon implements JointIO {
    *     leader reads the CANcoder itself.
    */
   private record Cancoder(
+      int number,
       StatusSignal<Angle> absolutePosition,
       StatusSignal<MagnetHealthValue> magnetHealth,
       StatusSignal<Integer> faults,
@@ -292,6 +333,15 @@ public final class JointIOTalon implements JointIO {
    * @param pins the leader's limits, from the robot's sensor wiring
    */
   public JointIOTalon(RobotMath math, Joint joint, ControllerPins pins) {
+    this(math, joint, pins, new Frames());
+  }
+
+  /**
+   * The same, with where its devices' frames are read from. For the tests, which lose a frame or
+   * restart a device there ({@link Frames}).
+   */
+  JointIOTalon(RobotMath math, Joint joint, ControllerPins pins, Frames frames) {
+    this.frames = frames;
     List<MechanismWiring.Device> wired =
         joint.driven().motors().map(Driven.Motors::controllers).orElse(List.of());
     if (wired.isEmpty()) {
@@ -321,11 +371,13 @@ public final class JointIOTalon implements JointIO {
     // The leader reads its own rotor unless its wiring has it read a CANcoder instead.
     boolean leaderReadsItsRotor =
         wiredCancoder.isEmpty() || wiredCancoder.get().feedback() == MechanismWiring.Feedback.ROTOR;
+    int cancoderNumber = 1 + following.size();
     cancoder =
         wiredCancoder.map(
             wiring ->
                 startCancoder(
                     new CANcoder(wiring.id(), bus),
+                    cancoderNumber,
                     settings.cancoder().orElseThrow(),
                     math.absoluteReader(Objects.requireNonNull(math.absoluteEncoder(joint))),
                     leaderReadsItsRotor,
@@ -340,14 +392,15 @@ public final class JointIOTalon implements JointIO {
     sendFaultFieldsSlowly(leaderFaults, followerFaults);
     // Each follower's half second of silence is counted from here, once every device has been
     // configured, and not from partway through startup.
-    leaderRestarts = new Restarts(leader.parent());
+    leaderRestarts = new Restarts(frames.startFrames(LEADER, leader.parent()));
     List<FollowingTalon> watched = new ArrayList<>();
     for (int i = 0; i < following.size(); i++) {
       PhoenixTalon follower = following.get(i);
       watched.add(
           new FollowingTalon(
               follower,
-              new Restarts(follower.parent()),
+              1 + i,
+              new Restarts(frames.startFrames(1 + i, follower.parent())),
               followerFaults.get(i),
               silentAfterHalfASecond()));
     }
@@ -414,12 +467,14 @@ public final class JointIOTalon implements JointIO {
   /**
    * Sends the joint's CANcoder its offset, direction and wrap point, and waits for it to confirm.
    *
+   * @param number its number among the joint's devices ({@link Frames})
    * @param reader converts the CANcoder's reading into the joint's units
    * @param seedsTheRotor whether the leader reads its own rotor, and is told where the joint is
    *     from this CANcoder
    */
-  private static Cancoder startCancoder(
+  private Cancoder startCancoder(
       CANcoder device,
+      int number,
       CANcoderConfiguration settings,
       AbsoluteReader reader,
       boolean seedsTheRotor,
@@ -430,10 +485,11 @@ public final class JointIOTalon implements JointIO {
       neverConfirmed.add("CANcoder " + device.getDeviceID());
     }
     return new Cancoder(
+        number,
         device.getAbsolutePosition(),
         device.getMagnetHealth(),
         device.getFaultField(false),
-        new Restarts(device),
+        new Restarts(frames.startFrames(number, device)),
         reader,
         seedsTheRotor);
   }
@@ -532,7 +588,7 @@ public final class JointIOTalon implements JointIO {
     double besideRotor = readCancoderBesideRotor();
     seedRotorOnce(besideRotor, magnet);
 
-    inputs.connected = leaderAnswers.calculate(BaseStatusSignal.refreshAll(leaderSignals).isOK());
+    inputs.connected = leaderAnswers.calculate(frames.refresh(LEADER, leaderSignals).isOK());
     inputs.position = rotations.fromRotations(rotorRotationsThisLoop());
     inputs.velocity = rotations.fromRotations(velocity.getValueAsDouble());
     inputs.appliedVolts = motorVolts.getValueAsDouble();
@@ -573,7 +629,7 @@ public final class JointIOTalon implements JointIO {
       return Magnet.NOT_SAID;
     }
     StatusSignal<MagnetHealthValue> health = cancoder.get().magnetHealth();
-    if (!health.refresh().getStatus().isOK()) {
+    if (!frames.refresh(cancoder.get().number(), health).isOK()) {
       return Magnet.NOT_SAID;
     }
     if (health.getValue() == MagnetHealthValue.Magnet_Red) {
@@ -596,7 +652,7 @@ public final class JointIOTalon implements JointIO {
       return Double.NaN;
     }
     StatusSignal<Angle> reading = cancoder.get().absolutePosition();
-    if (!reading.refresh().getStatus().isOK()) {
+    if (!frames.refresh(cancoder.get().number(), reading).isOK()) {
       return Double.NaN;
     }
     return cancoder.get().reader().position(reading.getValueAsDouble());
@@ -646,26 +702,27 @@ public final class JointIOTalon implements JointIO {
     if (inputs.followersConnected.length != followers.size()) {
       inputs.followersConnected = new boolean[followers.size()];
     }
-    readFaults(leaderFaults, inputs.faults, 0);
+    readFaults(leaderFaults, inputs.faults, LEADER);
     for (int i = 0; i < followers.size(); i++) {
       FollowingTalon follower = followers.get(i);
-      boolean answered = readFaults(follower.faults(), inputs.faults, 1 + i);
+      boolean answered = readFaults(follower.faults(), inputs.faults, follower.number());
       inputs.followersConnected[i] = follower.answers().calculate(answered);
     }
     if (cancoder.isPresent()) {
-      readFaults(cancoder.get().faults(), inputs.faults, 1 + followers.size());
+      readFaults(cancoder.get().faults(), inputs.faults, cancoder.get().number());
     }
   }
 
   /**
-   * Reads one device's fault field into its place in the list, if it came.
+   * Reads one device's fault field into its place in the list, if it came. A device's place in the
+   * list is its number among the joint's devices ({@link Frames}).
    *
    * @return whether the device answered
    */
-  private static boolean readFaults(StatusSignal<Integer> faultField, int[] faults, int index) {
-    boolean answered = faultField.refresh().getStatus().isOK();
+  private boolean readFaults(StatusSignal<Integer> faultField, int[] faults, int device) {
+    boolean answered = frames.refresh(device, faultField).isOK();
     if (answered) {
-      faults[index] = faultField.getValue();
+      faults[device] = faultField.getValue();
     }
     return answered;
   }

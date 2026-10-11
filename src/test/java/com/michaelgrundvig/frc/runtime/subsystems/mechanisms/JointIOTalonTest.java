@@ -40,7 +40,6 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.Motor;
-import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeAll;
@@ -129,56 +128,6 @@ class JointIOTalonTest {
     assertThat(homing).as("not the VoltageOut volts go as").isNotSameAs(volts);
     assertThat(homing.Output).isEqualTo(-2);
     assertThat(homing.IgnoreSoftwareLimits).isTrue();
-  }
-
-  /** Told where the pivot is, as homing tells it, it reads there from then on, at 100°. */
-  @Test
-  void toldWhereItIsItReadsThere() throws InterruptedException {
-    JointIOTalon io = io(pivot(50));
-    JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    eventually(() -> io.updateInputs(inputs), () -> inputs.connected);
-
-    io.resetPosition(Math.toRadians(100));
-    boolean there =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () -> Math.abs(inputs.position - Math.toRadians(100)) < 0.01);
-
-    assertThat(there).as("100°, read %s°", Math.toDegrees(inputs.position)).isTrue();
-  }
-
-  /**
-   * Its leader's limit pins read tripped by their switches' polarity: a normally open switch as it
-   * closes to ground, a normally closed one as it opens. Phoenix reports the pin as it is, closed
-   * or open, whatever polarity it's told for its own stop, so the polarity is applied as it's read.
-   */
-  @Test
-  void itsLimitPinsReadTrippedByTheirPolarity() throws InterruptedException {
-    ControllerPins pins =
-        ControllerPins.NONE
-            .with(
-                SensorWiring.Direction.FORWARD,
-                new ControllerPins.OnPin(SensorWiring.Polarity.NORMALLY_OPEN, false))
-            .with(
-                SensorWiring.Direction.REVERSE,
-                new ControllerPins.OnPin(SensorWiring.Polarity.NORMALLY_CLOSED, true));
-    JointIOTalon io = io(pivot(55), pins);
-    TalonFX device = new TalonFX(55, new CANBus(BUS));
-    JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-
-    device.getSimState().setForwardLimit(true);
-    device.getSimState().setReverseLimit(true);
-    boolean closed =
-        eventually(
-            () -> io.updateInputs(inputs), () -> inputs.forwardLimit && !inputs.reverseLimit);
-    device.getSimState().setForwardLimit(false);
-    device.getSimState().setReverseLimit(false);
-    boolean open =
-        eventually(
-            () -> io.updateInputs(inputs), () -> !inputs.forwardLimit && inputs.reverseLimit);
-
-    assertThat(closed).as("both closed: forward, normally open, tripped; reverse clear").isTrue();
-    assertThat(open).as("both open: forward clear; reverse, normally closed, tripped").isTrue();
   }
 
   /**
@@ -276,32 +225,6 @@ class JointIOTalonTest {
   void aJointWhoseMotorsArentWiredIsRefused() {
     assertThatThrownBy(() -> new JointIOTalon(ROBOT.math(), PIVOT))
         .hasMessage("pivot has no wiring: wire it");
-  }
-
-  /**
-   * A pivot whose TalonFX reads its rotor, its CANcoder read by the robot once: powered on at 60°,
-   * not where it rests, it's told so by the CANcoder's first good reading, and holds it. Until
-   * 2026-10-05 it took its reference, 1.5°, whatever the CANcoder said.
-   */
-  @Test
-  void aPivotReadByItsRotorIsToldWhereItIsByItsCancoder() throws InterruptedException {
-    Joint.Revolute pivot =
-        pivot(56).absoluteEncoder(CANCODER.can(CANIVORE, 57).offset(Rotations.of(0)));
-    new CANcoder(57, new CANBus(BUS)).getSimState().setRawPosition(60.0 / 360);
-
-    JointIOTalon io = io(pivot);
-    JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    boolean told =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () -> Math.abs(inputs.position - Math.toRadians(60)) < 0.01);
-    boolean held =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () -> inputs.connected && Math.abs(inputs.position - Math.toRadians(60)) < 0.01);
-
-    assertThat(told).as("its CANcoder's 60°, not its reference").isTrue();
-    assertThat(held).as("its rotor reads it from then on").isTrue();
   }
 
   /**

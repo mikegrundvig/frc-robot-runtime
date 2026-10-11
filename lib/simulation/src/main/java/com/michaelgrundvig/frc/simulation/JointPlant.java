@@ -285,6 +285,11 @@ public final class JointPlant {
     motor.place(position, 0);
   }
 
+  /** Puts it somewhere, moving at a speed, in its units a second: a test's. */
+  public void place(double position, double velocity) {
+    motor.place(position, velocity);
+  }
+
   /** Where it is, in its units: radians, or meters for a slide. */
   public double position() {
     return motor.positionRadians();

@@ -310,6 +310,16 @@ final class JointIOSim implements JointIO {
     return plant.velocity();
   }
 
+  /** The voltage across its motors now: what its motor controller puts there. */
+  double appliedVolts() {
+    return plant.appliedVolts();
+  }
+
+  /** How its motor controller drives it now: its block's control, or as the pit last tuned it. */
+  ControllerPlan plan() {
+    return plan;
+  }
+
   /** The absolute encoder its motor controller reads, for a test to freeze or slip. */
   EncoderReading encoder() {
     return encoder;
@@ -373,6 +383,15 @@ final class JointIOSim implements JointIO {
   void place(double position) {
     plant.place(position);
     countOffset = 0;
+  }
+
+  /**
+   * Carries the joint somewhere, moving at a speed when it gets there, as a hand moving it would.
+   * Its motor turns with it, so its motor controller's count moves as far as the joint does: a
+   * count that was off stays as far off. A test's, of what the controller reads as the joint moves.
+   */
+  void carry(double position, double velocity) {
+    plant.place(position, velocity);
   }
 
   /**

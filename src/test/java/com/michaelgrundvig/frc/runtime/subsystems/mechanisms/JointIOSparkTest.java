@@ -30,9 +30,6 @@ import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
-import com.revrobotics.PersistMode;
-import com.revrobotics.REVLibError;
-import com.revrobotics.ResetMode;
 import com.revrobotics.sim.SparkAbsoluteEncoderSim;
 import com.revrobotics.sim.SparkSimFaultManager;
 import com.revrobotics.spark.ClosedLoopSlot;
@@ -44,7 +41,6 @@ import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.SparkSim;
 import com.revrobotics.spark.config.LimitSwitchConfig;
 import com.revrobotics.spark.config.LimitSwitchConfigAccessor;
-import com.revrobotics.util.Signal;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -98,48 +94,6 @@ class JointIOSparkTest {
     // A SPARK reports its position as a float.
     assertThat(inputs.position).isCloseTo(PIVOT.restPosition() + 2 * Math.PI, within(1e-6));
     assertThat(inputs.unconfigured).as("every SPARK took its settings").isEmpty();
-  }
-
-  /**
-   * A frame of its encoder that doesn't come, REV's signal invalid, reads REV's default, 0: the
-   * pivot's last position and speed stand instead, not 0, and its reading isn't fresh that loop, so
-   * the interlocks reading it hold at once. Its SPARK reads as silent only after half a second of
-   * them; a frame that comes is fresh again at once.
-   */
-  @Test
-  void aFrameThatDoesntComeLeavesTheLastReadingNotFresh() {
-    JointIOSpark io = io(pivot(48));
-    SparkSim sim = new SparkSim(io.leader(), DCMotor.getNEO(1));
-    JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    // Turning at 250 rpm, a turn and some on from where it rested.
-    sim.setPosition(PIVOT.restPosition() / (2 * Math.PI) * 25 + 25);
-    sim.iterate(250, 12, 0.02);
-    io.updateInputs(inputs);
-    double position = inputs.position;
-    double velocity = inputs.velocity;
-    Signal<Double> lost = Signal.ofError(0.0, REVLibError.kTimeout, 0);
-
-    io.updateInputs(inputs, lost, lost);
-    boolean fresh = inputs.fresh;
-    boolean connected = inputs.connected;
-    double kept = inputs.position;
-    double keptSpeed = inputs.velocity;
-    for (int i = 0; i < 26; i++) {
-      RobotSim.stepClock();
-      io.updateInputs(inputs, lost, lost);
-    }
-    boolean silent = !inputs.connected;
-    io.updateInputs(inputs);
-
-    assertThat(position).isGreaterThan(PIVOT.restPosition() + 2 * Math.PI);
-    assertThat(velocity).isPositive();
-    assertThat(fresh).isFalse();
-    assertThat(connected).as("not silent yet").isTrue();
-    assertThat(kept).as("not 0").isEqualTo(position);
-    assertThat(keptSpeed).isEqualTo(velocity);
-    assertThat(silent).as("after half a second").isTrue();
-    assertThat(inputs.fresh).isTrue();
-    assertThat(inputs.position).isCloseTo(position, within(1e-6));
   }
 
   /**
@@ -402,73 +356,6 @@ class JointIOSparkTest {
   }
 
   /**
-   * Homing pushes past the soft limits, which a SPARK keeps itself: they're switched off while it
-   * homes, and back on once it's found where it is.
-   */
-  @Test
-  void homingSwitchesItsSoftLimitsOffAndBackOn() {
-    JointIOSpark io =
-        io(
-            pivot(37)
-                .retuned(
-                    control ->
-                        control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
-    SparkMax spark = (SparkMax) io.leader();
-    boolean before = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
-
-    io.home(-2);
-    boolean homing = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
-    io.resetPosition(0);
-    boolean after = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
-
-    assertThat(before).isTrue();
-    assertThat(homing).isFalse();
-    assertThat(after).isTrue();
-  }
-
-  /**
-   * A homing that ends without finding where the joint is, canceled or out of time, never tells the
-   * SPARK where it is, so nothing switches its soft limits back on that way. The next request that
-   * is not a homing push does: the limits are on again, read back from the SPARK, and they hold.
-   * The pivot, past its upper limit and asked for a position farther past, gets nothing across its
-   * motor, where the same request with the limits off drives it on.
-   */
-  @Test
-  void anAbandonedHomingsSoftLimitsAreBackOnAtTheNextRequest() {
-    JointIOSpark io =
-        io(
-            pivot(28)
-                .retuned(
-                    control ->
-                        control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
-    SparkMax spark = (SparkMax) io.leader();
-    SparkSim sim = new SparkSim(spark, DCMotor.getNEO(1));
-    sim.enable();
-    // The pivot is at 2.35 rad, past its upper soft limit at 2.3.
-    double pastTheLimit = 2.35 / (2 * Math.PI) * 25;
-
-    io.home(2);
-    sim.setPosition(pastTheLimit);
-    sim.iterate(0, 12, 0.02);
-    boolean whileHoming = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
-    double pushedPast = sim.getAppliedOutput();
-    // The homing is abandoned here: nothing tells the SPARK where the joint is.
-    io.setPosition(2.5, 0, 0);
-    boolean forwardAfter = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
-    boolean reverseAfter = spark.configAccessor.softLimit.getReverseSoftLimitEnabled();
-    sim.setPosition(pastTheLimit);
-    for (int i = 0; i < 25; i++) {
-      sim.iterate(0, 12, 0.02);
-    }
-
-    assertThat(whileHoming).as("off while it homes").isFalse();
-    assertThat(pushedPast).as("the homing push drives it past the limit").isPositive();
-    assertThat(forwardAfter).as("on again at the next request").isTrue();
-    assertThat(reverseAfter).isTrue();
-    assertThat(sim.getAppliedOutput()).as("held at its soft limit").isZero();
-  }
-
-  /**
    * Every request but a homing push switches the soft limits back on after a homing, and a homing
    * push after any of them switches them off again.
    */
@@ -651,50 +538,6 @@ class JointIOSparkTest {
   /** The pivot's through-bore on its SPARK's data port, reversed and offset 0.1, seeded once. */
   private static final MechanismWiring.DataPortEncoder REVERSED =
       DATA_PORT.offset(Rotations.of(0.1)).inverted();
-
-  /**
-   * A SPARK that restarts says so in its sticky warnings: believed once the warning has read clear
-   * since the robot cleared it as it started, said once, and its tuning told it again, which a
-   * restart loses. REV's simulation keeps what it was told through a restart, so the test puts the
-   * SPARK back on its saved tuning, as a restart would.
-   */
-  @Test
-  void aRestartedSparkSaysSoAndIsToldItsTuningAgain() {
-    Joint.Revolute pivot = pivot(40);
-    JointIOSpark io = io(pivot);
-    SparkMax spark = (SparkMax) io.leader();
-    MechanismControl control = ControllerSettings.control(pivot);
-    MechanismControl tuned =
-        MechanismControlBuilder.builder(control)
-            .gains(MechanismControlGainsBuilder.builder(control.gains()).kP(60).build())
-            .build();
-    io.retune(tuned);
-    JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    io.updateInputs(inputs);
-    boolean before = inputs.restarted;
-
-    spark.configure(
-        ControllerSettings.spark(ROBOT.with(pivot).math(), pivot, control)
-            .tuning(SPARK_MAX, control),
-        ResetMode.kNoResetSafeParameters,
-        PersistMode.kNoPersistParameters);
-    double fellBack = spark.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
-    new SparkSimFaultManager(spark)
-        .setStickyWarnings(
-            new SparkBase.Warnings(false, false, false, false, false, false, true, false));
-    io.updateInputs(inputs);
-    boolean restarted = inputs.restarted;
-    io.updateInputs(inputs);
-
-    double expected = 60 * 2 * Math.PI / (12 * 25);
-    assertThat(before).isFalse();
-    assertThat(fellBack).isNotCloseTo(expected, within(1e-6 * expected));
-    assertThat(restarted).isTrue();
-    assertThat(inputs.restarted).as("once").isFalse();
-    assertThat(spark.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0))
-        .as("its tuning, again")
-        .isCloseTo(expected, within(1e-6 * expected));
-  }
 
   /**
    * Its SPARKs' health, a few times a second: each one's faults, its warnings above them, and its

@@ -343,6 +343,11 @@ public final class JointIOSpark implements JointIO {
     return leader;
   }
 
+  /** A following SPARK, from 0 in block order. For the tests, as the leader is. */
+  SparkBase follower(int index) {
+    return followers.get(index).spark();
+  }
+
   @Override
   public void retune(MechanismControl control) {
     tuned = control;
