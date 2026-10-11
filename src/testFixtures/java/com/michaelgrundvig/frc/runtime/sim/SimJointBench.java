@@ -240,6 +240,11 @@ public final class SimJointBench implements JointBench {
     }
 
     @Override
+    public OptionalDouble speedKi() {
+      return OptionalDouble.empty();
+    }
+
+    @Override
     public void close() {
       // Nothing is held: the simulated joint is this object's alone.
     }

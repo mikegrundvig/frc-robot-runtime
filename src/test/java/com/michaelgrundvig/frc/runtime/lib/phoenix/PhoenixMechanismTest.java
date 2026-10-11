@@ -377,6 +377,11 @@ class PhoenixMechanismTest {
     assertThat(leader.Slot0.kI).isCloseTo(0.5 * TURN, within(1e-12));
     assertThat(leader.Slot0.kD).isCloseTo(0.1 * TURN, within(1e-12));
     assertThat(leader.Slot0.kS).as("volts").isEqualTo(0.2);
+    assertThat(leader.Slot1.kP).as("speeds run on the same gains").isEqualTo(leader.Slot0.kP);
+    assertThat(leader.Slot1.kD).isEqualTo(leader.Slot0.kD);
+    assertThat(leader.Slot1.kV).isEqualTo(leader.Slot0.kV);
+    assertThat(leader.Slot1.kS).isEqualTo(leader.Slot0.kS);
+    assertThat(leader.Slot1.kI).as("without the kI, which is the position loop's alone").isZero();
   }
 
   @Test

@@ -10,6 +10,7 @@ import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.MotorOutputConfigs;
+import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.hardware.CANcoder;
 import com.ctre.phoenix6.hardware.CANdi;
@@ -149,10 +150,6 @@ public final class TalonJointBench implements JointBench {
   @Override
   public Optional<String> knownDifference(JointClause clause) {
     return switch (clause) {
-      case J7 ->
-          Optional.of(
-              "a TalonFX runs speeds on the same slot as positions, so its kI integrates a speed's"
-                  + " error too");
       case J23 ->
           Optional.of(
               "a TalonFX's supply current is signed: negative while its motor sends current back"
@@ -187,6 +184,8 @@ public final class TalonJointBench implements JointBench {
     StatusCode read(MotorOutputConfigs into);
 
     StatusCode read(CurrentLimitsConfigs into);
+
+    StatusCode read(Slot1Configs into);
 
     static Controller open(MechanismWiring.Controller kind, int id, CANBus bus) {
       if (kind == MechanismWiring.Controller.TALON_FXS) {
@@ -236,6 +235,11 @@ public final class TalonJointBench implements JointBench {
     public StatusCode read(CurrentLimitsConfigs into) {
       return device.getConfigurator().refresh(into, SETTINGS_WAIT_SECONDS);
     }
+
+    @Override
+    public StatusCode read(Slot1Configs into) {
+      return device.getConfigurator().refresh(into, SETTINGS_WAIT_SECONDS);
+    }
   }
 
   private record Fxs(TalonFXS device) implements Controller {
@@ -276,6 +280,11 @@ public final class TalonJointBench implements JointBench {
 
     @Override
     public StatusCode read(CurrentLimitsConfigs into) {
+      return device.getConfigurator().refresh(into, SETTINGS_WAIT_SECONDS);
+    }
+
+    @Override
+    public StatusCode read(Slot1Configs into) {
       return device.getConfigurator().refresh(into, SETTINGS_WAIT_SECONDS);
     }
   }
@@ -522,6 +531,14 @@ public final class TalonJointBench implements JointBench {
     public double positionKi() {
       throw new UnsupportedOperationException(
           "Phoenix's simulated controller adds its integral up in time");
+    }
+
+    /** A Talon runs its speeds on a slot of their own, which the bench reads back from it. */
+    @Override
+    public OptionalDouble speedKi() {
+      Slot1Configs speeds = new Slot1Configs();
+      read(() -> controllers.get(LEADER).read(speeds));
+      return OptionalDouble.of(speeds.kI);
     }
 
     /**

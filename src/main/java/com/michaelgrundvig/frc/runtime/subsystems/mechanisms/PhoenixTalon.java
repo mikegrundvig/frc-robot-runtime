@@ -4,6 +4,7 @@ import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
+import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
@@ -37,8 +38,11 @@ sealed interface PhoenixTalon {
   /** Sends the controller its whole configuration, worked out as a TalonFX's. */
   StatusCode apply(TalonFXConfiguration settings, double timeoutSeconds);
 
-  /** Sends the controller its closed loop's gains alone. */
+  /** Sends the controller its position loop's gains alone. */
   StatusCode apply(Slot0Configs gains, double timeoutSeconds);
+
+  /** Sends the controller its speed loop's gains alone. */
+  StatusCode apply(Slot1Configs gains, double timeoutSeconds);
 
   /** Sends the controller its current limits alone. */
   StatusCode apply(CurrentLimitsConfigs limits, double timeoutSeconds);
@@ -79,6 +83,11 @@ sealed interface PhoenixTalon {
     }
 
     @Override
+    public StatusCode apply(Slot1Configs gains, double timeoutSeconds) {
+      return talon.getConfigurator().apply(gains, timeoutSeconds);
+    }
+
+    @Override
     public StatusCode apply(CurrentLimitsConfigs limits, double timeoutSeconds) {
       return talon.getConfigurator().apply(limits, timeoutSeconds);
     }
@@ -110,6 +119,11 @@ sealed interface PhoenixTalon {
 
     @Override
     public StatusCode apply(Slot0Configs gains, double timeoutSeconds) {
+      return talon.getConfigurator().apply(gains, timeoutSeconds);
+    }
+
+    @Override
+    public StatusCode apply(Slot1Configs gains, double timeoutSeconds) {
       return talon.getConfigurator().apply(gains, timeoutSeconds);
     }
 

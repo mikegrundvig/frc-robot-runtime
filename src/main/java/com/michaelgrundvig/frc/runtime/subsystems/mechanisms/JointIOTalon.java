@@ -52,7 +52,8 @@ import org.wpilib.units.measure.Angle;
  *
  * <p><b>What it asks of the leader.</b> A position goes as a {@code PositionVoltage} with the
  * profile's speed, which the controller's own kV, kS and gravity terms turn into volts. A speed
- * goes as a {@code VelocityVoltage}. Requests use FOC, which needs a Phoenix Pro license, only when
+ * goes as a {@code VelocityVoltage} on a slot of its own, which has the same gains without the kI:
+ * kI is the position loop's alone. Requests use FOC, which needs a Phoenix Pro license, only when
  * the definition's motor is one of its FOC motors ({@code Motor.KRAKEN_X60_FOC}); otherwise this
  * runs on Phoenix 6 without a license.
  *
@@ -430,7 +431,8 @@ public final class JointIOTalon implements JointIO {
 
     boolean foc = foc(drive);
     positionRequest = new PositionVoltage(0).withEnableFOC(foc);
-    velocityRequest = new VelocityVoltage(0).withEnableFOC(foc);
+    velocityRequest =
+        new VelocityVoltage(0).withEnableFOC(foc).withSlot(PhoenixMechanism.SPEED_SLOT);
     voltageRequest = new VoltageOut(0).withEnableFOC(foc);
     dutyCycleRequest = new DutyCycleOut(0).withEnableFOC(foc);
     homingPush = new VoltageOut(0).withEnableFOC(foc).withIgnoreSoftwareLimits(true);
@@ -560,13 +562,16 @@ public final class JointIOTalon implements JointIO {
 
   /**
    * Sends the gains and current limits the pit has tuned, without waiting for the devices to
-   * confirm. The leader takes both. A follower takes only its current limits, since it runs no loop
-   * of its own. A setting Phoenix refuses shows in the log as the device reads on.
+   * confirm. The leader takes both, and takes the gains twice: once for the slot its positions run
+   * on and once for the slot its speeds run on, so the two never hold different tunings. A follower
+   * takes only its current limits, since it runs no loop of its own. A setting Phoenix refuses
+   * shows in the log as the device reads on.
    */
   @Override
   public void retune(MechanismControl control) {
     PhoenixMechanism.Settings settings = settingsFor.apply(control);
     leader.apply(settings.leader().Slot0, NO_WAIT_SECONDS);
+    leader.apply(settings.leader().Slot1, NO_WAIT_SECONDS);
     leader.apply(settings.leader().CurrentLimits, NO_WAIT_SECONDS);
     for (int i = 0; i < followers.size(); i++) {
       followers

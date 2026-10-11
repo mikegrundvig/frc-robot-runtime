@@ -205,6 +205,13 @@ public interface JointBench {
     double positionKi();
 
     /**
+     * The kI the leading controller holds for the loop its speed requests run on, as the device
+     * itself has it, in the device's own units. Empty where the bench's device holds no gains of
+     * its own for speeds that can be read back.
+     */
+    OptionalDouble speedKi();
+
+    /**
      * Leaves the devices as the next power-on needs them: neutral, and let go where they can be.
      */
     @Override

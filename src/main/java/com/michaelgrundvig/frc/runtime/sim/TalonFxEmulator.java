@@ -3,9 +3,10 @@ package com.michaelgrundvig.frc.runtime.sim;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 
 /**
- * A TalonFX's slot 0, as the Phoenix helper configures it from the joint's plan, run every
- * millisecond on where the TalonFX reads the joint. The whole control law runs on the device, as
- * Phoenix's {@code PositionVoltage} and {@code VelocityVoltage} run it:
+ * A TalonFX's two slots, as the Phoenix helper configures them from the joint's plan (one for
+ * positions, and one for speeds without the kI), run every millisecond on where the TalonFX reads
+ * the joint. The whole control law runs on the device, as Phoenix's {@code PositionVoltage} and
+ * {@code VelocityVoltage} run it:
  *
  * <pre>
  *   holding a position:  kP·(position error) + kI·∫(position error) + kD·(velocity error)

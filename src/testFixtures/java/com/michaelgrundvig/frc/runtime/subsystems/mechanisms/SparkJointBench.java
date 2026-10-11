@@ -477,6 +477,17 @@ public final class SparkJointBench implements JointBench {
       return sparks * BATTERY_VOLTS * motorTurnsPerUnit * MILLISECONDS_PER_SECOND;
     }
 
+    /** A SPARK runs its speeds on slot 1, which the driver gives a kP alone. */
+    @Override
+    public OptionalDouble speedKi() {
+      return OptionalDouble.of(
+          switch (spark.leader()) {
+            case SparkFlex flex -> flex.configAccessor.closedLoop.getI(ClosedLoopSlot.kSlot1);
+            case SparkMax max -> max.configAccessor.closedLoop.getI(ClosedLoopSlot.kSlot1);
+            default -> throw new IllegalStateException("neither a SPARK MAX nor a SPARK Flex");
+          });
+    }
+
     /** Leaves the SPARKs neutral. They stay open: see the bench. */
     @Override
     public void close() {

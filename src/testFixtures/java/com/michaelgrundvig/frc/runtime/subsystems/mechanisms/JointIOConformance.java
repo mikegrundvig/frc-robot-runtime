@@ -632,8 +632,9 @@ public abstract class JointIOConformance {
 
   /**
    * A speed runs the velocity law on the controller's loop: kP on how far the speed read is from
-   * the speed asked, and the plan's feedforward for that speed. With a kI tuned in, the volts stay
-   * where they are while the error lasts: kI is the position loop's.
+   * the speed asked, and the plan's feedforward for that speed. A retune's kP is the speed loop's
+   * too. With a kI tuned in, the volts stay where they are while the error lasts: kI is the
+   * position loop's, and the loop the speeds run on holds none.
    */
   @Test
   void j6j7_aVelocityRunsTheVelocityLawWithoutKi() {
@@ -649,19 +650,24 @@ public abstract class JointIOConformance {
           plan().kP() * speed + plan().feedforward(0, speed, 0));
     }
 
-    MechanismControl integrating = ControllerSettings.control(roller).withKi(0.05);
+    MechanismControl integrating =
+        ControllerSettings.control(roller).withKp(3 * plan().kP()).withKi(0.05);
     ControllerPlan tuned = ControllerPlan.of(ROBOT.with(roller).math(), roller, integrating);
     double law = tuned.kP() * 20 + tuned.feedforward(0, 20, 0);
     io.retune(integrating);
     io.setVelocity(20);
-    runsTheLaw("J6: the same law, kI tuned in", law);
+    runsTheLaw("J6: the law with the tuned kP, a kI tuned in beside it", law);
     double rate = voltsPerSecond(SILENT_LOOPS);
     clause(
         JointClause.J7,
-        () ->
-            assertThat(rate)
-                .as("J7: how fast the volts change while the error lasts, in volts a second")
-                .isCloseTo(0, within(0.1)));
+        () -> {
+          assertThat(rate)
+              .as("J7: how fast the volts change while the error lasts, in volts a second")
+              .isCloseTo(0, within(0.1));
+          rig()
+              .speedKi()
+              .ifPresent(kI -> assertThat(kI).as("J7: the kI its speed loop holds").isZero());
+        });
   }
 
   /**

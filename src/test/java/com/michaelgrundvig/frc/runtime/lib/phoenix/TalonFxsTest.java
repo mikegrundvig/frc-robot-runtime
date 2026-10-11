@@ -73,6 +73,7 @@ class TalonFxsTest {
         .isEqualTo(fx.Feedback.SensorToMechanismRatio);
     assertThat(fxs.Slot0.kP).isEqualTo(fx.Slot0.kP);
     assertThat(fxs.Slot0.kG).isEqualTo(fx.Slot0.kG);
+    assertThat(fxs.Slot1.kP).as("the speed slot carries over too").isEqualTo(fx.Slot1.kP);
     assertThat(fxs.MotorOutput.Inverted).isEqualTo(fx.MotorOutput.Inverted);
     assertThat(fxs.CurrentLimits.StatorCurrentLimit).isEqualTo(fx.CurrentLimits.StatorCurrentLimit);
     assertThat(PhoenixMechanism.talonFxs(fx, Motor.MINION).Commutation.MotorArrangement)

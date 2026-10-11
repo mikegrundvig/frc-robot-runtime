@@ -47,8 +47,10 @@ import org.littletonrobotics.junction.AutoLog;
  *   <li><b>J6.</b> {@link #setVelocity} runs the joint at a speed on the controller's loop: kP
  *       times how far its speed reads from the velocity, plus the plan's feedforward for that
  *       velocity where the joint is.
- *   <li><b>J7.</b> kI is the position loop's alone: a velocity request adds nothing up. Known
- *       difference: a TalonFX runs both on one slot, so its kI adds up a speed's error too.
+ *   <li><b>J7.</b> kI is the position loop's alone, on every driver: a velocity request adds
+ *       nothing up, however long its error lasts. A controller whose gains sit in slots runs its
+ *       speeds on a slot with no kI, and a retune keeps that slot's other gains the same as the
+ *       position slot's.
  *   <li><b>J8.</b> {@link #setVoltage} puts that voltage across the motors, with its sign, up to
  *       the battery's and to what the current limits allow.
  *   <li><b>J9.</b> {@link #setDutyCycle} puts that share of the battery's voltage across the
@@ -320,9 +322,9 @@ public interface JointIO {
    * its kP, kI, kD and kS, and its current limits. Without waiting: the loop goes on.
    *
    * <p>Every one of them is in force from the next request on, wherever it runs. A TalonFX holds
-   * them all in its slot. A SPARK holds its kP, its kI and the limit on the current through its
-   * motor; its kD and kS the robot works out each loop, and it has no limit on what it draws from
-   * the battery.
+   * them all in its two slots, one for positions and one for speeds. A SPARK holds its kP, its kI
+   * and the limit on the current through its motor; its kD and kS the robot works out each loop,
+   * and it has no limit on what it draws from the battery.
    */
   default void retune(MechanismControl control) {}
 }

@@ -7,6 +7,10 @@ pivot,leader,Slot0,kP,188.49555921538757
 pivot,leader,Slot0,kV,3.0
 pivot,leader,Slot0,kA,0.003456195020874526
 pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot1,kP,188.49555921538757
+pivot,leader,Slot1,kV,3.0
+pivot,leader,Slot1,kA,0.003456195020874526
+pivot,leader,Slot1,GravityType,Arm_Cosine
 pivot,cancoder,MagnetSensor,MagnetOffset,0.8199999999999998,rotations
 pivot,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.6875,rotations
 roller,leader,MotorOutput,NeutralMode,Brake
@@ -18,6 +22,10 @@ roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
 roller,leader,Slot0,GravityType,Arm_Cosine
+roller,leader,Slot1,kP,0.12566370614359174
+roller,leader,Slot1,kV,0.36
+roller,leader,Slot1,kA,4.147434025049431E-4
+roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -27,6 +35,11 @@ hood,leader,Slot0,kV,4.640371229698378
 hood,leader,Slot0,kA,0.005503519977091609
 hood,leader,Slot0,kG,0.35
 hood,leader,Slot0,GravityType,Arm_Cosine
+hood,leader,Slot1,kP,188.49555921538757
+hood,leader,Slot1,kV,4.640371229698378
+hood,leader,Slot1,kA,0.005503519977091609
+hood,leader,Slot1,kG,0.35
+hood,leader,Slot1,GravityType,Arm_Cosine
 hood,cancoder,MagnetSensor,MagnetOffset,-0.3,rotations
 hood,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.5555555555555556,rotations
 elevator,leader,MotorOutput,NeutralMode,Brake
@@ -37,6 +50,10 @@ elevator,leader,Slot0,kP,3.590840403053133
 elevator,leader,Slot0,kV,0.5999999999999999
 elevator,leader,Slot0,kA,6.912390041749051E-4
 elevator,leader,Slot0,kG,0.35
+elevator,leader,Slot1,kP,3.590840403053133
+elevator,leader,Slot1,kV,0.5999999999999999
+elevator,leader,Slot1,kA,6.912390041749051E-4
+elevator,leader,Slot1,kG,0.35
 elevator,follower 21,request,LeaderID,20
 elevator,follower 21,request,MotorAlignment,Opposed
 elevator,follower 21,MotorOutput,Inverted,Clockwise_Positive
@@ -56,6 +73,12 @@ arm,leader,Slot0,kA,0.00829486805009886
 arm,leader,Slot0,kG,0.35
 arm,leader,Slot0,GravityType,Arm_Cosine
 arm,leader,Slot0,GravityArmPositionOffset,0.25,rotations
+arm,leader,Slot1,kP,188.49555921538757
+arm,leader,Slot1,kV,7.199999999999998
+arm,leader,Slot1,kA,0.00829486805009886
+arm,leader,Slot1,kG,0.35
+arm,leader,Slot1,GravityType,Arm_Cosine
+arm,leader,Slot1,GravityArmPositionOffset,0.25,rotations
 arm,cancoder,MagnetSensor,MagnetOffset,0.12,rotations
 arm,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.625,rotations
 feeder,leader,MotorOutput,NeutralMode,Brake
@@ -67,6 +90,10 @@ feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
 feeder,leader,Slot0,GravityType,Arm_Cosine
+feeder,leader,Slot1,kP,0.12566370614359174
+feeder,leader,Slot1,kV,0.48
+feeder,leader,Slot1,kA,5.529912033399241E-4
+feeder,leader,Slot1,GravityType,Arm_Cosine
 indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -76,6 +103,10 @@ indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
 indexer,leader,Slot0,GravityType,Arm_Cosine
+indexer,leader,Slot1,kP,0.12566370614359174
+indexer,leader,Slot1,kV,0.36
+indexer,leader,Slot1,kA,4.147434025049431E-4
+indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
@@ -83,6 +114,10 @@ shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
 shooter,leader,Slot0,GravityType,Arm_Cosine
+shooter,leader,Slot1,kP,0.12566370614359174
+shooter,leader,Slot1,kV,0.12
+shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
 shooter,follower 53,MotorOutput,Inverted,Clockwise_Positive
@@ -97,6 +132,10 @@ pivot,leader,Slot0,kP,188.49555921538757
 pivot,leader,Slot0,kV,3.0
 pivot,leader,Slot0,kA,0.003456195020874526
 pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot1,kP,188.49555921538757
+pivot,leader,Slot1,kV,3.0
+pivot,leader,Slot1,kA,0.003456195020874526
+pivot,leader,Slot1,GravityType,Arm_Cosine
 pivot,cancoder,MagnetSensor,MagnetOffset,0.8199999999999998,rotations
 pivot,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.6875,rotations
 roller,leader,MotorOutput,NeutralMode,Brake
@@ -108,6 +147,10 @@ roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
 roller,leader,Slot0,GravityType,Arm_Cosine
+roller,leader,Slot1,kP,0.12566370614359174
+roller,leader,Slot1,kV,0.36
+roller,leader,Slot1,kA,4.147434025049431E-4
+roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -117,6 +160,11 @@ hood,leader,Slot0,kV,4.640371229698378
 hood,leader,Slot0,kA,0.005503519977091609
 hood,leader,Slot0,kG,0.35
 hood,leader,Slot0,GravityType,Arm_Cosine
+hood,leader,Slot1,kP,188.49555921538757
+hood,leader,Slot1,kV,4.640371229698378
+hood,leader,Slot1,kA,0.005503519977091609
+hood,leader,Slot1,kG,0.35
+hood,leader,Slot1,GravityType,Arm_Cosine
 hood,cancoder,MagnetSensor,MagnetOffset,-0.3,rotations
 hood,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.5555555555555556,rotations
 elevator,leader,MotorOutput,NeutralMode,Brake
@@ -127,6 +175,10 @@ elevator,leader,Slot0,kP,3.590840403053133
 elevator,leader,Slot0,kV,0.5999999999999999
 elevator,leader,Slot0,kA,6.912390041749051E-4
 elevator,leader,Slot0,kG,0.35
+elevator,leader,Slot1,kP,3.590840403053133
+elevator,leader,Slot1,kV,0.5999999999999999
+elevator,leader,Slot1,kA,6.912390041749051E-4
+elevator,leader,Slot1,kG,0.35
 elevator,follower 21,request,LeaderID,20
 elevator,follower 21,request,MotorAlignment,Opposed
 elevator,follower 21,MotorOutput,Inverted,Clockwise_Positive
@@ -146,6 +198,12 @@ arm,leader,Slot0,kA,0.00829486805009886
 arm,leader,Slot0,kG,0.3
 arm,leader,Slot0,GravityType,Arm_Cosine
 arm,leader,Slot0,GravityArmPositionOffset,0.25,rotations
+arm,leader,Slot1,kP,188.49555921538757
+arm,leader,Slot1,kV,7.199999999999998
+arm,leader,Slot1,kA,0.00829486805009886
+arm,leader,Slot1,kG,0.3
+arm,leader,Slot1,GravityType,Arm_Cosine
+arm,leader,Slot1,GravityArmPositionOffset,0.25,rotations
 arm,cancoder,MagnetSensor,MagnetOffset,0.47,rotations
 arm,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.625,rotations
 feeder,leader,MotorOutput,NeutralMode,Brake
@@ -157,6 +215,10 @@ feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
 feeder,leader,Slot0,GravityType,Arm_Cosine
+feeder,leader,Slot1,kP,0.12566370614359174
+feeder,leader,Slot1,kV,0.48
+feeder,leader,Slot1,kA,5.529912033399241E-4
+feeder,leader,Slot1,GravityType,Arm_Cosine
 indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -166,6 +228,10 @@ indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
 indexer,leader,Slot0,GravityType,Arm_Cosine
+indexer,leader,Slot1,kP,0.12566370614359174
+indexer,leader,Slot1,kV,0.36
+indexer,leader,Slot1,kA,4.147434025049431E-4
+indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
@@ -173,6 +239,10 @@ shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
 shooter,leader,Slot0,GravityType,Arm_Cosine
+shooter,leader,Slot1,kP,0.12566370614359174
+shooter,leader,Slot1,kV,0.12
+shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
 shooter,follower 53,MotorOutput,Inverted,Clockwise_Positive
@@ -187,6 +257,10 @@ pivot,leader,Slot0,kP,188.49555921538757
 pivot,leader,Slot0,kV,3.0
 pivot,leader,Slot0,kA,0.003456195020874526
 pivot,leader,Slot0,GravityType,Arm_Cosine
+pivot,leader,Slot1,kP,188.49555921538757
+pivot,leader,Slot1,kV,3.0
+pivot,leader,Slot1,kA,0.003456195020874526
+pivot,leader,Slot1,GravityType,Arm_Cosine
 pivot,cancoder,MagnetSensor,MagnetOffset,0.8199999999999998,rotations
 pivot,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.6875,rotations
 roller,leader,MotorOutput,NeutralMode,Brake
@@ -198,6 +272,10 @@ roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
 roller,leader,Slot0,GravityType,Arm_Cosine
+roller,leader,Slot1,kP,0.12566370614359174
+roller,leader,Slot1,kV,0.36
+roller,leader,Slot1,kA,4.147434025049431E-4
+roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -207,6 +285,11 @@ hood,leader,Slot0,kV,4.640371229698378
 hood,leader,Slot0,kA,0.005503519977091609
 hood,leader,Slot0,kG,0.35
 hood,leader,Slot0,GravityType,Arm_Cosine
+hood,leader,Slot1,kP,188.49555921538757
+hood,leader,Slot1,kV,4.640371229698378
+hood,leader,Slot1,kA,0.005503519977091609
+hood,leader,Slot1,kG,0.35
+hood,leader,Slot1,GravityType,Arm_Cosine
 hood,cancoder,MagnetSensor,MagnetOffset,-0.3,rotations
 hood,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.5555555555555556,rotations
 elevator,leader,MotorOutput,NeutralMode,Brake
@@ -220,6 +303,10 @@ elevator,leader,Slot0,kP,3.590840403053133
 elevator,leader,Slot0,kV,0.5999999999999999
 elevator,leader,Slot0,kA,6.912390041749051E-4
 elevator,leader,Slot0,kG,0.35
+elevator,leader,Slot1,kP,3.590840403053133
+elevator,leader,Slot1,kV,0.5999999999999999
+elevator,leader,Slot1,kA,6.912390041749051E-4
+elevator,leader,Slot1,kG,0.35
 elevator,follower 21,request,LeaderID,20
 elevator,follower 21,request,MotorAlignment,Opposed
 elevator,follower 21,MotorOutput,Inverted,Clockwise_Positive
@@ -241,6 +328,12 @@ arm,leader,Slot0,kA,0.00829486805009886
 arm,leader,Slot0,kG,0.35
 arm,leader,Slot0,GravityType,Arm_Cosine
 arm,leader,Slot0,GravityArmPositionOffset,0.25,rotations
+arm,leader,Slot1,kP,188.49555921538757
+arm,leader,Slot1,kV,7.199999999999998
+arm,leader,Slot1,kA,0.00829486805009886
+arm,leader,Slot1,kG,0.35
+arm,leader,Slot1,GravityType,Arm_Cosine
+arm,leader,Slot1,GravityArmPositionOffset,0.25,rotations
 arm,cancoder,MagnetSensor,MagnetOffset,0.12,rotations
 arm,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.625,rotations
 feeder,leader,MotorOutput,NeutralMode,Brake
@@ -252,6 +345,10 @@ feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
 feeder,leader,Slot0,GravityType,Arm_Cosine
+feeder,leader,Slot1,kP,0.12566370614359174
+feeder,leader,Slot1,kV,0.48
+feeder,leader,Slot1,kA,5.529912033399241E-4
+feeder,leader,Slot1,GravityType,Arm_Cosine
 indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -261,6 +358,10 @@ indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
 indexer,leader,Slot0,GravityType,Arm_Cosine
+indexer,leader,Slot1,kP,0.12566370614359174
+indexer,leader,Slot1,kV,0.36
+indexer,leader,Slot1,kA,4.147434025049431E-4
+indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
@@ -268,6 +369,10 @@ shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
 shooter,leader,Slot0,GravityType,Arm_Cosine
+shooter,leader,Slot1,kP,0.12566370614359174
+shooter,leader,Slot1,kV,0.12
+shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
 shooter,follower 53,MotorOutput,Inverted,Clockwise_Positive
@@ -309,6 +414,10 @@ roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
 roller,leader,Slot0,GravityType,Arm_Cosine
+roller,leader,Slot1,kP,0.12566370614359174
+roller,leader,Slot1,kV,0.36
+roller,leader,Slot1,kA,4.147434025049431E-4
+roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -318,6 +427,11 @@ hood,leader,Slot0,kV,4.640371229698378
 hood,leader,Slot0,kA,0.005503519977091609
 hood,leader,Slot0,kG,0.35
 hood,leader,Slot0,GravityType,Arm_Cosine
+hood,leader,Slot1,kP,188.49555921538757
+hood,leader,Slot1,kV,4.640371229698378
+hood,leader,Slot1,kA,0.005503519977091609
+hood,leader,Slot1,kG,0.35
+hood,leader,Slot1,GravityType,Arm_Cosine
 hood,cancoder,MagnetSensor,MagnetOffset,-0.3,rotations
 hood,cancoder,MagnetSensor,AbsoluteSensorDiscontinuityPoint,0.5555555555555556,rotations
 elevator,leader,parameter,6,1
@@ -388,6 +502,10 @@ feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
 feeder,leader,Slot0,GravityType,Arm_Cosine
+feeder,leader,Slot1,kP,0.12566370614359174
+feeder,leader,Slot1,kV,0.48
+feeder,leader,Slot1,kA,5.529912033399241E-4
+feeder,leader,Slot1,GravityType,Arm_Cosine
 indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -397,6 +515,10 @@ indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
 indexer,leader,Slot0,GravityType,Arm_Cosine
+indexer,leader,Slot1,kP,0.12566370614359174
+indexer,leader,Slot1,kV,0.36
+indexer,leader,Slot1,kA,4.147434025049431E-4
+indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,parameter,6,0
 shooter,leader,parameter,9,1
 shooter,leader,parameter,13,3C2B92A6

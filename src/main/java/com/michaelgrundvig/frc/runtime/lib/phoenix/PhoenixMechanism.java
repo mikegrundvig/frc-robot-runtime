@@ -12,6 +12,7 @@ import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
 import com.ctre.phoenix6.configs.FeedbackConfigs;
 import com.ctre.phoenix6.configs.HardwareLimitSwitchConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
+import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.configs.SlotConfigs;
 import com.ctre.phoenix6.configs.SoftwareLimitSwitchConfigs;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
@@ -59,9 +60,13 @@ import java.util.Optional;
  * is a magnitude. Every direction comes from the wiring ({@link MechanismWiring}), which says which
  * way each motor turns as the joint moves forward.
  *
- * <p><b>Gains.</b> The gains go in slot 0, and the TalonFX runs the plan's feedforward law itself
- * (kS, kV and gravity). The one exception is the kA term, which the program works out from its
- * motion profile and adds to each request.
+ * <p><b>Gains.</b> The gains go in two slots: slot 0 for positions ({@link #POSITION_SLOT}), and
+ * slot 1 for speeds ({@link #SPEED_SLOT}), which is the same slot without its kI. A Phoenix slot's
+ * kI adds up whatever error its request works on, so a speed asked of slot 0 would add up the
+ * speed's error, and kI is the position loop's alone ({@code JointIO}'s J7). The TalonFX runs the
+ * plan's feedforward law itself (kS, kV and gravity) from whichever slot a request names. The one
+ * exception is the kA term, which the program works out from its motion profile and adds to each
+ * request.
  *
  * <p><b>What is refused.</b> A value Phoenix cannot hold is refused with an {@link
  * IllegalArgumentException} that says what and why: a ratio, a gain or a gravity offset past
@@ -75,6 +80,12 @@ import java.util.Optional;
  */
 public final class PhoenixMechanism {
   private PhoenixMechanism() {}
+
+  /** The slot a position request runs on: the plan's gains, its kI among them. */
+  public static final int POSITION_SLOT = 0;
+
+  /** The slot a speed request runs on: the plan's gains without its kI. */
+  public static final int SPEED_SLOT = 1;
 
   // Phoenix's own limits, as its configuration classes document them in 26.70.0-alpha-2.
 
@@ -216,6 +227,7 @@ public final class PhoenixMechanism {
     fxs.HardwareLimitSwitch = fx.HardwareLimitSwitch;
     fxs.ClosedLoopGeneral = fx.ClosedLoopGeneral;
     fxs.Slot0 = fx.Slot0;
+    fxs.Slot1 = fx.Slot1;
     fxs.Commutation.MotorArrangement = arrangement;
     fxs.ExternalFeedback.SensorToMechanismRatio = fx.Feedback.SensorToMechanismRatio;
     fxs.ExternalFeedback.RotorToSensorRatio = fx.Feedback.RotorToSensorRatio;
@@ -335,7 +347,9 @@ public final class PhoenixMechanism {
     Optional<CANcoderConfiguration> cancoder =
         wired.map(each -> cancoderFor(plan.joint(), each, notes));
     setFeedback(leader.Feedback, plan, wired);
-    leader.Slot0 = Slot0Configs.from(slot(plan, notes));
+    SlotConfigs gains = slot(plan, notes);
+    leader.Slot0 = Slot0Configs.from(gains);
+    leader.Slot1 = speedSlot(gains);
     // A joint that turns freely, with no stops, takes the short way round to a position: for it,
     // one turn on is the same place.
     leader.ClosedLoopGeneral.ContinuousWrap = plan.turnsFreely();
@@ -507,6 +521,17 @@ public final class PhoenixMechanism {
       }
     }
     return slot;
+  }
+
+  /**
+   * The slot speed requests run on: the position slot's gains and feedforward with no kI. Phoenix
+   * adds up the error of whatever a slot's request asks for, and a speed's error is not something
+   * the plan's kI was tuned for.
+   */
+  private static Slot1Configs speedSlot(SlotConfigs positions) {
+    Slot1Configs speeds = Slot1Configs.from(positions);
+    speeds.kI = 0;
+    return speeds;
   }
 
   /**

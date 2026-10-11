@@ -17,6 +17,7 @@ import static org.wpilib.units.Units.Rotations;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.SignalLogger;
 import com.ctre.phoenix6.configs.Slot0Configs;
+import com.ctre.phoenix6.configs.Slot1Configs;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.NeutralOut;
@@ -211,6 +212,43 @@ class JointIOTalonTest {
             () -> Math.abs(slot.kP - expected) < 1e-6 * expected);
 
     assertThat(took).as("kP %s in Phoenix's units, read %s", expected, slot.kP).isTrue();
+  }
+
+  /**
+   * Positions run on slot 0 and speeds on slot 1, which holds the same gains without the kI. A
+   * retune sends both, so the two never hold different tunings.
+   */
+  @Test
+  void aRetuneKeepsTheSpeedSlotInStepWithoutItsKi() throws InterruptedException {
+    Joint.Revolute pivot = pivot(56);
+    JointIOTalon io = io(pivot);
+    MechanismControl tuned = ControllerSettings.control(pivot).withKp(55).withKi(4).withKd(2);
+    Slot0Configs positions = new Slot0Configs();
+    Slot1Configs speeds = new Slot1Configs();
+    TalonFX motor = new TalonFX(56, new CANBus(BUS));
+    motor.getConfigurator().refresh(speeds);
+    double speedKiAtStartup = speeds.kI;
+    double speedKpAtStartup = speeds.kP;
+
+    io.retune(tuned);
+    boolean took =
+        eventually(
+            () -> {
+              motor.getConfigurator().refresh(positions);
+              motor.getConfigurator().refresh(speeds);
+            },
+            () -> positions.kI > 0 && speeds.kP == positions.kP && speeds.kD == positions.kD);
+
+    assertThat(speedKpAtStartup).as("the speed slot has the plan's kP at startup").isPositive();
+    assertThat(speedKiAtStartup).as("and no kI").isZero();
+    assertThat(took)
+        .as("slot 0 kP %s kI %s, slot 1 kP %s", positions.kP, positions.kI, speeds.kP)
+        .isTrue();
+    assertThat(speeds.kI).as("the tuned kI is the position slot's alone").isZero();
+    assertThat(speeds.kS).isEqualTo(positions.kS);
+    assertThat(speeds.kV).isEqualTo(positions.kV);
+    assertThat(speeds.kG).isEqualTo(positions.kG);
+    assertThat(speeds.GravityType).isEqualTo(positions.GravityType);
   }
 
   @Test
