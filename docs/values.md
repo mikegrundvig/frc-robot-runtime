@@ -911,7 +911,8 @@ on when it holds again.
 `com.michaelgrundvig.frc.world.robot.Interlock.KeepsOut`: a joint kept out of a region of its travel while
 another is somewhere, written in its block, `.keepsOut(Range.degrees(-10, 30)).when(ELEVATOR.atMost(Inches.of(32)))`, or, for a joint written before the one it reads, in the robot's interlocks, `Interlock.that(ELEVATOR).keepsOut(...).when(...)`:
 its target is held at the region's edge until the condition clears. The region is a
-[`Range`](#range) in the joint's units, part of its range and not all of it.
+[`Range`](#range) in the joint's units. It may be written larger than the joint's travel: the part
+inside the travel is what counts. It covers some of the travel and not all of it.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|

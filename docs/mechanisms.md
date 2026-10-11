@@ -970,6 +970,11 @@ until the region opens, the joint may only leave it, by the edge with room past 
 both have), and the definition's deadlock check counts that way out. A configuration may not put a
 joint there.
 
+**A region may be written larger than the joint's travel.** It's the part inside the travel that
+counts: on an arm that travels from -30° to 120°, `Range.degrees(-40, 0)` keeps it out of -30° to
+0°, the same as a region whose edge sits at the arm's low stop, and the arm leaves it by 0°. A
+region with none of the travel in it is refused, and so is one that covers all of it.
+
 ### The PDH
 
 Each motor controller says which of the PDH's channels feeds it, and the breaker in that channel,
