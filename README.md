@@ -116,6 +116,7 @@ template does: a path such as `runtime/src/main/java/...` is from that program's
 `runtime/` in this repository), and `./gradlew run` is the program's.
 
 - [Start here](docs/guide.md): how a robot is written, a twenty-minute read before the rest
+- [Coming from WPILib](docs/coming-from-wpilib.md): for experienced command-based teams, what maps to what and what you give up
 - [Mechanisms](docs/mechanisms.md): describe a mechanism in one block, use its commands
 - [Driving](docs/driving.md): the drivetrain's moves
 - [Autos](docs/autos.md): declaring, choosing, running and checking autos

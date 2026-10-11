@@ -799,3 +799,4 @@ you want a whole robot that was built and played. The simulator runs either by n
 - [values.md](values.md) explains every number in a description and how to find yours.
 - [calibration.md](calibration.md) covers measuring the real robot from the Pitwall page.
 - [venues.md](venues.md) covers teaching the robot where a field's tags really are.
+- [coming-from-wpilib.md](coming-from-wpilib.md) maps this stack onto command-based WPILib code.
