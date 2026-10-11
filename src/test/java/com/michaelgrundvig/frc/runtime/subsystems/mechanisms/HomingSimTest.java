@@ -114,6 +114,34 @@ class HomingSimTest {
   }
 
   /**
+   * A move canceled while it still waits for its joint to home says how long it waited: here nine
+   * loops, from its first to the one it is canceled in. The robot had been on for a second by then,
+   * and the move had never begun, so the time is the move's own and not the robot's.
+   */
+  @Test
+  void aMoveCanceledWhileItWaitsForHomingSaysHowLongItWaited() {
+    JointsSimHarness sim =
+        new JointsSimHarness(
+            homing(ROBOT, ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
+    JointMechanism elevator = sim.joints.of(ELEVATOR);
+    sim.simulation.powerOnAt(ELEVATOR, 1.2);
+    sim.setEnabled(false);
+    sim.run(1);
+    sim.setEnabled(true);
+    Move clear = elevator.goTo(ELEVATOR_CLEAR);
+    sim.scheduler.schedule(clear);
+    sim.run(0.2);
+    JointMechanism.State waitingOn = elevator.state();
+
+    sim.scheduler.cancel(clear);
+    sim.loop();
+
+    assertThat(waitingOn).isEqualTo(JointMechanism.State.HOMING);
+    assertThat(clear.outcome()).contains(Outcome.CANCELED);
+    assertThat(clear.reason()).startsWith("elevator → clear: CANCELED after 0.18 s");
+  }
+
+  /**
    * Powered on near its top, with a homing given too short a time to reach the bottom: it's
    * faulted, says why, and refuses its moves; homed again from its stop, it's ready. The time given
    * wins over the one its travel would give it.

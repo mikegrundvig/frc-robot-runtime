@@ -91,7 +91,10 @@ public final class Move implements Command {
 
   // How its latest run went.
 
-  /** When the latest run started, in nanoseconds on the robot's clock. */
+  /**
+   * When the latest run started, in nanoseconds on the robot's clock: when it began, having waited
+   * for its joints to home, or, until it begins, when it started to wait.
+   */
   private long startNanos;
 
   /** When the latest run's deadline passes, or {@link Long#MAX_VALUE} for a run with none. */
@@ -400,6 +403,9 @@ public final class Move implements Command {
   public void run(Coroutine coroutine) {
     running = true;
     started = false;
+    // Until the run begins, it is timed from here: a run canceled while it still waits for its
+    // joints to home then says how long it waited, and not how long ago an earlier run began.
+    startNanos = now();
     outcome = Optional.empty();
     reason = "";
     boolean yielded = false;
