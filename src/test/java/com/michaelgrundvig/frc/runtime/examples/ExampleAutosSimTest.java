@@ -36,7 +36,7 @@ class ExampleAutosSimTest {
         assertThat(result.moves())
             .as("the second leg, and a feed that ran")
             .anyMatch(line -> line.startsWith("drive → Shot: ARRIVED in "))
-            .anyMatch(line -> line.startsWith("at feeding: CANCELED after "));
+            .anyMatch(line -> line.startsWith("feeder and indexer: feeding: CANCELED after "));
       }
     }
   }

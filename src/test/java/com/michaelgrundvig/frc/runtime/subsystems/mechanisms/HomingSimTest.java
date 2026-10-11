@@ -10,6 +10,7 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.homed;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -224,6 +225,29 @@ class HomingSimTest {
     assertThat(waiting).isTrue();
     assertThat(clear.arrived()).isTrue();
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0.4, within(0.01));
+  }
+
+  /**
+   * A follow canceled while it still waits for its joint to home has chased nothing, so its outcome
+   * has no target to report: it says where the joint read, as any move of a joint held at positions
+   * does.
+   */
+  @Test
+  void aFollowCanceledWhileItWaitsForHomingSaysWhereItsJointWas() {
+    JointsSimHarness sim =
+        new JointsSimHarness(
+            homing(ROBOT, ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
+    JointMechanism elevator = sim.joints.of(ELEVATOR);
+    sim.simulation.powerOnAt(ELEVATOR, 0.3);
+    Move follow = elevator.follow(() -> Meters.of(0.5));
+
+    sim.run(follow, 0.1);
+    JointMechanism.State waitingOn = elevator.state();
+    sim.scheduler.cancel(follow);
+
+    assertThat(waitingOn).isEqualTo(JointMechanism.State.HOMING);
+    assertThat(follow.reason())
+        .matches("elevator follows a target: CANCELED after 0\\.08 s, elevator at -?0(\\.\\d+)? m");
   }
 
   /**

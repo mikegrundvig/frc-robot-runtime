@@ -389,6 +389,32 @@ class JointMovesSimTest {
   }
 
   /**
+   * A follow's outcome says what the joint was chasing, in the quantity it chased: a speed in the
+   * joint's unit of speed, a position in its unit of position. Until 2026-10-11 a joint chasing a
+   * speed reported its position, a flywheel's angle after thousands of turns.
+   */
+  @Test
+  void aFollowsOutcomeSaysWhatItChasedInItsOwnQuantity() {
+    Move spinning = roller.follow(() -> RPM.of(1000));
+    Move rising = elevator.follow(() -> Meters.of(0.5));
+    sim.run(spinning, 1);
+    sim.run(rising, 1.5);
+
+    sim.scheduler.cancel(spinning);
+    sim.scheduler.cancel(rising);
+
+    assertThat(spinning.name()).isEqualTo("roller follows a target");
+    assertThat(spinning.reason())
+        .matches(
+            "roller follows a target: CANCELED after 2\\.48 s, roller at (9\\d\\d|10\\d\\d) rpm,"
+                + " its target 1000 rpm");
+    assertThat(rising.reason())
+        .matches(
+            "elevator follows a target: CANCELED after 1\\.48 s, elevator at 0\\.(5|49\\d*|50\\d*) m,"
+                + " its target 0\\.5 m");
+  }
+
+  /**
    * A place or an output of another joint's, built as the robot starts (a binding, or an auto built
    * with them), throws there, saying whose it is and what the joint has: the robot doesn't start,
    * and a test that builds it fails, before anyone presses a button.
@@ -453,8 +479,8 @@ class JointMovesSimTest {
     assertThat(wrong.outcome()).contains(Outcome.REFUSED);
     assertThat(wrong.reason())
         .isEqualTo(
-            "pivot follows: REFUSED: pivot can't follow 1.0 Meter: it takes an angle or an angular"
-                + " velocity");
+            "pivot follows a target: REFUSED: pivot can't follow 1.0 Meter: it takes an angle or an"
+                + " angular velocity");
   }
 
   /** At -170°, "back" at 180° is 10° away the short way round, not 350° the long way. */
@@ -482,7 +508,8 @@ class JointMovesSimTest {
 
     assertThat(intaking.requirements()).containsExactlyInAnyOrder(pivot, roller, elevator);
     assertThat(intaking.arrived()).isTrue();
-    assertThat(intaking.reason()).startsWith("→ intaking: ARRIVED in ");
+    assertThat(intaking.name()).isEqualTo("pivot, roller and elevator → intaking");
+    assertThat(intaking.reason()).startsWith("pivot, roller and elevator → intaking: ARRIVED in ");
     assertThat(took).isLessThan(1);
     assertThat(pivotDegrees()).isCloseTo(130, within(2.0));
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0.4, within(0.01));
@@ -505,6 +532,25 @@ class JointMovesSimTest {
     assertThat(run.outcome()).isEmpty();
     assertThat(sim.simulation.velocity(ROLLER))
         .isCloseTo(RPM.of(1500).baseUnitMagnitude(), within(0.03 * 157.08));
+  }
+
+  /**
+   * A configuration's outcome names the joints that ran, in the shape of one joint's line ("roller:
+   * intaking: CANCELED"). Until 2026-10-11 it had no subject: "at intaking: CANCELED".
+   */
+  @Test
+  void aConfigurationsOutcomeNamesTheJointsThatRan() {
+    Move run = sim.joints.run(INTAKING);
+    sim.run(run, 2);
+
+    sim.scheduler.cancel(run);
+
+    assertThat(run.name()).isEqualTo("pivot, roller and elevator: intaking");
+    assertThat(run.reason())
+        .matches(
+            "pivot, roller and elevator: intaking: CANCELED after 1\\.98 s, pivot at 130(\\.\\d+)?°,"
+                + " elevator at 0\\.\\d+ m");
+    assertThat(roller.lastOutcome()).isEqualTo(run.reason());
   }
 
   /** The same move bound to a button runs again and again: each run starts afresh. */
@@ -593,7 +639,7 @@ class JointMovesSimTest {
     assertThat(Joints.cantRun(withHatch, INTAKING)).isNull();
     assertThat(opening.outcome()).contains(Outcome.REFUSED);
     assertThat(opening.reason())
-        .isEqualTo("→ open: REFUSED: hatch has no mechanism: nothing drives it");
+        .isEqualTo("pivot and hatch → open: REFUSED: hatch has no mechanism: nothing drives it");
     assertThat(opening.requirements()).containsExactly(hatched.joints.of(PIVOT));
     assertThat(hatched.simulation.position(PIVOT)).isCloseTo(before, within(1e-3));
     assertThat(hatched.joints.isAt(open).getAsBoolean()).isFalse();
@@ -622,6 +668,6 @@ class JointMovesSimTest {
 
     assertThat(shutting.requirements()).isEmpty();
     assertThat(shutting.reason())
-        .isEqualTo("→ shut: REFUSED: hatch has no mechanism: nothing drives it");
+        .isEqualTo("hatch → shut: REFUSED: hatch has no mechanism: nothing drives it");
   }
 }

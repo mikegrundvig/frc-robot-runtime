@@ -721,12 +721,15 @@ drive → Pickup: ARRIVED in 2.22 s
 roller: intaking until piece in: CANCELED after 2.22 s
 pivot → in: ARRIVED in 0.60 s
 drive → Shot: ARRIVED in 2.36 s
-at feeding: CANCELED after 2.38 s
+shooter follows a target: CANCELED after 3.00 s, shooter at 3008 rpm, its target 3000 rpm
+feeder and indexer: feeding: CANCELED after 2.38 s
 ```
 
-You can read the match from them. The roller ran for the whole first leg and was cancelled when
-the drive arrived. The last line says the feed ran for 2.38 of the 3 seconds. The first 0.62
-seconds were the wait for `ready`, while the shooter spun up and the robot turned to the hub.
+You can read the match from them. Each line starts with what moved. The roller ran for the whole
+first leg and was cancelled when the drive arrived. The shooter chased its target for all 3
+seconds, and the line says how fast it was turning at the end. The last line says the feeder and
+the indexer ran for 2.38 of the 3 seconds. The first 0.62 seconds were the wait for `ready`, while
+the shooter spun up and the robot turned to the hub.
 
 The runtime adds an auto called "Do nothing" by itself. It is first in the list and it is the
 default, so there is always a safe choice. The pit chooses an auto on Pitwall before the match.

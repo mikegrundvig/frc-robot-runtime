@@ -656,7 +656,8 @@ class InterlocksSimTest {
 
       built.loop();
 
-      assertThat(chased.rejected()).startsWith("pivot follows asked pivot for a position of NaN");
+      assertThat(chased.rejected())
+          .startsWith("pivot follows a target asked pivot for a position of NaN");
       built.close();
       assertThat(AlertSim.getActive()).noneMatch(alert -> alert.group.equals("Joints"));
     }

@@ -81,6 +81,13 @@ public final class Move implements Command {
     ENDED
   }
 
+  /** What a follow has had its joint chase so far in a run: its target says which, each loop. */
+  private enum Chased {
+    NOTHING_YET,
+    A_POSITION,
+    A_SPEED
+  }
+
   /**
    * A deadline that never passes, in seconds: for a move that runs until it is canceled, or until a
    * condition holds.
@@ -117,6 +124,15 @@ public final class Move implements Command {
 
   /** When each joint got there in the latest run, in seconds from its start, as the run ended. */
   private Map<Joint, Double> arrivals = Map.of();
+
+  /** What a follow last had its joint chase in the latest run. */
+  private Chased chased = Chased.NOTHING_YET;
+
+  /**
+   * The target a follow last had its joint chase, in the joint's units, or its units a second. It
+   * means nothing while {@link #chased} is {@link Chased#NOTHING_YET}.
+   */
+  private double chasedTarget;
 
   private Move(Scheduler scheduler, MovePlan plan, MoveLeg[] legs) {
     this.scheduler = scheduler;
@@ -193,13 +209,15 @@ public final class Move implements Command {
   }
 
   /**
-   * A move that has one joint chase a target.
+   * A move that has one joint chase a target. Its name cannot say what the target is, since that
+   * may change every loop; its outcome says what the joint was last chasing ({@link #details}).
    *
    * @param refused why it cannot run, if it cannot
    */
   static Move follow(
       JointMechanism joint, Supplier<? extends Measure<?>> target, Optional<String> refused) {
-    MovePlan plan = MovePlan.of(new Follow(target), joint.getName() + " follows", refused);
+    String name = joint.getName() + " follows a target";
+    MovePlan plan = MovePlan.of(new Follow(target), name, refused);
     return of(plan, new MoveLeg(joint, new Unplanned()));
   }
 
@@ -232,6 +250,10 @@ public final class Move implements Command {
    * whenever it would start, saying why, so that the mistake does not stop the robot when the move
    * is made.
    *
+   * <p>Its name leads with the joints it names, in the shape of one joint's move: "pivot and
+   * elevator → stowed" as "pivot → out" is, and "feeder and indexer: feeding" as "roller: intaking"
+   * is.
+   *
    * @param joints the mechanism of each target's joint, in the configuration's order, or empty for
    *     a joint the template does not drive
    * @param task whether it goes to the configuration or stays at it
@@ -261,8 +283,32 @@ public final class Move implements Command {
         legs.add(new MoveLeg(joint, new AtPlace(position, Optional.of(target.name()))));
       }
     }
-    String name = (task instanceof GoTo ? "→ " : "at ") + configuration.name();
+    String name = jointsOf(configuration) + linkFor(task) + configuration.name();
     return new Move(scheduler, MovePlan.of(task, name, refused), legs.toArray(MoveLeg[]::new));
+  }
+
+  /** What joins a configuration's joints to its name: an arrow for a move to it, as a joint's. */
+  private static String linkFor(MovePlan.Task task) {
+    if (task instanceof GoTo) {
+      return " → ";
+    }
+    return ": ";
+  }
+
+  /**
+   * The joints a configuration names, as a move's name lists them: "feeder", "feeder and indexer",
+   * "pivot, elevator and arm". Every joint it names is listed, one the template does not drive too.
+   */
+  private static String jointsOf(Configuration configuration) {
+    List<String> labels = new ArrayList<>();
+    for (var target : configuration.targets()) {
+      labels.add(target.joint().label());
+    }
+    if (labels.size() <= 1) {
+      return String.join("", labels);
+    }
+    String allButTheLast = String.join(", ", labels.subList(0, labels.size() - 1));
+    return allButTheLast + " and " + labels.get(labels.size() - 1);
   }
 
   // ---- Its options ----
@@ -424,6 +470,7 @@ public final class Move implements Command {
     startNanos = now();
     outcome = Optional.empty();
     reason = "";
+    chased = Chased.NOTHING_YET;
     boolean yielded = false;
     boolean homesTheJoint = plan.task() instanceof Home;
     if (!homesTheJoint) {
@@ -700,10 +747,15 @@ public final class Move implements Command {
       }
       double position = joint.reachable(target.get().baseUnitMagnitude());
       joint.ask(new JointAsk.ToPosition(position, JointAsk.FULL_CRUISE), Optional.empty());
+      chased = Chased.A_POSITION;
+      chasedTarget = position;
       return Progress.GOES_ON;
     }
     if (target.isPresent() && joint.isSpeed(target.get())) {
-      joint.ask(new JointAsk.AtVelocity(target.get().baseUnitMagnitude()), Optional.empty());
+      double speed = target.get().baseUnitMagnitude();
+      joint.ask(new JointAsk.AtVelocity(speed), Optional.empty());
+      chased = Chased.A_SPEED;
+      chasedTarget = speed;
       return Progress.GOES_ON;
     }
     String given = target.isPresent() ? target.get().toLongString() : "nothing";
@@ -787,8 +839,10 @@ public final class Move implements Command {
    * <ul>
    *   <li>Arrived, a move of several joints says when each got there: " (pivot 0.41 s, elevator
    *       0.72 s)".
-   *   <li>Timed out or canceled, it says where each joint it positioned was: ", pivot at 62°".
-   *       Timed out, it also says what held each joint: ", held: pivot keeps out of 40° to 80°".
+   *   <li>Timed out or canceled, it says where each joint it positioned was: ", pivot at 62°". A
+   *       follow says it in the quantity its joint was chasing, with the target: ", shooter at 2990
+   *       rpm, its target 3000 rpm". Timed out, it also says what held each joint: ", held: pivot
+   *       keeps out of 40° to 80°".
    *   <li>Refused, the refusal's own reason says it all.
    * </ul>
    */
@@ -807,10 +861,7 @@ public final class Move implements Command {
         boolean homedTheJoint = plan.task() instanceof Home;
         for (MoveLeg leg : legs) {
           if (!leg.runsAtAnOutput() && !homedTheJoint) {
-            text.append(", ")
-                .append(leg.joint.getName())
-                .append(" at ")
-                .append(leg.joint.joint().shown(leg.joint.position()));
+            text.append(", ").append(whereItWas(leg.joint));
           }
         }
         if (how == Outcome.TIMED_OUT) {
@@ -824,6 +875,36 @@ public final class Move implements Command {
       case REFUSED -> {}
     }
     return text.toString();
+  }
+
+  /**
+   * Where a joint the move drove was as the run ended: "pivot at 62°". A follow says it in the
+   * quantity its joint was chasing, and what the target was: "shooter at 2990 rpm, its target 3000
+   * rpm". A follow that ended before it chased anything says it in the quantity its joint is driven
+   * by, a position for a joint held at positions and a speed for any other.
+   */
+  private String whereItWas(JointMechanism joint) {
+    if (!(plan.task() instanceof Follow)) {
+      return atItsPosition(joint);
+    }
+    Joint model = joint.joint();
+    return switch (chased) {
+      case A_POSITION -> atItsPosition(joint) + ", its target " + model.shown(chasedTarget);
+      case A_SPEED -> atItsSpeed(joint) + ", its target " + model.shownSpeed(chasedTarget);
+      case NOTHING_YET -> model.holdsPositions() ? atItsPosition(joint) : atItsSpeed(joint);
+    };
+  }
+
+  /** A joint's position, as an outcome says it: "pivot at 62°". */
+  private static String atItsPosition(JointMechanism joint) {
+    return joint.getName() + " at " + joint.joint().shown(joint.position());
+  }
+
+  /**
+   * A joint's speed, as an outcome says it, in the joint's unit of speed: "shooter at 2990 rpm".
+   */
+  private static String atItsSpeed(JointMechanism joint) {
+    return joint.getName() + " at " + joint.joint().shownSpeed(joint.velocity());
   }
 
   /**

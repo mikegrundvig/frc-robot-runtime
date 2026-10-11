@@ -318,8 +318,14 @@ range at all turns freely and goes the short way round.
 | `CANCELED` | Another command took the joint, its button was let go, or its `onlyWhile` gate fell |
 | `REFUSED` | It wouldn't start: a target outside the limits, a place not the joint's own or an option that can't be, a joint that isn't answering or failed to home, or its `onlyIf` gate false |
 
+Each reason starts with what moved: one joint (`"pivot → out: ..."`, `"roller: intaking: ..."`), or
+a configuration's joints (`"feeder and indexer: feeding: CANCELED after 2.38 s"`). A move that timed
+out or was canceled says where each joint it positioned was. A `follow` says it in the quantity it
+was chasing, with its target:
+`"shooter follows a target: CANCELED after 3.00 s, shooter at 3008 rpm, its target 3000 rpm"`.
+
 A configuration's move also says when each joint got there, so the slow one is plain:
-`"→ stowed: ARRIVED in 0.62 s (pivot 0.58 s, elevator 0.62 s, arm 0.41 s)"`, and
+`"pivot, elevator and arm → stowed: ARRIVED in 0.62 s (pivot 0.58 s, elevator 0.62 s, arm 0.41 s)"`, and
 `move.arrivals()` gives the same as numbers.
 
 Recovery is an `if`:
