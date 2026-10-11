@@ -244,6 +244,38 @@ class JointPlantTest {
     assertThatIllegalArgumentException().isThrownBy(() -> one.drivenBy(3));
   }
 
+  /**
+   * A plant is one of the definition's joints that motors move. A joint the definition hasn't is
+   * refused by name, as the model refuses it, and so is one of its joints that no motors move:
+   * until 2026-10-11 that one was an index out of bounds.
+   */
+  @Test
+  void aJointTheDefinitionDoesNotDriveIsRefusedByName() {
+    Joint.Revolute elsewhere =
+        Joint.pivot("wrist", Part.CHASSIS, new Translation3d(0.2, 0, 0.5), Joint.PITCH_UP)
+            .range(Range.degrees(-60, 90))
+            .rest(Degrees.of(0))
+            .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
+            .control(MechanismControl.position(30));
+    Joint.Revolute unpowered =
+        Joint.pivot("flap", Part.CHASSIS, new Translation3d(0.3, 0, 0.5), Joint.PITCH_UP)
+            .range(Range.degrees(-60, 90))
+            .rest(Degrees.of(0));
+    RobotMath withAFlap =
+        RobotMath.of(
+            TestRobot.BODY, List.of(ARM, unpowered), List.of(), ARM.ownDrives(), List.of());
+
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> JointPlant.of(MATH, elsewhere))
+        .withMessage("wrist isn't one of the robot's joints");
+    assertThatIllegalArgumentException()
+        .isThrownBy(() -> JointPlant.of(withAFlap, unpowered))
+        .withMessage(
+            "flap has no motors that move it in the robot's definition, so the simulator has"
+                + " nothing to run it with: give its block .motors(...)");
+    assertThat(JointPlant.of(withAFlap, ARM).joint()).isEqualTo(ARM);
+  }
+
   /** Stepped the same, it comes out the same, to the bit. */
   @Test
   void itRepeatsToTheBit() {

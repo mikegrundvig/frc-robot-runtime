@@ -7,6 +7,7 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -71,6 +72,23 @@ public final class JointPlant {
   private final double torquePerVolt;
 
   /**
+   * The drive of motors that moves a joint, which is the first if several do.
+   *
+   * @throws IllegalArgumentException naming the joint, if it is not one of the robot's, or no
+   *     motors move it
+   */
+  private static Drive theDriveOf(RobotMath math, Joint joint) {
+    List<Drive> drives = math.drivesOf(joint);
+    if (drives.isEmpty()) {
+      throw new IllegalArgumentException(
+          joint.label()
+              + " has no motors that move it in the robot's definition, so the simulator has"
+              + " nothing to run it with: give its block .motors(...)");
+    }
+    return drives.get(0);
+  }
+
+  /**
    * Gravity as the kG tuned in the joint's block holds it. Empty where the block tunes none, and
    * the links' mass gives gravity instead.
    */
@@ -87,7 +105,7 @@ public final class JointPlant {
   private JointPlant(RobotMath math, Joint joint) {
     this.joint = joint;
     this.math = math;
-    Drive drive = math.drivesOf(joint).get(0);
+    Drive drive = theDriveOf(math, joint);
     Actuator.Motors motors = (Actuator.Motors) drive.actuator();
     DCMotor allMotors = motors.model(drive.transmission().efficiency());
     gearing = Math.abs(drive.transmission().shaftRadiansPer(joint));
@@ -134,6 +152,8 @@ public final class JointPlant {
    * @param math what the robot's definition derives: the joint's motors, inertia and gravity
    * @param joint one of its joints, moved by one drive of motors; as its block says, or driven
    *     otherwise, which changes nothing here
+   * @throws IllegalArgumentException naming the joint, if it is not one of the robot's, or no
+   *     motors move it
    */
   public static JointPlant of(RobotMath math, Joint joint) {
     return new JointPlant(math, joint);
