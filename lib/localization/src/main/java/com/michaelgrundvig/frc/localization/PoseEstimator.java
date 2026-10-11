@@ -641,7 +641,15 @@ public final class PoseEstimator {
             places.cameraPlace(measurement.camera()),
             places.tagPlaces(measurement.tagIds()));
     if (innovation == null) {
-      // It cannot be compared with the estimate at all, so it is left out, and says nothing.
+      // It cannot be compared with the estimate at all, so it is left out. It is counted as a
+      // rejection and given a verdict of its own, new this update or applied before, so that no
+      // measurement leaves the estimator without one. It is not a camera disagreeing with the
+      // estimate, so it does not count toward the rejections in a row that mean the estimate is
+      // lost.
+      rejectedCount++;
+      decisions.add(
+          new VisionDecision(
+              measurement, Verdict.NOT_COMPARABLE, Double.NaN, Double.NaN, Double.NaN));
       return;
     }
     if (!passesTheGate(replayed, innovation, decisions)) {

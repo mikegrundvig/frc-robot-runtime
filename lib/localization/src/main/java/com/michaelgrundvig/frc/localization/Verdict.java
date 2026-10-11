@@ -20,6 +20,14 @@ public enum Verdict {
   /** Its χ² against the estimate was past the gate: the value is its χ², the threshold the gate. */
   GATED("outside the gate", "gate: %1$.1f > %2$.1f"),
 
+  /**
+   * It could not be compared with the estimate at all: its uncertainty and the estimate's together
+   * left no spread to measure a distance in, so it has no χ² and was never held to the gate.
+   */
+  NOT_COMPARABLE(
+      "can't be compared with the estimate",
+      "can't be compared with the estimate: its uncertainty leaves no spread to measure in"),
+
   /** It put the robot off the field. */
   OFF_FIELD("off the field", "off the field"),
 

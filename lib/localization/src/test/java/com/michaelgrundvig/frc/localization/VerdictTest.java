@@ -32,6 +32,14 @@ class VerdictTest {
         new Before(
             45.24, 13.8155, String.format(Locale.ROOT, "gate: %.1f > %.1f", 45.24, 13.8155)));
     BEFORE.put(Verdict.OFF_FIELD, new Before(Double.NaN, Double.NaN, "off the field"));
+    // Added on purpose, 2026-10-11: before it, such a measurement left the estimator with no reason
+    // at all.
+    BEFORE.put(
+        Verdict.NOT_COMPARABLE,
+        new Before(
+            Double.NaN,
+            Double.NaN,
+            "can't be compared with the estimate: its uncertainty leaves no spread to measure in"));
     BEFORE.put(
         Verdict.BEFORE_ODOMETRY, new Before(Double.NaN, Double.NaN, "before odometry started"));
     BEFORE.put(

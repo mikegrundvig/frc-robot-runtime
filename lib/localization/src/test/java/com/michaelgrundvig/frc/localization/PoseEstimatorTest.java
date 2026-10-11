@@ -299,6 +299,52 @@ class PoseEstimatorTest {
     assertSame(robot.pose(), START, 1e-9);
   }
 
+  /**
+   * A measurement whose uncertainty leaves nothing to measure a distance in can't be compared with
+   * the estimate. It's left out, with a verdict of its own and a count among the rejected, new or
+   * taken back; the estimate stays where it was, and the next good measurement is weighed as ever.
+   * Until 2026-10-11 it vanished: no decision, and no count.
+   */
+  @Test
+  void aMeasurementThatCannotBeComparedIsLeftOutWithAVerdictOfItsOwn() {
+    Robot robot = new Robot().drive(10, 0, 0, 0);
+    // So wide, and its x and y so bound together, that the spread's determinant is infinity less
+    // infinity: not a number.
+    PoseCovariance noSpread = new PoseCovariance(1e200, 1e200, 1e200, Double.POSITIVE_INFINITY);
+
+    List<VisionDecision> first =
+        robot.see(new Pose2d(1.02, 1, Rotation2d.ZERO), robot.time, noSpread);
+    robot.drive(5, 0, 0, 0);
+    List<VisionDecision> second =
+        robot.see(new Pose2d(3, 1, Rotation2d.ZERO), robot.time, noSpread);
+    Pose2d after = robot.pose();
+    LocalizationEstimate.Mode afterTwo = robot.estimate().mode();
+    List<VisionDecision> good =
+        robot.see(new Pose2d(1.02, 1, Rotation2d.ZERO), robot.time, position(0.05));
+
+    assertThat(first).hasSize(1);
+    assertThat(second).hasSize(1);
+    for (VisionDecision decision : List.of(first.get(0), second.get(0))) {
+      assertThat(decision.verdict()).isEqualTo(Verdict.NOT_COMPARABLE);
+      assertThat(decision.accepted()).isFalse();
+      assertThat(decision.reason())
+          .isEqualTo(
+              "can't be compared with the estimate: its uncertainty leaves no spread to measure"
+                  + " in");
+      assertThat(decision.innovationMeters()).isNaN();
+      assertThat(decision.chiSquared()).isNaN();
+      assertThat(decision.threshold()).isNaN();
+    }
+    assertSame(after, START, 1e-12);
+    assertThat(good).singleElement().satisfies(d -> assertThat(d.accepted()).isTrue());
+    LocalizationEstimate.Health health = robot.estimate().health();
+    assertThat(health.rejected()).as("both, counted").isEqualTo(2);
+    assertThat(health.accepted()).isEqualTo(1);
+    assertThat(afterTwo)
+        .as("two in a row aren't the cameras disagreeing with the estimate")
+        .isNotEqualTo(LocalizationEstimate.Mode.LOST);
+  }
+
   @Test
   void measurementsTheHistoryCannotPlaceAreRejected() {
     Robot robot = new Robot().drive(500, 0, 0, 0); // 2 s: the history keeps 1.5 s
