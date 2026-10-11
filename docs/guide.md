@@ -59,9 +59,12 @@ RobotProgram.start(
 ```
 
 The first argument answers "which robot is this?". The second is the season's field, which the
-model already describes. The third is your `Controls` class. The template's own `Main` passes
-`Robots::current` first, a method in `Robots.java` that picks the robot the program is running
-on. It also passes a fourth argument, a stamp that tells the log which build of the code ran.
+model already describes. The third is your `Controls` class.
+
+The template's own `Main` differs in three small ways, because it carries more than one robot. It
+passes `Robots::current` first, a method in `Robots.java` that picks the robot the program is
+running on. It passes `Robots::controls` third, which makes the controls written for that robot.
+And it passes a fourth argument, a stamp that tells the log which build of the code ran.
 
 **The robot's description** is a class of constants, one class for each design. The guide's is
 `ExampleRobot`. The template also carries two real ones, `BetaRobot` and `DeltaRobot`, which are
