@@ -15,6 +15,7 @@ import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.ImuMount;
 import com.michaelgrundvig.frc.world.robot.Imus;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
@@ -41,11 +42,16 @@ public final class DriveSimulation {
   /** Physics steps, and odometry readings, per robot loop: 250 Hz at a 50 Hz loop. */
   static final int STEPS_PER_LOOP = 5;
 
+  /** A swerve drivetrain's four modules: front left, front right, back left, back right. */
+  private static final int MODULE_COUNT = 4;
+
+  private static final double NANOS_PER_SECOND = 1e9;
+
   /** A hard hit's jolt, as an IMU feels it: 4 g. */
   static final double HIT_JOLT_METERS_PER_SECOND_SQUARED = 4 * ImuReadings.STANDARD_GRAVITY;
 
   private final Physics physics;
-  private final ModuleIOSim[] modules = new ModuleIOSim[4];
+  private final ModuleIOSim[] modules = new ModuleIOSim[MODULE_COUNT];
   private final GyroIOSim gyro;
   private final GyroIOSim backupGyro;
 
@@ -54,8 +60,8 @@ public final class DriveSimulation {
 
   // What's been done to the physics, as the faults ask: each wheel's true radius over the
   // configured one (now, and as the robot was built), the ground, a push, a tilt, and the grip.
-  private final double[] treadScale = new double[4];
-  private final double[] builtTreadScale = new double[4];
+  private final double[] treadScale = new double[MODULE_COUNT];
+  private final double[] builtTreadScale = new double[MODULE_COUNT];
   private Terrain terrain = Terrain.FLAT;
   private boolean pushed;
   private boolean tiltedByHand;
@@ -84,15 +90,16 @@ public final class DriveSimulation {
    */
   public DriveSimulation(Body body, DrivetrainGeometry drivetrain, SensorErrors errors, Imus imus) {
     physics = new KinematicPhysics(body, drivetrain, errors.wheelRadiusScale());
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < MODULE_COUNT; i++) {
       // Each module's CANcoder sends on its own clock: here a quarter period after the last, to the
       // steering loop's millisecond (0, 2, 5 and 7 ms into its cycle, at 100 Hz).
+      double encoderPhase = i / (double) MODULE_COUNT;
       modules[i] =
           new ModuleIOSim(
               drivetrain.module(i),
               physics.wheel(i),
               Math.toRadians(errors.steerOffsetDegrees().get(i)),
-              i / 4.0);
+              encoderPhase);
       treadScale[i] = errors.wheelRadiusScale().get(i);
       builtTreadScale[i] = treadScale[i];
     }
@@ -102,30 +109,36 @@ public final class DriveSimulation {
             modules[i].actuate(seconds, drives[i]);
           }
         };
-    // Each IMU's noise from its own stream of the seed (Seeds).
-    ChassisTruth chassis = physics.chassis();
+    // Each IMU's noise comes from its own stream of the world's seed (Seeds). A robot without a
+    // backup IMU still has one simulated, at the gyro's mount.
+    long seed = errors.seed();
     gyro =
-        new GyroIOSim(
-            new GyroModel(
-                chassis,
-                errors.gyro(),
-                new AccelerometerModel(
-                    chassis,
-                    errors.accelerometer(),
-                    imus.gyro(),
-                    Seeds.gyroAccelerometer(errors.seed())),
-                Seeds.gyro(errors.seed())));
+        imu(
+            errors.gyro(),
+            errors.accelerometer(),
+            imus.gyro(),
+            Seeds.gyro(seed),
+            Seeds.gyroAccelerometer(seed));
     backupGyro =
-        new GyroIOSim(
-            new GyroModel(
-                chassis,
-                errors.backupGyro(),
-                new AccelerometerModel(
-                    chassis,
-                    errors.backupAccelerometer(),
-                    imus.backup().orElse(imus.gyro()),
-                    Seeds.backupAccelerometer(errors.seed())),
-                Seeds.backupGyro(errors.seed())));
+        imu(
+            errors.backupGyro(),
+            errors.backupAccelerometer(),
+            imus.backup().orElse(imus.gyro()),
+            Seeds.backupGyro(seed),
+            Seeds.backupAccelerometer(seed));
+  }
+
+  /** One simulated IMU on this robot's chassis: a gyro with its own accelerometer. */
+  private GyroIOSim imu(
+      SensorErrors.GyroErrors gyroErrors,
+      SensorErrors.AccelErrors accelerometerErrors,
+      ImuMount mount,
+      long gyroSeed,
+      long accelerometerSeed) {
+    ChassisTruth chassis = physics.chassis();
+    AccelerometerModel accelerometer =
+        new AccelerometerModel(chassis, accelerometerErrors, mount, accelerometerSeed);
+    return new GyroIOSim(new GyroModel(chassis, gyroErrors, accelerometer, gyroSeed));
   }
 
   /** The modules' motor controllers and encoders, for the drivetrain. */
@@ -228,18 +241,23 @@ public final class DriveSimulation {
     if (!(seconds > 0)) {
       throw new IllegalArgumentException("a step takes time: " + seconds);
     }
-    double dt = seconds / STEPS_PER_LOOP;
-    long dtNanos = Math.round(dt * 1e9);
-    for (int remaining = STEPS_PER_LOOP - 1; remaining >= 0; remaining--) {
-      physics.step(dt, actuators);
-      gyro.feel(dt);
-      backupGyro.feel(dt);
-      long readingTime = nowNanos - remaining * dtNanos;
+    double stepSeconds = seconds / STEPS_PER_LOOP;
+    long stepNanos = Math.round(stepSeconds * NANOS_PER_SECOND);
+    for (int step = 1; step <= STEPS_PER_LOOP; step++) {
+      physics.step(stepSeconds, actuators);
+      gyro.feel(stepSeconds);
+      backupGyro.feel(stepSeconds);
+
+      // The readings are stamped back from the loop's end, a step apart, so the last one is now.
+      int stepsStillToCome = STEPS_PER_LOOP - step;
+      long readingTime = nowNanos - stepsStillToCome * stepNanos;
       for (ModuleIOSim module : modules) {
         module.sample(readingTime);
       }
       gyro.sample(readingTime);
-      if (remaining == 0) {
+      // The backup IMU is read once a loop, not at odometry's rate.
+      boolean isTheLoopsLastStep = stepsStillToCome == 0;
+      if (isTheLoopsLastStep) {
         backupGyro.sample(readingTime);
       }
     }

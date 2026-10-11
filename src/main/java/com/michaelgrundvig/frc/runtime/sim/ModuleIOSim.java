@@ -23,32 +23,45 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import java.util.Arrays;
+import java.util.Optional;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.util.MathUtil;
 
 /**
  * A simulated swerve module's motor controllers and encoders: the actuators that drive one wheel of
- * the {@link Physics}, and the sensors that read it. Each sub-step the physics asks ({@link
- * #actuate}), the drive's controller works out the voltage it asks for from its loop, at the
- * wheel's true speed, and hands it on with its stator current limit, which the physics holds the
- * motor to; the steering's runs its loop and turns the module in closed form ({@link
- * CurrentLimitedMotor}); the physics turns the wheel and moves the robot. The motors and their
- * gearing are the robot's definition's ({@code DrivetrainGeometry.ModuleType}). Its absolute
- * encoder can read off true ({@link SensorErrors}), and its zero can be knocked further off while
- * it runs. Its encoders' readings can go stale: the wheel turns on, and what the robot's code reads
- * stops changing, as signals that stop arriving do. Both motors' stator current limits are modeled:
- * the drive's caps the torque that accelerates the robot and says when a wheel is at the edge of
- * its grip, and the steering's caps how hard the module turns and stops. The battery holds 12 V,
- * and the drive's supply current limit, with Phoenix's step-down from it ({@code
- * DrivetrainControl.Limits.driveSupplyLowerCurrent}), isn't modeled: the supply current it reports
- * is what the motor would draw from a steady 12 V with no supply limit. So this tests the code
- * rather than the robot's power; docs/stand-ins.md says when that matters.
+ * the {@link Physics}, and the sensors that read it.
  *
- * <p>The steering runs as a TalonFX without a Phoenix Pro license runs it: its loop every
- * millisecond, on the angle the CANcoder last sent over CAN. Those, with its current limit, set how
- * high its gains can go before it overshoots, as on a robot.
+ * <p><b>Each physics sub-step</b> ({@link #actuate}):
+ *
+ * <ul>
+ *   <li><b>The drive's controller</b> works out the voltage it asks for, from its velocity loop at
+ *       the wheel's true speed, and hands it to the physics with its stator current limit. The
+ *       physics holds the motor to that limit, turns the wheel, and moves the robot.
+ *   <li><b>The steering's controller</b> runs its position loop and turns the module here, in
+ *       closed form ({@link CurrentLimitedMotor}), and the physics is told the angle.
+ * </ul>
+ *
+ * <p><b>The steering runs as a TalonFX without a Phoenix Pro license runs it:</b> its loop every
+ * millisecond, on the angle its CANcoder last sent over CAN, which is up to a CANcoder's period
+ * old. That wait, with the current limit, sets how high its gains can go before it overshoots, as
+ * on a robot.
+ *
+ * <p><b>What can be wrong with it.</b> Its absolute encoder's zero can be off ({@link
+ * SensorErrors}), and knocked further off while it runs. Its encoders' readings can go stale: the
+ * wheel turns on, and what the robot's code reads stops changing, as signals that stop arriving do.
+ * Its wheel can slip, or keep spinning faster than the floor moves it.
+ *
+ * <p><b>What is left out.</b> The battery holds 12 V. The drive's supply current limit, with
+ * Phoenix's step-down from it ({@code DrivetrainControl.Limits.driveSupplyLowerCurrent}), is not
+ * modeled: the supply current reported is what the motor would draw from a steady 12 V with no
+ * supply limit. So this tests the code and not the robot's power, and docs/stand-ins.md says when
+ * that matters. Both motors' stator current limits are modeled: the drive's caps the torque that
+ * accelerates the robot, and the steering's caps how hard the module turns and stops. The motors
+ * and their gearing are the robot's definition's ({@code DrivetrainGeometry.ModuleType}).
  */
 final class ModuleIOSim implements ModuleIO {
+  private static final double NANOS_PER_SECOND = 1e9;
+
   /**
    * A TalonFX runs its closed loop every millisecond (CTRE's Phoenix 6 documentation: 1 kHz), in
    * nanoseconds. The module keeps its own time in whole nanoseconds, so the loop's rate, and the
@@ -67,14 +80,15 @@ final class ModuleIOSim implements ModuleIO {
    * read the motor's own sensor every loop, and this would be {@link #STEER_LOOP_NANOS}.
    */
   private static final long ENCODER_PERIOD_NANOS =
-      Math.round(1e9 / PhoenixDrivetrain.ENCODER_FREQUENCY_HZ);
+      Math.round(NANOS_PER_SECOND / PhoenixDrivetrain.ENCODER_FREQUENCY_HZ);
 
   // The CANcoder sends on the steering loop's millisecond, and the same number of times every robot
   // loop, so each robot loop finds every CANcoder at the same point in its cycle.
   static {
-    long robotLoopNanos = Math.round(RobotLoop.PERIOD_SECONDS * 1e9);
-    if (ENCODER_PERIOD_NANOS % STEER_LOOP_NANOS != 0
-        || robotLoopNanos % ENCODER_PERIOD_NANOS != 0) {
+    long robotLoopNanos = Math.round(RobotLoop.PERIOD_SECONDS * NANOS_PER_SECOND);
+    boolean onTheSteerLoopsMillisecond = ENCODER_PERIOD_NANOS % STEER_LOOP_NANOS == 0;
+    boolean dividesTheRobotsLoop = robotLoopNanos % ENCODER_PERIOD_NANOS == 0;
+    if (!onTheSteerLoopsMillisecond || !dividesTheRobotsLoop) {
       throw new IllegalStateException(
           "the CANcoder's period, "
               + ENCODER_PERIOD_NANOS
@@ -82,8 +96,28 @@ final class ModuleIOSim implements ModuleIO {
     }
   }
 
+  /** What the robot last asked of the drive's motor controller. */
+  private enum DriveAsk {
+    /** A wheel speed, on its velocity loop, with a feedforward voltage. */
+    VELOCITY,
+    /** A voltage, held: open loop. Stopped is this, at 0 V. */
+    VOLTAGE
+  }
+
+  /**
+   * What the module's encoders read at the moment their readings went stale: what the robot's code
+   * goes on reading until they catch up.
+   */
+  private record StaleReadings(
+      double drivePositionRadians,
+      double driveVelocityRadPerSec,
+      double steerRadians,
+      double steerRadPerSec) {}
+
   private final WheelTruth wheel;
-  private final CurrentLimitedMotor steerSim;
+  private final CurrentLimitedMotor steerMotor;
+
+  /** The wheel's radius as configured, which the motor controllers convert with. */
   private final double wheelRadiusMeters;
 
   /** How far the absolute encoder's zero is off: it reads the true angle minus this. */
@@ -92,23 +126,18 @@ final class ModuleIOSim implements ModuleIO {
   /** How far it was off as the robot was built. */
   private final double builtSteerOffsetRadians;
 
-  /** Whether the encoders' readings have stopped changing, and what they're stuck at. */
-  private boolean stale;
-
-  private double stalePositionRadians;
-  private double staleVelocityRadPerSec;
-  private double staleSteerRadians;
-  private double staleSteerRadPerSec;
+  /** The readings the robot's code is stuck with while the encoders are stale. Empty while live. */
+  private Optional<StaleReadings> stale = Optional.empty();
 
   /**
    * Rotation the wheel spun without rolling the robot along: its encoder saw it, the floor didn't.
    */
-  private double spinRadians;
+  private double slippedRadians;
 
   /** How fast it keeps spinning beyond what rolls the robot along, in radians per second. */
-  private double spinRadPerSec;
+  private double slippingRadPerSec;
 
-  // Readings taken since the last loop, for odometry.
+  // Readings taken since the last loop, for odometry: the first `samples` entries of each array.
   private long[] sampleTimes = new long[8];
   private double[] samplePositions = new double[8];
   private double[] sampleAngles = new double[8];
@@ -118,10 +147,13 @@ final class ModuleIOSim implements ModuleIO {
   private double steerKp;
   private double steerKd;
 
-  private boolean driveClosedLoop;
+  private DriveAsk driveAsk = DriveAsk.VOLTAGE;
   private double driveSetpointRadPerSec;
   private double driveFeedforwardVolts;
+
+  /** The voltage the drive's controller asks for: a voltage held, or its velocity loop's output. */
   private double driveVolts;
+
   private double driveStatorLimitAmps = Double.POSITIVE_INFINITY;
 
   /** Whether the drive's current limit held its motor back since the last loop read it. */
@@ -130,7 +162,9 @@ final class ModuleIOSim implements ModuleIO {
   /** Whether the physics has run a sub-step on this module's drive that hasn't been looked at. */
   private boolean subStepUnread;
 
-  private boolean steering;
+  /** Whether the steering's position loop runs. Otherwise its motor is at 0 V. */
+  private boolean steerLoopOn;
+
   private double steerSetpointRad;
   private double steerStatorLimitAmps = Double.POSITIVE_INFINITY;
 
@@ -167,7 +201,7 @@ final class ModuleIOSim implements ModuleIO {
       double encoderPhase) {
     this.wheel = wheel;
     wheelRadiusMeters = modules.wheelRadius().in(Meters);
-    steerSim =
+    steerMotor =
         new CurrentLimitedMotor(
             modules.steerMotors().model(modules.steerGearing().efficiency()),
             modules.steerInertiaOrDefault().in(KilogramSquareMeters),
@@ -175,8 +209,10 @@ final class ModuleIOSim implements ModuleIO {
     this.steerOffsetRadians = steerOffsetRadians;
     builtSteerOffsetRadians = steerOffsetRadians;
     heardSteerRadians = measuredSteerRadians();
-    long encoderPeriodLoops = ENCODER_PERIOD_NANOS / STEER_LOOP_NANOS;
-    untilEncoderSendsNanos = (long) (encoderPhase * encoderPeriodLoops) * STEER_LOOP_NANOS;
+    // The CANcoder's first send, on a whole millisecond of the steering's loop.
+    long steerLoopsPerEncoderPeriod = ENCODER_PERIOD_NANOS / STEER_LOOP_NANOS;
+    long steerLoopsUntilFirstSend = (long) (encoderPhase * steerLoopsPerEncoderPeriod);
+    untilEncoderSendsNanos = steerLoopsUntilFirstSend * STEER_LOOP_NANOS;
   }
 
   /**
@@ -199,18 +235,25 @@ final class ModuleIOSim implements ModuleIO {
    * The encoders' readings stop changing while the wheel turns on, or catch up again. The motor
    * controllers' own loops keep their live readings: only what the robot's code reads is stale.
    */
-  void setStale(boolean stale) {
-    if (stale && !this.stale) {
-      stalePositionRadians = drivePositionRadians();
-      staleVelocityRadPerSec = wheel.spinRadPerSec();
-      staleSteerRadians = heardSteerRadians;
-      staleSteerRadPerSec = heardSteerRadPerSec;
+  void setStale(boolean goesStale) {
+    if (!goesStale) {
+      stale = Optional.empty();
+      return;
     }
-    this.stale = stale;
+    if (stale.isPresent()) {
+      return; // already stale: it stays stuck at what it read when it first went stale
+    }
+    stale =
+        Optional.of(
+            new StaleReadings(
+                drivePositionRadians(),
+                wheel.spinRadPerSec(),
+                heardSteerRadians,
+                heardSteerRadPerSec));
   }
 
   boolean isStale() {
-    return stale;
+    return stale.isPresent();
   }
 
   /**
@@ -224,32 +267,44 @@ final class ModuleIOSim implements ModuleIO {
    * @param drive what this wheel's drive and steering do over the sub-step, for the physics
    */
   void actuate(double seconds, WheelDrive drive) {
-    readLastSubStep();
-    double speed = wheel.spinRadPerSec();
-    if (driveClosedLoop) {
-      double error = driveSetpointRadPerSec - speed;
-      driveVolts = driveFeedforwardVolts + driveKp * error * wheelRadiusMeters;
+    noteWhetherTheDriveWasLimited();
+    if (driveAsk == DriveAsk.VELOCITY) {
+      // The velocity loop: the feedforward, plus kP on the error in the wheel's rim speed. The
+      // gain is in volts per meter a second, so the error in rad/s is put through the radius.
+      double errorRadPerSec = driveSetpointRadPerSec - wheel.spinRadPerSec();
+      driveVolts = driveFeedforwardVolts + driveKp * errorRadPerSec * wheelRadiusMeters;
     }
     driveVolts = Math.clamp(driveVolts, -Motor.NOMINAL_VOLTS, Motor.NOMINAL_VOLTS);
-    drive.drive(
-        driveVolts,
-        // A velocity loop's gain, while the battery doesn't cap what it asks for.
-        driveClosedLoop && Math.abs(driveVolts) < Motor.NOMINAL_VOLTS
-            ? -driveKp * wheelRadiusMeters
-            : 0,
-        driveStatorLimitAmps,
-        Motor.NOMINAL_VOLTS);
+    drive.drive(driveVolts, driveVoltsPerRadPerSec(), driveStatorLimitAmps, Motor.NOMINAL_VOLTS);
     subStepUnread = true;
-    spinRadians += spinRadPerSec * seconds;
-    steer(Math.round(seconds * 1e9));
+
+    slippedRadians += slippingRadPerSec * seconds;
+    steer(Math.round(seconds * NANOS_PER_SECOND));
     drive.steer(trueSteerAngle().getRadians());
+  }
+
+  /**
+   * How the voltage the drive's controller asks for moves with the wheel's speed over the sub-step,
+   * in volts per radian a second: its velocity loop's gain, which is negative since a faster wheel
+   * is asked for less. It is zero for a voltage simply held, and zero while the battery caps what
+   * the loop asks for, when a little more or less speed changes nothing.
+   */
+  private double driveVoltsPerRadPerSec() {
+    if (driveAsk != DriveAsk.VELOCITY) {
+      return 0;
+    }
+    boolean cappedByTheBattery = !(Math.abs(driveVolts) < Motor.NOMINAL_VOLTS);
+    if (cappedByTheBattery) {
+      return 0;
+    }
+    return -driveKp * wheelRadiusMeters;
   }
 
   /**
    * Notes whether the drive's current limit held in the physics' last sub-step, once: the flag
    * holds until a loop reads it, as a motor controller's does.
    */
-  private void readLastSubStep() {
+  private void noteWhetherTheDriveWasLimited() {
     if (subStepUnread) {
       driveLimited |= wheel.driveCurrentLimited();
       subStepUnread = false;
@@ -267,32 +322,51 @@ final class ModuleIOSim implements ModuleIO {
    * against the motion that can stop the module, which {@link CurrentLimitedMotor} says how to add.
    */
   private void steer(long nanos) {
-    long remaining = nanos;
-    while (remaining > 0) {
+    long remainingNanos = nanos;
+    while (remainingNanos > 0) {
       if (untilEncoderSendsNanos == 0) {
-        heardSteerRadians = measuredSteerRadians();
-        heardSteerRadPerSec = steerSim.velocityRadPerSec();
-        untilEncoderSendsNanos = ENCODER_PERIOD_NANOS;
+        cancoderSends();
       }
       if (untilSteerLoopNanos == 0) {
-        // The steering loop runs on what the absolute encoder sent, right or not.
-        steerVolts =
-            steering
-                ? Math.clamp(
-                    steerKp * MathUtil.angleModulus(steerSetpointRad - heardSteerRadians)
-                        - steerKd * heardSteerRadPerSec,
-                    -Motor.NOMINAL_VOLTS,
-                    Motor.NOMINAL_VOLTS)
-                : 0.0;
-        untilSteerLoopNanos = STEER_LOOP_NANOS;
+        steerLoopRuns();
       }
-      long run = Math.min(remaining, Math.min(untilSteerLoopNanos, untilEncoderSendsNanos));
-      steerPeakAmps =
-          Math.max(steerPeakAmps, steerSim.run(steerVolts, steerStatorLimitAmps, run / 1e9));
-      remaining -= run;
-      untilSteerLoopNanos -= run;
-      untilEncoderSendsNanos -= run;
+      // The motor holds the loop's voltage until the next thing happens: the loop runs again, the
+      // CANcoder sends, or the time is up.
+      long untilNextEvent = Math.min(untilSteerLoopNanos, untilEncoderSendsNanos);
+      long runNanos = Math.min(remainingNanos, untilNextEvent);
+      double peakAmps =
+          steerMotor.run(steerVolts, steerStatorLimitAmps, runNanos / NANOS_PER_SECOND);
+      steerPeakAmps = Math.max(steerPeakAmps, peakAmps);
+      remainingNanos -= runNanos;
+      untilSteerLoopNanos -= runNanos;
+      untilEncoderSendsNanos -= runNanos;
     }
+  }
+
+  /** The CANcoder sends the steering's motor controller its angle and speed, as it reads them. */
+  private void cancoderSends() {
+    heardSteerRadians = measuredSteerRadians();
+    heardSteerRadPerSec = steerMotor.velocityRadPerSec();
+    untilEncoderSendsNanos = ENCODER_PERIOD_NANOS;
+  }
+
+  /**
+   * The steering's position loop runs once: kP on the angle still to turn, the short way round,
+   * less kD on the speed, within the battery's voltage. It runs on what the CANcoder last sent,
+   * whether or not that is still right.
+   */
+  private void steerLoopRuns() {
+    untilSteerLoopNanos = STEER_LOOP_NANOS;
+    if (!steerLoopOn) {
+      steerVolts = 0.0;
+      return;
+    }
+    double errorRadians = MathUtil.angleModulus(steerSetpointRad - heardSteerRadians);
+    steerVolts =
+        Math.clamp(
+            steerKp * errorRadians - steerKd * heardSteerRadPerSec,
+            -Motor.NOMINAL_VOLTS,
+            Motor.NOMINAL_VOLTS);
   }
 
   /**
@@ -314,7 +388,7 @@ final class ModuleIOSim implements ModuleIO {
 
   /** Spins the wheel without the robot moving: a slip its encoder sees and the floor doesn't. */
   void spin(double radians) {
-    spinRadians += radians;
+    slippedRadians += radians;
   }
 
   /**
@@ -322,12 +396,12 @@ final class ModuleIOSim implements ModuleIO {
    * its configured radius, as one losing its grip does: its encoder counts it, the floor doesn't.
    */
   void spinAt(double metersPerSecond) {
-    spinRadPerSec = metersPerSecond / wheelRadiusMeters;
+    slippingRadPerSec = metersPerSecond / wheelRadiusMeters;
   }
 
   /** How much faster than the floor moves it the wheel spins, in meters per second. */
   double spinMetersPerSecond() {
-    return spinRadPerSec * wheelRadiusMeters;
+    return slippingRadPerSec * wheelRadiusMeters;
   }
 
   @Override
@@ -336,21 +410,22 @@ final class ModuleIOSim implements ModuleIO {
     inputs.odometryDrivePositionsRad = Arrays.copyOf(samplePositions, samples);
     inputs.odometrySteerAnglesRad = Arrays.copyOf(sampleAngles, samples);
     samples = 0;
+
     inputs.driveConnected = true;
     inputs.drivePositionRad = drivePositionRadians();
-    inputs.driveVelocityRadPerSec =
-        stale ? staleVelocityRadPerSec : wheel.spinRadPerSec() + spinRadPerSec;
+    inputs.driveVelocityRadPerSec = driveVelocityRadPerSec();
     inputs.driveAppliedVolts = wheel.driveVolts();
     inputs.driveStatorCurrentAmps = Math.abs(wheel.driveCurrentAmps());
     inputs.driveSupplyCurrentAmps = driveSupplyAmps();
-    readLastSubStep();
+    noteWhetherTheDriveWasLimited();
     inputs.driveTorqueLimited = driveLimited;
     driveLimited = false;
+
     inputs.steerConnected = true;
     // The steering's angle and speed as the robot hears them: what the CANcoder last sent.
     inputs.steerAngle = new Rotation2d(steerReadingRadians());
-    inputs.steerVelocityRadPerSec = stale ? staleSteerRadPerSec : heardSteerRadPerSec;
-    inputs.steerAppliedVolts = steerSim.appliedVolts();
+    inputs.steerVelocityRadPerSec = steerVelocityReadingRadPerSec();
+    inputs.steerAppliedVolts = steerMotor.appliedVolts();
     // The steering's current is the most it drew since the last loop, not what it draws now. It
     // runs at its limit for a few milliseconds as the module starts and stops a turn, then falls to
     // next to nothing, so a reading at the loop's end would almost never see the peak, and the peak
@@ -361,35 +436,66 @@ final class ModuleIOSim implements ModuleIO {
     steerPeakAmps = 0;
   }
 
-  /** The current the drive motor draws from the battery, in amps: what its PDH channel reads. */
+  /**
+   * The current the drive motor draws from the battery, in amps: what its PDH channel reads. Power
+   * in is power out: the battery's 12 V times the supply current is the voltage across the motor
+   * times the current through it.
+   */
   double driveSupplyAmps() {
     return Math.abs(wheel.driveVolts() * wheel.driveCurrentAmps()) / Motor.NOMINAL_VOLTS;
   }
 
-  /** The current the steering motor draws from the battery now, in amps. */
+  /**
+   * The current the steering motor draws from the battery now, in amps, worked out the same way.
+   */
   double steerSupplyAmps() {
-    return Math.abs(steerSim.appliedVolts() * steerSim.currentAmps()) / Motor.NOMINAL_VOLTS;
+    return Math.abs(steerMotor.appliedVolts() * steerMotor.currentAmps()) / Motor.NOMINAL_VOLTS;
   }
 
   /** What the drive encoder reads: every turn of the wheel, slips too, unless it's stale. */
   private double drivePositionRadians() {
-    return stale ? stalePositionRadians : wheel.rotationRadians() + spinRadians;
+    if (stale.isPresent()) {
+      return stale.get().drivePositionRadians();
+    }
+    return wheel.rotationRadians() + slippedRadians;
+  }
+
+  /** How fast the drive encoder reads the wheel turning, its slipping too, unless it's stale. */
+  private double driveVelocityRadPerSec() {
+    if (stale.isPresent()) {
+      return stale.get().driveVelocityRadPerSec();
+    }
+    return wheel.spinRadPerSec() + slippingRadPerSec;
   }
 
   /**
    * The steering's angle as the robot's code reads it: what the CANcoder last sent, unless stale.
    */
   private double steerReadingRadians() {
-    return stale ? staleSteerRadians : heardSteerRadians;
+    if (stale.isPresent()) {
+      return stale.get().steerRadians();
+    }
+    return heardSteerRadians;
   }
 
-  /** Which way the wheel really points, whatever its encoder reads. */
+  private double steerVelocityReadingRadPerSec() {
+    if (stale.isPresent()) {
+      return stale.get().steerRadPerSec();
+    }
+    return heardSteerRadPerSec;
+  }
+
+  /**
+   * Which way the wheel really points, whatever its encoder reads. As an angle, it is within half a
+   * turn of straight ahead, however many turns the steering has made.
+   */
   Rotation2d trueSteerAngle() {
-    return new Rotation2d(steerSim.positionRadians());
+    return new Rotation2d(steerMotor.positionRadians());
   }
 
+  /** What the absolute encoder reads: the true angle, less how far its zero is off. */
   private double measuredSteerRadians() {
-    return steerSim.positionRadians() - steerOffsetRadians;
+    return steerMotor.positionRadians() - steerOffsetRadians;
   }
 
   /**
@@ -407,27 +513,27 @@ final class ModuleIOSim implements ModuleIO {
 
   @Override
   public void setDriveVelocity(double wheelRadPerSec, double feedforwardVolts) {
-    driveClosedLoop = true;
+    driveAsk = DriveAsk.VELOCITY;
     driveSetpointRadPerSec = wheelRadPerSec;
     driveFeedforwardVolts = feedforwardVolts;
   }
 
   /** Drives the wheel open loop at a voltage, for a test of the simulated drivetrain. */
   public void setDriveVoltage(double volts) {
-    driveClosedLoop = false;
+    driveAsk = DriveAsk.VOLTAGE;
     driveVolts = volts;
   }
 
   @Override
   public void setSteerAngle(Rotation2d angle) {
-    steering = true;
+    steerLoopOn = true;
     steerSetpointRad = angle.getRadians();
   }
 
   @Override
   public void stop() {
-    driveClosedLoop = false;
+    driveAsk = DriveAsk.VOLTAGE;
     driveVolts = 0.0;
-    steering = false;
+    steerLoopOn = false;
   }
 }

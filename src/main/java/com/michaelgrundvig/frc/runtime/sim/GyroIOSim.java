@@ -99,6 +99,7 @@ final class GyroIOSim implements GyroIO {
     inputs.yawVelocityRadPerSec = model.yawRateRadiansPerSecond();
     inputs.pitchRad = model.pitchRadians();
     inputs.rollRad = model.rollRadians();
+    // Unplugged, its accelerometer reads nothing, and the last reading stands.
     @Nullable Translation2d felt = model.acceleration();
     if (felt != null) {
       inputs.accelerationXMetersPerSecSq = felt.getX();

@@ -38,17 +38,19 @@ public final class PdhIOSim implements PdhIO {
   public PdhIOSim(
       RobotDefinition definition, JointSimulation joints, @Nullable DriveSimulation drivetrain) {
     for (Joint joint : definition.joints()) {
-      int controller = 0;
+      // The joint's motor controllers are numbered in the order its devices list them, the leader
+      // first, whether or not a PDH channel feeds each.
+      int controllersSoFar = 0;
       for (CanDevice device : joint.devices()) {
         if (!device.kind().motorController()) {
           continue;
         }
-        int which = controller++;
-        device
-            .feed()
-            .ifPresent(
-                feed ->
-                    channels.add(new Channel(feed.channel(), () -> amps(joints, joint, which))));
+        int controller = controllersSoFar;
+        controllersSoFar++;
+        if (device.feed().isPresent()) {
+          int channel = device.feed().get().channel();
+          channels.add(new Channel(channel, () -> amps(joints, joint, controller)));
+        }
       }
     }
     SwerveWiring wiring = definition.drivetrain().wiring().orElse(null);
@@ -69,7 +71,10 @@ public final class PdhIOSim implements PdhIO {
    * run.
    */
   private static double amps(JointSimulation joints, Joint joint, int controller) {
-    return joints.simulates(joint) ? joints.supplyAmps(joint, controller) : 0;
+    if (!joints.simulates(joint)) {
+      return 0;
+    }
+    return joints.supplyAmps(joint, controller);
   }
 
   /**
@@ -82,19 +87,20 @@ public final class PdhIOSim implements PdhIO {
 
   @Override
   public void updateInputs(PdhIOInputs inputs) {
-    double[] amps = new double[Pdh.CHANNELS];
+    // Several motors may share a channel, so each channel's reading is a sum.
+    double[] channelAmps = new double[Pdh.CHANNELS];
     for (Channel channel : channels) {
       if (!zeroed[channel.number()]) {
-        amps[channel.number()] += channel.amps().getAsDouble();
+        channelAmps[channel.number()] += channel.amps().getAsDouble();
       }
     }
-    double total = 0;
-    for (double each : amps) {
-      total += each;
+    double totalAmps = 0;
+    for (double each : channelAmps) {
+      totalAmps += each;
     }
     inputs.connected = true;
-    inputs.channelCurrentAmps = amps;
-    inputs.totalCurrentAmps = total;
+    inputs.channelCurrentAmps = channelAmps;
+    inputs.totalCurrentAmps = totalAmps;
     inputs.volts = Motor.NOMINAL_VOLTS; // the simulator's battery, which its motors draw from
   }
 }
