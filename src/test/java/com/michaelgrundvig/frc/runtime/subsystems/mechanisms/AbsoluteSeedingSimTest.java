@@ -151,7 +151,7 @@ class AbsoluteSeedingSimTest {
     sim.run(1);
     JointMechanism.State waiting = pivot.state();
     sim.run(1.2);
-    String fault = pivot.fault();
+    String fault = pivot.fault().orElse(null);
     double lost = pivot.position() - sim.simulation.position(PIVOT);
     sim.simulation.unplug(PIVOT, false);
     sim.run(0.1);

@@ -1,7 +1,10 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.world.robot.Condition;
+import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
+import com.michaelgrundvig.frc.world.robot.MechanismControl;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Sensor.Switch.Limit.End;
 import java.util.ArrayList;
@@ -132,6 +135,27 @@ final class LimitStops {
       return demand;
     }
     return demand.heldTo(JointAsk.NEUTRAL, stop.shown());
+  }
+
+  /** The robot's limit switches that are one joint's. */
+  static List<Sensor.Switch> switchesOf(RobotMath math, Joint joint) {
+    List<Sensor.Switch> limits = new ArrayList<>();
+    for (Sensor sensor : math.sensors()) {
+      if (sensor instanceof Sensor.Switch onSwitch
+          && onSwitch.kind() instanceof Sensor.Switch.Limit limit
+          && limit.joint().equals(joint)) {
+        limits.add(onSwitch);
+      }
+    }
+    return limits;
+  }
+
+  /** The limit switch the joint homes to, if its homing recipe homes it to one and it has it. */
+  Optional<Sensor.Switch> homingSwitch(Optional<MechanismControl.Homing> recipe) {
+    if (recipe.isPresent() && recipe.get() instanceof MechanismControl.Homing.ToSwitch toSwitch) {
+      return at(toSwitch.end());
+    }
+    return Optional.empty();
   }
 
   /**

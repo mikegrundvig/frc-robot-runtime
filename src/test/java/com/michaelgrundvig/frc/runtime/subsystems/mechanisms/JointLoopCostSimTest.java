@@ -16,6 +16,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.system.RobotController;
@@ -39,7 +41,8 @@ import org.wpilib.system.RobotController;
  * <p>Two joints are measured, each with its interlock and without it: the fixture robot's pivot,
  * sent to a position past a keep-out, and its roller, run at a speed under a run-only-when. The
  * difference between a joint with its interlock and the same joint without is what enforcing
- * interlocks costs. The numbers are written to {@code build/joint-loop-cost.txt}.
+ * interlocks costs. The numbers are printed, and written to {@code build/joint-loop-cost.txt} under
+ * the directory the tests run in.
  *
  * <p>Only the allocation is asserted, and loosely: it is exact and repeatable, where the time
  * depends on what else the computer is doing.
@@ -51,6 +54,8 @@ class JointLoopCostSimTest {
   private static final int WARM_UP_LOOPS = 4000;
 
   private static final int MEASURED_LOOPS = 4000;
+
+  private static final long LOOP_NANOS = Math.round(RobotLoop.PERIOD_SECONDS * 1e9);
 
   /** A joint's loop allocated nothing like this much when this test was written. */
   private static final double MOST_BYTES_A_LOOP = 1000;
@@ -140,12 +145,14 @@ class JointLoopCostSimTest {
     Sensors sensors = sim.joints.sensors();
     Power power = sim.joints.power();
     long thread = Thread.currentThread().threadId();
+    long start = RobotController.getTime();
     long bytes = 0;
     long nanos = 0;
     for (int loop = 0; loop < WARM_UP_LOOPS + MEASURED_LOOPS; loop++) {
-      RobotSim.stepClock();
       sim.simulation.step(RobotLoop.PERIOD_SECONDS);
-      long now = RobotController.getTime();
+      // The joints are handed the time. The simulated clock itself is left alone, because moving it
+      // wakes every timer in the test's process, which would take longer than what is measured.
+      long now = start + loop * LOOP_NANOS;
       long bytesBefore = THREADS.getThreadAllocatedBytes(thread);
       long nanosBefore = System.nanoTime();
       measured.read(now, true);
@@ -191,10 +198,18 @@ class JointLoopCostSimTest {
     return new Cost(what, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
   }
 
+  /** What a move would ask each loop: built once, as a move builds it as it begins. */
+  private static final JointAsk TO_PIVOT_OUT =
+      new JointAsk.ToPosition(PIVOT_OUT.value(), JointAsk.FULL_CRUISE);
+
+  private static final Optional<String> PIVOT_OUT_NAME = Optional.of(PIVOT_OUT.name());
+  private static final JointAsk ROLLER_AT_INTAKING = Asks.running(ROLLER_INTAKING);
+  private static final Optional<String> ROLLER_INTAKING_NAME = Optional.of(ROLLER_INTAKING.name());
+
   private static void ask(JointMechanism joint, Asking asking) {
     switch (asking) {
-      case PIVOT_OUT_PAST_KEEP_OUT -> joint.askPosition(PIVOT_OUT.value(), 1, PIVOT_OUT.name());
-      case ROLLER_INTAKING_WITH_PIVOT_IN -> joint.askOutput(ROLLER_INTAKING);
+      case PIVOT_OUT_PAST_KEEP_OUT -> joint.ask(TO_PIVOT_OUT, PIVOT_OUT_NAME);
+      case ROLLER_INTAKING_WITH_PIVOT_IN -> joint.ask(ROLLER_AT_INTAKING, ROLLER_INTAKING_NAME);
       case NOTHING -> {}
     }
   }

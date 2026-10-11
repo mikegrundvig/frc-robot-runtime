@@ -706,7 +706,7 @@ class InterlocksSimTest {
     io(ios, ELEVATOR).stale = true;
     stale.loop();
     String heldBy = held.heldBy();
-    boolean refused = elevator.fault() != null;
+    boolean refused = elevator.fault().orElse(null) != null;
     io(ios, ELEVATOR).stale = false;
     stale.runUntil(() -> out.outcome().isPresent(), 2);
 

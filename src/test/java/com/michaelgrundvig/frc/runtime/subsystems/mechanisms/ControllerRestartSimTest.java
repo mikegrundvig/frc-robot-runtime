@@ -85,7 +85,7 @@ class ControllerRestartSimTest {
     sim.run(0.1);
 
     assertThat(pivot.state()).isEqualTo(JointMechanism.State.FAULTED);
-    assertThat(pivot.fault())
+    assertThat(pivot.fault().orElse(null))
         .isEqualTo(
             "pivot's motor controller restarted, so where pivot is isn't known: it's taken to be"
                 + " at rest only as the robot starts. Stow it, then restart the robot code");

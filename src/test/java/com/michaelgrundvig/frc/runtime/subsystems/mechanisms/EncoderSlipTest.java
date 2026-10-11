@@ -29,12 +29,12 @@ class EncoderSlipTest {
         new EncoderSlip(new EncoderGap(PIVOT, Math.toRadians(5), Double.POSITIVE_INFINITY));
     double off = Math.toRadians(6);
 
-    String first = gap.apart(0, off, 0, 0);
-    String before = gap.apart(12 * LOOP, off, 0, 0);
-    String after = gap.apart(13 * LOOP, off, 0, 0);
-    String moving = gap.apart(14 * LOOP, off, 0, 4);
-    String missed = gap.apart(15 * LOOP, Double.NaN, 0, 0);
-    String again = gap.apart(16 * LOOP, off, 0, 0);
+    String first = gap.slipped(0, off, 0, 0).orElse(null);
+    String before = gap.slipped(12 * LOOP, off, 0, 0).orElse(null);
+    String after = gap.slipped(13 * LOOP, off, 0, 0).orElse(null);
+    String moving = gap.slipped(14 * LOOP, off, 0, 4).orElse(null);
+    String missed = gap.slipped(15 * LOOP, Double.NaN, 0, 0).orElse(null);
+    String again = gap.slipped(16 * LOOP, off, 0, 0).orElse(null);
 
     assertThat(first).isNull();
     assertThat(before).isNull();
@@ -60,8 +60,9 @@ class EncoderSlipTest {
             EncoderGap.of(
                 ROBOT.with(turret).math(), turret, turret.driven().control().orElseThrow()));
 
-    gap.apart(0, Math.toRadians(-170), Math.toRadians(170), 0);
-    String slipped = gap.apart(13 * LOOP, Math.toRadians(-170), Math.toRadians(170), 0);
+    gap.slipped(0, Math.toRadians(-170), Math.toRadians(170), 0);
+    String slipped =
+        gap.slipped(13 * LOOP, Math.toRadians(-170), Math.toRadians(170), 0).orElse(null);
 
     assertThat(gap.agree(Math.toRadians(-10), Math.toRadians(350))).isTrue();
     assertThat(gap.agree(Math.toRadians(-10), Math.toRadians(710))).isTrue();

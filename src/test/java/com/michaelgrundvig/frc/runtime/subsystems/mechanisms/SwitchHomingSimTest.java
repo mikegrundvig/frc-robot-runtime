@@ -125,7 +125,7 @@ class SwitchHomingSimTest {
     double took = sim.runUntil(() -> pivot.state() == JointMechanism.State.FAULTED, 3);
 
     assertThat(took).as("the first loop past 1.625 s from the first").isCloseTo(1.66, within(1e-9));
-    assertThat(pivot.fault())
+    assertThat(pivot.fault().orElse(null))
         .isEqualTo(
             "pivot's homing didn't trip pivot down in 1.6 s (its travel takes 0.6 s at 2.0 V):"
                 + " pivot down is lost");

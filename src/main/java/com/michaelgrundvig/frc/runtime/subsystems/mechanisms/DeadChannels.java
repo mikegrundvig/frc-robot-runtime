@@ -10,93 +10,134 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.OptionalLong;
 
 /**
- * A joint's motor controllers that read as drawing nothing on their PDH channels while the joint
- * works: a follower whose breaker tripped, so its leader drives the joint alone and nothing else
- * says so, or a controller its block puts on the wrong channel. While its leading controller draws
- * from the battery, each of its motors draws about as much on its own channel; one whose channel
- * reads under its control's dead current for its time ({@link MechanismControl.DeadChannel}) is
- * flagged until it draws again. Nothing for a joint whose block says no channel.
+ * Notices a motor controller that draws nothing on its PDH channel while its joint works.
+ *
+ * <p>That is a follower whose breaker tripped, so that its leader drives the joint alone and
+ * nothing else says so, or a controller whose block puts it on the wrong channel. While the joint's
+ * leading controller draws current from the battery, each of the joint's motors draws about as much
+ * on its own channel. A controller whose channel reads under the joint's control's dead current for
+ * long enough ({@link MechanismControl.DeadChannel}) is flagged, until it draws again.
+ *
+ * <p>A joint whose block names no PDH channel has nothing to check.
  */
 final class DeadChannels {
   private final String label;
 
-  /** Its motor controllers the PDH feeds, each with its channel, as its block says them. */
+  /** The joint's motor controllers that the PDH feeds, as its block says them. */
   private final List<CanDevice> fed;
 
-  /** When one of them reads as drawing nothing while the joint works, from its control. */
-  private final MechanismControl.DeadChannel deadChannel;
+  /** The PDH channel that feeds each, in the same order. */
+  private final int[] channels;
 
-  /** Since when each has read as drawing nothing while the joint works, in nanoseconds: -1 not. */
-  private final long[] since;
+  /**
+   * The leading controller must draw more than this, in amps, for the joint to count as working.
+   */
+  private final double workingAmps;
 
-  /** What each is flagged for, in their order: empty while it draws as it should. */
+  /** A channel that reads under this, in amps, while the joint works, is drawing nothing. */
+  private final double deadAmps;
+
+  /** How long a channel must draw nothing before its controller is flagged, in nanoseconds. */
+  private final long allowedNanos;
+
+  /**
+   * Since when each controller has drawn nothing while the joint works, in nanoseconds, or empty
+   * while it draws.
+   */
+  private final OptionalLong[] deadSince;
+
+  /**
+   * What each controller is flagged with when it draws nothing: what is wrong and what to check.
+   */
+  private final String[] flags;
+
+  /**
+   * What each controller is flagged for now, in their order, as the log shows it: an empty text for
+   * one that draws as it should.
+   */
   private final String[] dead;
 
+  /**
+   * @param deadChannel when a controller counts as drawing nothing, from the joint's control
+   */
   DeadChannels(Joint joint, MechanismControl.DeadChannel deadChannel) {
     label = joint.label();
     fed = joint.devices().stream().filter(device -> device.feed().isPresent()).toList();
-    this.deadChannel = deadChannel;
-    since = new long[fed.size()];
-    Arrays.fill(since, -1);
+    channels = new int[fed.size()];
+    for (int i = 0; i < fed.size(); i++) {
+      channels[i] = fed.get(i).feed().orElseThrow().channel();
+    }
+    workingAmps = deadChannel.drawing().in(Amps);
+    deadAmps = deadChannel.dead().in(Amps);
+    allowedNanos = Math.round(deadChannel.time().in(Seconds) * 1e9);
+    deadSince = new OptionalLong[fed.size()];
+    Arrays.fill(deadSince, OptionalLong.empty());
+    flags = new String[fed.size()];
+    for (int i = 0; i < fed.size(); i++) {
+      flags[i] =
+          fed.get(i).name()
+              + " draws nothing on channel "
+              + channels[i]
+              + " while "
+              + possessive(label)
+              + " motors work: its breaker tripped, its power is unplugged, or its block"
+              + " names the wrong channel";
+    }
     dead = new String[fed.size()];
     Arrays.fill(dead, "");
   }
 
-  /** Whether the PDH feeds any of its motor controllers, as its block says. */
+  /** Whether the PDH feeds any of the joint's motor controllers, as its block says. */
   boolean any() {
     return !fed.isEmpty();
   }
 
   /**
-   * Checks each this loop.
+   * Checks each controller's channel for this loop.
    *
    * @param now this loop's time, in nanoseconds
    * @param power the PDH, as read this loop
-   * @param answers whether its leading controller answers
-   * @param supplyAmps what its leading controller draws from the battery, by its own reading
-   * @return the current its motors draw together on their channels, in amps: NaN while the PDH
-   *     isn't read
+   * @param answers whether the joint's leading controller answers
+   * @param supplyAmps what the leading controller draws from the battery, by its own reading
+   * @return the current the joint's motors draw together on their channels, in amps. It is NaN
+   *     while the PDH is not read, as each channel's current then is.
    */
   double check(long now, Power power, boolean answers, double supplyAmps) {
-    // Working: its leading controller answers, and draws from the battery, so each motor does.
-    boolean working =
-        power.reads() && answers && Math.abs(supplyAmps) > deadChannel.drawing().in(Amps);
-    long allowed = Math.round(deadChannel.time().in(Seconds) * 1e9);
-    double together = 0;
+    // The joint works while its leading controller answers and draws from the battery. Each of
+    // its motors then draws too.
+    boolean working = power.reads() && answers && Math.abs(supplyAmps) > workingAmps;
+    double togetherAmps = 0;
     for (int i = 0; i < fed.size(); i++) {
-      int channel = fed.get(i).feed().orElseThrow().channel();
-      double amps = power.amps(channel);
-      together += amps;
-      if (!working || amps >= deadChannel.dead().in(Amps)) {
-        since[i] = -1;
+      double amps = power.amps(channels[i]);
+      togetherAmps += amps;
+      // A channel whose current is not a number is not drawing enough either.
+      boolean drawsEnough = amps >= deadAmps;
+      boolean drawsNothing = working && !drawsEnough;
+      if (!drawsNothing) {
+        deadSince[i] = OptionalLong.empty();
         dead[i] = "";
         continue;
       }
-      if (since[i] < 0) {
-        since[i] = now;
+      if (deadSince[i].isEmpty()) {
+        deadSince[i] = OptionalLong.of(now);
       }
-      if (now - since[i] >= allowed) {
-        dead[i] =
-            fed.get(i).name()
-                + " draws nothing on channel "
-                + channel
-                + " while "
-                + possessive(label)
-                + " motors work: its breaker tripped, its power is unplugged, or its block"
-                + " names the wrong channel";
+      boolean deadLongEnough = now - deadSince[i].getAsLong() >= allowedNanos;
+      if (deadLongEnough) {
+        dead[i] = flags[i];
       }
     }
-    return together;
+    return togetherAmps;
   }
 
-  /** What each is flagged for, in their order, as logged: empty for one that draws as it should. */
+  /** What each controller is flagged for, in their order, as logged: empty for one that draws. */
   String[] logged() {
     return dead;
   }
 
-  /** Those flagged as of this loop, each said with what to check; empty while each draws. */
+  /** The controllers flagged as of this loop, each with what to check: none while each draws. */
   List<String> flagged() {
     List<String> flagged = new ArrayList<>();
     for (String each : dead) {

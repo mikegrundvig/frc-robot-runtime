@@ -14,6 +14,7 @@ import com.michaelgrundvig.frc.pitwall.experiment.Experiments;
 import com.michaelgrundvig.frc.pitwall.experiment.Profiles;
 import com.michaelgrundvig.frc.pitwall.experiment.Rig;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Position;
@@ -21,6 +22,7 @@ import com.michaelgrundvig.frc.world.robot.Range;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.wpilib.units.Unit;
 
 /**
@@ -169,9 +171,11 @@ public final class JointExperiments {
                 if (target != asked[0]) {
                   mechanism.beginMove();
                 }
-                mechanism.askPosition(mechanism.reachable(target), 1, null);
+                double position = mechanism.reachable(target);
+                mechanism.ask(
+                    new JointAsk.ToPosition(position, JointAsk.FULL_CRUISE), Optional.empty());
               } else {
-                mechanism.askVelocity(target);
+                mechanism.ask(new JointAsk.AtVelocity(target), Optional.empty());
               }
               asked[0] = target;
             })

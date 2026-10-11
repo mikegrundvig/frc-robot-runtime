@@ -11,9 +11,7 @@ import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
-import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.config.Rules;
-import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.EncoderGap;
@@ -22,33 +20,24 @@ import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
-import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.PlaceNames;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
-import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import com.michaelgrundvig.frc.world.robot.Travel;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
-import org.jspecify.annotations.Nullable;
-import org.littletonrobotics.junction.Logger;
-import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
-import org.wpilib.math.filter.Debouncer;
 import org.wpilib.units.Measure;
 import org.wpilib.units.measure.Angle;
 import org.wpilib.units.measure.AngularVelocity;
 import org.wpilib.units.measure.Distance;
 import org.wpilib.units.measure.LinearVelocity;
-import org.wpilib.util.Alert;
 
 /**
  * One driven joint, as a Commands v3 {@link Mechanism}: the template builds one for each joint the
@@ -104,14 +93,26 @@ import org.wpilib.util.Alert;
  * {@code Joints/<label>}: {@code State}, {@code Command}, {@code Goal}, {@code At}, {@code HeldBy}
  * and {@code Outcome}, in the order to read them when it won't move.
  *
- * <p><b>Inside</b>, what it applies each loop goes through stages, each a class of its own with
- * tests of its own: what a command asked, or its idle ({@link Idle}), as a {@link Demand}; its
- * interlocks beneath that ({@link Interlocks}, which asks the model what they allow), reading what
- * other joints publish ({@link JointView}), never their mechanisms; its limit switches beneath them
- * ({@link LimitStops}); the profile toward what's left ({@link JointProfile}); and its output to
- * its IO, here. Where it's driven is its {@link Travel}; how it finds where it is, and where it
- * stands meanwhile, its {@link JointHoming}; what's doubted of its switches and its PDH channels,
- * {@link SwitchDoubts} and {@link DeadChannels}.
+ * <p><b>Inside</b>, a loop is three steps, and each part of a step is a class of its own with tests
+ * of its own.
+ *
+ * <ul>
+ *   <li><b>Read</b> ({@link #read}): the joint's hardware is read ({@link JointReadings}), and what
+ *       was read is handed to the joint's homing ({@link JointHoming}), which keeps track of
+ *       whether the joint knows where it is, and to the check on whether its absolute encoder can
+ *       be trusted ({@link EncoderTrust}).
+ *   <li><b>Decide</b> ({@link #write}): what a command asked, or what the joint does idle ({@link
+ *       Idle}), is a {@link Demand}. The joint's interlocks ({@link Interlocks}, which asks the
+ *       model what they allow) and then its limit switches ({@link LimitStops}) each leave of it
+ *       what they allow. Interlocks read other joints only through what those publish ({@link
+ *       JointView}), never through their mechanisms.
+ *   <li><b>Write</b>: a position is followed along the joint's profile ({@link JointProfile}), and
+ *       anything else is sent to the joint's IO as it is. What was written is remembered as what
+ *       the joint {@link Applied}, and logged ({@link JointLog}).
+ * </ul>
+ *
+ * <p>Where the joint can be driven is its {@link Travel}. What is doubted of its limit switches and
+ * of its PDH channels is in {@link SwitchDoubts} and {@link DeadChannels}.
  */
 @CheckReturnValue
 public final class JointMechanism implements Mechanism {
@@ -124,10 +125,13 @@ public final class JointMechanism implements Mechanism {
   /** A speed's, as shares of it: 3% to arrive, 6% to stay. */
   static final MechanismControl.Bands SPEED_BANDS = bands(0.03, 0.06);
 
-  /** A joint run at an output is stalled once it's moved slower than this share of the speed... */
+  /**
+   * A joint run at an output is stalled once it has moved slower than this share of the speed the
+   * output asks for, for {@link #STALL_SECONDS}.
+   */
   static final double STALL_SHARE = 0.1;
 
-  /** ...the output asks for, for this long, in seconds. */
+  /** How long a joint must have been that slow to be stalled, in seconds. */
   static final double STALL_SECONDS = 0.25;
 
   /** Where a joint stands, as {@code State} logs it. */
@@ -145,25 +149,7 @@ public final class JointMechanism implements Mechanism {
     FAULTED
   }
 
-  /**
-   * What a command asked of the joint.
-   *
-   * @param demand what it asked, with nothing yet holding the joint short of it
-   * @param name the name of what it asked for ("out", "intaking"), or empty for a computed position
-   *     or output, which has none
-   * @param by the command that asked, all the way out: the one that was bound or scheduled
-   *     ("Intake"). Empty when code outside any command asked.
-   */
-  private record Request(Demand demand, Optional<String> name, Optional<Command> by) {
-    /**
-     * Whether this request is for exactly the same thing, by the same name, from the same asker.
-     */
-    boolean isFor(JointAsk ask, Optional<String> name, Optional<Command> by) {
-      return demand.ask().equals(ask) && this.name.equals(name) && this.by.equals(by);
-    }
-  }
-
-  // What it is, from its block.
+  // What the joint is, from its block.
 
   private final Joint joint;
   private final String label;
@@ -171,94 +157,51 @@ public final class JointMechanism implements Mechanism {
   private final Scheduler scheduler;
 
   /**
-   * Why it's a stand-in for a joint with no mechanism, asked for once the robot runs ({@link
-   * #standIn}): its every move refused and every gate false, saying this; null for a joint driven.
+   * Why this mechanism is a stand-in for a joint that has none ({@link #standIn}), or empty for a
+   * joint that is driven. A stand-in refuses every move and holds every gate false, saying this.
    */
-  private final @Nullable String standsIn;
+  private final Optional<String> standsIn;
 
-  /** Whether it holds a position when idle: it has a range or named positions. */
-  private final boolean positional;
+  /** Whether the joint holds a position when idle: it has a range or named positions. */
+  private final boolean holdsPositions;
 
-  /** Where it's driven, and how fast. */
+  /** Where the joint can be driven, and how fast. */
   private final Travel travel;
 
   private final double kA;
   private final double kV;
   private final double freeSpeed;
 
-  /** How near a position it must be to be there, and may stray: in its units. */
+  /** How near a position the joint must be to arrive there, and may then stray: in its units. */
   private final MechanismControl.Bands positionBands;
 
-  /** How near a speed: shares of it. */
+  /** How near a speed it must be, and may then stray: as shares of the speed. */
   private final MechanismControl.Bands speedBands;
 
-  /**
-   * Its control as the pit tunes it, read each loop; and the one its motor controller last took.
-   */
+  /** The joint's control as the pit tunes it, read each loop. */
   private final Supplier<MechanismControl> tuned;
 
+  /** The control the joint's motor controller last took, to notice when the pit changes it. */
   private MechanismControl retuned;
 
   // What it reads and drives.
 
   private final JointIO io;
-  private final JointIOInputsAutoLogged inputs = new JointIOInputsAutoLogged();
+
+  /** What the joint reads each loop. */
+  private final JointReadings readings;
 
   /**
-   * Its absolute encoder, where the robot reads it itself and tells the motor where the joint is
-   * from it ({@link Joints#readsAbsolute}), or null.
+   * The loop the joint closes itself on its absolute encoder, each loop, where its port's wiring
+   * says so ({@code PortEncoder#closesLoop}). Empty where the motor controller runs the loop on the
+   * motor's own encoder.
    */
-  private final @Nullable AbsoluteEncoderIO absoluteIo;
+  private Optional<EncoderLoop> encoderLoop;
 
-  private final AbsoluteEncoderIOInputsAutoLogged absoluteInputs =
-      new AbsoluteEncoderIOInputsAutoLogged();
-
-  /** The encoder in the robot's definition, and its port, if it's on one. */
-  private final Sensor.@Nullable Encoder absoluteModel;
-
-  private final MechanismWiring.@Nullable PortEncoder absolutePort;
-
-  /**
-   * The loop it closes itself on its absolute encoder, each loop, where its port's wiring says so
-   * ({@code PortEncoder#closesLoop}); null where its motor controller runs the loop on its motor's
-   * own encoder.
-   */
-  private @Nullable EncoderLoop encoderLoop;
-
-  /**
-   * Its absolute encoder against its motor's count, each loop it has both, which it doesn't trust
-   * apart; null for a joint without an absolute encoder.
-   */
-  private final @Nullable EncoderSlip gap;
-
-  /**
-   * Whether its motor controller's loop runs on its motor's own count, so it can hold on it while
-   * its encoder isn't trusted: not a TalonFX's on its CANcoder, nor a SPARK's on its data port.
-   */
-  private final boolean loopOnMotor;
-
-  /** Its CANcoder, for what's said of its magnet: "CANcoder 34", or empty for none. */
-  private final String cancoder;
-
-  /**
-   * Whether its absolute encoder is read beside its motor's count, so the two can be compared: one
-   * the robot reads, a SPARK's data port, or a CANcoder a TalonFX is seeded from once; not one a
-   * TalonFX's loop runs on, whose count is the encoder's.
-   */
-  private final boolean readsBeside;
-
-  /** The robot's sensors, which its limit switches and its interlocks read. */
+  /** The robot's sensors, which the joint's limit switches and interlocks read. */
   private final Sensors sensors;
 
-  /**
-   * The switches on its leading motor controller's forward and reverse limit inputs, which it reads
-   * from its controller and hands the sensors each loop; null for none.
-   */
-  private final Sensor.@Nullable Switch forwardPin;
-
-  private final Sensor.@Nullable Switch reversePin;
-
-  // Its stages.
+  // The stages that decide what it does.
 
   /** What it does when no command asks anything of it. */
   private final Idle idle;
@@ -266,9 +209,10 @@ public final class JointMechanism implements Mechanism {
   /** Its interlocks, beneath every command. */
   private final Interlocks interlocks;
 
-  /** Its limit switches, beneath its interlocks, and what each is doubted for. */
+  /** Its limit switches, beneath its interlocks. */
   private final LimitStops stops;
 
+  /** What each of its limit switches is doubted for. */
   private final SwitchDoubts doubts;
 
   /** The profile its position follows. */
@@ -277,63 +221,53 @@ public final class JointMechanism implements Mechanism {
   /** How it finds where it is, and where it stands meanwhile. */
   private final JointHoming homing;
 
+  /** Whether its absolute encoder can be trusted, for a joint that has one to compare. */
+  private final Optional<EncoderTrust> encoderTrust;
+
   /** Its motor controllers that read as drawing nothing on their PDH channels while it works. */
   private final DeadChannels deadChannels;
 
   /** Where it is, in its places' names, as {@code At} reads. */
   private final PlaceNames places;
 
+  private final JointLog log;
+
+  /** The logic of its gates: whether it is where, or doing what, a gate asks. */
+  private final JointGates gates;
+
   /** What it shows the interlocks on other joints. */
   private final JointView view =
       new JointView() {
-        // A reading that isn't fresh, a status frame that didn't come, is no reading: the
-        // interlocks that read it hold at once, without waiting for it to be silent.
         @Override
         public boolean answers() {
-          return inputs.connected && inputs.fresh;
+          return readings.answersThisLoop();
         }
 
         @Override
         public boolean knowsWhere() {
-          return homing.state() == State.READY && inputs.connected && inputs.fresh;
+          return homing.state() == State.READY && readings.answersThisLoop();
         }
 
         @Override
         public double position() {
-          return measured;
+          return readings.position();
         }
 
         @Override
         public double velocity() {
-          return inputs.velocity;
+          return readings.velocity();
         }
       };
 
   // This loop.
 
-  /** This loop: its count, when it started, and whether the robot is enabled. */
-  private long loop;
-
+  /** When this loop began, in nanoseconds on the robot's clock. */
   private long nowNanos;
+
   private boolean enabled;
 
-  /**
-   * Where the joint is this loop, in its units: its motor controller's reading, or, where its loop
-   * closes on its absolute encoder, the encoder's.
-   */
-  private double measured;
-
-  /** How fast its speed changed since the loop before, in its units a second squared. */
-  private double accelerating;
-
-  /**
-   * What a command last asked of the joint, or empty before any has. It is what the joint does this
-   * loop only if it was asked this loop ({@link #requestedInLoop}).
-   */
-  private Optional<Request> request = Optional.empty();
-
-  /** The loop in which a command last asked something of the joint. Loops count from 1. */
-  private long requestedInLoop;
+  /** What its commands ask of it, loop by loop. */
+  private final JointRequests requests;
 
   /** What the joint's motors were told in the last loop that was written. */
   private Applied applied = Applied.Undriven.NOTHING;
@@ -350,59 +284,6 @@ public final class JointMechanism implements Mechanism {
 
   /** How the last move on it ended, as logged. */
   private String outcome = "";
-
-  /**
-   * What it was last asked that isn't a number, by whom, and in which loop: no request, so it idled
-   * that loop. Logged the loop it's asked, empty otherwise.
-   */
-  private String rejected = "";
-
-  private long rejectedLoop;
-
-  /**
-   * Raised the first time it's asked for what isn't a number, a bug, and left raised: made then.
-   */
-  private @Nullable Alert rejecting;
-
-  // Where it logs, under Joints/<label>.
-
-  private final String inputsKey;
-  private final String stateKey;
-  private final String commandKey;
-  private final String goalKey;
-  private final String goalNameKey;
-  private final String atKey;
-  private final String heldByKey;
-
-  /** Where what its limit switches are doubted for is logged. */
-  private final String switchDoubtsKey;
-
-  /** Where the current its motors draw on their PDH channels is logged. */
-  private final String pdhCurrentKey;
-
-  /** Where its motor controllers drawing nothing on their channels while it works are logged. */
-  private final String deadChannelsKey;
-
-  /** Where its absolute encoder's reading is logged, and where it says the joint is. */
-  private final String absoluteKey;
-
-  private final String absoluteAtKey;
-
-  private final String setpointKey;
-  private final String setpointVelocityKey;
-  private final String outcomeKey;
-
-  /** Where what it was asked that isn't a number is logged, the loop it's asked. */
-  private final String rejectedKey;
-
-  /**
-   * How many times each of its devices has restarted since the robot started, the leader, each
-   * follower, then its CANcoder, and where that's logged, with its devices' health ({@link
-   * JointIO#HEALTH_LOOPS}).
-   */
-  private int[] restarts = new int[0];
-
-  private final String restartsKey;
 
   /**
    * A joint's control as the pit tunes it: its feedback and friction gains and its motors' current
@@ -445,25 +326,24 @@ public final class JointMechanism implements Mechanism {
   /**
    * @param joint one the template drives ({@link Joints#driven}), its block saying how
    * @param tuned its control as the pit tunes it, read each loop; its block's until it's tuned
-   * @param absolute its absolute encoder, where the robot reads it itself ({@link
-   *     Joints#readsAbsolute}): until its first reading the joint waits, unhomed, and then tells
-   *     its motor controller where it is from it, and where its port's wiring says the joint's loop
-   *     closes on it, the joint closes that loop itself, each loop, on the encoder's reading; null
-   *     for none
-   * @param sensors the robot's sensors: its limit switches stop it, beneath every command and
-   *     interlock, beside the controller's own stop where its controller reads the switch, and the
-   *     only stop where it doesn't (a Systemcore port, a CANdi beside a SPARK); and a switch on its
-   *     controller's limit input it reads from its controller, and hands them each loop
+   * @param absolute the joint's absolute encoder, where the robot reads it itself ({@link
+   *     Joints#readsAbsolute}), or empty. Until the encoder's first reading the joint waits,
+   *     unhomed, and then tells its motor controller where it is from it. Where the encoder's
+   *     port's wiring says the joint's loop closes on it, the joint closes that loop itself, each
+   *     loop, on the encoder's reading.
+   * @param sensors the robot's sensors. The joint's limit switches stop it, beneath every command
+   *     and interlock. A switch on its motor controller's limit input is read from the controller,
+   *     and handed to the sensors each loop.
    */
   JointMechanism(
       RobotMath math,
       Joint joint,
       Supplier<MechanismControl> tuned,
       JointIO io,
-      @Nullable AbsoluteEncoderIO absolute,
+      Optional<AbsoluteEncoderIO> absolute,
       Sensors sensors,
       Scheduler scheduler) {
-    this(math, joint, tuned, io, absolute, sensors, scheduler, null);
+    this(math, joint, tuned, io, absolute, sensors, scheduler, Optional.empty());
   }
 
   /**
@@ -478,7 +358,14 @@ public final class JointMechanism implements Mechanism {
       RobotMath math, Joint joint, Sensors sensors, Scheduler scheduler, String why) {
     MechanismControl none = MechanismControl.position(0);
     return new JointMechanism(
-        math, joint, () -> none, new JointIO() {}, null, sensors, scheduler, why);
+        math,
+        joint,
+        () -> none,
+        new JointIO() {},
+        Optional.empty(),
+        sensors,
+        scheduler,
+        Optional.of(why));
   }
 
   private JointMechanism(
@@ -486,126 +373,130 @@ public final class JointMechanism implements Mechanism {
       Joint joint,
       Supplier<MechanismControl> tuned,
       JointIO io,
-      @Nullable AbsoluteEncoderIO absolute,
+      Optional<AbsoluteEncoderIO> absolute,
       Sensors sensors,
       Scheduler scheduler,
-      @Nullable String standsIn) {
+      Optional<String> standsIn) {
     this.joint = joint;
     this.math = math;
     this.tuned = tuned;
     this.standsIn = standsIn;
-    // A stand-in's joint has no control and no motors: nothing about how it's driven is worked
-    // out, since nothing drives it.
-    MechanismControl control = standsIn == null ? ControllerSettings.control(joint) : tuned.get();
-    retuned = control;
-    label = joint.label();
     this.scheduler = scheduler;
     this.io = io;
-    positional = joint.holdsPositions();
-    idle = new Idle(positional);
     this.sensors = sensors;
-    List<Sensor.Switch> limits = new ArrayList<>();
-    Sensor.Switch forward = null;
-    Sensor.Switch reverse = null;
-    for (Sensor sensor : math.sensors()) {
-      if (!(sensor instanceof Sensor.Switch onSwitch)) {
-        continue;
-      }
-      if (onSwitch.kind() instanceof Sensor.Switch.Limit limit && limit.joint().equals(joint)) {
-        limits.add(onSwitch);
-      }
-      if (ControllerPins.onPin(onSwitch) instanceof SensorWiring.ControllerLimit pin
-          && pin.joint().equals(joint.label())) {
-        if (pin.direction() == SensorWiring.Direction.FORWARD) {
-          forward = onSwitch;
-        } else {
-          reverse = onSwitch;
-        }
-      }
-    }
-    forwardPin = forward;
-    reversePin = reverse;
-    stops = new LimitStops(limits);
-    doubts = new SwitchDoubts(joint, limits);
-    travel =
-        standsIn == null
-            ? Travel.of(math, joint, control)
-            : new Travel(
-                joint, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false, 1, 1, 0);
-    freeSpeed = standsIn == null ? math.freeSpeed(joint) : 0;
-    if (standsIn == null) {
-      // The plan's: tuned, else the definition's seed, as its motor controller has them.
+    label = joint.label();
+    String key = "Joints/" + label;
+    log = new JointLog(key);
+    requests = new JointRequests(label, scheduler);
+    // A stand-in's joint has no control and no motors. Nothing about how it is driven is worked
+    // out, since nothing drives it.
+    boolean isDriven = standsIn.isEmpty();
+    MechanismControl control = isDriven ? ControllerSettings.control(joint) : tuned.get();
+    retuned = control;
+    holdsPositions = joint.holdsPositions();
+
+    if (isDriven) {
+      travel = Travel.of(math, joint, control);
+      freeSpeed = math.freeSpeed(joint);
+      // The gains as the joint's motor controller has them: tuned, or else the definition's seed.
       ControllerPlan plan = ControllerPlan.of(math, joint, control);
       kA = plan.kA();
       kV = plan.kV();
     } else {
+      travel =
+          new Travel(
+              joint, Double.NEGATIVE_INFINITY, Double.POSITIVE_INFINITY, false, false, 1, 1, 0);
+      freeSpeed = 0;
       kA = 0;
       kV = 0;
     }
     MechanismControl.Bands kindBands = joint instanceof Joint.Revolute ? ANGLE_BANDS : LENGTH_BANDS;
-    positionBands = positional ? control.bands().orElse(kindBands) : kindBands;
-    speedBands = positional ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
-    absoluteIo = absolute;
-    MechanismWiring.PortEncoder port =
-        joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::port).orElse(null);
-    absoluteModel = absolute == null ? null : math.absoluteEncoder(joint);
-    absolutePort = absolute == null ? null : port;
-    if (absolute != null && port != null && port.closedLoop()) {
-      encoderLoop = ControllerSettings.encoderLoop(math, joint, control);
-    }
-    Driven.AbsoluteEncoder encoder = joint.driven().absoluteEncoder().orElse(null);
-    gap =
-        standsIn == null && positional && encoder != null && math.absoluteEncoder(joint) != null
-            ? new EncoderSlip(EncoderGap.of(math, joint, control))
-            : null;
-    loopOnMotor = encoder == null || !encoder.runsControllerLoop();
-    cancoder =
-        encoder == null ? "" : encoder.cancoder().map(on -> "CANcoder " + on.id()).orElse("");
-    readsBeside =
-        encoder != null
-            && (encoder.port().isPresent()
-                || encoder.dataPort().isPresent()
-                || encoder
-                    .cancoder()
-                    .filter(on -> on.feedback() == MechanismWiring.Feedback.ROTOR)
-                    .isPresent());
+    positionBands = holdsPositions ? control.bands().orElse(kindBands) : kindBands;
+    speedBands = holdsPositions ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
+
+    idle = new Idle(holdsPositions);
+    interlocks = new Interlocks(travel);
+    List<Sensor.Switch> limits = LimitStops.switchesOf(math, joint);
+    stops = new LimitStops(limits);
+    doubts = new SwitchDoubts(joint, limits);
     profile = new JointProfile(travel);
+    places = new PlaceNames(joint, positionBands.enter());
+    deadChannels = new DeadChannels(joint, control.deadChannel());
+
+    Optional<Driven.AbsoluteEncoder> encoder = joint.driven().absoluteEncoder();
+    Optional<JointReadings.RobotReadEncoder> robotReadEncoder =
+        absolute.map(encoderIo -> JointReadings.RobotReadEncoder.of(math, joint, encoderIo));
+    boolean closesLoopOnEncoder =
+        robotReadEncoder.isPresent() && robotReadEncoder.get().closesLoop();
+    encoderLoop =
+        closesLoopOnEncoder
+            ? Optional.of(ControllerSettings.encoderLoop(math, joint, control))
+            : Optional.empty();
+    boolean hasCancoder = encoder.flatMap(Driven.AbsoluteEncoder::cancoder).isPresent();
+    readings =
+        new JointReadings(
+            math,
+            key,
+            io,
+            robotReadEncoder,
+            JointReadings.PinnedSwitches.of(math, joint),
+            sensors,
+            hasCancoder);
+
+    Optional<MechanismControl.Homing> recipe = holdsPositions ? control.homing() : Optional.empty();
     homing =
         new JointHoming(
             math,
             joint,
-            positional ? control.homing().orElse(null) : null,
-            absolute != null,
-            encoderLoop != null,
-            absolutePort == null ? -1 : absolutePort.port(),
+            recipe,
+            stops.homingSwitch(recipe),
+            robotReadEncoder.map(JointReadings.RobotReadEncoder::forHoming),
             at -> {
               io.resetPosition(at);
               idle.holdAt(clamp(at));
             });
-    if (standsIn != null) {
-      homing.faulted(standsIn);
+    if (standsIn.isPresent()) {
+      homing.faultFor(standsIn.get());
     }
-    interlocks = new Interlocks(travel);
-    places = new PlaceNames(joint, positionBands.enter());
-    String key = "Joints/" + label;
-    inputsKey = key;
-    stateKey = key + "/State";
-    commandKey = key + "/Command";
-    goalKey = key + "/Goal";
-    goalNameKey = key + "/GoalName";
-    atKey = key + "/At";
-    heldByKey = key + "/HeldBy";
-    switchDoubtsKey = key + "/SwitchDoubts";
-    pdhCurrentKey = key + "/PdhCurrentAmps";
-    deadChannelsKey = key + "/DeadChannels";
-    absoluteKey = key + "/Absolute";
-    absoluteAtKey = key + "/AbsoluteAt";
-    setpointKey = key + "/Setpoint";
-    setpointVelocityKey = key + "/SetpointVelocity";
-    outcomeKey = key + "/Outcome";
-    rejectedKey = key + "/Rejected";
-    restartsKey = key + "/Restarts";
-    deadChannels = new DeadChannels(joint, control.deadChannel());
+
+    gates =
+        new JointGates(
+            readings,
+            homing,
+            profile,
+            positionBands,
+            speedBands,
+            freeSpeed,
+            new JointGates.Doing() {
+              @Override
+              public boolean enabled() {
+                return enabled;
+              }
+
+              @Override
+              public Applied applied() {
+                return applied;
+              }
+
+              @Override
+              public Optional<String> drivenName() {
+                return drivenName;
+              }
+            });
+
+    boolean hasEncoderToCompare =
+        isDriven && holdsPositions && encoder.isPresent() && math.absoluteEncoder(joint) != null;
+    encoderTrust =
+        hasEncoderToCompare
+            ? Optional.of(
+                new EncoderTrust(
+                    label,
+                    travel,
+                    EncoderTrust.Wiring.of(encoder.get()),
+                    new EncoderSlip(EncoderGap.of(math, joint, control)),
+                    readings,
+                    homing))
+            : Optional.empty();
   }
 
   private static MechanismControl.Bands bands(double enter, double stay) {
@@ -613,8 +504,10 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * An interlock on this joint, and what the joint its condition reads publishes, or null for a
-   * sensor's: set once, by {@link Joints}.
+   * Puts an interlock on this joint. {@link Joints} does so once, as the robot is built.
+   *
+   * @param other what the joint the interlock's condition is about publishes, or empty for a
+   *     condition on a sensor
    */
   void restrict(Interlock interlock, Optional<JointView> other) {
     interlocks.add(interlock, other);
@@ -642,22 +535,22 @@ public final class JointMechanism implements Mechanism {
 
   /** Where the joint is, as of this loop: radians, or meters. */
   public double position() {
-    return measured;
+    return readings.position();
   }
 
   /** How fast it moves, as of this loop: radians, or meters, a second. */
   public double velocity() {
-    return inputs.velocity;
+    return readings.velocity();
   }
 
   /** The voltage across its motor, as of this loop's logged inputs. */
   double appliedVolts() {
-    return inputs.appliedVolts;
+    return readings.appliedVolts();
   }
 
   /** The current through its motor's windings, as of this loop's logged inputs. */
   double statorCurrentAmps() {
-    return inputs.statorCurrentAmps;
+    return readings.statorCurrentAmps();
   }
 
   /**
@@ -671,7 +564,7 @@ public final class JointMechanism implements Mechanism {
     if (applied.wasToAPosition()) {
       return profile.goal();
     }
-    return clamp(measured);
+    return clamp(readings.position());
   }
 
   /** Where it stands: unhomed, homing, ready or faulted. */
@@ -715,13 +608,12 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for a position not its own, built as the robot starts
    */
   public Move goTo(Position position) {
-    String why = refusedAsBuilt(joint.whyNotOwn(position).orElse(null));
-    return Move.goTo(
-        this,
-        (why == null ? joint.own(position) : position).value(),
-        position.name(),
-        position.name(),
-        why);
+    Optional<String> refused = refusedAsBuilt(joint.whyNotOwn(position));
+    if (refused.isPresent()) {
+      return Move.refusedGoTo(this, position.name(), refused);
+    }
+    Optional<String> name = Optional.of(position.name());
+    return Move.goTo(this, joint.own(position).value(), name, position.name(), refused);
   }
 
   /**
@@ -735,15 +627,13 @@ public final class JointMechanism implements Mechanism {
    */
   public Move goTo(Angle angle) {
     if (!(joint instanceof Joint.Revolute)) {
-      return Move.goTo(
-          this,
-          Double.NaN,
-          null,
-          Rules.shown(angle),
-          refusedAsBuilt(label + " slides: send it to a distance"));
+      Optional<String> refused =
+          refusedAsBuilt(Optional.of(label + " slides: send it to a distance"));
+      return Move.refusedGoTo(this, Rules.shown(angle), refused);
     }
     double radians = angle.in(Radians);
-    return Move.goTo(this, radians, null, joint.shown(radians), refusedAsBuilt(null));
+    return Move.goTo(
+        this, radians, Optional.empty(), joint.shown(radians), refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -754,15 +644,12 @@ public final class JointMechanism implements Mechanism {
    */
   public Move goTo(Distance distance) {
     if (!(joint instanceof Joint.Prismatic)) {
-      return Move.goTo(
-          this,
-          Double.NaN,
-          null,
-          Rules.shown(distance),
-          refusedAsBuilt(label + " turns: send it to an angle"));
+      Optional<String> refused = refusedAsBuilt(Optional.of(label + " turns: send it to an angle"));
+      return Move.refusedGoTo(this, Rules.shown(distance), refused);
     }
     double meters = distance.in(Meters);
-    return Move.goTo(this, meters, null, joint.shown(meters), refusedAsBuilt(null));
+    return Move.goTo(
+        this, meters, Optional.empty(), joint.shown(meters), refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -775,12 +662,12 @@ public final class JointMechanism implements Mechanism {
    * ends it {@link Outcome#REFUSED}.
    */
   public Move follow(Supplier<? extends Measure<?>> target) {
-    return Move.follow(this, target, refusedAsBuilt(null));
+    return Move.follow(this, target, refusedAsBuilt(Optional.empty()));
   }
 
   /** Owns the joint and holds its goal, never ending: what it does idle, as a command. */
   public Move hold() {
-    return Move.hold(this, refusedAsBuilt(null));
+    return Move.hold(this, refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -793,8 +680,7 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for an output not its own, built as the robot starts
    */
   public Move run(Output output) {
-    String why = refusedAsBuilt(joint.whyNotOwn(output).orElse(null));
-    return Move.run(this, why == null ? joint.own(output) : output, null, why);
+    return run(output, Optional.empty());
   }
 
   /**
@@ -808,20 +694,28 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for an output not its own, built as the robot starts
    */
   public Move runUntil(Output output, BooleanSupplier condition) {
-    String why = refusedAsBuilt(joint.whyNotOwn(output).orElse(null));
-    return Move.run(this, why == null ? joint.own(output) : output, condition, why);
+    return run(output, Optional.of(condition));
+  }
+
+  /** Runs the joint at one of its outputs, until a condition holds if there is one. */
+  private Move run(Output output, Optional<BooleanSupplier> until) {
+    Optional<String> refused = refusedAsBuilt(joint.whyNotOwn(output));
+    Output own = refused.isEmpty() ? joint.own(output) : output;
+    return Move.run(this, own, until, refused);
   }
 
   /**
-   * Why a move or a gate on it can't be, as it's built ({@link Refusals#asBuilt}): thrown as the
-   * robot starts, kept once it runs for the move to end {@link Outcome#REFUSED} on, or the gate to
-   * hold false. A stand-in's every one can't be, for why it stands in.
+   * Why a move or a gate on the joint cannot be, as it is built ({@link Refusals#asBuilt}). As the
+   * robot starts, the reason is thrown. Once the robot runs, it is handed back, for the move to end
+   * {@link Outcome#REFUSED} on or the gate to hold false with. Every move and gate of a stand-in
+   * cannot be, for the reason it stands in.
    *
-   * @param why why this one can't be; null for nothing
+   * @param why why this one cannot be, or empty when nothing is wrong with it
    * @throws IllegalArgumentException with the reason, as the robot starts
    */
-  private @Nullable String refusedAsBuilt(@Nullable String why) {
-    return Refusals.asBuilt(scheduler, standsIn != null ? standsIn : why);
+  private Optional<String> refusedAsBuilt(Optional<String> why) {
+    Optional<String> cannot = standsIn.isPresent() ? standsIn : why;
+    return Optional.ofNullable(Refusals.asBuilt(scheduler, cannot.orElse(null)));
   }
 
   /**
@@ -830,7 +724,7 @@ public final class JointMechanism implements Mechanism {
    * stowed by hand, or a roller is home already.
    */
   public Move home() {
-    return Move.home(this, refusedAsBuilt(null));
+    return Move.home(this, refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -844,16 +738,18 @@ public final class JointMechanism implements Mechanism {
   // ---- Its gates ----
 
   /**
-   * A gate on it, named, its logic built as the gate is; or, where that can't be (a place not its
-   * own), refused as a move is ({@link Refusals#gate}): thrown as the robot starts, and once it
-   * runs, a gate that holds false saying why. A stand-in's every gate is refused.
+   * A gate on the joint, named. Its logic is built as the gate is. Where that cannot be done (a
+   * place that is not the joint's own), the gate is refused as a move is ({@link Refusals#gate}):
+   * thrown as the robot starts, and once it runs, a gate that holds false and says why. Every gate
+   * of a stand-in is refused.
    *
-   * @param logic builds its logic, throwing {@link IllegalArgumentException} with why it can't be
-   * @throws IllegalArgumentException with why it can't be, as the robot starts
+   * @param logic builds the gate's logic, throwing {@link IllegalArgumentException} with why it
+   *     cannot
+   * @throws IllegalArgumentException with why it cannot be, as the robot starts
    */
   private Gate gate(String name, Supplier<Gate.Logic> logic) {
-    if (standsIn != null) {
-      return Refusals.gate(scheduler, name, standsIn);
+    if (standsIn.isPresent()) {
+      return Refusals.gate(scheduler, name, standsIn.get());
     }
     Gate.Logic built;
     try {
@@ -877,19 +773,7 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether it's at one of its positions, as {@link #isAt(Position)}, under another name. */
   Gate isAt(String name, Position position) {
-    return gate(
-        name,
-        () -> {
-          double target = joint.own(position).value();
-          boolean[] inside = {false};
-          return why -> {
-            double off = Math.abs(measured - target);
-            inside[0] =
-                homing.state() == State.READY
-                    && (inside[0] ? off <= positionBands.stay() : off <= positionBands.enter());
-            return inside[0];
-          };
-        });
+    return gate(name, () -> gates.at(joint.own(position).value()));
   }
 
   /**
@@ -904,25 +788,12 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether it runs at one of its outputs, as {@link #isAt(Output)}, under another name. */
   Gate isAt(String name, Output output) {
-    return gate(
-        name,
-        () -> {
-          Output own = joint.own(output);
-          boolean[] inside = {false};
-          return why -> {
-            boolean running =
-                enabled && drivenName.isPresent() && own.name().equals(drivenName.get());
-            inside[0] =
-                running
-                    && (own.kind() != Output.Kind.VELOCITY || withinSpeed(own.value(), inside[0]));
-            return inside[0];
-          };
-        });
+    return gate(name, () -> gates.runningAt(joint.own(output)));
   }
 
   /** Whether it knows where it is and its motor controllers answer: "pivot ready". */
   public Gate isReady() {
-    return gate(label + " ready", () -> why -> homing.state() == State.READY && inputs.connected);
+    return gate(label + " ready", gates::ready);
   }
 
   /**
@@ -931,18 +802,7 @@ public final class JointMechanism implements Mechanism {
    * voltage or a duty cycle; still, stopped. "shooter at goal".
    */
   public Gate isAtGoal() {
-    boolean[] inside = {false};
-    return gate(
-        label + " at goal",
-        () ->
-            why -> {
-              inside[0] =
-                  enabled
-                      && homing.state() == State.READY
-                      && applied instanceof Demand demand
-                      && isDoing(demand.ask(), inside[0]);
-              return inside[0];
-            });
+    return gate(label + " at goal", gates::atGoal);
   }
 
   /**
@@ -951,142 +811,30 @@ public final class JointMechanism implements Mechanism {
    * indexer.isStalled().onTrue(indexer.run(INDEXER_UNJAMMING).withTimeout(Seconds.of(0.2)))}.
    */
   public Gate isStalled() {
-    Debouncer stalling = new Debouncer(STALL_SECONDS, Debouncer.DebounceType.RISING);
-    return gate(
-        label + " stalled",
-        () ->
-            why -> {
-              double asked = speedAsked();
-              return stalling.calculate(
-                  enabled && asked > 0 && Math.abs(inputs.velocity) < STALL_SHARE * asked);
-            });
-  }
-
-  /**
-   * Whether the joint is doing what it was driven at.
-   *
-   * @param wasDoingIt whether it was the last time this was asked, which widens the band it must be
-   *     inside from the one to arrive in to the one to stay in
-   */
-  private boolean isDoing(JointAsk ask, boolean wasDoingIt) {
-    return switch (ask) {
-      case JointAsk.ToPosition toPosition -> {
-        double off = Math.abs(measured - profile.goal());
-        double band = wasDoingIt ? positionBands.stay() : positionBands.enter();
-        yield profile.arrived() && off <= band;
-      }
-      case JointAsk.AtVelocity atVelocity -> withinSpeed(atVelocity.speed(), wasDoingIt);
-      // A voltage or a share of the battery has no speed to reach: it is doing it at once.
-      case JointAsk.AtVoltage atVoltage -> true;
-      case JointAsk.AtDutyCycle atDutyCycle -> true;
-      case JointAsk.Neutral neutral -> Math.abs(inputs.velocity) <= speedBands.enter() * freeSpeed;
-    };
-  }
-
-  /**
-   * The speed the output the joint is driven at asks for, with nothing loading the joint, as a size
-   * without a direction. Zero while the joint is not run at an output.
-   */
-  private double speedAsked() {
-    if (applied instanceof Demand demand && demand.ask() instanceof JointAsk.AtOutput output) {
-      return Math.abs(output.unloadedSpeed(freeSpeed));
-    }
-    return 0;
-  }
-
-  /** Whether it runs within its speed band of a speed: the stay band if it already was. */
-  private boolean withinSpeed(double velocity, boolean was) {
-    double share = was ? speedBands.stay() : speedBands.enter();
-    double allowed = share * (velocity == 0 ? freeSpeed : Math.abs(velocity));
-    return Math.abs(inputs.velocity - velocity) <= allowed;
+    return gate(label + " stalled", gates::stalled);
   }
 
   // ---- What moves ask of it, each loop they run ----
 
-  /** Asks it to be at a position this loop, profiled at a share of its cruise. */
-  void askPosition(double position, double fraction, @Nullable String name) {
-    ask(new JointAsk.ToPosition(position, fraction), Optional.ofNullable(name));
-  }
-
-  /** Asks it to run at an output this loop. */
-  void askOutput(Output output) {
-    ask(Asks.running(output), Optional.of(output.name()));
-  }
-
-  /** Asks it to run at a speed this loop, a computed one. */
-  void askVelocity(double velocity) {
-    ask(new JointAsk.AtVelocity(velocity), Optional.empty());
-  }
-
   /**
-   * Takes a request for this loop from the command that is running.
+   * Takes a request for this loop from the command that is running ({@link JointRequests#ask}). A
+   * request holds for one loop only: in a loop in which nothing asks, the joint does what it does
+   * idle.
    *
-   * <p>A request whose number is not a number (NaN, or infinite, as a computed target's division by
-   * zero gives) is no request. The joint idles this loop, beneath its interlocks as ever, so it is
-   * neither driven at such a number nor let past a keep-out by one. The request is logged ({@code
-   * Joints/<label>/Rejected}) with who asked, and the first one raises an alert that stays raised.
-   *
-   * <p>A command that asks for the same thing loop after loop, as most do, keeps the request it
-   * made before, so asking again allocates nothing.
+   * @param name the name of what is asked for ("out", "intaking"), or empty for something computed
    */
-  private void ask(JointAsk ask, Optional<String> name) {
-    Optional<Command> by = outermost(scheduler.currentCommand());
-    if (!Double.isFinite(Asks.number(ask))) {
-      reject(ask, by);
-      return;
-    }
-    boolean askedBefore = request.isPresent() && request.get().isFor(ask, name, by);
-    if (!askedBefore) {
-      request = Optional.of(new Request(Demand.of(ask), name, by));
-    }
-    requestedInLoop = loop;
+  void ask(JointAsk ask, Optional<String> name) {
+    requests.ask(ask, name);
   }
 
   /** What it was asked this loop that isn't a number, by whom, as logged: empty for nothing. */
   String rejected() {
-    return rejectedLoop == loop ? rejected : "";
-  }
-
-  /** A request that isn't a number: logged this loop, and the first one raises an alert. */
-  private void reject(JointAsk ask, Optional<Command> by) {
-    String who = by.isPresent() ? by.get().name() : "code outside any command";
-    rejected =
-        who
-            + " asked "
-            + label
-            + " for "
-            + Asks.numberShown(ask)
-            + " of "
-            + Asks.number(ask)
-            + ", which isn't a number: "
-            + label
-            + " idles instead; check how "
-            + who
-            + " works it out";
-    rejectedLoop = loop;
-    if (rejecting == null) {
-      Alert alert = new Alert("Joints", label + " rejected", rejected, Alert.Level.HIGH);
-      alert.set(true);
-      rejecting = alert;
-    }
+    return requests.rejected();
   }
 
   /** Releases its alert, so a test can build another robot. */
   void close() {
-    Alert alert = rejecting;
-    if (alert != null) {
-      alert.close();
-      rejecting = null;
-    }
-  }
-
-  /** The command a command runs inside, all the way out: the one bound or scheduled, "Intake". */
-  private Optional<Command> outermost(@Nullable Command command) {
-    Command outer = command;
-    for (Command up = outer; up != null; up = scheduler.getParentOf(up)) {
-      outer = up;
-    }
-    return Optional.ofNullable(outer);
+    requests.close();
   }
 
   /** A move begins: its profile starts from where the joint is now, not where it was headed. */
@@ -1095,17 +843,27 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * A move on it ended: idle holds where it arrived, or, if it didn't, where the joint comes to a
-   * stop from where it is measured, so a joint that jammed holds where it jammed rather than
-   * pushing on toward a target it couldn't reach.
+   * A move to a position ended there, and the joint's idle holds where it arrived.
+   *
+   * <p>A move during which the joint was last driven at something else, or not at all, leaves the
+   * idle alone: it decides from what the joint did.
    */
-  void moveEnded(boolean arrived, double target) {
-    if (!applied.wasToAPosition()) {
-      return; // it ran at a speed, or never moved: its idle decides from what it did
+  void moveArrived(double at) {
+    if (applied.wasToAPosition()) {
+      idle.moveEnded(at);
     }
-    if (arrived) {
-      idle.moveEnded(target);
-    } else {
+  }
+
+  /**
+   * A move to a position ended without getting there. The joint's idle holds where the joint comes
+   * to a stop from where it is measured, so that a joint that jammed holds where it jammed and does
+   * not push on toward a position it could not reach.
+   *
+   * <p>A move during which the joint was last driven at something else, or not at all, leaves the
+   * idle alone: it decides from what the joint did.
+   */
+  void moveEndedShort() {
+    if (applied.wasToAPosition()) {
       idle.moveEnded(stoppingPoint());
       profile.restart();
     }
@@ -1127,36 +885,35 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * Why moves on it can't run, or null when they can: it's a stand-in for a joint with no
-   * mechanism, its motor controllers aren't answering, or its homing failed.
+   * Why moves on the joint cannot run, if they cannot: it is a stand-in for a joint with no
+   * mechanism, its motor controllers are not answering, or its homing failed.
    */
-  @Nullable String fault() {
-    if (standsIn != null) {
+  Optional<String> fault() {
+    if (standsIn.isPresent()) {
       return standsIn;
     }
-    if (!inputs.connected) {
-      return label + " isn't answering: its motor controllers are silent";
+    if (!readings.answers()) {
+      return Optional.of(label + " isn't answering: its motor controllers are silent");
     }
     return homing.fault();
   }
 
   /**
-   * A move on it waits for it to know where it is: whether it must, homing or unhomed. Unhomed with
-   * the robot enabled, as a canceled homing leaves it, a joint whose recipe homes it homes again
-   * now ({@link JointHoming#awaited}).
+   * Whether a move on the joint must wait for it to know where it is. Asking also starts a canceled
+   * homing again, if the robot is enabled ({@link JointHoming#moveWaits}).
    */
   boolean homesFirst() {
-    return homing.awaited(nowNanos, enabled, homingSwitch());
+    return homing.moveWaits(nowNanos, enabled);
   }
 
   /** Whether it homes by moving, into a hard stop or onto a switch, and so can be homed again. */
   boolean homesToAStop() {
-    return homing.toAStop();
+    return homing.homesByMoving();
   }
 
   /** Whether it finds where it is from an absolute encoder the robot reads, and can again. */
   boolean homesByEncoder() {
-    return homing.byEncoder();
+    return homing.homesByEncoder();
   }
 
   /**
@@ -1164,20 +921,21 @@ public final class JointMechanism implements Mechanism {
    * asked ({@link #home()}).
    */
   void startHoming() {
-    homing.again(nowNanos, enabled, homingSwitch());
+    homing.homeAgain(nowNanos, enabled);
   }
 
   /** A command homing it was canceled: where it is isn't known. */
   void stopHoming() {
-    homing.stop();
+    homing.canceled();
   }
 
   /**
-   * Why it can't be sent to a position, or null when it can: outside its limits, at every turn of
-   * it for a joint whose range spans a turn or more ({@link Travel#whyUnreachable}).
+   * Why the joint cannot be sent to a position, if it cannot: the position is outside its limits,
+   * at every turn of it for a joint whose range spans a turn or more ({@link
+   * Travel#whyUnreachable}).
    */
-  @Nullable String whyUnreachable(double position) {
-    return travel.whyUnreachable(position, measured);
+  Optional<String> whyUnreachable(double position) {
+    return Optional.ofNullable(travel.whyUnreachable(position, readings.position()));
   }
 
   /**
@@ -1192,11 +950,15 @@ public final class JointMechanism implements Mechanism {
   /**
    * A computed position as the joint chases it from where it is now: inside its limits, at the turn
    * of it nearest where it is for a joint whose range spans a turn or more ({@link #turnNear}).
+   *
+   * <p>A position that is not a number is handed back as it is, to be refused when it is asked for.
+   * Brought inside the limits, an infinite position would become a limit, and be obeyed.
    */
   double reachable(double position) {
-    // One that isn't a number stays one, refused as it's asked: infinity, clamped, would be a
-    // limit.
-    return Double.isFinite(position) ? travel.clamp(travel.turnNear(position, measured)) : position;
+    if (!Double.isFinite(position)) {
+      return position;
+    }
+    return travel.clamp(travel.turnNear(position, readings.position()));
   }
 
   /**
@@ -1204,25 +966,17 @@ public final class JointMechanism implements Mechanism {
    * holds it short, and the joint is within its band of it.
    */
   boolean settledAt(double position) {
-    return applied instanceof Demand demand
-        && demand.ask() instanceof JointAsk.ToPosition toPosition
-        && toPosition.position() == position
-        && demand.heldBy().isEmpty()
-        && profile.arrived()
-        && Math.abs(measured - profile.goal()) <= positionBands.enter();
+    return gates.settledAt(position);
   }
 
   /** Whether it runs at a speed, within its band. */
   boolean atSpeed(double velocity) {
-    return applied instanceof Demand demand
-        && demand.ask() instanceof JointAsk.AtVelocity atVelocity
-        && atVelocity.speed() == velocity
-        && withinSpeed(velocity, false);
+    return gates.runsAt(velocity);
   }
 
   /** How long its profile takes from where it is to a position, at a share of its cruise. */
-  double secondsTo(double position, double fraction) {
-    return profile.secondsTo(position, fraction, measured, inputs.velocity);
+  double secondsTo(double position, double cruiseShare) {
+    return profile.secondsTo(position, cruiseShare, readings.position(), readings.velocity());
   }
 
   /** How long its profile takes from one position to another, from rest, at its full cruise. */
@@ -1232,7 +986,11 @@ public final class JointMechanism implements Mechanism {
 
   /** How long its velocity loop takes to come within its band of a new speed, from the model. */
   double secondsToSpeed() {
-    return kV > 0 ? kA / kV * Math.log(1 / speedBands.enter()) : 0;
+    boolean hasAVelocityGain = kV > 0;
+    if (!hasAVelocityGain) {
+      return 0;
+    }
+    return kA / kV * Math.log(1 / speedBands.enter());
   }
 
   /** A position inside its limits. */
@@ -1242,211 +1000,151 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether a measure is a position the joint takes: an angle if it turns, a distance if not. */
   boolean isPosition(Measure<?> measure) {
-    return joint instanceof Joint.Revolute ? measure instanceof Angle : measure instanceof Distance;
+    if (joint instanceof Joint.Revolute) {
+      return measure instanceof Angle;
+    }
+    return measure instanceof Distance;
   }
 
   /** Whether a measure is a speed the joint runs at. */
   boolean isSpeed(Measure<?> measure) {
-    return joint instanceof Joint.Revolute
-        ? measure instanceof AngularVelocity
-        : measure instanceof LinearVelocity;
+    if (joint instanceof Joint.Revolute) {
+      return measure instanceof AngularVelocity;
+    }
+    return measure instanceof LinearVelocity;
   }
 
-  // ---- Each loop ----
+  // ---- Each loop: read ----
 
-  /** Reads its sensors, and moves its homing on: before the commands run. */
+  /**
+   * Starts a loop: reads the joint's hardware, and tells the joint's homing what was read. This
+   * runs before the commands do, so that they judge this loop's readings.
+   */
   void read(long nowNanos, boolean enabled) {
-    loop++;
     this.nowNanos = nowNanos;
-    MechanismControl control = tuned.get();
-    if (!control.equals(retuned)) {
-      // The pit tuned its gains or current limits: its motor controller takes them now, and so
-      // does the loop it closes itself, if it does.
-      retuned = control;
-      io.retune(control);
-      if (encoderLoop != null) {
-        encoderLoop = ControllerSettings.encoderLoop(math, joint, control);
-      }
-    }
-    double before = inputs.velocity;
-    io.updateInputs(inputs);
-    Logger.processInputs(inputsKey, inputs);
-    // The switches on its controller's limit inputs, as its controller read them: lost with it.
-    if (forwardPin != null) {
-      sensors.pinned(forwardPin, inputs.connected, inputs.forwardLimit);
-    }
-    if (reversePin != null) {
-      sensors.pinned(reversePin, inputs.connected, inputs.reverseLimit);
-    }
-    accelerating = loop == 1 ? 0 : (inputs.velocity - before) / RobotLoop.PERIOD_SECONDS;
-    AbsoluteEncoderIO encoder = absoluteIo;
-    if (encoder != null) {
-      encoder.updateInputs(absoluteInputs);
-      Logger.processInputs(absoluteKey, absoluteInputs);
-    }
-    Sensor.Encoder model = absoluteModel;
-    // Where the joint is: its motor's word, unless its loop closes on its encoder, whose word it
-    // then takes while the encoder answers.
-    measured =
-        encoderLoop != null && model != null && absoluteInputs.connected
-            ? math.fromAbsolute(model, absoluteReading())
-            : inputs.position;
+    requests.newLoop();
+    takeTuningFromThePit();
+    readings.read();
+
     boolean enabling = enabled && !this.enabled;
-    if (loop == 1) {
-      homing.start(nowNanos);
+    if (readings.isFirstLoop()) {
+      homing.robotStarted(nowNanos);
     }
-    if (inputs.restarted) {
-      // Its leading motor controller restarted, and counts from 0, or from the encoder it reads:
-      // inside the encoder's turn, a turn or more from where it counted a joint that turns past it.
-      // Its profile starts again from where the joint is now read, not from a point a turn away.
-      homing.restarted(nowNanos, homingSwitch());
+    if (readings.controllerRestarted()) {
+      // The leading motor controller restarted, and counts from zero, or from the encoder it
+      // reads, which may be a turn or more from where it counted a joint that turns past a turn.
+      // The joint's profile starts again from where the joint is now read, and not from a point
+      // that may be a turn away.
+      homing.controllerRestarted(nowNanos);
       profile.restart();
     }
-    countRestarts();
-    if (!inputs.unconfigured.isEmpty() && homing.state() != State.FAULTED) {
-      // Without its settings, a motor controller has no current limits or ratio: driving it would
-      // be a guess at full power, so nothing does.
-      homing.faulted(
-          possessive(label)
-              + " "
-              + inputs.unconfigured
-              + " didn't take its settings: check its CAN ID and wiring, then restart the robot");
-    }
-    if (idle.at().isEmpty() || enabling) {
-      // First read, or just enabled: idle holds where the joint is, not where it was left.
-      idle.holdAt(clamp(measured));
-      profile.restart();
+    faultIfSettingsWereNotTaken();
+    boolean hasNowhereToHold = idle.at().isEmpty();
+    if (hasNowhereToHold || enabling) {
+      // First read, or just enabled: the joint's idle holds where the joint is, and not where the
+      // joint was left.
+      holdWhereItIs();
     }
     this.enabled = enabled;
-    if (model != null && homing.awaiting()) {
-      // Each loop it waits, its encoder's first reading tells its motor where it is.
-      homing.seek(
-          nowNanos,
-          absoluteInputs.connected,
-          absoluteInputs.connected ? math.fromAbsolute(model, absoluteReading()) : Double.NaN);
+
+    tellHomingWhatItsEncoderRead();
+    if (encoderTrust.isPresent()
+        && encoderTrust.get().check(nowNanos, enabled) == EncoderTrust.Change.TRUSTED_AGAIN) {
+      holdWhereItIs();
     }
-    if (encoderLoop != null) {
-      homing.watch(nowNanos, enabled, absoluteInputs.connected, stoppingPoint(), inputs.position);
-    }
-    trust(enabled);
-    homing.goOn(nowNanos, enabled, enabling, inputs.velocity, homingSwitch());
+    homing.advance(nowNanos, enabled, enabling, readings.velocity());
   }
 
   /**
-   * Counts each of its devices' restarts, and logs them with its devices' health, a few times a
-   * second ({@link JointIO#HEALTH_LOOPS}): the leader, each follower, then its CANcoder, as its
-   * inputs number its devices' faults.
+   * Takes the joint's control from the pit if it was tuned since the last loop: the motor
+   * controller takes the new gains and current limits now, and so does the loop the joint closes
+   * itself, if it closes one.
    */
-  private void countRestarts() {
-    int followers = inputs.followersRestarted.length;
-    int devices = 1 + followers + (cancoder.isEmpty() ? 0 : 1);
-    if (restarts.length != devices) {
-      restarts = Arrays.copyOf(restarts, devices);
-    }
-    restarts[0] += inputs.restarted ? 1 : 0;
-    for (int i = 0; i < followers; i++) {
-      restarts[1 + i] += inputs.followersRestarted[i] ? 1 : 0;
-    }
-    if (!cancoder.isEmpty()) {
-      restarts[devices - 1] += inputs.encoderRestarted ? 1 : 0;
-    }
-    if (loop % JointIO.HEALTH_LOOPS == 1) {
-      Logger.recordOutput(restartsKey, restarts);
-    }
-  }
-
-  /**
-   * Whether its absolute encoder is trusted this loop. A CANcoder that says its magnet is too close
-   * or too far isn't; nor is an encoder that has been apart from its motor's count for a quarter
-   * second ({@link EncoderSlip}): one of them slipped. Either way where the joint is isn't known:
-   * it's faulted, and holds where its motor says, where it can, until its encoder is trusted again,
-   * its magnet good and the two agreeing where they're read side by side, and then it holds where
-   * it is.
-   */
-  private void trust(boolean enabled) {
-    EncoderSlip apart = gap;
-    if (apart == null) {
+  private void takeTuningFromThePit() {
+    MechanismControl control = tuned.get();
+    if (control.equals(retuned)) {
       return;
     }
-    Sensor.Encoder model = absoluteModel;
-    double encoder =
-        model != null
-            ? absoluteInputs.connected ? math.fromAbsolute(model, absoluteReading()) : Double.NaN
-            : inputs.absolutePosition;
-    double motor = Double.isNaN(inputs.motorPosition) ? inputs.position : inputs.motorPosition;
-    // Judged only while it knows where it is, and not the loop it found it, before its motor's
-    // count catches up.
-    boolean knows = homing.state() == State.READY && !homing.justFound();
-    String slipped = apart.apart(nowNanos, knows ? encoder : Double.NaN, motor, inputs.velocity);
-    OptionalDouble held =
-        loopOnMotor
-            ? OptionalDouble.of(travel.stoppingPoint(motor, enabled ? inputs.velocity : 0))
-            : OptionalDouble.empty();
-    String holds =
-        loopOnMotor ? label + " holds where its motor says until " : label + " is stopped until ";
-    if (inputs.magnetBad) {
-      homing.distrust(
-          possessive(label)
-              + " "
-              + cancoder
-              + " says its magnet is too close or too far, so what it reads isn't trusted: "
-              + holds
-              + "it's good. Check the magnet's gap and that it's centered on the CANcoder",
-          held);
-    } else if (slipped != null) {
-      homing.distrust(
-          possessive(label)
-              + " absolute encoder and its motor's count are "
-              + slipped
-              + ": one of them slipped, a magnet loose on its shaft or a belt that skipped, so"
-              + " where "
-              + label
-              + " is isn't known, and "
-              + holds
-              + "they agree. Check both, then "
-              + (homing.byEncoder()
-                  ? "home it to tell its motor where it is from the encoder again"
-                  : "restart the robot code to tell its motor where it is again"),
-          held);
-    } else if (homing.distrusted()) {
-      if (!readsBeside || apart.agree(encoder, motor)) {
-        homing.trust();
-        idle.holdAt(clamp(measured));
-        profile.restart();
-      } else if (!enabled) {
-        homing.stillDistrusted(held);
-      }
+    retuned = control;
+    io.retune(control);
+    if (encoderLoop.isPresent()) {
+      encoderLoop = Optional.of(ControllerSettings.encoderLoop(math, joint, control));
     }
   }
 
   /**
-   * What it does with this loop's sensors, read after the joints: homing to its switch goes on, on
-   * the switch's reading this loop, not the last.
+   * Faults the joint if one of its motor controllers did not take its settings at startup. Such a
+   * controller has no current limits and no ratio, so driving it would be a guess at full power,
+   * and nothing does.
+   */
+  private void faultIfSettingsWereNotTaken() {
+    if (readings.unconfigured().isEmpty() || homing.state() == State.FAULTED) {
+      return;
+    }
+    homing.faultFor(
+        possessive(label)
+            + " "
+            + readings.unconfigured()
+            + " didn't take its settings: check its CAN ID and wiring, then restart the robot");
+  }
+
+  /** From now on the joint's idle holds where the joint is, and its profile starts from there. */
+  private void holdWhereItIs() {
+    idle.holdAt(clamp(readings.position()));
+    profile.restart();
+  }
+
+  /**
+   * Tells the joint's homing what the absolute encoder the robot reads has to say this loop: its
+   * reading, while the joint waits for one to know where it is, and whether it answers at all, for
+   * a joint whose loop closes on it.
+   */
+  private void tellHomingWhatItsEncoderRead() {
+    if (readings.hasRobotReadEncoder() && homing.awaitsEncoder()) {
+      OptionalDouble reading =
+          readings.encoderSaysWhere()
+              ? OptionalDouble.of(readings.positionByEncoder())
+              : OptionalDouble.empty();
+      homing.encoderRead(nowNanos, reading);
+    }
+    if (encoderLoop.isPresent()) {
+      homing.loopEncoderWatched(
+          nowNanos,
+          enabled,
+          readings.encoderAnswers(),
+          stoppingPoint(),
+          readings.positionByController());
+    }
+  }
+
+  /**
+   * What the joint does with this loop's sensors, which are read after the joints. Homing to a
+   * switch moves on here, so that it acts on the switch's reading from this loop and not the last,
+   * and each limit switch is checked against where the joint is.
    */
   void sensed() {
-    homing.sensed(nowNanos, measured, homingSwitch(), sensors);
-    doubts.check(nowNanos, homing.state() == State.READY && inputs.connected, measured, sensors);
+    homing.switchRead(nowNanos, readings.position(), sensors);
+    boolean knowsWhere = homing.state() == State.READY && readings.answers();
+    doubts.check(nowNanos, knowsWhere, readings.position(), sensors);
     if (doubts.logged().length > 0) {
-      Logger.recordOutput(switchDoubtsKey, doubts.logged());
+      log.switchDoubts(doubts.logged());
     }
   }
 
   /**
-   * What it does with this loop's PDH reading, read after its sensors: the current its motors draw
-   * together on their channels, logged beside its leading controller's own ({@code
-   * SupplyCurrentAmps}), NaN while the PDH isn't read; and each of its motor controllers that reads
-   * as drawing nothing while the joint works, for longer than its control allows ({@link
-   * MechanismControl.DeadChannel}), flagged until it draws again. Nothing for a joint whose block
-   * says no channel.
+   * What the joint does with this loop's PDH reading, which is read after its sensors. It logs the
+   * current its motors draw together on their channels, beside its leading controller's own reading
+   * ({@code SupplyCurrentAmps}), and flags each of its motor controllers that reads as drawing
+   * nothing while the joint works ({@link DeadChannels}). A joint whose block names no PDH channel
+   * does neither.
    */
   void powered(Power power) {
     if (!deadChannels.any()) {
       return;
     }
-    double together =
-        deadChannels.check(nowNanos, power, inputs.connected, inputs.supplyCurrentAmps);
-    Logger.recordOutput(pdhCurrentKey, together);
-    Logger.recordOutput(deadChannelsKey, deadChannels.logged());
+    double togetherAmps =
+        deadChannels.check(nowNanos, power, readings.answers(), readings.supplyCurrentAmps());
+    log.power(togetherAmps, deadChannels.logged());
   }
 
   /**
@@ -1462,7 +1160,7 @@ public final class JointMechanism implements Mechanism {
    * leader, each follower, then its CANcoder.
    */
   int[] restarts() {
-    return restarts.clone();
+    return readings.restarts();
   }
 
   /** What its limit switches are doubted for this loop, by switch: none while they agree. */
@@ -1470,154 +1168,170 @@ public final class JointMechanism implements Mechanism {
     return doubts.doubts();
   }
 
+  // ---- Each loop: decide and write ----
+
   /**
-   * Applies what the commands asked this loop, or its idle, beneath its interlocks and then its
-   * limit switches: a position along its profile, anything else as it's left, to its IO.
+   * Ends a loop: decides what the joint does and tells its motor controller. This runs after the
+   * commands, so that what a command asked this loop is applied this loop.
+   *
+   * <p>A joint that may be driven does what a command asked, or what it does idle, as its
+   * interlocks and then its limit switches leave it. A joint that may not be driven is stopped,
+   * unless its homing has something for it to do.
    */
   void write() {
-    Optional<Request> requested = requestedInLoop == loop ? request : Optional.empty();
-    if (!enabled || homing.justFound() || (positional && homing.state() != State.READY)) {
-      // Disabled; or where it is isn't known, so nothing is driven to a position on a guess,
-      // except homing's push; or it found its stop, and reads its new position from the next loop.
-      OptionalDouble heldOnMotor = homing.heldOnMotor();
-      if (enabled && homing.state() == State.HOMING) {
-        io.home(homing.volts());
-        applied = Applied.Undriven.HOMING;
-      } else if (enabled && heldOnMotor.isPresent()) {
-        // The encoder its loop closes on is lost: it holds where its motor says, on its motor
-        // controller's own loop, rather than going limp.
-        io.setPosition(heldOnMotor.getAsDouble(), 0, 0);
-        applied = Applied.Undriven.NOTHING;
-      } else {
-        io.stop();
-        applied = Applied.Undriven.NOTHING;
-      }
-      homing.settled();
-      profile.restart();
-      drivenName = Optional.empty();
-      log(requested);
-      return;
-    }
-    Demand demand;
-    if (requested.isPresent()) {
-      demand = requested.get().demand();
-      idle.commandAsked(demand.ask());
-      drivenName = requested.get().name();
+    if (mayBeDriven()) {
+      Demand demand = decide();
+      drive(demand);
+      applied = demand;
     } else {
-      demand = idle.demand(applied, clamp(measured));
-      drivenName = Optional.empty();
+      applied = writeUndriven();
     }
-    lastAskedNumber = Asks.number(demand.ask());
-    // The interlocks, beneath every command.
-    demand = interlocks.apply(demand, measured, inputs.velocity, accelerating, sensors);
-    // A tripped limit switch, beneath them all: nothing drives the joint on toward its end.
-    demand = stops.apply(demand, measured, sensors);
+    log();
+  }
+
+  /**
+   * Whether the joint may be driven where it is asked this loop. It may not while the robot is
+   * disabled. Nor may a joint that holds positions while it does not know where it is, since
+   * driving it to a position would be driving it on a guess. Nor may any joint in the loop it found
+   * where it is, because it reads its new position only from the next loop.
+   */
+  private boolean mayBeDriven() {
+    if (!enabled || homing.justFound()) {
+      return false;
+    }
+    boolean knowsWhereItIs = homing.state() == State.READY;
+    return knowsWhereItIs || !holdsPositions;
+  }
+
+  /**
+   * What the joint is to do this loop: what a command asked, or what the joint does idle, and then
+   * what its interlocks and its limit switches leave of that.
+   */
+  private Demand decide() {
+    Demand wanted = wanted();
+    lastAskedNumber = Asks.number(wanted.ask());
+    Demand allowed =
+        interlocks.apply(
+            wanted, readings.position(), readings.velocity(), readings.acceleration(), sensors);
+    // A tripped limit switch comes last, beneath even the interlocks: nothing drives the joint on
+    // toward the end of its travel.
+    return stops.apply(allowed, readings.position(), sensors);
+  }
+
+  /** What a command asked this loop, or, when none did, what the joint does idle. */
+  private Demand wanted() {
+    Optional<JointRequests.Request> requested = requests.thisLoop();
+    if (requested.isEmpty()) {
+      drivenName = Optional.empty();
+      return idle.demand(applied, clamp(readings.position()));
+    }
+    JointRequests.Request asked = requested.get();
+    idle.commandAsked(asked.demand().ask());
+    drivenName = asked.name();
+    return asked.demand();
+  }
+
+  /** Tells the joint's motor controller what the joint is to do this loop. */
+  private void drive(Demand demand) {
     if (demand.restartProfile()) {
       profile.restart();
     }
     switch (demand.ask()) {
-      case JointAsk.ToPosition toPosition -> drive(toPosition.position(), toPosition.cruiseShare());
+      case JointAsk.ToPosition toPosition -> followProfile(toPosition);
       case JointAsk.AtVelocity atVelocity -> io.setVelocity(atVelocity.speed());
       case JointAsk.AtVoltage atVoltage -> io.setVoltage(atVoltage.volts());
       case JointAsk.AtDutyCycle atDutyCycle -> io.setDutyCycle(atDutyCycle.share());
       case JointAsk.Neutral neutral -> io.stop();
     }
-    if (!(demand.ask() instanceof JointAsk.ToPosition)) {
+    boolean isOnItsProfile = demand.ask() instanceof JointAsk.ToPosition;
+    if (!isOnItsProfile) {
+      // The profile has lost track of a joint that is driven some other way. When the joint is
+      // next sent to a position, the profile starts from where the joint is then.
       profile.restart();
     }
-    applied = demand;
-    log(requested);
+  }
+
+  /**
+   * Moves the joint one loop on along its profile toward a position. The motor controller is told
+   * the profile's point and speed, and the volts for its acceleration (kA). A joint that closes its
+   * loop here, on its absolute encoder, works out the volts for that point itself and sends those.
+   */
+  private void followProfile(JointAsk.ToPosition toPosition) {
+    double acceleration =
+        profile.step(
+            toPosition.position(),
+            toPosition.cruiseShare(),
+            readings.position(),
+            readings.velocity());
+    if (encoderLoop.isEmpty()) {
+      io.setPosition(profile.position(), profile.velocity(), kA * acceleration);
+      return;
+    }
+    double volts =
+        encoderLoop
+            .get()
+            .volts(
+                profile.position(),
+                profile.velocity(),
+                kA * acceleration,
+                readings.position(),
+                readings.velocity());
+    io.setVoltage(volts);
+  }
+
+  /**
+   * Writes a loop in which the joint may not be driven where it is asked. Three things can still
+   * happen to it, and all need the robot enabled: its homing pushes it toward its stop or its
+   * switch; having lost the encoder its loop closes on, it holds where its motor's count says, on
+   * its motor controller's own loop, so that it does not go limp; or it is stopped.
+   */
+  private Applied writeUndriven() {
+    Applied told = Applied.Undriven.NOTHING;
+    OptionalDouble heldOnMotor = homing.heldOnMotor();
+    if (enabled && homing.state() == State.HOMING) {
+      io.home(homing.pushVolts());
+      told = Applied.Undriven.HOMING;
+    } else if (enabled && heldOnMotor.isPresent()) {
+      io.setPosition(heldOnMotor.getAsDouble(), 0, 0);
+    } else {
+      io.stop();
+    }
+    homing.foundLoopWritten();
+    profile.restart();
+    drivenName = Optional.empty();
+    return told;
   }
 
   /** Where the joint comes to a stop from where it is and how fast, braking at its acceleration. */
   private double stoppingPoint() {
-    return travel.stoppingPoint(measured, inputs.velocity);
-  }
-
-  /** Drives it along its profile toward a position, one loop on. */
-  private void drive(double position, double fraction) {
-    double accelerating = profile.step(position, fraction, measured, inputs.velocity);
-    EncoderLoop closed = encoderLoop;
-    if (closed != null) {
-      // Its loop closes here, on its encoder: the volts for the profile's point, sent as they are.
-      io.setVoltage(
-          closed.volts(
-              profile.position(),
-              profile.velocity(),
-              kA * accelerating,
-              measured,
-              inputs.velocity));
-    } else {
-      io.setPosition(profile.position(), profile.velocity(), kA * accelerating);
-    }
-  }
-
-  // ---- Homing ----
-
-  /**
-   * Its absolute encoder's reading, as its sensor in the definition reads: offset and direction.
-   */
-  private double absoluteReading() {
-    MechanismWiring.PortEncoder port = absolutePort;
-    return port == null ? absoluteInputs.share : port.read(absoluteInputs.share);
-  }
-
-  /** The limit switch it homes to, or null when it doesn't home to one. */
-  private Sensor.@Nullable Switch homingSwitch() {
-    Sensor.Switch.Limit.End end = homing.switchEnd();
-    return end == null ? null : stops.at(end).orElse(null);
+    return travel.stoppingPoint(readings.position(), readings.velocity());
   }
 
   // ---- The log ----
 
-  /**
-   * What it did this loop, under its fixed keys.
-   *
-   * @param requested what a command asked of it this loop, if one did
-   */
-  private void log(Optional<Request> requested) {
-    Logger.recordOutput(stateKey, homing.shown());
-    Logger.recordOutput(commandKey, commandShown(requested));
-    Logger.recordOutput(goalKey, applied.wasToAPosition() ? profile.goal() : lastAskedNumber);
-    Logger.recordOutput(goalNameKey, goalNameShown(requested));
-    Logger.recordOutput(atKey, where());
-    Logger.recordOutput(heldByKey, applied.heldBy());
-    Logger.recordOutput(setpointKey, profile.position());
-    Logger.recordOutput(setpointVelocityKey, profile.velocity());
-    Logger.recordOutput(outcomeKey, outcome);
-    Logger.recordOutput(rejectedKey, rejected());
-    Sensor.Encoder model = absoluteModel;
-    if (model != null && absoluteInputs.connected) {
-      Logger.recordOutput(absoluteAtKey, math.fromAbsolute(model, absoluteReading()));
-    } else if (!Double.isNaN(inputs.absolutePosition)) {
-      // An encoder its motor controller reads: where it says the joint is, as the controller read.
-      Logger.recordOutput(absoluteAtKey, inputs.absolutePosition);
+  /** Logs what the joint was asked and what it did this loop. */
+  private void log() {
+    double goal = applied.wasToAPosition() ? profile.goal() : lastAskedNumber;
+    log.did(homing.shown(), goal, where(), applied.heldBy(), outcome);
+    log.asked(requests.askerShown(), requests.nameShown(), requests.rejected());
+    log.setpoint(profile.position(), profile.velocity());
+    if (readings.encoderSaysWhere()) {
+      log.encoderAt(readings.positionByEncoder());
+    } else if (!Double.isNaN(readings.positionByControllersEncoderOrNaN())) {
+      // An encoder the motor controller reads: where it says the joint is, as the controller read
+      // it.
+      log.encoderAt(readings.positionByControllersEncoderOrNaN());
     }
-  }
-
-  /** Who asked something of the joint this loop, as the log's {@code Command} says it. */
-  private static String commandShown(Optional<Request> requested) {
-    if (requested.isEmpty()) {
-      return "idle";
-    }
-    Optional<Command> by = requested.get().by();
-    return by.isPresent() ? by.get().name() : "outside any command";
-  }
-
-  /** The name of what a command asked for this loop, as the log's {@code GoalName} says it. */
-  private static String goalNameShown(Optional<Request> requested) {
-    if (requested.isEmpty()) {
-      return "";
-    }
-    return requested.get().name().orElse("");
   }
 
   /**
-   * Where it is, in its names: "at out", "between run and out", "below in"; a number for a joint
-   * without names; what it runs at, for a roller.
+   * Where the joint is, as the log's {@code At} says it. A joint that holds positions is said in
+   * its names for them: "at out", "between run and out", "below in", or a number if it has no
+   * names, and "unknown" while it does not know. A joint that only runs at outputs, a roller, is
+   * said by what it runs at.
    */
   private String where() {
-    if (!positional) {
+    if (!holdsPositions) {
       if (drivenName.isPresent()) {
         return drivenName.get();
       }
@@ -1626,6 +1340,6 @@ public final class JointMechanism implements Mechanism {
     if (homing.state() != State.READY) {
       return "unknown";
     }
-    return places.at(measured);
+    return places.at(readings.position());
   }
 }

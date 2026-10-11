@@ -13,7 +13,9 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 
@@ -31,17 +33,28 @@ class JointHomingTest {
   private long now = 1_000_000_000L;
 
   private JointHoming homing(Joint joint, @Nullable Homing recipe) {
-    return new JointHoming(ROBOT.math(), joint, recipe, false, false, -1, found::add);
+    return homing(joint, recipe, Optional.empty());
+  }
+
+  private JointHoming homing(Joint joint, @Nullable Homing recipe, Optional<Sensor.Switch> limit) {
+    return new JointHoming(
+        ROBOT.math(), joint, Optional.ofNullable(recipe), limit, Optional.empty(), found::add);
   }
 
   private JointHoming byEncoder(boolean closesLoop) {
-    return new JointHoming(ROBOT.math(), PIVOT, null, true, closesLoop, 1, found::add);
+    return new JointHoming(
+        ROBOT.math(),
+        PIVOT,
+        Optional.empty(),
+        Optional.empty(),
+        Optional.of(new JointHoming.ReadEncoder(closesLoop, OptionalInt.of(1))),
+        found::add);
   }
 
   /** A loop of a joint homed by its recipe, enabled throughout, moving at a speed. */
   private void loop(JointHoming homing, boolean enabled, boolean enabling, double velocity) {
     now += LOOP;
-    homing.goOn(now, enabled, enabling, velocity, null);
+    homing.advance(now, enabled, enabling, velocity);
   }
 
   /** A joint with neither a recipe nor an encoder the robot reads is ready from the start. */
@@ -49,12 +62,12 @@ class JointHomingTest {
   void aJointWithNothingToFindIsReady() {
     JointHoming homing = homing(PIVOT, null);
 
-    homing.start(now);
+    homing.robotStarted(now);
 
     assertThat(homing.state()).isEqualTo(State.READY);
     assertThat(homing.shown()).isEqualTo("READY");
     assertThat(homing.waits()).isFalse();
-    assertThat(homing.fault()).isNull();
+    assertThat(homing.fault()).isEmpty();
   }
 
   /**
@@ -64,18 +77,18 @@ class JointHomingTest {
   @Test
   void intoAHardStopItsFoundOnceStill() {
     JointHoming homing = homing(ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER));
-    homing.start(now);
+    homing.robotStarted(now);
     State before = homing.state();
     loop(homing, true, true, -0.3);
     String shown = homing.shown();
-    double volts = homing.volts();
+    double volts = homing.pushVolts();
     for (int i = 0; i < 13; i++) {
       loop(homing, true, false, 0);
     }
     List<Double> early = List.copyOf(found);
     loop(homing, true, false, 0);
     boolean justFound = homing.justFound();
-    homing.settled();
+    homing.foundLoopWritten();
 
     assertThat(before).isEqualTo(State.UNHOMED);
     assertThat(shown).isEqualTo("HOMING: toward its lower stop, for at most 9.5 s");
@@ -95,13 +108,13 @@ class JointHomingTest {
   void aHomingThatFindsNoStopIsFaulted() {
     JointHoming homing =
         homing(ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER, Seconds.of(0.3)));
-    homing.start(now);
+    homing.robotStarted(now);
     loop(homing, true, true, -0.3);
     for (int i = 0; i < 15; i++) {
       loop(homing, true, false, -0.3);
     }
-    String fault = homing.fault();
-    homing.again(now, true, null);
+    String fault = homing.fault().orElse(null);
+    homing.homeAgain(now, true);
     State again = homing.state();
     loop(homing, false, false, 0);
     State disabled = homing.state();
@@ -112,7 +125,7 @@ class JointHomingTest {
     assertThat(again).isEqualTo(State.HOMING);
     assertThat(disabled).isEqualTo(State.UNHOMED);
     assertThat(homing.state()).isEqualTo(State.HOMING);
-    homing.stop();
+    homing.canceled();
     assertThat(homing.state()).as("its command canceled").isEqualTo(State.UNHOMED);
   }
 
@@ -124,15 +137,15 @@ class JointHomingTest {
   @Test
   void aMoveWaitingOnACanceledHomingHomesItAgain() {
     JointHoming homing = homing(ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER));
-    homing.start(now);
+    homing.robotStarted(now);
     loop(homing, true, true, -0.3);
-    homing.stop();
+    homing.canceled();
     State canceled = homing.state();
-    boolean waitsDisabled = homing.awaited(now, false, null);
+    boolean waitsDisabled = homing.moveWaits(now, false);
     State disabled = homing.state();
-    boolean waits = homing.awaited(now, true, null);
+    boolean waits = homing.moveWaits(now, true);
     JointHoming none = homing(PIVOT, null);
-    none.start(now);
+    none.robotStarted(now);
 
     assertThat(canceled).isEqualTo(State.UNHOMED);
     assertThat(waitsDisabled).isTrue();
@@ -140,7 +153,7 @@ class JointHomingTest {
     assertThat(waits).isTrue();
     assertThat(homing.state()).isEqualTo(State.HOMING);
     assertThat(homing.shown()).isEqualTo("HOMING: toward its lower stop, for at most 9.5 s");
-    assertThat(none.awaited(now, true, null)).isFalse();
+    assertThat(none.moveWaits(now, true)).isFalse();
     assertThat(none.state()).isEqualTo(State.READY);
   }
 
@@ -155,21 +168,22 @@ class JointHomingTest {
   @Test
   void ontoItsSwitchItBacksOffFirstWhenItStartsOnIt() {
     SwitchReadings switches = new SwitchReadings(PIVOT_DOWN);
-    JointHoming homing = homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER));
-    homing.start(now);
-    homing.goOn(now, true, true, 0, PIVOT_DOWN);
-    double pushing = homing.volts();
+    JointHoming homing =
+        homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER), Optional.of(PIVOT_DOWN));
+    homing.robotStarted(now);
+    homing.advance(now, true, true, 0);
+    double pushing = homing.pushVolts();
     switches.trip(PIVOT_DOWN, true);
-    homing.sensed(now, 0.02, PIVOT_DOWN, switches.sensors());
-    double backingOff = homing.volts();
-    homing.sensed(now += LOOP, 0.06, PIVOT_DOWN, switches.sensors());
+    homing.switchRead(now, 0.02, switches.sensors());
+    double backingOff = homing.pushVolts();
+    homing.switchRead(now += LOOP, 0.06, switches.sensors());
     switches.trip(PIVOT_DOWN, false);
-    homing.sensed(now += LOOP, 0.1, PIVOT_DOWN, switches.sensors());
-    double headingIn = homing.volts();
+    homing.switchRead(now += LOOP, 0.1, switches.sensors());
+    double headingIn = homing.pushVolts();
     switches.trip(PIVOT_DOWN, true);
-    homing.sensed(now += LOOP, 0.08, PIVOT_DOWN, switches.sensors());
+    homing.switchRead(now += LOOP, 0.08, switches.sensors());
 
-    assertThat(homing.switchEnd()).isEqualTo(Sensor.Switch.Limit.End.LOWER);
+    assertThat(homing.switchEnd()).contains(Sensor.Switch.Limit.End.LOWER);
     assertThat(pushing).isEqualTo(-2);
     assertThat(backingOff).isEqualTo(2);
     assertThat(headingIn).isEqualTo(-2);
@@ -182,15 +196,16 @@ class JointHomingTest {
   @Test
   void aLostSwitchFaultsItsHoming() {
     SwitchReadings switches = new SwitchReadings(PIVOT_DOWN).lose(PIVOT_DOWN, true);
-    JointHoming homing = homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER));
-    homing.start(now);
-    homing.goOn(now, true, true, 0, PIVOT_DOWN);
+    JointHoming homing =
+        homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER), Optional.of(PIVOT_DOWN));
+    homing.robotStarted(now);
+    homing.advance(now, true, true, 0);
     for (int i = 0; i < 82; i++) {
-      homing.sensed(now += LOOP, 0.5, PIVOT_DOWN, switches.sensors());
+      homing.switchRead(now += LOOP, 0.5, switches.sensors());
     }
 
     assertThat(homing.fault())
-        .isEqualTo(
+        .contains(
             "pivot's homing didn't trip pivot down in 1.6 s (its travel takes 0.6 s at 2.0 V):"
                 + " pivot down is lost");
   }
@@ -204,12 +219,12 @@ class JointHomingTest {
   void anEncodersFirstReadingSaysWhereItIs() {
     JointHoming seeded = byEncoder(false);
     JointHoming closed = byEncoder(true);
-    seeded.start(now);
-    closed.start(now);
+    seeded.robotStarted(now);
+    closed.robotStarted(now);
     State waiting = seeded.state();
 
-    seeded.seek(now, true, 0.7);
-    closed.seek(now, true, 0.7);
+    seeded.encoderRead(now, OptionalDouble.of(0.7));
+    closed.encoderRead(now, OptionalDouble.of(0.7));
 
     assertThat(waiting).isEqualTo(State.UNHOMED);
     assertThat(seeded.waits()).isFalse();
@@ -217,19 +232,19 @@ class JointHomingTest {
     assertThat(seeded.justFound()).isTrue();
     assertThat(closed.justFound()).isFalse();
     assertThat(closed.state()).isEqualTo(State.READY);
-    assertThat(seeded.awaiting()).isFalse();
+    assertThat(seeded.awaitsEncoder()).isFalse();
   }
 
   /** With no reading in 2 s, it's faulted, saying so; a reading readies it. */
   @Test
   void anEncoderThatGivesNoReadingFaultsUntilItDoes() {
     JointHoming homing = byEncoder(false);
-    homing.start(now);
-    homing.seek(now + 1_980_000_000L, false, Double.NaN);
+    homing.robotStarted(now);
+    homing.encoderRead(now + 1_980_000_000L, OptionalDouble.empty());
     State early = homing.state();
-    homing.seek(now + 2_000_000_000L, false, Double.NaN);
-    String fault = homing.fault();
-    homing.seek(now + 3_000_000_000L, true, 0.4);
+    homing.encoderRead(now + 2_000_000_000L, OptionalDouble.empty());
+    String fault = homing.fault().orElse(null);
+    homing.encoderRead(now + 3_000_000_000L, OptionalDouble.of(0.4));
 
     assertThat(early).isEqualTo(State.UNHOMED);
     assertThat(fault)
@@ -248,18 +263,18 @@ class JointHomingTest {
   @Test
   void anEncoderItsLoopClosesOnLostHoldsItOnItsMotor() {
     JointHoming homing = byEncoder(true);
-    homing.start(now);
-    homing.seek(now, true, 0.5);
+    homing.robotStarted(now);
+    homing.encoderRead(now, OptionalDouble.of(0.5));
 
-    homing.watch(now += LOOP, true, false, 0.62, 0.6);
-    String fault = homing.fault();
+    homing.loopEncoderWatched(now += LOOP, true, false, 0.62, 0.6);
+    String fault = homing.fault().orElse(null);
     OptionalDouble stopped = homing.heldOnMotor();
-    homing.watch(now += LOOP, false, false, 0.7, 0.68);
+    homing.loopEncoderWatched(now += LOOP, false, false, 0.7, 0.68);
     OptionalDouble disabled = homing.heldOnMotor();
-    homing.again(now, true, null);
+    homing.homeAgain(now, true);
     State again = homing.state();
     OptionalDouble waiting = homing.heldOnMotor();
-    homing.seek(now += LOOP, true, 0.69);
+    homing.encoderRead(now += LOOP, OptionalDouble.of(0.69));
 
     assertThat(fault)
         .isEqualTo(
@@ -280,12 +295,12 @@ class JointHomingTest {
   @Test
   void faultedOtherwiseItsEncoderStillSeedsIt() {
     JointHoming homing = byEncoder(false);
-    homing.start(now);
-    homing.faulted("pivot's motor 32 didn't take its settings");
-    homing.seek(now, true, 0.3);
-    boolean awaitingAfter = homing.awaiting();
-    homing.again(now, true, null);
-    homing.seek(now, true, 0.35);
+    homing.robotStarted(now);
+    homing.faultFor("pivot's motor 32 didn't take its settings");
+    homing.encoderRead(now, OptionalDouble.of(0.3));
+    boolean awaitingAfter = homing.awaitsEncoder();
+    homing.homeAgain(now, true);
+    homing.encoderRead(now, OptionalDouble.of(0.35));
 
     assertThat(found).containsExactly(0.3, 0.35);
     assertThat(awaitingAfter).isFalse();

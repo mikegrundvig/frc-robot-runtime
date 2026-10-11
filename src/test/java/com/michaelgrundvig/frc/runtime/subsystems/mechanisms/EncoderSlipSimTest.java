@@ -96,7 +96,7 @@ class EncoderSlipSimTest {
 
     sim.simulation.slip(PIVOT, Math.toRadians(20));
     double took = untilFaulted(sim);
-    String why = pivot.fault();
+    String why = pivot.fault().orElse(null);
     Move run = pivot.goTo(PIVOT_RUN);
     sim.scheduler.schedule(run);
     sim.run(0.5);
@@ -200,7 +200,7 @@ class EncoderSlipSimTest {
       double took = untilFaulted(sim);
 
       assertThat(took).as(pivot.driven().absoluteEncoder().toString()).isNotNaN();
-      assertThat(sim.joints.of(PIVOT).fault())
+      assertThat(sim.joints.of(PIVOT).fault().orElse(null))
           .endsWith("Check both, then restart the robot code to tell its motor where it is again");
     }
   }
@@ -241,7 +241,7 @@ class EncoderSlipSimTest {
 
       sim.simulation.slip(TURRET, Math.toRadians(20));
       double took = sim.runUntil(() -> mechanism.state() == JointMechanism.State.FAULTED, 1);
-      String why = mechanism.fault();
+      String why = mechanism.fault().orElse(null);
       sim.run(0.5);
 
       String wired = turret == onPort ? "read by the robot" : "on its data port";
@@ -320,7 +320,7 @@ class EncoderSlipSimTest {
       bad[0] = true;
       sim.loop();
       JointMechanism.State badState = pivot.state();
-      String why = pivot.fault();
+      String why = pivot.fault().orElse(null);
       sim.run(0.5);
       bad[0] = false;
       sim.loop();

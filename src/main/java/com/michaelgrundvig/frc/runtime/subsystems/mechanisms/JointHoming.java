@@ -2,40 +2,77 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Approach;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.AwaitingEncoder;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.EncoderDistrusted;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.EncoderSilent;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Faulted;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.JustFound;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.PushingToStop;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Ready;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.SeekingSwitch;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Unhomed;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
 import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.MechanismControl;
+import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
+import com.michaelgrundvig.frc.world.robot.Sensor.Switch.Limit.End;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.units.measure.Time;
 
 /**
- * How a joint finds where it is, and where it stands meanwhile: one of a few phases, each with its
- * own data ({@link Phase}), each a {@link State} its mechanism logs. A joint homes by its control's
- * recipe, pushed into a hard stop or driven onto its switch on the first enable; or from an
- * absolute encoder the robot reads itself, at its first reading. One with neither, or one that only
- * runs at outputs, is ready from the start.
+ * How a joint finds out where it is, as a state machine. The states are the {@link HomingPhase}s,
+ * and the joint's mechanism reports what happens each loop through the methods here, each of which
+ * may move the joint to another phase.
  *
- * <p>Its mechanism hands it what it reads, a loop at a time, in the order the loop reads them; it
- * tells the joint where it is through {@link Found}, and its mechanism pushes the joint home at
- * {@link #volts} while it homes.
+ * <p>A joint finds where it is in one of three ways:
+ *
+ * <ul>
+ *   <li><b>By moving</b>, as its control's homing recipe says: it is pushed into a hard stop, or
+ *       driven onto a limit switch, when the robot is first enabled.
+ *   <li><b>From an absolute encoder the robot reads itself</b>: the encoder's first reading says
+ *       where the joint is.
+ *   <li><b>Not at all</b>: a joint with neither, or one that only runs at outputs, is ready from
+ *       the start. So is one whose motor controller reads its absolute encoder for it.
+ * </ul>
+ *
+ * <p>The machine, with the method that causes each step:
+ *
+ * <pre>
+ *   Unhomed ──enabled──▶ PushingToStop ──still for a quarter second──▶ JustFound ──▶ Ready
+ *      ▲                 SeekingSwitch ──the switch trips on the way in──▶ JustFound ──▶ Ready
+ *      │                      │
+ *      └──disabled, canceled──┘──out of time──▶ Faulted
+ *
+ *   AwaitingEncoder ──a reading──▶ JustFound ──▶ Ready
+ *         │                                        │ the encoder its loop closes on is lost
+ *         └──none for 2 s──▶ EncoderSilent ◀───────┘
+ *                                 └──a reading──▶ Ready
+ *
+ *   Ready ──its encoder is not trusted──▶ EncoderDistrusted ──trusted again──▶ Ready
+ * </pre>
+ *
+ * <p>When homing finds the joint, it tells the joint's motor controller and its idle through {@link
+ * Found}. While the joint homes by moving, its mechanism pushes it at {@link #pushVolts}.
  */
 final class JointHoming {
-  /** Homing into a hard stop: the joint has found it once it has moved slower than this share... */
+  /**
+   * A joint pushed into a hard stop has found it once it has moved slower than this share of its
+   * free speed for {@link #STILL_NANOS}.
+   */
   static final double STILL_SHARE = 0.02;
 
-  /** ...of its free speed for this long. */
+  /** How long a joint pushed into a hard stop must be still to have found it. */
   static final long STILL_NANOS = 250_000_000L;
 
   /**
-   * A joint that knows where it is from an absolute encoder the robot reads waits this long for the
-   * encoder's first reading before it's faulted, in nanoseconds: the encoder still seeds it when
-   * the reading comes.
+   * How long a joint waits for its absolute encoder's first reading before it is faulted, in
+   * nanoseconds. The encoder still says where the joint is when the reading does come.
    */
   static final long ABSOLUTE_WAIT_NANOS = 2_000_000_000L;
 
@@ -45,135 +82,20 @@ final class JointHoming {
     void at(double position);
   }
 
-  /** Where the joint stands, as one of its states with what it needs to go on. */
-  sealed interface Phase {
-    /** The state its mechanism logs. */
-    State state();
-  }
-
-  /** It knows where it is, or only runs at outputs. */
-  record Ready() implements Phase {
-    @Override
-    public State state() {
-      return State.READY;
-    }
-  }
-
   /**
-   * It found where it is this loop, and is ready: its motor's new count is read from the next, so
-   * nothing drives it until then.
-   */
-  record JustFound() implements Phase {
-    @Override
-    public State state() {
-      return State.READY;
-    }
-  }
-
-  /** It homes by its recipe on the next enable. */
-  record Unhomed() implements Phase {
-    @Override
-    public State state() {
-      return State.UNHOMED;
-    }
-  }
-
-  /**
-   * It waits for its absolute encoder's reading, since a time, to know where it is.
+   * The absolute encoder a joint finds where it is from, when the robot reads that encoder itself.
    *
-   * @param since when it began to wait, in nanoseconds
-   * @param held where it holds by its motor's count meanwhile, if the encoder its loop closes on
-   *     was lost: on its motor controller's own loop, rather than going limp
+   * @param closesLoop whether the joint's loop closes on the encoder. Such a joint reads where it
+   *     is from the encoder in the same loop the encoder first answers, with no loop to wait.
+   * @param port the Systemcore port the encoder is on, which a fault names, if it is on one
    */
-  record Awaiting(long since, OptionalDouble held) implements Phase {
-    @Override
-    public State state() {
-      return State.UNHOMED;
-    }
-  }
-
-  /**
-   * It's pushed into its hard stop, since a time.
-   *
-   * @param why toward what, and for how long at most
-   * @param since when it began, in nanoseconds
-   * @param still since when it has been still, if it is
-   */
-  record ToStop(String why, long since, OptionalLong still) implements Phase {
-    @Override
-    public State state() {
-      return State.HOMING;
-    }
-  }
-
-  /** How homing to a switch is getting on. */
-  enum Approach {
-    /** It hasn't yet seen its switch: it decides from the first reading whether to back off. */
-    STARTING,
-    /** It started on its switch, past where it trips, and backs off it until it clears. */
-    BACKING_OFF,
-    /** It's driven toward its switch, until it trips. */
-    HEADING_IN
-  }
-
-  /**
-   * It's driven onto its switch, since a time.
-   *
-   * @param why toward what, and for how long at most
-   * @param since when it began, in nanoseconds
-   * @param approach how it's getting on
-   * @param last heading in, where it read the loop before: the switch trips between there and where
-   *     it reads now
-   */
-  record ToSwitch(String why, long since, Approach approach, double last) implements Phase {
-    @Override
-    public State state() {
-      return State.HOMING;
-    }
-  }
-
-  /**
-   * Its moves are refused, saying why, until it homes again.
-   *
-   * @param why what's wrong, and what to do
-   * @param awaiting whether its absolute encoder's reading is still awaited: one tells its motor
-   *     where it is, though it stays faulted
-   */
-  record Faulted(String why, boolean awaiting) implements Phase {
-    @Override
-    public State state() {
-      return State.FAULTED;
-    }
-  }
-
-  /**
-   * Its moves are refused, saying why, while the absolute encoder it knows where it is by is
-   * silent: the encoder's first reading readies it again.
-   *
-   * @param why what's wrong
-   * @param since when it began to wait for the reading, in nanoseconds
-   * @param held where it holds by its motor's count meanwhile, if its loop closes on the encoder
-   */
-  record Silent(String why, long since, OptionalDouble held) implements Phase {
-    @Override
-    public State state() {
-      return State.FAULTED;
-    }
-  }
-
-  /**
-   * Its moves are refused, saying why, while its absolute encoder isn't trusted: a CANcoder that
-   * says its magnet is bad, or an encoder and its motor's count apart, one of them slipped. It
-   * holds where its motor says meanwhile, where its motor controller's loop runs on its motor's
-   * count; trusted again, it's ready ({@link #trust}).
-   *
-   * @param why what's wrong, and what to do
-   * @param held where it holds by its motor's count meanwhile, if it can
-   */
-  record Distrusted(String why, OptionalDouble held) implements Phase {
-    @Override
-    public State state() {
-      return State.FAULTED;
+  record ReadEncoder(boolean closesLoop, OptionalInt port) {
+    /** Where the encoder is, as a fault says it after a comma: ", on port 1". Empty for none. */
+    String onPort() {
+      if (port.isEmpty()) {
+        return "";
+      }
+      return ", on port " + port.getAsInt();
     }
   }
 
@@ -181,381 +103,431 @@ final class JointHoming {
   private final RobotMath math;
   private final String label;
 
-  /** Its homing recipe, or null for one that needs none: its absolute encoder, or a roller. */
-  private final MechanismControl.@Nullable Homing recipe;
+  /** The joint's homing recipe, if its control has one. */
+  private final Optional<Homing> recipe;
+
+  /** The recipe again, when it is one that pushes the joint into a hard stop. */
+  private final Optional<Homing.ToHardStop> toHardStop;
+
+  /** The recipe again, when it is one that drives the joint onto a limit switch. */
+  private final Optional<Homing.ToSwitch> toSwitch;
+
+  /** The limit switch the joint homes to, if it homes to one and has it. */
+  private final Optional<Sensor.Switch> homingSwitch;
 
   /**
-   * How long its homing may push it before it's faulted, in seconds: its recipe's timeout, or one
-   * worked out from its travel ({@link MechanismControl.Homing#secondsAllowed}); NaN for none.
+   * How long homing by moving may take before the joint is faulted, in seconds: the recipe's own
+   * timeout, or one worked out from the joint's travel. Not a number for a joint that does not home
+   * by moving, which never reads it.
    */
-  private final double seconds;
+  private final double secondsAllowed;
 
-  /** Whether it finds where it is from an absolute encoder the robot reads, and can again. */
-  private final boolean byEncoder;
+  /** The encoder the joint finds where it is from, if the robot reads one for it. */
+  private final Optional<ReadEncoder> encoder;
 
-  /** Whether its loop closes on that encoder, so it's read where the joint is from it at once. */
-  private final boolean closesLoop;
-
-  /** The encoder's port, for what's said of it: ", on port 1"; empty for none. */
-  private final String onPort;
-
+  /** The speed a full battery runs the joint at, which says how slow counts as still. */
   private final double freeSpeed;
+
   private final Found found;
 
-  private Phase phase = new Ready();
+  private HomingPhase phase = new Ready();
 
   /**
-   * @param recipe its control's homing recipe, or null
-   * @param byEncoder whether it finds where it is from an absolute encoder the robot reads
-   * @param closesLoop whether its loop closes on that encoder
-   * @param port the encoder's port, or -1 for one with none, read only by the simulator
+   * @param recipe the homing recipe of the joint's control, if it has one
+   * @param homingSwitch the limit switch the joint homes to, if its recipe homes it to one
+   * @param encoder the absolute encoder that says where the joint is, if the robot reads one
    * @param found tells the joint where it is, once homing finds it
    */
   JointHoming(
       RobotMath math,
       Joint joint,
-      MechanismControl.@Nullable Homing recipe,
-      boolean byEncoder,
-      boolean closesLoop,
-      int port,
+      Optional<Homing> recipe,
+      Optional<Sensor.Switch> homingSwitch,
+      Optional<ReadEncoder> encoder,
       Found found) {
     this.joint = joint;
     this.math = math;
     label = joint.label();
     this.recipe = recipe;
-    seconds =
-        switch (recipe) {
-          case MechanismControl.Homing.ToHardStop toStop -> toStop.secondsOn(math, joint);
-          case MechanismControl.Homing.ToSwitch toSwitch -> toSwitch.secondsOn(math, joint);
-          case null, default -> Double.NaN;
-        };
-    this.byEncoder = byEncoder;
-    this.closesLoop = closesLoop;
-    onPort = port < 0 ? "" : ", on port " + port;
-    // Only a hard stop's stillness reads it: a joint homed otherwise needn't have motors to have
-    // it.
-    freeSpeed =
-        recipe instanceof MechanismControl.Homing.ToHardStop ? math.freeSpeed(joint) : Double.NaN;
+    toHardStop =
+        recipe.filter(Homing.ToHardStop.class::isInstance).map(Homing.ToHardStop.class::cast);
+    toSwitch = recipe.filter(Homing.ToSwitch.class::isInstance).map(Homing.ToSwitch.class::cast);
+    this.homingSwitch = homingSwitch;
+    this.encoder = encoder;
     this.found = found;
+    if (toHardStop.isPresent()) {
+      secondsAllowed = toHardStop.get().secondsOn(math, joint);
+      // Only a push into a hard stop asks how fast the joint could go. A joint that homes another
+      // way need not have motors in its definition at all.
+      freeSpeed = math.freeSpeed(joint);
+    } else if (toSwitch.isPresent()) {
+      secondsAllowed = toSwitch.get().secondsOn(math, joint);
+      freeSpeed = Double.NaN;
+    } else {
+      secondsAllowed = Double.NaN;
+      freeSpeed = Double.NaN;
+    }
   }
 
-  /** Where it stands. */
-  Phase phase() {
-    return phase;
-  }
+  // ---- What the joint's mechanism asks ----
 
   State state() {
     return phase.state();
   }
 
   /**
-   * Where it stands, as {@code State} logs it: why, when it's faulted, and while it homes, toward
-   * what and for how long at most ("HOMING: toward its lower stop, for at most 9.5 s").
+   * The joint's phase as {@code State} logs it: its state, with why when it is faulted, and while
+   * it homes, toward what and for how long at most ("HOMING: toward its lower stop, for at most 9.5
+   * s").
    */
   String shown() {
-    return switch (phase) {
-      case ToStop toStop -> "HOMING: " + toStop.why();
-      case ToSwitch toSwitch -> "HOMING: " + toSwitch.why();
-      case Faulted faulted -> "FAULTED: " + faulted.why();
-      case Silent silent -> "FAULTED: " + silent.why();
-      case Distrusted distrusted -> "FAULTED: " + distrusted.why();
-      default -> phase.state().name();
-    };
+    return phase.shown();
   }
 
-  /** Why it's faulted, or null when it isn't. */
-  @Nullable String fault() {
-    return switch (phase) {
-      case Faulted faulted -> faulted.why();
-      case Silent silent -> silent.why();
-      case Distrusted distrusted -> distrusted.why();
-      default -> null;
-    };
+  /** Why moves on the joint are refused, if it is faulted. */
+  Optional<String> fault() {
+    return phase.fault();
   }
 
-  /** Whether moves on it wait: it's homing, or will. */
+  /** Whether moves on the joint wait for it: it is homing, or will. */
   boolean waits() {
     State state = phase.state();
     return state == State.UNHOMED || state == State.HOMING;
   }
 
+  /** Whether the joint homes by moving, into a hard stop or onto a switch, and so can again. */
+  boolean homesByMoving() {
+    return toHardStop.isPresent() || toSwitch.isPresent();
+  }
+
   /**
-   * A move on it waits for it to know where it is: whether it must, homing or unhomed. Unhomed with
-   * the robot enabled, as a canceled homing leaves it, a joint whose recipe homes it homes again
-   * now, so the move waits no longer than its homing may take, and a homing that faults refuses it.
-   * Disabled, it homes on the next enable, as it would anyway.
-   *
-   * @param limit the switch it homes to, if it does
+   * Whether the joint finds where it is from an absolute encoder the robot reads, and can again.
    */
-  boolean awaited(long now, boolean enabled, Sensor.@Nullable Switch limit) {
-    if (enabled && phase instanceof Unhomed && toAStop()) {
-      begin(now, limit);
-    }
-    return waits();
-  }
-
-  /** Whether it homes by moving, into a hard stop or onto a switch, and so can be homed again. */
-  boolean toAStop() {
-    return recipe instanceof MechanismControl.Homing.ToHardStop
-        || recipe instanceof MechanismControl.Homing.ToSwitch;
-  }
-
-  /** Whether it finds where it is from an absolute encoder the robot reads, and can again. */
-  boolean byEncoder() {
-    return byEncoder;
+  boolean homesByEncoder() {
+    return encoder.isPresent();
   }
 
   /**
-   * Whether it found where it is this loop: its motor's new count is read from the next, so nothing
-   * drives it this loop.
+   * Whether the joint found where it is in this loop. Its motor controller reports its new count
+   * only from the next loop, so nothing drives the joint in this one.
    */
   boolean justFound() {
     return phase instanceof JustFound;
   }
 
-  /** The end of its travel whose switch it homes to, or null when it doesn't home to a switch. */
-  Sensor.Switch.Limit.@Nullable End switchEnd() {
-    return recipe instanceof MechanismControl.Homing.ToSwitch toSwitch ? toSwitch.end() : null;
+  /** The end of the joint's travel whose switch it homes to, if it homes to a switch. */
+  Optional<End> switchEnd() {
+    return toSwitch.map(Homing.ToSwitch::end);
   }
 
-  /** Whether it waits for its absolute encoder's reading. */
-  boolean awaiting() {
-    return switch (phase) {
-      case Awaiting awaiting -> true;
-      case Silent silent -> true;
-      case Faulted faulted -> faulted.awaiting();
-      default -> false;
-    };
+  /** Whether the joint is waiting for its absolute encoder's reading. */
+  boolean awaitsEncoder() {
+    return phase.awaitsEncoder();
   }
 
   /**
-   * Where it holds by its motor's count while the absolute encoder its loop closes on is lost, if
-   * it is.
+   * Where the joint holds by its motor's count while its absolute encoder cannot be used, if it
+   * holds that way now.
    */
   OptionalDouble heldOnMotor() {
-    return switch (phase) {
-      case Awaiting awaiting -> awaiting.held();
-      case Silent silent -> silent.held();
-      case Distrusted distrusted -> distrusted.held();
-      default -> OptionalDouble.empty();
-    };
+    return phase.heldOnMotor();
   }
 
-  // ---- A loop's readings, in the order its mechanism reads them ----
+  /** Whether the joint's absolute encoder is not trusted. */
+  boolean distrusted() {
+    return phase instanceof EncoderDistrusted;
+  }
 
   /**
-   * Its first loop: it homes on the first enable, by its recipe, or waits for its encoder's
-   * reading; with neither, it's ready.
+   * The voltage homing pushes the joint at in this loop, toward its stop or its switch. A joint
+   * backing off its switch is pushed the other way. Zero for a joint that does not home by moving.
    */
-  void start(long now) {
-    phase = toAStop() || byEncoder ? new Unhomed() : new Ready();
-    if (byEncoder) {
-      seekAgain(now);
+  double pushVolts() {
+    if (toHardStop.isPresent()) {
+      return toward(toHardStop.get().end(), toHardStop.get().volts());
+    }
+    if (toSwitch.isPresent()) {
+      double towardSwitch = toward(toSwitch.get().end(), toSwitch.get().volts());
+      return isBackingOff() ? -towardSwitch : towardSwitch;
+    }
+    return 0;
+  }
+
+  // ---- What happens in a loop, in the order the joint's mechanism reports it ----
+
+  /**
+   * The robot's first loop. A joint that homes by moving is unhomed until the robot is enabled, one
+   * that an encoder tells starts waiting for the encoder, and any other is ready.
+   */
+  void robotStarted(long now) {
+    if (homesByMoving() || homesByEncoder()) {
+      phase = new Unhomed();
+    } else {
+      phase = new Ready();
+    }
+    if (homesByEncoder()) {
+      awaitEncoder(now);
     }
   }
 
   /**
-   * Nothing may drive it, and its moves are refused saying why: its motor controllers didn't take
-   * their settings at startup, without whose current limits or ratio driving it would be a guess at
-   * full power; or it's a stand-in for a joint with no mechanism ({@link JointMechanism#standIn}).
+   * Faults the joint, unless it is faulted already: nothing may drive it, and its moves are refused
+   * saying why. This is for a joint whose motor controllers did not take their settings at startup,
+   * since driving it without their current limits or its ratio would be a guess at full power, and
+   * for a stand-in for a joint with no mechanism ({@link JointMechanism#standIn}).
    *
-   * @param why what's wrong, and what to do
+   * @param why what is wrong and what to do about it
    */
-  void faulted(String why) {
-    if (phase.state() != State.FAULTED) {
-      phase = new Faulted(why, phase instanceof Awaiting);
-    }
-  }
-
-  /**
-   * Waits for its absolute encoder's next reading, unhomed, to tell its motor where it is; or,
-   * faulted otherwise, to tell its motor still, faulted.
-   */
-  private void seekAgain(long now) {
-    phase =
-        switch (phase) {
-          case Faulted faulted -> new Faulted(faulted.why(), true);
-          default -> new Awaiting(now, heldOnMotor());
-        };
-  }
-
-  /**
-   * While it waits for its absolute encoder: a reading tells the joint where it is, and readies it
-   * unless it's faulted for something else; with none for a while, it's faulted, and the reading
-   * still readies it when it comes.
-   *
-   * @param answers whether the encoder gave a reading this loop
-   * @param at where the encoder says the joint is, when it answers
-   */
-  void seek(long now, boolean answers, double at) {
-    if (!awaiting()) {
+  void faultFor(String why) {
+    if (phase.state() == State.FAULTED) {
       return;
     }
-    if (answers) {
-      found.at(at);
+    phase = new Faulted(why, phase instanceof AwaitingEncoder);
+  }
+
+  /**
+   * What the joint's absolute encoder read this loop, while the joint waits for it.
+   *
+   * <p>A reading says where the joint is. It makes the joint ready, unless the joint is faulted for
+   * something else, which it then stays. With no reading for {@link #ABSOLUTE_WAIT_NANOS}, the
+   * joint is faulted until a reading comes.
+   *
+   * @param reading where the encoder says the joint is, or empty if it gave no reading this loop
+   */
+  void encoderRead(long now, OptionalDouble reading) {
+    if (!phase.awaitsEncoder()) {
+      return;
+    }
+    if (reading.isPresent()) {
+      found.at(reading.getAsDouble());
+      phase = afterEncoderFoundIt();
+      return;
+    }
+    boolean waitedTooLong =
+        phase instanceof AwaitingEncoder awaiting && now - awaiting.since() >= ABSOLUTE_WAIT_NANOS;
+    if (waitedTooLong) {
+      AwaitingEncoder awaiting = (AwaitingEncoder) phase;
       phase =
-          switch (phase) {
-            case Faulted faulted -> new Faulted(faulted.why(), false);
-            // Its motor's new count is read from the next loop; a joint whose loop closes on its
-            // encoder reads where it is from the encoder this loop already.
-            default -> closesLoop ? new Ready() : new JustFound();
-          };
-    } else if (phase instanceof Awaiting awaiting
-        && now - awaiting.since() >= ABSOLUTE_WAIT_NANOS) {
-      phase =
-          new Silent(
+          new EncoderSilent(
               String.format(
                   Locale.ROOT,
                   "%s's absolute encoder gave no reading in %.1f s%s: it's seeded when it does",
                   label,
                   ABSOLUTE_WAIT_NANOS / 1e9,
-                  onPort),
+                  onPort()),
               awaiting.since(),
-              awaiting.held());
+              awaiting.heldOnMotor());
     }
   }
 
+  /** The phase a joint moves to when its absolute encoder has just said where it is. */
+  private HomingPhase afterEncoderFoundIt() {
+    if (phase instanceof Faulted faulted) {
+      return new Faulted(faulted.why(), false);
+    }
+    // A joint whose loop closes on its encoder already reads where it is from the encoder in this
+    // loop. Any other reads its motor's new count only from the next loop.
+    boolean readsItAtOnce = encoder.isPresent() && encoder.get().closesLoop();
+    if (readsItAtOnce) {
+      return new Ready();
+    }
+    return new JustFound();
+  }
+
   /**
-   * Whether the absolute encoder its loop closes on was lost this loop: then it's faulted, so its
-   * moves are refused and the interlocks that read it hold, as for a motor controller gone silent,
-   * and it holds where it comes to a stop by its motor's count, on its motor controller's own loop,
-   * rather than going limp; it doesn't know where it is, so it's driven nowhere else. It waits for
-   * the encoder as it did at startup, and is ready again at its first reading ({@link #seek}).
-   * Disabled meanwhile, it holds wherever it is when it's enabled.
+   * Watches the absolute encoder that a joint's loop closes on, each loop.
    *
-   * @param answers whether the encoder gave a reading this loop
-   * @param stopping where it comes to a stop, by its motor's count, from how fast it's going
-   * @param onMotor where its motor's count says it is
+   * <p>If a ready joint's encoder gives no reading, the joint no longer knows where it is. It is
+   * faulted, so its moves are refused and the interlocks that read it hold, as they do for a motor
+   * controller gone silent. It holds where it comes to a stop by its motor's count, on its motor
+   * controller's own loop, so that it does not go limp, and it waits for the encoder as it did at
+   * startup ({@link #encoderRead}).
+   *
+   * <p>While the robot is disabled, a joint held this way is moved by hand, so where it holds
+   * follows where its motor says it is: it holds wherever it is when the robot is enabled.
+   *
+   * @param encoderAnswers whether the encoder gave a reading this loop
+   * @param stoppingPoint where the joint comes to a stop, by its motor's count, from its speed
+   * @param onMotor where the motor's count says the joint is
    */
-  void watch(long now, boolean enabled, boolean answers, double stopping, double onMotor) {
-    if (phase.state() == State.READY && !answers) {
+  void loopEncoderWatched(
+      long now, boolean enabled, boolean encoderAnswers, double stoppingPoint, double onMotor) {
+    boolean lostNow = phase.state() == State.READY && !encoderAnswers;
+    if (lostNow) {
       phase =
-          new Silent(
+          new EncoderSilent(
               possessive(label)
                   + " absolute encoder is lost"
-                  + onPort
+                  + onPort()
                   + ": its loop closes on it, so it holds where its motor says until the encoder"
                   + " answers",
               now,
-              OptionalDouble.of(stopping));
-    } else if (!enabled && heldOnMotor().isPresent()) {
-      phase =
-          switch (phase) {
-            case Awaiting awaiting -> new Awaiting(awaiting.since(), OptionalDouble.of(onMotor));
-            case Silent silent ->
-                new Silent(silent.why(), silent.since(), OptionalDouble.of(onMotor));
-            default -> phase;
-          };
-    }
-  }
-
-  /**
-   * Homing by its recipe, a loop on: disabled, it stops, to start again on the next enable;
-   * enabled, it starts; pushed into its stop, it goes on.
-   *
-   * @param enabling whether the robot was enabled this loop
-   * @param velocity how fast the joint moves, measured
-   * @param limit the switch it homes to, if it does
-   */
-  void goOn(
-      long now, boolean enabled, boolean enabling, double velocity, Sensor.@Nullable Switch limit) {
-    if (!enabled && phase.state() == State.HOMING) {
-      phase = new Unhomed();
-    } else if (enabling && phase.state() == State.UNHOMED && toAStop()) {
-      begin(now, limit);
-    } else if (phase instanceof ToStop toStop
-        && recipe instanceof MechanismControl.Homing.ToHardStop toHardStop) {
-      pushedOn(now, toStop, toHardStop, velocity);
-    }
-  }
-
-  /**
-   * Homing to its switch, a loop on, on the switch's reading this loop: one that started on it
-   * backs off until it clears, then comes back until it trips, so it's home where the switch trips,
-   * not wherever past it it rested. It's as close as the joint travels in a loop at the homing's
-   * speed: approach slowly where it matters.
-   *
-   * @param at where the joint reads
-   * @param limit the switch it homes to
-   */
-  void sensed(long now, double at, Sensor.@Nullable Switch limit, @Nullable Sensors sensors) {
-    if (!(phase instanceof ToSwitch toSwitch)
-        || !(recipe instanceof MechanismControl.Homing.ToSwitch to)
-        || limit == null
-        || sensors == null) {
+              OptionalDouble.of(stoppingPoint));
       return;
     }
+    boolean heldWhileDisabled = !enabled && phase.heldOnMotor().isPresent();
+    if (!heldWhileDisabled) {
+      return;
+    }
+    if (phase instanceof AwaitingEncoder awaiting) {
+      phase = new AwaitingEncoder(awaiting.since(), OptionalDouble.of(onMotor));
+    } else if (phase instanceof EncoderSilent silent) {
+      phase = new EncoderSilent(silent.why(), silent.since(), OptionalDouble.of(onMotor));
+    }
+  }
+
+  /**
+   * Moves homing by the joint's recipe on by one loop.
+   *
+   * <ul>
+   *   <li>Disabled while it homes, the joint is unhomed again, and starts over on the next enable.
+   *   <li>Enabled while unhomed, it starts homing.
+   *   <li>Pushed into its hard stop, it has found the stop once it is still, or runs out of time.
+   * </ul>
+   *
+   * <p>A joint driven onto its switch is moved on by {@link #switchRead}, once the sensors have
+   * been read.
+   *
+   * @param enabling whether the robot was enabled in this loop
+   * @param velocity how fast the joint is measured moving
+   */
+  void advance(long now, boolean enabled, boolean enabling, double velocity) {
+    boolean isHoming = phase.state() == State.HOMING;
+    if (!enabled && isHoming) {
+      phase = new Unhomed();
+      return;
+    }
+    boolean startsNow = enabling && phase.state() == State.UNHOMED && homesByMoving();
+    if (startsNow) {
+      begin(now);
+      return;
+    }
+    if (phase instanceof PushingToStop pushing && toHardStop.isPresent()) {
+      phase = pushedOn(now, pushing, toHardStop.get(), velocity);
+    }
+  }
+
+  /**
+   * Moves homing to a limit switch on by one loop, on what the switch reads in this loop.
+   *
+   * <p>A joint that starts on its switch is somewhere past the point where the switch trips, so it
+   * first backs off until the switch clears. It then heads in until the switch trips, and that is
+   * where it is home: at the switch's edge, not wherever past it the joint happened to rest. The
+   * edge is found to within the distance the joint travels in one loop at the homing's speed, so
+   * home slowly where it matters.
+   *
+   * @param at where the joint reads
+   * @param sensors the robot's sensors, as read this loop
+   */
+  void switchRead(long now, double at, Sensors sensors) {
+    if (!(phase instanceof SeekingSwitch seeking) || toSwitch.isEmpty() || homingSwitch.isEmpty()) {
+      return;
+    }
+    Sensor.Switch limit = homingSwitch.get();
     boolean tripped = sensors.holds(limit.tripped());
-    Approach approach =
-        switch (toSwitch.approach()) {
-          // On its switch already, past where it trips: it backs off it first, so it trips on the
-          // way in.
-          case STARTING, BACKING_OFF -> tripped ? Approach.BACKING_OFF : Approach.HEADING_IN;
-          case HEADING_IN -> Approach.HEADING_IN;
-        };
-    if (toSwitch.approach() == Approach.HEADING_IN && tripped) {
-      // It tripped somewhere in this loop's travel: the middle is the best guess, half a loop's
-      // travel at worst.
-      found.at(
-          ((Sensor.Switch.Limit) limit.kind()).position().orElseThrow()
-              + (at - toSwitch.last()) / 2);
+    if (seeking.approach() instanceof Approach.HeadingIn headingIn && tripped) {
+      // The switch tripped somewhere in this loop's travel. The middle of it is the best guess,
+      // and is wrong by half a loop's travel at most.
+      double edge = ((Sensor.Switch.Limit) limit.kind()).position().orElseThrow();
+      found.at(edge + (at - headingIn.lastRead()) / 2);
       phase = new JustFound();
       return;
     }
-    phase = new ToSwitch(toSwitch.why(), toSwitch.since(), approach, at);
-    if (now - toSwitch.since() >= Math.round(seconds * 1e9)) {
-      phase =
-          new Faulted(
-              String.format(
-                  Locale.ROOT,
-                  "%s's homing didn't %s %s in %.1f s%s%s",
-                  label,
-                  approach == Approach.BACKING_OFF ? "back off" : "trip",
-                  limit.label(),
-                  seconds,
-                  timedFrom(to.timeout(), to.volts()),
-                  sensors.reads(limit) ? "" : ": " + limit.label() + " is lost"),
-              false);
+    Approach approach = nextApproach(seeking.approach(), tripped, at);
+    boolean outOfTime = now - seeking.since() >= Math.round(secondsAllowed * 1e9);
+    if (!outOfTime) {
+      phase = new SeekingSwitch(seeking.toward(), seeking.since(), approach);
+      return;
     }
+    Homing.ToSwitch recipe = toSwitch.get();
+    phase =
+        new Faulted(
+            String.format(
+                Locale.ROOT,
+                "%s's homing didn't %s %s in %.1f s%s%s",
+                label,
+                approach instanceof Approach.BackingOff ? "back off" : "trip",
+                limit.label(),
+                secondsAllowed,
+                timeoutWorkedOutFrom(recipe.timeout(), recipe.volts()),
+                sensors.reads(limit) ? "" : ": " + limit.label() + " is lost"),
+            false);
   }
 
   /**
-   * Starts homing it again by its recipe, or from its absolute encoder's next reading: a command
-   * asked.
+   * How a joint that has not found its switch yet carries on, given what the switch reads now.
    *
-   * @param limit the switch it homes to, if it does
+   * @param at where the joint reads, which a joint heading in remembers for the next loop
    */
-  void again(long now, boolean enabled, Sensor.@Nullable Switch limit) {
-    if (byEncoder) {
-      seekAgain(now);
+  private static Approach nextApproach(Approach approach, boolean tripped, double at) {
+    return switch (approach) {
+      // On its switch, the joint is past where the switch trips. It backs off first, so that the
+      // switch trips on the way in.
+      case Approach.SwitchNotYetRead notYetRead ->
+          tripped ? new Approach.BackingOff() : new Approach.HeadingIn(at);
+      case Approach.BackingOff backingOff -> tripped ? backingOff : new Approach.HeadingIn(at);
+      case Approach.HeadingIn headingIn -> new Approach.HeadingIn(at);
+    };
+  }
+
+  /**
+   * A command asked for the joint to be homed again: by its recipe, or from its absolute encoder's
+   * next reading. A joint that homes by moving starts now if the robot is enabled, and otherwise on
+   * the next enable.
+   */
+  void homeAgain(long now, boolean enabled) {
+    if (homesByEncoder()) {
+      awaitEncoder(now);
     } else if (enabled) {
-      begin(now, limit);
+      begin(now);
     } else {
       phase = new Unhomed();
     }
   }
 
   /**
-   * Its leading motor controller restarted, and counts its motor from 0, or from the absolute
-   * encoder it reads, whose IO tells it where it is again at once. Where it is, if it knew: an
-   * absolute encoder the robot reads tells it again at its next reading; a homing that was going on
-   * starts over, and one that had found where it is is lost, so it homes again on the next move or
-   * enable, as a canceled one does; and one assumed at rest is faulted, since it's taken to be
-   * there only as the robot starts.
+   * A move on the joint asks whether it must wait for the joint to know where it is.
    *
-   * @param limit the switch it homes to, if it does
+   * <p>Asking also restarts a homing that was canceled: an unhomed joint that homes by moving
+   * starts homing now, if the robot is enabled. The move then waits no longer than the homing may
+   * take, and a homing that faults refuses the move. With the robot disabled, the joint homes on
+   * the next enable, as it would anyway.
    */
-  void restarted(long now, Sensor.@Nullable Switch limit) {
-    if (byEncoder) {
-      seekAgain(now);
-    } else if (toAStop()) {
+  boolean moveWaits(long now, boolean enabled) {
+    if (enabled && phase instanceof Unhomed && homesByMoving()) {
+      begin(now);
+    }
+    return waits();
+  }
+
+  /**
+   * The joint's leading motor controller restarted, so it counts the motor from zero again, or from
+   * the absolute encoder it reads itself. Whatever the joint knew of where it is, is lost:
+   *
+   * <ul>
+   *   <li>An absolute encoder the robot reads says where it is again at its next reading.
+   *   <li>A joint that homes by moving starts over if it was homing. If it had found where it is,
+   *       it is unhomed, and homes again on the next move or enable, as after a canceled homing.
+   *   <li>A joint assumed to be at rest is faulted. It is taken to be at rest only as the robot
+   *       starts, and nothing says where it is now.
+   * </ul>
+   */
+  void controllerRestarted(long now) {
+    if (homesByEncoder()) {
+      awaitEncoder(now);
+      return;
+    }
+    if (homesByMoving()) {
       if (phase.state() == State.HOMING) {
-        begin(now, limit);
+        begin(now);
       } else if (phase.state() == State.READY) {
         phase = new Unhomed();
       }
-    } else if (recipe instanceof MechanismControl.Homing.AssumeAtRest) {
-      faulted(
+      return;
+    }
+    boolean assumedAtRest = recipe.isPresent() && recipe.get() instanceof Homing.AssumeAtRest;
+    if (assumedAtRest) {
+      faultFor(
           possessive(label)
               + " motor controller restarted, so where "
               + label
@@ -565,129 +537,175 @@ final class JointHoming {
   }
 
   /**
-   * Its absolute encoder isn't trusted from now on, if it knew where it was: its moves are refused,
-   * saying why, and it holds where its motor says, if it can, until it's trusted again. Disabled
-   * meanwhile, it holds wherever it is when it's enabled.
+   * The joint's absolute encoder is not trusted from now on. A joint that knew where it was is
+   * faulted: its moves are refused, saying why, until the encoder is trusted again ({@link
+   * #trust}).
    *
-   * @param why what's wrong, and what to do
-   * @param held where it holds by its motor's count, where its motor controller's loop runs on it:
-   *     where it comes to a stop
+   * @param why what is wrong and what to do about it
+   * @param heldOnMotor where the joint holds by its motor's count meanwhile, which is where it
+   *     comes to a stop, for a joint whose motor controller's loop runs on the motor's count
    */
-  void distrust(String why, OptionalDouble held) {
+  void distrust(String why, OptionalDouble heldOnMotor) {
     if (phase.state() == State.READY) {
-      phase = new Distrusted(why, held);
+      phase = new EncoderDistrusted(why, heldOnMotor);
     }
   }
 
   /**
-   * Disabled while its absolute encoder isn't trusted, it holds wherever it is as it's enabled.
+   * The robot is disabled while the joint's encoder is still not trusted. Where the joint holds
+   * follows where its motor says it is, so it holds wherever it is when the robot is enabled.
    *
-   * @param held where its motor says it is, if it holds on its motor's count
+   * @param heldOnMotor where the motor says the joint is, if the joint holds on its motor's count
    */
-  void stillDistrusted(OptionalDouble held) {
-    if (phase instanceof Distrusted distrusted) {
-      phase = new Distrusted(distrusted.why(), held);
+  void stillDistrusted(OptionalDouble heldOnMotor) {
+    if (phase instanceof EncoderDistrusted distrusted) {
+      phase = new EncoderDistrusted(distrusted.why(), heldOnMotor);
     }
   }
 
-  /** Whether its absolute encoder isn't trusted. */
-  boolean distrusted() {
-    return phase instanceof Distrusted;
-  }
-
-  /** Its absolute encoder is trusted again: it's ready, where it is. */
+  /** The joint's absolute encoder is trusted again, and the joint is ready where it is. */
   void trust() {
-    if (phase instanceof Distrusted) {
+    if (phase instanceof EncoderDistrusted) {
       phase = new Ready();
     }
   }
 
-  /** A command homing it was canceled: where it is isn't known. */
-  void stop() {
+  /** The command that was homing the joint was canceled: where the joint is, is not known. */
+  void canceled() {
     if (phase.state() == State.HOMING) {
       phase = new Unhomed();
     }
   }
 
-  /** Nothing drove it the loop it found where it is: it's driven from the next. */
-  void settled() {
+  /**
+   * The loop in which the joint found where it is has been written, with nothing driving the joint.
+   * It is driven from the next loop.
+   */
+  void foundLoopWritten() {
     if (phase instanceof JustFound) {
       phase = new Ready();
     }
   }
 
-  /** Homing's push this loop, toward its stop or its switch, in volts: none while it doesn't. */
-  double volts() {
-    return switch (recipe) {
-      case MechanismControl.Homing.ToHardStop toStop ->
-          toStop.end() == Sensor.Switch.Limit.End.LOWER ? -toStop.volts() : toStop.volts();
-      case MechanismControl.Homing.ToSwitch toSwitch ->
-          (toSwitch.end() == Sensor.Switch.Limit.End.LOWER ? -toSwitch.volts() : toSwitch.volts())
-              * (phase instanceof ToSwitch on && on.approach() == Approach.BACKING_OFF ? -1 : 1);
-      case null, default -> 0;
-    };
+  // ---- The steps themselves ----
+
+  /**
+   * Starts waiting for the absolute encoder's next reading to say where the joint is. A joint that
+   * is faulted for something else stays faulted, and the reading only tells its motor controller
+   * where it is.
+   */
+  private void awaitEncoder(long now) {
+    if (phase instanceof Faulted faulted) {
+      phase = new Faulted(faulted.why(), true);
+    } else {
+      phase = new AwaitingEncoder(now, phase.heldOnMotor());
+    }
   }
 
-  private void begin(long now, Sensor.@Nullable Switch limit) {
+  /** Starts homing by moving: toward the hard stop, or onto the switch. */
+  private void begin(long now) {
     String toward =
-        recipe instanceof MechanismControl.Homing.ToHardStop toStop
-            ? "its " + end(toStop.end()) + " stop"
-            : limit != null ? limit.label() : "its switch";
-    String why = String.format(Locale.ROOT, "toward %s, for at most %.1f s", toward, seconds);
-    phase =
-        recipe instanceof MechanismControl.Homing.ToSwitch
-            ? new ToSwitch(why, now, Approach.STARTING, Double.NaN)
-            : new ToStop(why, now, OptionalLong.empty());
-  }
-
-  /**
-   * Pushed into its stop, a loop on: still there long enough, it's found it; or it's out of time.
-   */
-  private void pushedOn(
-      long now, ToStop toStop, MechanismControl.Homing.ToHardStop recipe, double velocity) {
-    OptionalLong still = OptionalLong.empty();
-    if (Math.abs(velocity) <= STILL_SHARE * freeSpeed) {
-      if (toStop.still().isEmpty()) {
-        still = OptionalLong.of(now);
-      } else if (now - toStop.still().getAsLong() >= STILL_NANOS) {
-        var range = joint.range().orElseThrow();
-        found.at(recipe.end() == Sensor.Switch.Limit.End.LOWER ? range.lower() : range.upper());
-        phase = new JustFound();
-        return;
-      } else {
-        still = toStop.still();
-      }
-    }
-    phase = still.equals(toStop.still()) ? toStop : new ToStop(toStop.why(), toStop.since(), still);
-    if (now - toStop.since() >= Math.round(seconds * 1e9)) {
-      phase =
-          new Faulted(
-              String.format(
-                  Locale.ROOT,
-                  "%s's homing found no stop in %.1f s%s, pushing toward its %s one",
-                  label,
-                  seconds,
-                  timedFrom(recipe.timeout(), recipe.volts()),
-                  end(recipe.end())),
-              false);
+        String.format(
+            Locale.ROOT, "toward %s, for at most %.1f s", whatItHomesToward(), secondsAllowed);
+    if (toSwitch.isPresent()) {
+      phase = new SeekingSwitch(toward, now, new Approach.SwitchNotYetRead());
+    } else {
+      phase = new PushingToStop(toward, now, OptionalLong.empty());
     }
   }
 
-  private static String end(Sensor.Switch.Limit.End end) {
-    return end == Sensor.Switch.Limit.End.LOWER ? "lower" : "upper";
+  /**
+   * What the joint is homed toward, as the log says it: "its lower stop", or its switch's label.
+   */
+  private String whatItHomesToward() {
+    if (toHardStop.isPresent()) {
+      return "its " + shown(toHardStop.get().end()) + " stop";
+    }
+    if (homingSwitch.isPresent()) {
+      return homingSwitch.get().label();
+    }
+    return "its switch";
   }
 
   /**
-   * Where its homing's timeout came from, when it was worked out from the joint, for a fault to
-   * say: " (its travel takes 6.4 s at 2.0 V)". Empty when its recipe gave one.
+   * The phase of a joint pushed into its hard stop, one loop on. Once it has been still for {@link
+   * #STILL_NANOS} it has found the stop, and is at that end of its range. Otherwise it carries on,
+   * until it is out of time.
    */
-  private String timedFrom(Optional<Time> timeout, double volts) {
-    return timeout.isPresent()
-        ? ""
-        : String.format(
-            Locale.ROOT,
-            " (its travel takes %.1f s at %.1f V)",
-            MechanismControl.Homing.travelSeconds(math, joint, volts),
-            volts);
+  private HomingPhase pushedOn(
+      long now, PushingToStop pushing, Homing.ToHardStop recipe, double velocity) {
+    boolean isStill = Math.abs(velocity) <= STILL_SHARE * freeSpeed;
+    OptionalLong stillSince = stillSince(pushing, isStill, now);
+    boolean stillLongEnough =
+        isStill
+            && pushing.stillSince().isPresent()
+            && now - pushing.stillSince().getAsLong() >= STILL_NANOS;
+    if (stillLongEnough) {
+      var range = joint.range().orElseThrow();
+      found.at(recipe.end() == End.LOWER ? range.lower() : range.upper());
+      return new JustFound();
+    }
+    boolean outOfTime = now - pushing.since() >= Math.round(secondsAllowed * 1e9);
+    if (outOfTime) {
+      return new Faulted(
+          String.format(
+              Locale.ROOT,
+              "%s's homing found no stop in %.1f s%s, pushing toward its %s one",
+              label,
+              secondsAllowed,
+              timeoutWorkedOutFrom(recipe.timeout(), recipe.volts()),
+              shown(recipe.end())),
+          false);
+    }
+    if (stillSince.equals(pushing.stillSince())) {
+      return pushing;
+    }
+    return new PushingToStop(pushing.toward(), pushing.since(), stillSince);
+  }
+
+  /** Since when a joint pushed into its stop has been still: from now, if it has just stopped. */
+  private static OptionalLong stillSince(PushingToStop pushing, boolean isStill, long now) {
+    if (!isStill) {
+      return OptionalLong.empty();
+    }
+    if (pushing.stillSince().isPresent()) {
+      return pushing.stillSince();
+    }
+    return OptionalLong.of(now);
+  }
+
+  private boolean isBackingOff() {
+    return phase instanceof SeekingSwitch seeking
+        && seeking.approach() instanceof Approach.BackingOff;
+  }
+
+  /** A homing voltage with the sign that pushes the joint toward an end of its travel. */
+  private static double toward(End end, double volts) {
+    return end == End.LOWER ? -volts : volts;
+  }
+
+  private static String shown(End end) {
+    return end == End.LOWER ? "lower" : "upper";
+  }
+
+  /** Where the encoder is, as a fault says it after a comma: ", on port 1". Empty for none. */
+  private String onPort() {
+    return encoder.map(ReadEncoder::onPort).orElse("");
+  }
+
+  /**
+   * Where a homing's time limit came from, for a fault to say, when it was worked out from the
+   * joint and not given by the recipe: " (its travel takes 6.4 s at 2.0 V)". Empty when the recipe
+   * gave it.
+   */
+  private String timeoutWorkedOutFrom(Optional<Time> timeout, double volts) {
+    if (timeout.isPresent()) {
+      return "";
+    }
+    return String.format(
+        Locale.ROOT,
+        " (its travel takes %.1f s at %.1f V)",
+        Homing.travelSeconds(math, joint, volts),
+        volts);
   }
 }

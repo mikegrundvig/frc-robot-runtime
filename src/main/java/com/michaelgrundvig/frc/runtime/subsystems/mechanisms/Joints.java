@@ -24,6 +24,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -187,7 +188,9 @@ public final class Joints implements AutoCloseable {
               joint,
               tunings.apply(joint),
               hardware.joint(joint),
-              readsAbsolute(joint) != null ? hardware.absoluteEncoder(joint) : null,
+              readsAbsolute(joint) != null
+                  ? Optional.of(hardware.absoluteEncoder(joint))
+                  : Optional.empty(),
               sensors,
               scheduler);
       built.add(mechanism);
@@ -418,7 +421,11 @@ public final class Joints implements AutoCloseable {
    */
   public Move goTo(Configuration configuration) {
     return Move.configuration(
-        configuration, mechanisms(configuration), true, refused(configuration), scheduler);
+        configuration,
+        mechanisms(configuration),
+        new MovePlan.GoTo(),
+        refused(configuration),
+        scheduler);
   }
 
   /**
@@ -428,22 +435,26 @@ public final class Joints implements AutoCloseable {
    */
   public Move run(Configuration configuration) {
     return Move.configuration(
-        configuration, mechanisms(configuration), false, refused(configuration), scheduler);
+        configuration,
+        mechanisms(configuration),
+        new MovePlan.Run(Optional.empty()),
+        refused(configuration),
+        scheduler);
   }
 
   /**
-   * Why a configuration's move can't run, or null when it can: a place not its joint's own, refused
-   * as a move there is ({@link Refusals}, thrown as the robot starts), or the joints it names that
-   * the template doesn't drive.
+   * Why a configuration's move cannot run, if it cannot. Either one of its places is not its
+   * joint's own, which is refused as a move to such a place is ({@link Refusals}: thrown as the
+   * robot starts), or it names joints the template does not drive.
    */
-  private @Nullable String refused(Configuration configuration) {
+  private Optional<String> refused(Configuration configuration) {
     for (Condition.At target : configuration.targets()) {
       String notOwn = Refusals.asBuilt(scheduler, definition.whyNotOwn(target));
       if (notOwn != null) {
-        return notOwn;
+        return Optional.of(notOwn);
       }
     }
-    return undriven(definition, configuration);
+    return Optional.ofNullable(undriven(definition, configuration));
   }
 
   /**
@@ -675,11 +686,14 @@ public final class Joints implements AutoCloseable {
     }
   }
 
-  /** Each target's joint's mechanism, in order: null for one the template doesn't drive. */
-  private List<@Nullable JointMechanism> mechanisms(Configuration configuration) {
-    List<@Nullable JointMechanism> mechanisms = new ArrayList<>();
+  /**
+   * The mechanism of each of a configuration's targets' joints, in the targets' order: empty for a
+   * joint the template does not drive.
+   */
+  private List<Optional<JointMechanism>> mechanisms(Configuration configuration) {
+    List<Optional<JointMechanism>> mechanisms = new ArrayList<>();
     for (Condition.At target : configuration.targets()) {
-      mechanisms.add(byJoint.get(target.joint()));
+      mechanisms.add(Optional.ofNullable(byJoint.get(target.joint())));
     }
     return mechanisms;
   }
