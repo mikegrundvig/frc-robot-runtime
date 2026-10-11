@@ -180,15 +180,6 @@ public final class PoseEstimator {
   private record Agreement(long time, double meters) {}
 
   /**
-   * A camera's doubt about its mount, as the robot's mount check last reported it.
-   *
-   * @param meters how far its measurements may be off from where its mount moved
-   * @param tagDistanceMeters how far its tags were, on average, when that was judged; NaN until it
-   *     has been judged
-   */
-  private record MountDoubt(double meters, double tagDistanceMeters) {}
-
-  /**
    * @param config how to weigh the sources
    * @param onField whether a point is on the field: measurements off it are rejected
    * @param tags the field's tags: each one's placement is kept apart, the same for every camera

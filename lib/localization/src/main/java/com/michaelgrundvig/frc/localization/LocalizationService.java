@@ -4,8 +4,6 @@ import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.ImuMount;
-import com.michaelgrundvig.frc.world.robot.Imus;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -25,8 +23,6 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation2d;
-import org.wpilib.math.kinematics.ChassisVelocities;
-import org.wpilib.math.util.MathUtil;
 
 /**
  * Where the robot is: localization as one service, told what the robot's sensors read and asked
@@ -73,42 +69,38 @@ public final class LocalizationService {
   /** How much of the robot's attitude is kept, for each image's capture time. */
   private static final double ATTITUDE_SECONDS = 0.5;
 
+  /** Where the ring of recent yaw rates stands before any loop: the first loop takes place 0. */
+  private static final int BEFORE_THE_FIRST_LOOP = -1;
+
+  /** A history of loops is never shorter than this: one loop either side of a moment. */
+  private static final int FEWEST_LOOPS_KEPT = 2;
+
   private final PoseEstimator estimator;
-  private final DriveKinematicsModel kinematics;
   private final Terrain ground;
+
+  /** How far the wheels reach from the robot's center, in meters. */
   private final double wheelReach;
-  private final YawTrack gyroYaws = new YawTrack();
-  private final YawTrack backupYaws = new YawTrack();
+
+  /** Each loop's wheel readings as the estimator's steps, with the yaw at each. */
+  private final OdometrySteps odometrySteps;
 
   /** The gyro and the backup IMU should turn alike. */
   private final ImuCrossCheck crossCheck = new ImuCrossCheck(ImuCrossCheck.Settings.DEFAULTS);
 
   /** The wheels against the IMU: whether they slide over the floor together. */
-  private final SlipCheck slipCheck;
+  private final WheelsAgainstImu wheelsAgainstImu;
 
   /**
-   * Where the IMUs are mounted, and whether each one's accelerometer reads along the robot's axes.
+   * Which IMU turns odometry this loop, and so says everything else an IMU says this loop: the
+   * gyro, the backup, or neither ({@link YawSource#WHEELS}).
    */
-  private final Imus imus;
+  private YawSource imuThisLoop = YawSource.WHEELS;
 
-  /** The last wheel reading's time, last loop, and which IMU read its yaw, and what it read. */
-  private long lastStepNanos = Long.MIN_VALUE;
+  /** What that IMU read this loop: null when neither IMU turns odometry. */
+  private @Nullable ImuReadings imuReadingsThisLoop;
 
-  private YawSource lastStepSource = YawSource.WHEELS;
-  private double lastStepYaw = Double.NaN;
-  private YawSource yawSource = YawSource.GYRO;
-
-  /** The previous wheel reading, which the next one's motion is measured from. */
-  private @Nullable OdometrySample lastReading;
-
-  /** The IMU the robot's attitude comes from this loop: null without one. */
-  private @Nullable ImuReadings attitude;
-
-  /** What the IMU and the motors said about trusting the wheels this loop. */
+  /** What the IMU and the robot's state said about trusting the wheels this loop. */
   private DriveConditions conditions = DriveConditions.NORMAL;
-
-  /** The IMU the wheels were weighed by this loop: the gyro, the backup, or none. */
-  private YawSource imu = YawSource.WHEELS;
 
   private LocalizationEstimate estimate;
 
@@ -119,8 +111,8 @@ public final class LocalizationService {
   private final Map<String, CameraConfig> cameras = new LinkedHashMap<>();
   private VisionConfig vision = VisionConfig.DEFAULTS;
 
-  /** What the robot last said of each camera's mount: its doubt, and the distance judged at. */
-  private final Map<String, double[]> mountDoubts = new HashMap<>();
+  /** What the robot last said of each camera's mount, by the camera's name. */
+  private final Map<String, MountDoubt> mountDoubts = new HashMap<>();
 
   /** The images refused or held since the last update, before they became measurements. */
   private final List<FrameVerdict> refused = new ArrayList<>();
@@ -137,8 +129,11 @@ public final class LocalizationService {
   /** How fast the robot turned in each of the latest loops, for how fast it has turned lately. */
   private final double[] recentYawRates;
 
-  /** This loop's place among {@link #recentYawRates}: -1 before the first loop. */
-  private int yawRateLoop = -1;
+  /**
+   * This loop's place among {@link #recentYawRates}, which is used as a ring: {@link
+   * #BEFORE_THE_FIRST_LOOP} until a loop has come.
+   */
+  private int yawRateLoop = BEFORE_THE_FIRST_LOOP;
 
   /** Whether a loop is under way: {@link #drivetrain} has come, and {@link #update} hasn't yet. */
   private boolean inLoop;
@@ -209,21 +204,19 @@ public final class LocalizationService {
       throw new IllegalArgumentException("a loop takes some time: " + loopSeconds);
     }
     this.estimator = estimator;
-    this.kinematics = kinematics;
-    // How far the wheels reach from the robot's center, for the slip check and the ground under it.
-    Translation2d[] wheels = robot.moduleTranslations();
+    odometrySteps = new OdometrySteps(kinematics);
     double reach = 0;
-    for (Translation2d wheel : wheels) {
+    for (Translation2d wheel : robot.moduleTranslations()) {
       reach = Math.max(reach, wheel.getNorm());
     }
     wheelReach = reach;
     ground = terrain;
-    imus = robot.imus();
-    slipCheck =
-        new SlipCheck(
-            SlipCheck.Settings.DEFAULTS,
-            reach,
-            robot.drivetrain().wheelCoefficientOfFriction() * ImuReadings.STANDARD_GRAVITY);
+    // The most the tread's grip can change the robot's velocity is its friction times gravity.
+    double gripMetersPerSecSq =
+        robot.drivetrain().wheelCoefficientOfFriction() * ImuReadings.STANDARD_GRAVITY;
+    wheelsAgainstImu =
+        new WheelsAgainstImu(
+            new SlipCheck(SlipCheck.Settings.DEFAULTS, reach, gripMetersPerSecSq), robot.imus());
     pipeline = new VisionPipeline(field);
     tagIds = Set.copyOf(field.tags().keySet());
     for (CameraConfig camera : robot.cameras()) {
@@ -294,7 +287,7 @@ public final class LocalizationService {
 
   /** How many loops a stretch of time takes, to the nearest loop, and at least two. */
   private static int loops(double seconds, double loopSeconds) {
-    return Math.max(2, (int) Math.round(seconds / loopSeconds));
+    return Math.max(FEWEST_LOOPS_KEPT, (int) Math.round(seconds / loopSeconds));
   }
 
   /**
@@ -306,25 +299,26 @@ public final class LocalizationService {
   public void drivetrain(DrivetrainReadings readings, LoopContext loop) {
     ImuReadings gyro = readings.gyro();
     ImuReadings backup = readings.backupImu();
-    Steps steps = steps(readings.wheels(), gyro, backup);
-    imu = steps.source();
+    OdometrySteps.Loop steps = odometrySteps.take(readings.wheels(), gyro, backup);
     // One IMU says everything this loop: the one whose yaw turns odometry.
-    attitude =
-        switch (steps.source()) {
+    imuThisLoop = steps.yawFrom();
+    imuReadingsThisLoop =
+        switch (imuThisLoop) {
           case GYRO -> gyro;
           case BACKUP -> backup;
           case WHEELS -> null;
         };
-    compareWithTheImu(steps, attitude, readings.velocities());
+    wheelsAgainstImu.compare(steps, imuReadingsThisLoop, readings.velocities());
     conditions = conditions(loop.enabled());
     estimator.setConditions(conditions);
-    for (Step step : steps.steps()) {
-      estimator.addOdometry(step.timestampNanos(), step.motion(), step.yaw(), steps.source());
+    for (OdometrySteps.Step step : steps.steps()) {
+      estimator.addOdometry(
+          step.timestampNanos(), step.motion(), step.yawRadians(), steps.yawFrom());
     }
     checkImus(gyro, backup, loop.nowNanos());
     estimate = estimator.estimate();
-    // The loop's images are solved as the robot is now: its attitude and turning, recorded once a
-    // loop.
+    // The loop's images are solved as the robot is now. Its attitude and its turning are recorded
+    // once a loop for that.
     attitudes.add(estimate.timestampNanos(), pitchRadians(), rollRadians());
     yawRateLoop = (yawRateLoop + 1) % recentYawRates.length;
     inLoop = true;
@@ -374,7 +368,7 @@ public final class LocalizationService {
    */
   public void mountDoubt(String camera, double doubtMeters, double distanceMeters) {
     estimator.mountDoubt(camera, doubtMeters, distanceMeters);
-    mountDoubts.put(camera, new double[] {doubtMeters, distanceMeters});
+    mountDoubts.put(camera, new MountDoubt(doubtMeters, distanceMeters));
   }
 
   /** One camera image, from every tag it saw: see {@link #camera(TagDetections, TagAllowlist)}. */
@@ -417,10 +411,12 @@ public final class LocalizationService {
           "the robot holds an image back for its own reasons: " + why);
     }
     VisionResult result = solve(frame, onlyTags);
-    refused.add(
-        result.measurement() == null
-            ? FrameVerdict.refused(result)
-            : FrameVerdict.held(frame, why));
+    boolean pipelineRefusedIt = result.measurement() == null;
+    if (pipelineRefusedIt) {
+      refused.add(FrameVerdict.refused(result));
+    } else {
+      refused.add(FrameVerdict.held(frame, why));
+    }
     return result;
   }
 
@@ -431,14 +427,15 @@ public final class LocalizationService {
       throw new IllegalArgumentException(
           "the robot's definition has no camera named " + frame.camera());
     }
-    double[] doubt = mountDoubts.get(frame.camera());
+    MountDoubt doubt = mountDoubts.get(frame.camera());
+    double mountDoubtMeters = doubt == null ? 0 : doubt.meters();
     return pipeline.process(
         frame,
         camera,
         mount(camera, frame.timestampNanos()),
         capture(frame.timestampNanos()),
         vision,
-        new VisionPipeline.Trust(doubt == null ? 0 : doubt[0], onlyTags));
+        new VisionPipeline.Trust(mountDoubtMeters, onlyTags));
   }
 
   /**
@@ -479,20 +476,27 @@ public final class LocalizationService {
    */
   public CaptureContext capture(long timestampNanos) {
     Motion now = motion;
-    // A heading in doubt solves no image, however sure the driver's reset says it is: solved with
-    // it, an image lands off by its error, and only one solved without it can back it.
-    Rotation2d heading =
-        estimator.headingInDoubt()
-            ? null
-            : estimator.poseAt(timestampNanos).map(Pose2d::getRotation).orElse(null);
     AttitudeHistory.Attitude tilted = attitudes.at(timestampNanos);
     return new CaptureContext(
-        heading,
+        headingToSolveWith(timestampNanos),
         now.headingStdDevRadians(),
         tilted.pitchRadians(),
         tilted.rollRadians(),
         now.speedMetersPerSecond(),
         now.recentYawRateRadiansPerSecond());
+  }
+
+  /**
+   * The heading an image taken at a moment is solved with, or null when it must be solved without
+   * one: the estimate does not reach back that far, or its heading is in doubt. A heading in doubt
+   * solves no image, however sure the driver's reset says it is. Solved with it, an image lands off
+   * by its error, and only an image solved without it can back it.
+   */
+  private @Nullable Rotation2d headingToSolveWith(long timestampNanos) {
+    if (estimator.headingInDoubt()) {
+      return null;
+    }
+    return estimator.poseAt(timestampNanos).map(Pose2d::getRotation).orElse(null);
   }
 
   /**
@@ -538,19 +542,19 @@ public final class LocalizationService {
 
   /** The robot's pitch, from the IMU: zero without one. Positive is nose down. */
   public double pitchRadians() {
-    ImuReadings imu = attitude;
+    ImuReadings imu = imuReadingsThisLoop;
     return imu == null ? 0 : imu.pitchRadians();
   }
 
   /** The robot's roll, from the IMU: zero without one. */
   public double rollRadians() {
-    ImuReadings imu = attitude;
+    ImuReadings imu = imuReadingsThisLoop;
     return imu == null ? 0 : imu.rollRadians();
   }
 
   /** What turns odometry now: the gyro, the backup IMU, or the wheels. */
   public YawSource yawSource() {
-    return yawSource;
+    return odometrySteps.turnsOdometryNow();
   }
 
   /** What the IMU said about trusting the wheels this loop. */
@@ -560,8 +564,9 @@ public final class LocalizationService {
 
   /** How far the wheels are trusted this loop, and why. */
   public WheelTrust wheels() {
+    SlipCheck slipCheck = wheelsAgainstImu.slipCheck();
     return WheelTrust.builder()
-        .imu(imu)
+        .imu(imuThisLoop)
         .conditions(conditions)
         .turnSlipMetersPerSecond(slipCheck.turnSlipMetersPerSecond())
         .speedSlipMetersPerSecond(slipCheck.speedSlipMetersPerSecond())
@@ -628,173 +633,57 @@ public final class LocalizationService {
         .build();
   }
 
+  /** One camera's trust: whether its errors are kept apart, and its mount's doubt if it has one. */
   private CameraTrust trust(String camera, boolean keptApart) {
-    double[] doubt = mountDoubts.get(camera);
     CameraTrustBuilder trust = CameraTrust.builder().keptApart(keptApart);
-    return doubt == null
-        ? trust.build()
-        : trust.mountDoubtMeters(doubt[0]).mountDistanceMeters(doubt[1]).build();
+    MountDoubt doubt = mountDoubts.get(camera);
+    if (doubt == null) {
+      return trust.build();
+    }
+    return trust
+        .mountDoubtMeters(doubt.meters())
+        .mountDistanceMeters(doubt.tagDistanceMeters())
+        .build();
   }
 
   /**
    * What the IMU says about trusting the wheels: the robot's tilt, a jolt beyond driving, the
    * wheels sliding over the floor, and whether people might be carrying it. The IMU that turns
-   * odometry says (the gyro, or the backup while the gyro is lost); without one, nothing can.
+   * odometry says (the gyro, or the backup while the gyro is lost). Without one, nothing can say
+   * the robot is tilted.
    */
   private DriveConditions conditions(boolean enabled) {
-    ImuReadings imu = attitude;
-    double tilt = imu == null ? 0 : tilt(imu);
+    ImuReadings imu = imuReadingsThisLoop;
+    double tilt = 0;
+    double groundSlope = 0;
+    if (imu != null) {
+      tilt = WheelsAgainstImu.tiltFromLevel(imu);
+      groundSlope = groundSlope(tilt);
+    }
+    SlipCheck slipCheck = wheelsAgainstImu.slipCheck();
     return new DriveConditions(
-        tilt,
-        imu == null ? 0 : groundSlope(tilt),
-        slipCheck.collisionShare(),
-        slipCheck.slipMetersPerSecond(),
-        !enabled);
-  }
-
-  /** How far the robot is tilted from level, by an IMU's attitude: its up against straight up. */
-  private static double tilt(ImuReadings imu) {
-    return Math.acos(Math.min(1, Math.cos(imu.pitchRadians()) * Math.cos(imu.rollRadians())));
+        tilt, groundSlope, slipCheck.collisionShare(), slipCheck.slipMetersPerSecond(), !enabled);
   }
 
   /**
-   * Gives the slip check the loop's wheel readings and what the IMU that turns odometry felt
-   * ({@link SlipCheck}): whether the wheels slid, and whether the IMU felt a collision. A loop
-   * without wheel readings, or with another IMU than the last, starts it over.
+   * How much of a tilt the ground explains. On known raised ground it is the tilt itself, up to the
+   * ground's steepest slope and a margin. On flat ground it is none.
    *
-   * @param imu the IMU that turns odometry this loop, or null without one
-   * @param wheels the robot's velocity as its wheels measure it, robot-relative
-   */
-  private void compareWithTheImu(Steps steps, @Nullable ImuReadings imu, ChassisVelocities wheels) {
-    Felt felt = imu == null ? Felt.NOTHING : driving(imu);
-    List<Step> loop = steps.steps();
-    if (loop.isEmpty() || imu == null) {
-      slipCheck.startOver(felt.forward(), felt.left());
-      return;
-    }
-    Step last = loop.get(loop.size() - 1);
-    YawSource source = steps.source();
-    if (source == lastStepSource && lastStepNanos < last.timestampNanos()) {
-      double wheelTurn = 0;
-      for (Step step : loop) {
-        wheelTurn += step.motion().dthetaRadians();
-      }
-      // A backup's readings with none defined come from an IMU nobody placed: at the center, as a
-      // new robot's start.
-      ImuMount mount =
-          source == YawSource.GYRO ? imus.gyro() : imus.backup().orElse(ImuMount.UNCHECKED);
-      slipCheck.update(
-          new SlipCheck.Sample(
-              Timestamps.toSeconds(last.timestampNanos() - lastStepNanos),
-              wheelTurn,
-              MathUtil.angleModulus(last.yaw() - lastStepYaw),
-              last.yaw(),
-              imu.yawRateRadiansPerSecond(),
-              mount.position(),
-              mount.accelerometerChecked(),
-              wheels,
-              felt.forward(),
-              felt.left(),
-              tilt(imu)));
-    } else {
-      slipCheck.startOver(felt.forward(), felt.left());
-    }
-    lastStepNanos = last.timestampNanos();
-    lastStepSource = source;
-    lastStepYaw = last.yaw();
-  }
-
-  /**
-   * What an IMU felt of the robot's own motion, along the robot's axes, in m/s²: its reading less
-   * gravity's share. Not a number where the IMU can't say.
-   */
-  private record Felt(double forward, double left) {
-    static final Felt NOTHING = new Felt(Double.NaN, Double.NaN);
-  }
-
-  /**
-   * What the IMU felt of the robot's own motion: its reading less gravity's share, which it feels
-   * along the robot's axes as the robot tilts (WPILib's attitude: a positive pitch is nose down, a
-   * positive roll the left side up).
-   */
-  private static Felt driving(ImuReadings imu) {
-    double pitch = imu.pitchRadians();
-    double roll = imu.rollRadians();
-    return new Felt(
-        imu.forwardAccelerationMetersPerSecSq() + ImuReadings.STANDARD_GRAVITY * Math.sin(pitch),
-        imu.leftAccelerationMetersPerSecSq()
-            - ImuReadings.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch));
-  }
-
-  /**
-   * How much of a tilt the ground explains: on known raised ground (where the estimate puts the
-   * robot, give or take its wheels' reach and the estimate's doubt), up to its steepest slope; none
-   * on flat ground.
+   * <p>The robot counts as on raised ground when the estimate puts it within reach of a surface's
+   * footprint. That reach is the wheels' own reach from the robot's center plus twice the
+   * estimate's position spread, since the estimate may be off by that much, and never more than
+   * {@link #MAX_GROUND_REACH_METERS}.
    */
   private double groundSlope(double tilt) {
     if (ground.surfaces().isEmpty() || tilt == 0) {
       return 0;
     }
-    double doubt = 2 * estimator.estimate().covariance().largestPositionStdDev();
-    double reach = Math.min(MAX_GROUND_REACH_METERS, wheelReach + doubt);
+    double estimateMayBeOffBy = 2 * estimator.estimate().covariance().largestPositionStdDev();
+    double reach = Math.min(MAX_GROUND_REACH_METERS, wheelReach + estimateMayBeOffBy);
     return ground
         .under(pose().getTranslation(), reach)
         .map(surface -> Math.min(tilt, surface.steepestSlopeRadians() + GROUND_SLOPE_MARGIN))
         .orElse(0.0);
-  }
-
-  /**
-   * One wheel reading, as the estimator takes it: when, how the robot moved since, the yaw then.
-   */
-  private record Step(long timestampNanos, BodyMotion motion, double yaw) {}
-
-  /** A loop's wheel readings as steps, and what turns them. */
-  private record Steps(List<Step> steps, YawSource source) {}
-
-  /**
-   * Every wheel reading since the last loop, as the robot's motion between readings, with the yaw
-   * at each: the gyro's, or while it's lost the backup IMU's (interpolated between its readings),
-   * or with neither, none, and the wheels' turning stands in, which the estimator says drifts. The
-   * estimator is told which, so it keeps each IMU's scale error apart, and turns the step where the
-   * source changes by the wheels, rather than take the two IMUs' different zeros as a turn.
-   */
-  private Steps steps(List<OdometrySample> wheels, ImuReadings gyro, ImuReadings backup) {
-    track(gyroYaws, gyro);
-    track(backupYaws, backup);
-    YawSource source =
-        gyroYaws.hasReadings()
-            ? YawSource.GYRO
-            : backupYaws.hasReadings() ? YawSource.BACKUP : YawSource.WHEELS;
-    YawTrack yaws = source == YawSource.GYRO ? gyroYaws : backupYaws;
-    if (!wheels.isEmpty()) {
-      yawSource = source;
-    }
-    List<Step> steps = new ArrayList<>(wheels.size());
-    for (OdometrySample reading : wheels) {
-      OdometrySample previous = lastReading;
-      BodyMotion motion =
-          previous == null ? new BodyMotion(0, 0, 0, 0) : kinematics.motion(previous, reading);
-      double yaw = source == YawSource.WHEELS ? Double.NaN : yaws.at(reading.timestampNanos());
-      steps.add(new Step(reading.timestampNanos(), motion, yaw));
-      lastReading = reading;
-    }
-    return new Steps(steps, source);
-  }
-
-  /** Takes an IMU's yaw readings this loop, or forgets them all while it's lost. */
-  private static void track(YawTrack yaws, ImuReadings imu) {
-    int count = imu.yawTimesNanos().size();
-    if (!imu.usable() || count == 0) {
-      yaws.clear();
-      return;
-    }
-    long[] times = new long[count];
-    double[] values = new double[count];
-    for (int i = 0; i < count; i++) {
-      times[i] = imu.yawTimesNanos().get(i);
-      values[i] = imu.yawsRadians().get(i);
-    }
-    yaws.update(times, values);
   }
 
   /**
