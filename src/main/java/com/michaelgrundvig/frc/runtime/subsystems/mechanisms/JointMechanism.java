@@ -690,7 +690,7 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for a position not its own, built as the robot starts
    */
   public Move goTo(Position position) {
-    String why = refusedAsBuilt(joint.whyNotOwn(position));
+    String why = refusedAsBuilt(joint.whyNotOwn(position).orElse(null));
     return Move.goTo(
         this,
         (why == null ? joint.own(position) : position).value(),
@@ -768,7 +768,7 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for an output not its own, built as the robot starts
    */
   public Move run(Output output) {
-    String why = refusedAsBuilt(joint.whyNotOwn(output));
+    String why = refusedAsBuilt(joint.whyNotOwn(output).orElse(null));
     return Move.run(this, why == null ? joint.own(output) : output, null, why);
   }
 
@@ -783,7 +783,7 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException for an output not its own, built as the robot starts
    */
   public Move runUntil(Output output, BooleanSupplier condition) {
-    String why = refusedAsBuilt(joint.whyNotOwn(output));
+    String why = refusedAsBuilt(joint.whyNotOwn(output).orElse(null));
     return Move.run(this, why == null ? joint.own(output) : output, condition, why);
   }
 
