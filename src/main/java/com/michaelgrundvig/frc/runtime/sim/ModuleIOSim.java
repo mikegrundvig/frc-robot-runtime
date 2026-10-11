@@ -275,29 +275,12 @@ final class ModuleIOSim implements ModuleIO {
       driveVolts = driveFeedforwardVolts + driveKp * errorRadPerSec * wheelRadiusMeters;
     }
     driveVolts = Math.clamp(driveVolts, -Motor.NOMINAL_VOLTS, Motor.NOMINAL_VOLTS);
-    drive.drive(driveVolts, driveVoltsPerRadPerSec(), driveStatorLimitAmps, Motor.NOMINAL_VOLTS);
+    drive.drive(driveVolts, driveStatorLimitAmps, Motor.NOMINAL_VOLTS);
     subStepUnread = true;
 
     slippedRadians += slippingRadPerSec * seconds;
     steer(Math.round(seconds * NANOS_PER_SECOND));
     drive.steer(trueSteerAngle().getRadians());
-  }
-
-  /**
-   * How the voltage the drive's controller asks for moves with the wheel's speed over the sub-step,
-   * in volts per radian a second: its velocity loop's gain, which is negative since a faster wheel
-   * is asked for less. It is zero for a voltage simply held, and zero while the battery caps what
-   * the loop asks for, when a little more or less speed changes nothing.
-   */
-  private double driveVoltsPerRadPerSec() {
-    if (driveAsk != DriveAsk.VELOCITY) {
-      return 0;
-    }
-    boolean cappedByTheBattery = !(Math.abs(driveVolts) < Motor.NOMINAL_VOLTS);
-    if (cappedByTheBattery) {
-      return 0;
-    }
-    return -driveKp * wheelRadiusMeters;
   }
 
   /**

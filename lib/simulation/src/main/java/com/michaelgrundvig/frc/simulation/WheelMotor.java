@@ -40,9 +40,10 @@ import org.wpilib.math.util.Nat;
  * speeds up the current falls below the limit, so the robot accelerates a little less than F = m·a
  * at the limit would give. The truth suite keeps that as a known gap.
  *
- * <p><b>What is left out.</b> The velocity loop's gain within a step ({@link
- * WheelDrive#voltsPerRadPerSec}) is not used, because the voltage is held. Friction in the gearbox
- * and the tread's rolling resistance are not modeled.
+ * <p><b>What is left out.</b> The velocity loop's gain within a step is not used, because the
+ * voltage is held: the actuators give the loop's voltage as each step starts ({@link
+ * WheelDrive#volts}), and nothing more of the loop. Friction in the gearbox and the tread's rolling
+ * resistance are not modeled.
  */
 final class WheelMotor {
   /**

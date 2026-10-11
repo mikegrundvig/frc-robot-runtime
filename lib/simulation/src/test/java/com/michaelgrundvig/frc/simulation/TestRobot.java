@@ -90,7 +90,7 @@ final class TestRobot {
     public void actuate(double seconds, Physics physics, WheelDrive[] drives) {
       double asked = Math.clamp(volts, -batteryVolts, batteryVolts);
       for (int i = 0; i < drives.length; i++) {
-        drives[i].drive(asked, 0, limitAmps, batteryVolts);
+        drives[i].drive(asked, limitAmps, batteryVolts);
         drives[i].steer(steer[i]);
       }
     }

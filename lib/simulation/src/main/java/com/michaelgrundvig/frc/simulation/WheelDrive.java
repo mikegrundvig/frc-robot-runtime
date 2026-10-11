@@ -12,7 +12,6 @@ package com.michaelgrundvig.frc.simulation;
  */
 public final class WheelDrive {
   private double volts;
-  private double voltsPerRadPerSec;
   private double currentLimitAmps = Double.POSITIVE_INFINITY;
   private double batteryVolts = Double.POSITIVE_INFINITY;
   private double steerRadians;
@@ -21,19 +20,16 @@ public final class WheelDrive {
    * The drive motor over the sub-step.
    *
    * @param volts what the controller asks to put across the motor as the sub-step starts, within
-   *     the battery's voltage: its loop's output, before its current limit
-   * @param voltsPerRadPerSec how the controller's ask moves with the wheel's speed, in volts per
-   *     radian a second: its velocity loop's gain, negative, through the wheel's radius; zero for a
-   *     voltage it simply holds, or one the battery caps.
+   *     the battery's voltage: its loop's output, before its current limit. The physics holds it
+   *     through the sub-step, so how the loop's ask would move with the wheel's speed inside one is
+   *     not said here
    * @param currentLimitAmps the most current the controller lets through the motor, either way: the
    *     physics holds the motor to it, cutting the voltage toward the motor's back EMF
    * @param batteryVolts the most the controller can put across the motor, either way, whatever the
    *     current limit would need
    */
-  public void drive(
-      double volts, double voltsPerRadPerSec, double currentLimitAmps, double batteryVolts) {
+  public void drive(double volts, double currentLimitAmps, double batteryVolts) {
     this.volts = volts;
-    this.voltsPerRadPerSec = voltsPerRadPerSec;
     this.currentLimitAmps = currentLimitAmps;
     this.batteryVolts = batteryVolts;
   }
@@ -50,11 +46,6 @@ public final class WheelDrive {
   /** What the controller asks to put across the drive motor as the sub-step starts. */
   public double volts() {
     return volts;
-  }
-
-  /** How the controller's ask moves with the wheel's speed, in volts per radian a second. */
-  public double voltsPerRadPerSec() {
-    return voltsPerRadPerSec;
   }
 
   /** The most current the drive's controller lets through its motor. */

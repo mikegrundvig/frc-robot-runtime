@@ -231,17 +231,19 @@ class KinematicPhysicsTest {
         .hasMessage("a wheel's radius scale is positive: 0.0");
   }
 
-  /** What the controllers give each wheel, kept as given: the drive's line, and the steering. */
+  /**
+   * What the controllers give each wheel, kept as given: the drive's voltage and limits, and the
+   * steering.
+   */
   @Test
   void aWheelsDriveKeepsWhatItsControllersGive() {
     WheelDrive drive = new WheelDrive();
     assertThat(drive.currentLimitAmps()).isInfinite();
 
-    drive.drive(6, -0.1, 40, 12);
+    drive.drive(6, 40, 12);
     drive.steer(1.2);
 
     assertThat(drive.volts()).isEqualTo(6);
-    assertThat(drive.voltsPerRadPerSec()).isEqualTo(-0.1);
     assertThat(drive.currentLimitAmps()).isEqualTo(40);
     assertThat(drive.batteryVolts()).isEqualTo(12);
     assertThat(drive.steerRadians()).isEqualTo(1.2);
