@@ -44,9 +44,26 @@ public record DriveConditions(
       throw new IllegalArgumentException(
           "the ground explains some or all of the tilt, never more: " + groundSlopeRadians);
     }
-    collisionShare = collisionShare > 0 ? Math.min(collisionShare, 1) : 0;
-    slipMetersPerSecond =
-        slipMetersPerSecond > 0 && Double.isFinite(slipMetersPerSecond) ? slipMetersPerSecond : 0;
+    collisionShare = asAShare(collisionShare);
+    slipMetersPerSecond = asASpeedOfSlip(slipMetersPerSecond);
+  }
+
+  /** A share from none to a whole one. Below zero, or not a number, is none; above one is one. */
+  private static double asAShare(double share) {
+    boolean any = share > 0;
+    if (!any) {
+      return 0;
+    }
+    return Math.min(share, 1);
+  }
+
+  /** A speed of slip, which is none when it is negative, not a number or infinite. */
+  private static double asASpeedOfSlip(double metersPerSecond) {
+    boolean usable = metersPerSecond > 0 && Double.isFinite(metersPerSecond);
+    if (!usable) {
+      return 0;
+    }
+    return metersPerSecond;
   }
 
   /** Whether the IMU just felt a whole collision: a jolt beyond anything driving explains. */

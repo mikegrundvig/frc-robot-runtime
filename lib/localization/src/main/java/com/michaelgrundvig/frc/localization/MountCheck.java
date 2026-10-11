@@ -4,52 +4,64 @@ import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Translation3d;
 
 /**
- * Whether a camera still sits where its configuration says, from where its tags land: each tag it
- * sees, placed on the field through the estimated pose and the camera's configured mount, should
- * land on the tag. Noise, and the estimate's own small errors, put tags off every which way, and
- * average out. A camera bumped since it was calibrated puts them off the same way every time, in
- * the robot's frame, where its mount moved.
+ * Whether a camera still sits where its configuration says, judged from where its tags land.
+ *
+ * <p>Each tag the camera sees, placed on the field through the estimated pose and the camera's
+ * configured mount, should land on the tag. Noise, and the estimate's own small errors, put tags
+ * off every which way, and average out. A camera bumped since it was calibrated puts them off the
+ * same way every time, in the robot's frame, where its mount moved.
  *
  * <p>So the check averages each tag's miss in the robot's frame, over the camera's latest tags,
- * each counted alike: that average is how far off the camera's mount is. A camera knocked partway
+ * each counted alike. That average is how far off the camera's mount is. A camera knocked partway
  * through shows it in proportion to the share of its latest tags seen since, and fully once they
- * all are. Beyond a tolerance, the camera is out of calibration. Only the level part of the miss
- * moves the camera's measurements, since an image fixes where the robot stands on the floor: that
- * part, beyond the tolerance, is how much less the camera is trusted ({@link #doubtMeters}). A
- * camera knocked straight down still places the robot right on level ground; it is out of
- * calibration all the same, and every tag it sees lands high.
+ * all are. Beyond a tolerance, the camera is out of calibration.
  *
- * <p>The check measures against the estimate, so it needs other cameras to hold the estimate: with
+ * <p>Only the level part of the miss moves the camera's measurements, since an image fixes where
+ * the robot stands on the floor. That part, beyond the tolerance, is how much less the camera is
+ * trusted ({@link #doubtMeters}). A camera knocked straight down still places the robot right on
+ * level ground. It is out of calibration all the same, and every tag it sees lands high.
+ *
+ * <p>The check measures against the estimate, so it needs other cameras to hold the estimate. With
  * one camera, the estimate follows that camera, and its tags land where they should whatever its
  * mount. And a heading error in the estimate (after a gyro's scale error over many turns, say) puts
- * every camera's tags off as if each were turned on its mount: the cameras correct the heading, and
+ * every camera's tags off as if each were turned on its mount. The cameras correct the heading, and
  * the offsets fade with it.
  */
 public final class MountCheck {
-  // The latest misses, in the robot's frame: a ring, the oldest overwritten by the newest.
-  private final double[] x;
-  private final double[] y;
-  private final double[] z;
-  private final double[] distance;
-  private int newest = -1;
+  // The latest misses, each along the robot's x, y and z, and how far its tag was from the robot.
+  // They are kept in a ring: arrays of a fixed length, where the newest overwrites the oldest once
+  // the ring is full.
+  private final double[] missX;
+  private final double[] missY;
+  private final double[] missZ;
+  private final double[] tagDistance;
+
+  /** The slot the next sighting goes into. */
+  private int next;
+
+  /** How many sightings are kept so far, which is the ring's length once it is full. */
   private int count;
+
+  // The sums of what the ring holds, kept up as sightings come and go, so that an average costs
+  // nothing to ask for.
   private double sumX;
   private double sumY;
   private double sumZ;
   private double sumDistance;
 
   /**
-   * @param sightings how many of the latest tags the camera is judged by: enough that noise and the
-   *     estimate's errors average out, few enough that a bump shows within seconds
+   * @param sightings how many of the latest tags the camera is judged by. It should be enough that
+   *     noise and the estimate's errors average out, and few enough that a bump shows within
+   *     seconds.
    */
   public MountCheck(int sightings) {
     if (sightings < 1) {
       throw new IllegalArgumentException("judge by at least one sighting: " + sightings);
     }
-    x = new double[sightings];
-    y = new double[sightings];
-    z = new double[sightings];
-    distance = new double[sightings];
+    missX = new double[sightings];
+    missY = new double[sightings];
+    missZ = new double[sightings];
+    tagDistance = new double[sightings];
   }
 
   /**
@@ -60,32 +72,36 @@ public final class MountCheck {
    * @param real where the tag really is
    */
   public void add(Pose3d robot, Pose3d seen, Pose3d real) {
+    // The miss on the field, turned into the robot's frame by undoing the robot's rotation.
     Translation3d miss =
         seen.getTranslation().minus(real.getTranslation()).rotateBy(robot.getRotation().inverse());
-    newest = (newest + 1) % x.length;
-    if (count == x.length) {
-      sumX -= x[newest];
-      sumY -= y[newest];
-      sumZ -= z[newest];
-      sumDistance -= distance[newest];
+    int slot = next;
+    next = (next + 1) % missX.length;
+    boolean full = count == missX.length;
+    if (full) {
+      // The oldest sighting is in the slot, and it leaves the sums as the newest takes its place.
+      sumX -= missX[slot];
+      sumY -= missY[slot];
+      sumZ -= missZ[slot];
+      sumDistance -= tagDistance[slot];
     } else {
       count++;
     }
-    x[newest] = miss.getX();
-    y[newest] = miss.getY();
-    z[newest] = miss.getZ();
-    distance[newest] = seen.getTranslation().getDistance(robot.getTranslation());
-    sumX += x[newest];
-    sumY += y[newest];
-    sumZ += z[newest];
-    sumDistance += distance[newest];
-    if (newest == x.length - 1) {
-      // Once around the ring, add the sums up afresh: what's taken off never quite cancels what
-      // was put on, and over a match the difference would add up.
-      sumX = sum(x);
-      sumY = sum(y);
-      sumZ = sum(z);
-      sumDistance = sum(distance);
+    missX[slot] = miss.getX();
+    missY[slot] = miss.getY();
+    missZ[slot] = miss.getZ();
+    tagDistance[slot] = seen.getTranslation().getDistance(robot.getTranslation());
+    sumX += missX[slot];
+    sumY += missY[slot];
+    sumZ += missZ[slot];
+    sumDistance += tagDistance[slot];
+    // Once around the ring, at its last slot, the sums are added up afresh. What is taken off a
+    // sum never quite cancels what was put on, and over a match the difference would add up.
+    if (slot == missX.length - 1) {
+      sumX = sum(missX);
+      sumY = sum(missY);
+      sumZ = sum(missZ);
+      sumDistance = sum(tagDistance);
     }
   }
 
@@ -99,23 +115,35 @@ public final class MountCheck {
 
   /** Whether the camera has seen enough tags to judge its mount by. */
   public boolean judged() {
-    return count == x.length;
+    return count == missX.length;
   }
 
   /**
-   * How far off, on average, the camera's latest tags land: a camera mounted 4 in lower than
-   * configured puts every tag 4 in high. NaN until it has seen enough tags to judge.
+   * How far off, on average, the camera's latest tags land. A camera mounted 4 in lower than
+   * configured puts every tag 4 in high. It is the length of the average miss:
+   *
+   * <pre>offset = |sum of the misses| / how many</pre>
+   *
+   * @return NaN until the camera has seen enough tags to judge
    */
   public double offsetMeters() {
-    return judged() ? Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ) / count : Double.NaN;
+    if (!judged()) {
+      return Double.NaN;
+    }
+    return Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ) / count;
   }
 
   /**
-   * How far, on average, the camera's latest tags were from the robot: a mount turned by an angle
-   * puts them that angle times this off. NaN until it has seen enough tags to judge.
+   * How far, on average, the camera's latest tags were from the robot. A mount turned by an angle
+   * puts them that angle times this off.
+   *
+   * @return NaN until the camera has seen enough tags to judge
    */
   public double distanceMeters() {
-    return judged() ? sumDistance / count : Double.NaN;
+    if (!judged()) {
+      return Double.NaN;
+    }
+    return sumDistance / count;
   }
 
   /** Whether the camera's tags land farther off than a calibrated camera's do. */
@@ -124,19 +152,27 @@ public final class MountCheck {
   }
 
   /**
-   * How far the camera's measurements may be off from where its mount moved, in meters: none while
-   * its tags land within the tolerance. The tolerance stands for what a calibrated camera shows
-   * (mostly the estimate's own error, which isn't the camera's), so it comes off the level offset
-   * the way independent errors add: in squares.
+   * How far the camera's measurements may be off from where its mount moved, in meters. It is none
+   * while its tags land within the tolerance, and none until the mount is judged.
+   *
+   * <p>The tolerance stands for what a calibrated camera shows, which is mostly the estimate's own
+   * error and not the camera's. So it comes off the level offset the way independent errors add, in
+   * squares:
+   *
+   * <pre>
+   * level offset² = (sum of x misses)² + (sum of y misses)², over (how many)²
+   * doubt         = sqrt(level offset² - tolerance²)
+   * </pre>
    */
   public double doubtMeters(double toleranceMeters) {
     if (!judged()) {
       return 0;
     }
-    double level = (sumX * sumX + sumY * sumY) / ((double) count * count);
-    if (level <= toleranceMeters * toleranceMeters) {
+    double levelOffsetSquared = (sumX * sumX + sumY * sumY) / ((double) count * count);
+    double toleranceSquared = toleranceMeters * toleranceMeters;
+    if (levelOffsetSquared <= toleranceSquared) {
       return 0;
     }
-    return Math.sqrt(level - toleranceMeters * toleranceMeters);
+    return Math.sqrt(levelOffsetSquared - toleranceSquared);
   }
 }

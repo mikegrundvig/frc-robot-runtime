@@ -3,7 +3,7 @@ package com.michaelgrundvig.frc.localization.calibration;
 import java.util.Locale;
 
 /**
- * Whether the IMU reads level when the robot is: on a level floor, standing still, its pitch and
+ * Whether the IMU reads level when the robot is. On a level floor, standing still, its pitch and
  * roll should average zero. If they don't, the IMU's mount calibration is off (the Pigeon 2's is
  * done in Phoenix Tuner X with the robot level), and every tilt the robot reads is off by as much.
  */
@@ -22,12 +22,20 @@ public final class LevelCheck {
     return count;
   }
 
+  /** The average pitch read so far, or zero with nothing read. */
   public double pitchRadians() {
-    return count == 0 ? 0 : sumPitch / count;
+    if (count == 0) {
+      return 0;
+    }
+    return sumPitch / count;
   }
 
+  /** The average roll read so far, or zero with nothing read. */
   public double rollRadians() {
-    return count == 0 ? 0 : sumRoll / count;
+    if (count == 0) {
+      return 0;
+    }
+    return sumRoll / count;
   }
 
   /** Whether both are within a tolerance of zero. */
@@ -45,8 +53,9 @@ public final class LevelCheck {
             Math.toDegrees(pitchRadians()),
             Math.toDegrees(rollRadians()),
             count);
-    return isLevel(toleranceRadians)
-        ? "Level: " + reading
-        : "Not level: " + reading + "; on a level floor, recalibrate the IMU's mount";
+    if (isLevel(toleranceRadians)) {
+      return "Level: " + reading;
+    }
+    return "Not level: " + reading + "; on a level floor, recalibrate the IMU's mount";
   }
 }

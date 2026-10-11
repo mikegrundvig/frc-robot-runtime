@@ -7,22 +7,37 @@ import java.util.Map;
 
 /**
  * The robot's recent joint positions, for looking up where a camera on a joint was when its image
- * was taken: a turret turns a tenth of a turn in the time an image takes to arrive. Between
- * readings it interpolates; outside them it holds the nearest; before any, each joint is at its
+ * was taken. A turret turns a tenth of a turn in the time an image takes to arrive.
+ *
+ * <p>Between two readings each position is interpolated. Before the oldest reading kept it is the
+ * oldest, and after the newest it is the newest. Before any reading, each joint is at its
  * reference.
+ *
+ * <p>The readings are kept in a ring: arrays of a fixed length, where the newest reading overwrites
+ * the oldest once the ring is full.
  */
 public final class JointHistory {
+  /** The joints kept, in the order their positions are held in. */
   private final List<Joint> joints;
+
+  /** Each joint's reference, in the joints' order. */
   private final double[] references;
-  private final long[] time;
+
+  private final long[] timesNanos;
+
+  /** Each reading's positions, in the joints' order: {@code positions[slot][joint]}. */
   private final double[][] positions;
-  private int newest = -1;
+
+  /** The slot the next reading goes into. */
+  private int next;
+
+  /** How many readings are kept so far, which is the ring's length once it is full. */
   private int size;
 
   /**
-   * @param references the joints kept, each at its reference: the robot's joints that move on their
-   *     own ({@code RobotMath.references})
-   * @param capacity how many readings to keep: 25 is half a second at 50 Hz
+   * @param references the joints kept, each at its reference. They are the robot's joints that move
+   *     on their own ({@code RobotMath.references}).
+   * @param capacity how many readings to keep. 25 is half a second at 50 Hz.
    */
   public JointHistory(Map<Joint, Double> references, int capacity) {
     if (capacity < 2) {
@@ -34,53 +49,86 @@ public final class JointHistory {
     for (double reference : references.values()) {
       this.references[j++] = reference;
     }
-    time = new long[capacity];
+    timesNanos = new long[capacity];
     positions = new double[capacity][joints.size()];
   }
 
   /**
-   * A reading, newer than the last; an older or equal one is ignored. A joint it doesn't name is
-   * where it was last, or at its reference.
+   * A reading, newer than the last. An older or equal one is ignored. A joint the reading doesn't
+   * name is where it was in the reading before, or at its reference if there is none before.
    */
   public void add(long timestampNanos, Map<Joint, Double> read) {
-    if (size > 0 && timestampNanos <= time[newest]) {
+    boolean newerThanTheLast = size == 0 || timestampNanos > timesNanos[slotBack(0)];
+    if (!newerThanTheLast) {
       return;
     }
-    double[] last = size > 0 ? positions[newest] : references;
-    int slot = (newest + 1) % time.length;
-    for (int j = 0; j < joints.size(); j++) {
-      Double position = read.get(joints.get(j));
-      positions[slot][j] = position != null ? position : last[j];
+    double[] before = references;
+    if (size > 0) {
+      before = positions[slotBack(0)];
     }
-    newest = slot;
-    time[newest] = timestampNanos;
-    size = Math.min(size + 1, time.length);
+    for (int j = 0; j < joints.size(); j++) {
+      // The map answers null for a joint the reading doesn't name.
+      Double position = read.get(joints.get(j));
+      if (position != null) {
+        positions[next][j] = position;
+      } else {
+        positions[next][j] = before[j];
+      }
+    }
+    timesNanos[next] = timestampNanos;
+    next = (next + 1) % timesNanos.length;
+    size = Math.min(size + 1, timesNanos.length);
   }
 
   /** Every kept joint's position at a moment. */
   public Map<Joint, Double> at(long timestampNanos) {
     if (size == 0) {
-      return positions(references, references, 0);
+      return named(references);
     }
-    int after = newest;
-    for (int k = 0; k < size; k++) {
-      int slot = Math.floorMod(newest - k, time.length);
-      if (time[slot] <= timestampNanos) {
-        if (k == 0) {
-          return positions(positions[slot], positions[slot], 0); // at or after the newest
+    // Walk back from the newest reading to the latest one taken at or before the moment. The
+    // reading passed just before it is the one taken after the moment.
+    int after = slotBack(0);
+    for (int back = 0; back < size; back++) {
+      int atOrBefore = slotBack(back);
+      if (timesNanos[atOrBefore] <= timestampNanos) {
+        boolean isTheNewest = back == 0;
+        if (isTheNewest) {
+          return named(positions[atOrBefore]);
         }
-        double fraction = (double) (timestampNanos - time[slot]) / (time[after] - time[slot]);
-        return positions(positions[slot], positions[after], fraction);
+        return between(atOrBefore, after, timestampNanos);
       }
-      after = slot;
+      after = atOrBefore;
     }
-    return positions(positions[after], positions[after], 0); // before the oldest reading
+    // Every reading kept was taken after the moment, and the walk ended on the oldest.
+    return named(positions[after]);
   }
 
-  private Map<Joint, Double> positions(double[] from, double[] to, double fraction) {
+  /** The slot of the reading this many readings back from the newest. */
+  private int slotBack(int back) {
+    return Math.floorMod(next - 1 - back, timesNanos.length);
+  }
+
+  /** Positions held in the joints' order, as a map by joint. */
+  private Map<Joint, Double> named(double[] held) {
+    return between(held, held, 0);
+  }
+
+  private Map<Joint, Double> between(int earlier, int later, long timestampNanos) {
+    double fraction =
+        (double) (timestampNanos - timesNanos[earlier]) / (timesNanos[later] - timesNanos[earlier]);
+    return between(positions[earlier], positions[later], fraction);
+  }
+
+  /**
+   * Each joint's position part of the way from one reading to a later one, on the straight line
+   * between them:
+   *
+   * <pre>position = earlier + fraction × (later - earlier)</pre>
+   */
+  private Map<Joint, Double> between(double[] earlier, double[] later, double fraction) {
     Map<Joint, Double> at = new LinkedHashMap<>();
     for (int j = 0; j < joints.size(); j++) {
-      at.put(joints.get(j), from[j] + fraction * (to[j] - from[j]));
+      at.put(joints.get(j), earlier[j] + fraction * (later[j] - earlier[j]));
     }
     return at;
   }

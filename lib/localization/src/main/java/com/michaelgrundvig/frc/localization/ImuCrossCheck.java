@@ -10,21 +10,42 @@ import org.wpilib.math.util.MathUtil;
 
 /**
  * Compares two IMUs' yaw, to catch one failing while both still report: a gyro that froze, lost its
- * mount, or saturated in a hit. Over a sliding window, the two should turn the same amount; when
- * they drift apart by more than the tolerance (plus a share of the turning, since two gyros' scales
- * differ a little), one of them is wrong. Which one, this can't say: it raises the question rather
- * than silently picking an answer.
+ * mount, or saturated in a hit.
+ *
+ * <p>Over a sliding window of time, the two should turn the same amount. When they drift apart by
+ * more than the tolerance, one of them is wrong. The tolerance grows with the turning, since two
+ * gyros' scales differ a little:
+ *
+ * <pre>disagrees when |primary's turn - backup's turn| > tolerance + scale tolerance × |turn|</pre>
+ *
+ * <p>Which of the two is wrong, this can't say. It raises the question rather than silently picking
+ * an answer.
  */
 public final class ImuCrossCheck {
   private final long windowNanos;
   private final double toleranceRadians;
   private final double scaleTolerance;
+
+  /** The readings within the window, oldest first. At least two are kept once there are two. */
   private final ArrayDeque<Reading> readings = new ArrayDeque<>();
+
+  /** How far each IMU has turned since the comparison started, in radians, signed. */
   private double primaryTurned;
+
   private double backupTurned;
+
+  /** Each IMU's yaw at the reading before, which the next reading's step is taken from. */
   private double lastPrimary;
+
   private double lastBackup;
 
+  /**
+   * One loop's reading.
+   *
+   * @param time when it was taken, in nanoseconds
+   * @param primary how far the primary had turned by then since the comparison started, in radians
+   * @param backup the same for the backup
+   */
   private record Reading(long time, double primary, double backup) {}
 
   /**
@@ -64,21 +85,30 @@ public final class ImuCrossCheck {
     scaleTolerance = settings.scaleTolerance();
   }
 
-  /** Both IMUs' yaw, once a loop while both report. */
+  /**
+   * Both IMUs' yaw, once a loop while both report. Each yaw's step from the reading before is taken
+   * the short way around, so a yaw that wraps past a half turn still adds up right.
+   */
   public void update(long timestampNanos, double primaryYawRadians, double backupYawRadians) {
-    if (!readings.isEmpty()) {
+    boolean first = readings.isEmpty();
+    if (!first) {
       primaryTurned += MathUtil.angleModulus(primaryYawRadians - lastPrimary);
       backupTurned += MathUtil.angleModulus(backupYawRadians - lastBackup);
     }
     lastPrimary = primaryYawRadians;
     lastBackup = backupYawRadians;
     readings.addLast(new Reading(timestampNanos, primaryTurned, backupTurned));
-    while (readings.size() > 2 && readings.getFirst().time() < timestampNanos - windowNanos) {
+    forgetReadingsBefore(timestampNanos - windowNanos);
+  }
+
+  /** Lets go of the readings older than the window, always keeping two to compare. */
+  private void forgetReadingsBefore(long windowStartNanos) {
+    while (readings.size() > 2 && readings.getFirst().time() < windowStartNanos) {
       readings.removeFirst();
     }
   }
 
-  /** Starts over: one of them stopped reporting. */
+  /** Starts over, because one of them stopped reporting. */
   public void reset() {
     readings.clear();
     primaryTurned = 0;
@@ -87,6 +117,7 @@ public final class ImuCrossCheck {
 
   /**
    * How far apart the two turned over the window, in radians: the primary's turn less the backup's.
+   * It is zero until there are two readings to compare.
    */
   public double disagreementRadians() {
     if (readings.size() < 2) {

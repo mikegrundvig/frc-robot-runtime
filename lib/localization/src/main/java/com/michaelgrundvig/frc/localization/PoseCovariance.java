@@ -51,7 +51,12 @@ public record PoseCovariance(double xx, double xy, double yy, double heading) {
     return Math.sqrt(heading);
   }
 
-  /** The position's spread along its most uncertain direction, in meters. */
+  /**
+   * The position's spread along its most uncertain direction, in meters. It is the square root of
+   * the larger eigenvalue of the position's covariance {@code [xx xy; xy yy]}:
+   *
+   * <pre>largest variance = (xx + yy) / 2 + sqrt(((xx - yy) / 2)² + xy²)</pre>
+   */
   public double largestPositionStdDev() {
     return Math.sqrt((xx + yy) / 2 + Math.hypot((xx - yy) / 2, xy));
   }
@@ -74,12 +79,15 @@ public record PoseCovariance(double xx, double xy, double yy, double heading) {
     if (!(probability > 0 && probability < 1)) {
       throw new IllegalArgumentException("a probability above 0 and below 1: " + probability);
     }
-    double scale = Math.sqrt(-2 * Math.log1p(-probability));
+    double standardDeviationsOut = Math.sqrt(-2 * Math.log1p(-probability));
+    // The covariance's eigenvalues are the variances along the ellipse's axes: mean + spread along
+    // the longer, mean - spread along the shorter. Rounding can leave the smaller one a hair below
+    // zero, which is taken as zero. The longer axis points along the first eigenvector.
     double mean = (xx + yy) / 2;
     double spread = Math.hypot((xx - yy) / 2, xy);
     return new Ellipse(
-        scale * Math.sqrt(mean + spread),
-        scale * Math.sqrt(Math.max(0, mean - spread)),
+        standardDeviationsOut * Math.sqrt(mean + spread),
+        standardDeviationsOut * Math.sqrt(Math.max(0, mean - spread)),
         0.5 * Math.atan2(2 * xy, xx - yy));
   }
 
@@ -119,7 +127,9 @@ public record PoseCovariance(double xx, double xy, double yy, double heading) {
   public PoseCovariance rotatedBy(Rotation2d rotation) {
     double c = rotation.getCos();
     double s = rotation.getSin();
-    // R C R^T, for the rotation R = [c -s; s c].
+    // The covariance C in the turned frame is R C R^T, for the rotation R = [c -s; s c]. Written
+    // out, with C = [xx xy; xy yy], that is the three numbers below. Turning the frame doesn't
+    // change how sure the heading is.
     return new PoseCovariance(
         c * c * xx - 2 * c * s * xy + s * s * yy,
         c * s * (xx - yy) + (c * c - s * s) * xy,

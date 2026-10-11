@@ -60,6 +60,43 @@ class MountCheckTest {
     assertThat(check.distanceMeters()).isCloseTo(sum / SIGHTINGS, within(1e-9));
   }
 
+  /**
+   * Partway around its ring a second time, the check is judged by its latest sightings alone: each
+   * new one took the place of the oldest, both in what it averages and in how far its tags were.
+   */
+  @Test
+  void partwayAroundAgainOnlyTheLatestSightingsCount() {
+    int ring = 4;
+    MountCheck check = new MountCheck(ring);
+    double[] offX = {0.30, 0.02, -0.11, 0.07, 0.05, -0.04};
+    double[] offY = {-0.20, 0.09, 0.03, -0.06, 0.01, 0.08};
+    double[] offZ = {0.10, -0.05, 0.02, 0.04, -0.03, 0.06};
+    for (int k = 0; k < offX.length; k++) {
+      see(check, k, new Translation3d(offX[k], offY[k], offZ[k]));
+    }
+
+    double sumX = 0;
+    double sumY = 0;
+    double sumZ = 0;
+    double sumDistance = 0;
+    for (int k = offX.length - ring; k < offX.length; k++) {
+      sumX += offX[k];
+      sumY += offY[k];
+      sumZ += offZ[k];
+      Pose3d robot = robot(k);
+      Translation3d seen =
+          TAG.getTranslation()
+              .plus(new Translation3d(offX[k], offY[k], offZ[k]).rotateBy(robot.getRotation()));
+      sumDistance += seen.getDistance(robot.getTranslation());
+    }
+    assertThat(check.offsetMeters())
+        .isCloseTo(Math.sqrt(sumX * sumX + sumY * sumY + sumZ * sumZ) / ring, within(1e-12));
+    assertThat(check.distanceMeters()).isCloseTo(sumDistance / ring, within(1e-12));
+    assertThat(check.doubtMeters(0.01))
+        .isCloseTo(
+            Math.sqrt((sumX * sumX + sumY * sumY) / (ring * ring) - 0.01 * 0.01), within(1e-12));
+  }
+
   /** Each tag 10 cm off in some direction: noise, which averages out. */
   @Test
   void noiseAveragesOut() {
