@@ -33,16 +33,22 @@ import org.wpilib.system.RobotController;
  * measured. The numbers are printed, and written to {@code build/drive-loop-cost.txt} under the
  * directory the tests run in.
  *
- * <p>Only the allocation is asserted, and loosely: it is exact and repeatable, where the time
- * depends on what else the computer is doing.
+ * <p>Each situation is measured in several batches of loops, one after another, and the cheapest
+ * batch is the one reported. What a loop allocates settles as the JIT compiles more of it, and how
+ * soon that happens differs from run to run by a few hundred bytes a loop, so one batch alone is
+ * not repeatable. Only the allocation is asserted, and loosely. The time depends on what else the
+ * computer is doing.
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
 class DriveLoopCostSimTest {
   /** Loops run before anything is measured, so the JIT has compiled the loop. */
-  private static final int WARM_UP_LOOPS = 4000;
+  private static final int WARM_UP_LOOPS = 8000;
 
-  private static final int MEASURED_LOOPS = 4000;
+  /** How many batches of loops are measured, of which the cheapest is reported. */
+  private static final int BATCHES = 5;
+
+  private static final int LOOPS_A_BATCH = 2000;
 
   /** A drive's loop allocated nothing like this much when this test was written. */
   private static final double MOST_BYTES_A_LOOP = 12_000;
@@ -65,7 +71,7 @@ class DriveLoopCostSimTest {
     FOLLOWING_A_MOVE
   }
 
-  /** What the drive's loop cost, averaged over the measured loops. */
+  /** What the drive's loop cost, averaged over the loops of the cheapest batch. */
   private record Cost(String what, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
@@ -124,7 +130,10 @@ class DriveLoopCostSimTest {
       long nanos = 0;
       int measured = 0;
       int loop = 0;
-      while (measured < MEASURED_LOOPS) {
+      double leastBytesALoop = Double.POSITIVE_INFINITY;
+      double leastNanosALoop = Double.POSITIVE_INFINITY;
+      int batches = 0;
+      while (batches < BATCHES) {
         boolean starting = false;
         if (driving == Driving.FOLLOWING_A_MOVE && !harness.scheduler.isRunning(move)) {
           move = drive.goTo(towardFarEnd ? FAR_END : NEAR_END);
@@ -165,8 +174,16 @@ class DriveLoopCostSimTest {
           measured++;
         }
         loop++;
+        if (measured == LOOPS_A_BATCH) {
+          leastBytesALoop = Math.min(leastBytesALoop, (double) bytes / LOOPS_A_BATCH);
+          leastNanosALoop = Math.min(leastNanosALoop, (double) nanos / LOOPS_A_BATCH);
+          bytes = 0;
+          nanos = 0;
+          measured = 0;
+          batches++;
+        }
       }
-      return new Cost(what, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
+      return new Cost(what, leastBytesALoop, leastNanosALoop);
     }
   }
 }
