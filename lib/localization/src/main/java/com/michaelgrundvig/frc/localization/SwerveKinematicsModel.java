@@ -2,7 +2,7 @@ package com.michaelgrundvig.frc.localization;
 
 import java.util.HashMap;
 import java.util.Map;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.util.MathUtil;
 
@@ -27,147 +27,233 @@ import org.wpilib.math.util.MathUtil;
  * motion is none, as doubtful as the farthest a reporting wheel rolled.
  */
 public final class SwerveKinematicsModel implements DriveKinematicsModel {
+  // The three values of a rigid motion, in the order the fit's rows follow.
+  private static final int DX = 0;
+  private static final int DY = 1;
+  private static final int DTHETA = 2;
+  private static final int MOTION_VALUES = 3;
+
+  /** Each module gives two numbers to the fit: how far it traveled along x, and along y. */
+  private static final int TRAVELS_PER_MODULE = 2;
+
+  /** Fewer modules than this cannot fix a rigid motion's three values. */
+  private static final int FEWEST_MODULES = 2;
+
+  /** Each set of reporting modules is one bit a module in an int, which has room for this many. */
+  private static final int MOST_MODULES = 30;
+
+  /** Where each module sits from the robot's center, in meters. */
   private final double[] moduleX;
+
   private final double[] moduleY;
 
   /**
-   * The least-squares fit over some of the modules: which ones, (A^T A)^-1 A^T for the rigid-motion
-   * model (3 rows of two a module, row-major), and how the modules' misses, squared, carry into the
-   * fitted travel's error, squared (the travel's share of (A^T A)^-1, over the fit's spare degrees
-   * of freedom, two a module less the motion's three).
+   * The least-squares fit of a rigid motion to the travels of some of the modules.
+   *
+   * <p>The model is {@code travels = A motion}. For each module at (x, y), A has two rows: {@code
+   * [1, 0, -y]} for its travel along x and {@code [0, 1, x]} for its travel along y, since turning
+   * the robot by dθ carries that module by (-y dθ, x dθ). The motion that fits best is {@code (A^T
+   * A)^-1 A^T travels}.
+   *
+   * @param modules which modules it is over, by their index, in increasing order
+   * @param travelsToMotion (A^T A)^-1 A^T, stored row by row: a row for each of dx, dy and dθ, and
+   *     two columns for each module in {@code modules}, its travel along x then along y
+   * @param missToTravelVariance what the modules' squared misses, added up, are multiplied by to
+   *     give the variance of the fitted travel: the travel's share of (A^T A)^-1, over the fit's
+   *     spare degrees of freedom (two a module, less the motion's three)
    */
-  private record Fit(int[] modules, double[] pseudoInverse, double missToTravel) {}
+  private record Fit(int[] modules, double[] travelsToMotion, double missToTravelVariance) {
+    int moduleCount() {
+      return modules.length;
+    }
 
-  /** Each set of reporting modules' fit, by the bits of their indexes, made as each set comes. */
-  private final Map<Integer, Fit> fits = new HashMap<>();
+    /** How much one module's travel along x counts toward one value of the motion. */
+    double fromTravelX(int motionValue, int moduleInFit) {
+      return travelsToMotion[
+          motionValue * TRAVELS_PER_MODULE * modules.length + TRAVELS_PER_MODULE * moduleInFit];
+    }
 
-  /** Every module's fit. */
-  private final Fit all;
+    double fromTravelY(int motionValue, int moduleInFit) {
+      return travelsToMotion[
+          motionValue * TRAVELS_PER_MODULE * modules.length + TRAVELS_PER_MODULE * moduleInFit + 1];
+    }
+  }
+
+  /**
+   * The fit for each set of reporting modules that has come up, by the set's bits: bit i is set
+   * when module i reported. Empty for a set that cannot fix a motion. Each is made the first time
+   * its set comes up, so a robot that never loses a module makes none.
+   */
+  private final Map<Integer, Optional<Fit>> fitsByReportingModules = new HashMap<>();
+
+  /** The fit over every module: the one a healthy robot uses every time. */
+  private final Optional<Fit> fitOverEveryModule;
 
   /**
    * @param modules where each module sits, from the robot's center, in the samples' order
    */
   public SwerveKinematicsModel(Translation2d... modules) {
-    int n = modules.length;
-    if (n < 2) {
-      throw new IllegalArgumentException("swerve needs at least 2 modules: " + n);
+    int count = modules.length;
+    if (count < FEWEST_MODULES) {
+      throw new IllegalArgumentException("swerve needs at least 2 modules: " + count);
     }
-    if (n > 30) {
-      throw new IllegalArgumentException("swerve with at most 30 modules: " + n);
+    if (count > MOST_MODULES) {
+      throw new IllegalArgumentException("swerve with at most 30 modules: " + count);
     }
-    moduleX = new double[n];
-    moduleY = new double[n];
-    for (int i = 0; i < n; i++) {
+    moduleX = new double[count];
+    moduleY = new double[count];
+    int[] everyModule = new int[count];
+    for (int i = 0; i < count; i++) {
       moduleX[i] = modules[i].getX();
       moduleY[i] = modules[i].getY();
+      everyModule[i] = i;
     }
-    int[] every = new int[n];
-    for (int i = 0; i < n; i++) {
-      every[i] = i;
-    }
-    Fit fit = fit(every);
-    if (fit == null) {
+    fitOverEveryModule = fit(everyModule);
+    if (fitOverEveryModule.isEmpty()) {
       throw new IllegalArgumentException("the modules must not all sit at one point");
     }
-    all = fit;
   }
 
-  /** The fit over these modules; null if they can't fix a motion: fewer than two, or one point. */
-  private @Nullable Fit fit(int[] modules) {
-    int n = modules.length;
-    if (n < 2) {
-      return null;
+  /**
+   * The fit over some modules, or empty if they cannot fix a motion: there are fewer than two, or
+   * they all sit at one point, about which the robot could turn without any of them moving.
+   */
+  private Optional<Fit> fit(int[] modules) {
+    int count = modules.length;
+    if (count < FEWEST_MODULES) {
+      return Optional.empty();
     }
     double sumX = 0;
     double sumY = 0;
-    double sumSquares = 0;
-    for (int i : modules) {
-      sumX += moduleX[i];
-      sumY += moduleY[i];
-      sumSquares += moduleX[i] * moduleX[i] + moduleY[i] * moduleY[i];
+    double sumOfSquaredDistances = 0;
+    for (int module : modules) {
+      sumX += moduleX[module];
+      sumY += moduleY[module];
+      sumOfSquaredDistances +=
+          moduleX[module] * moduleX[module] + moduleY[module] * moduleY[module];
     }
-    // A has two rows per module: [1, 0, -y] and [0, 1, x], mapping (dx, dy, dtheta) to that
-    // module's travel. Its normal matrix A^T A:
-    double[] normal = {n, 0, -sumY, 0, n, sumX, -sumY, sumX, sumSquares};
-    double[] inverse = new double[9];
-    if (!Matrices.invert3(normal, inverse)) {
-      return null;
+    // A^T A, the normal matrix, 3 by 3 and row by row. With A's rows [1, 0, -y] and [0, 1, x] for
+    // each module, it comes to this:
+    double[] normal = {count, 0, -sumY, 0, count, sumX, -sumY, sumX, sumOfSquaredDistances};
+    double[] normalInverse = new double[MOTION_VALUES * MOTION_VALUES];
+    if (!Matrices.invert3(normal, normalInverse)) {
+      return Optional.empty();
     }
-    double[] pseudoInverse = new double[3 * 2 * n];
-    for (int row = 0; row < 3; row++) {
-      for (int k = 0; k < n; k++) {
-        int i = modules[k];
-        // Column 2k of A^T is (1, 0, -y_i); column 2k + 1 is (0, 1, x_i).
-        pseudoInverse[row * 2 * n + 2 * k] = inverse[row * 3] - inverse[row * 3 + 2] * moduleY[i];
-        pseudoInverse[row * 2 * n + 2 * k + 1] =
-            inverse[row * 3 + 1] + inverse[row * 3 + 2] * moduleX[i];
+    // (A^T A)^-1 A^T. Its column for a module's travel along x is the inverse times that row of A,
+    // (1, 0, -y), and its column for the travel along y is the inverse times (0, 1, x).
+    int columns = TRAVELS_PER_MODULE * count;
+    double[] travelsToMotion = new double[MOTION_VALUES * columns];
+    for (int row = 0; row < MOTION_VALUES; row++) {
+      double inverseDx = normalInverse[row * MOTION_VALUES + DX];
+      double inverseDy = normalInverse[row * MOTION_VALUES + DY];
+      double inverseDtheta = normalInverse[row * MOTION_VALUES + DTHETA];
+      for (int k = 0; k < count; k++) {
+        int module = modules[k];
+        travelsToMotion[row * columns + TRAVELS_PER_MODULE * k] =
+            inverseDx - inverseDtheta * moduleY[module];
+        travelsToMotion[row * columns + TRAVELS_PER_MODULE * k + 1] =
+            inverseDy + inverseDtheta * moduleX[module];
       }
     }
-    return new Fit(modules, pseudoInverse, (inverse[0] + inverse[4]) / (2 * n - 3));
+    // The variance of the fitted dx is (A^T A)^-1's dx diagonal times the misses' variance, and
+    // likewise dy. Their sum is the travel's. The misses' variance is their squares added up, over
+    // the fit's spare degrees of freedom.
+    double travelShareOfInverse =
+        normalInverse[DX * MOTION_VALUES + DX] + normalInverse[DY * MOTION_VALUES + DY];
+    int spareDegreesOfFreedom = TRAVELS_PER_MODULE * count - MOTION_VALUES;
+    return Optional.of(
+        new Fit(modules, travelsToMotion, travelShareOfInverse / spareDegreesOfFreedom));
   }
 
   @Override
   public BodyMotion motion(OdometrySample from, OdometrySample to) {
-    int n = moduleX.length;
-    if (from.wheels() != n || to.wheels() != n) {
+    int everyModule = moduleX.length;
+    if (from.wheels() != everyModule || to.wheels() != everyModule) {
       throw new IllegalArgumentException(
-          "samples of " + from.wheels() + " and " + to.wheels() + " wheels, for " + n + " modules");
+          "samples of "
+              + from.wheels()
+              + " and "
+              + to.wheels()
+              + " wheels, for "
+              + everyModule
+              + " modules");
     }
-    int reporting = 0;
-    int count = 0;
-    double farthest = 0;
-    for (int i = 0; i < n; i++) {
-      if (from.reported(i) && to.reported(i)) {
-        reporting |= 1 << i;
-        count++;
-        farthest = Math.max(farthest, Math.abs(to.distanceMeters(i) - from.distanceMeters(i)));
+    // Which modules reported in both samples, as a set of bits, and how far the farthest rolled.
+    int reportingBits = 0;
+    int reportingCount = 0;
+    double farthestRolledMeters = 0;
+    for (int module = 0; module < everyModule; module++) {
+      if (from.reported(module) && to.reported(module)) {
+        reportingBits |= 1 << module;
+        reportingCount++;
+        farthestRolledMeters =
+            Math.max(
+                farthestRolledMeters,
+                Math.abs(to.distanceMeters(module) - from.distanceMeters(module)));
       }
     }
-    Fit fit = count == n ? all : fits.computeIfAbsent(reporting, this::fitOf);
-    if (fit.modules().length < 2) {
-      return new BodyMotion(0, 0, 0, farthest);
+    Optional<Fit> fitOverReporting =
+        reportingCount == everyModule
+            ? fitOverEveryModule
+            : fitsByReportingModules.computeIfAbsent(reportingBits, this::fitOverModulesWithBits);
+    if (fitOverReporting.isEmpty()) {
+      // Nothing can be fitted. The motion is taken as none, and as doubtful as the farthest any
+      // reporting wheel rolled.
+      return new BodyMotion(0, 0, 0, farthestRolledMeters);
     }
-    int m = fit.modules().length;
-    double[] pseudoInverse = fit.pseudoInverse();
-    double[] travel = new double[2 * m];
-    for (int k = 0; k < m; k++) {
-      int i = fit.modules()[k];
-      double distance = to.distanceMeters(i) - from.distanceMeters(i);
+    Fit fit = fitOverReporting.get();
+    int count = fit.moduleCount();
+
+    // Each module's travel, as a vector in the robot's frame: its x, then its y.
+    double[] travels = new double[TRAVELS_PER_MODULE * count];
+    for (int k = 0; k < count; k++) {
+      int module = fit.modules()[k];
+      double rolledMeters = to.distanceMeters(module) - from.distanceMeters(module);
       // The module may have steered during the interval: take the angle halfway through it.
       double angle =
-          from.angleRadians(i)
-              + MathUtil.angleModulus(to.angleRadians(i) - from.angleRadians(i)) / 2;
-      travel[2 * k] = distance * Math.cos(angle);
-      travel[2 * k + 1] = distance * Math.sin(angle);
+          from.angleRadians(module)
+              + MathUtil.angleModulus(to.angleRadians(module) - from.angleRadians(module)) / 2;
+      travels[TRAVELS_PER_MODULE * k] = rolledMeters * Math.cos(angle);
+      travels[TRAVELS_PER_MODULE * k + 1] = rolledMeters * Math.sin(angle);
     }
+
+    // The motion that fits them best: (A^T A)^-1 A^T times the travels.
     double dx = 0;
     double dy = 0;
     double dtheta = 0;
-    for (int k = 0; k < 2 * m; k++) {
-      dx += pseudoInverse[k] * travel[k];
-      dy += pseudoInverse[2 * m + k] * travel[k];
-      dtheta += pseudoInverse[4 * m + k] * travel[k];
+    for (int k = 0; k < count; k++) {
+      double travelX = travels[TRAVELS_PER_MODULE * k];
+      dx += fit.fromTravelX(DX, k) * travelX;
+      dy += fit.fromTravelX(DY, k) * travelX;
+      dtheta += fit.fromTravelX(DTHETA, k) * travelX;
+      double travelY = travels[TRAVELS_PER_MODULE * k + 1];
+      dx += fit.fromTravelY(DX, k) * travelY;
+      dy += fit.fromTravelY(DY, k) * travelY;
+      dtheta += fit.fromTravelY(DTHETA, k) * travelY;
     }
-    double squares = 0;
-    for (int k = 0; k < m; k++) {
-      int i = fit.modules()[k];
-      double missX = travel[2 * k] - (dx - moduleY[i] * dtheta);
-      double missY = travel[2 * k + 1] - (dy + moduleX[i] * dtheta);
-      squares += missX * missX + missY * missY;
+
+    // How far each module's travel misses what that motion would have carried it by.
+    double sumOfSquaredMisses = 0;
+    for (int k = 0; k < count; k++) {
+      int module = fit.modules()[k];
+      double missX = travels[TRAVELS_PER_MODULE * k] - (dx - moduleY[module] * dtheta);
+      double missY = travels[TRAVELS_PER_MODULE * k + 1] - (dy + moduleX[module] * dtheta);
+      sumOfSquaredMisses += missX * missX + missY * missY;
     }
-    return new BodyMotion(dx, dy, dtheta, Math.sqrt(squares * fit.missToTravel()));
+    double residualMeters = Math.sqrt(sumOfSquaredMisses * fit.missToTravelVariance());
+    return new BodyMotion(dx, dy, dtheta, residualMeters);
   }
 
-  /** The fit over the modules a mask's bits name, or none (no modules) if they can't fix one. */
-  private Fit fitOf(int mask) {
-    int[] modules = new int[Integer.bitCount(mask)];
-    int k = 0;
-    for (int i = 0; i < moduleX.length; i++) {
-      if ((mask & (1 << i)) != 0) {
-        modules[k++] = i;
+  /** The fit over the modules whose bits are set, or empty if they cannot fix a motion. */
+  private Optional<Fit> fitOverModulesWithBits(int reportingBits) {
+    int[] modules = new int[Integer.bitCount(reportingBits)];
+    int next = 0;
+    for (int module = 0; module < moduleX.length; module++) {
+      boolean reported = (reportingBits & (1 << module)) != 0;
+      if (reported) {
+        modules[next++] = module;
       }
     }
-    Fit fit = fit(modules);
-    return fit != null ? fit : new Fit(new int[0], new double[0], 0);
+    return fit(modules);
   }
 }
