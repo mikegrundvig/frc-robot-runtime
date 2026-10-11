@@ -56,6 +56,49 @@ public final class Scenarios {
   /** How far a collision or a push moves the robot: to its left. */
   static final double KNOCKED_LEFT_METERS = 0.6;
 
+  // What each scenario's description promises, as the value its fault takes. A description and its
+  // number change together.
+
+  /** How far up its mount the first camera is knocked, in inches: 4 in low. */
+  private static final double CAMERA_KNOCKED_UP_INCHES = -4.0;
+
+  /** How far the first camera is turned about the vertical on its mount, in degrees. */
+  private static final double CAMERA_YAWED_DEGREES = 2.0;
+
+  /** How much later than configured the first camera's images arrive, in milliseconds. */
+  private static final double CAMERA_EXTRA_LATENCY_MILLIS = 150.0;
+
+  /** How far the first camera's clock is off the robot's, in milliseconds: one robot loop. */
+  private static final double CAMERA_CLOCK_OFFSET_MILLIS = 20.0;
+
+  /** The gyro's reading for each true turn: 15% too much. */
+  private static final double GYRO_READS_HIGH_SCALE = 1.15;
+
+  /** Each wheel's true radius over the configured one: tread worn 3%. */
+  private static final double WORN_TREAD_SCALE = 0.97;
+
+  /** How far the front left module's absolute encoder is zeroed off, in degrees. */
+  private static final double MODULE_ZERO_OFF_DEGREES = 5.0;
+
+  /** How far the front left wheel spins without moving the robot, in turns. */
+  private static final double WHEEL_SLIP_TURNS = 0.5;
+
+  // A front left corner up on a game piece. WPILib's convention: nose up is a negative pitch, and
+  // the left side up is a positive roll.
+  private static final double LIFTED_PITCH_DEGREES = -5.0;
+  private static final double LIFTED_ROLL_DEGREES = 5.0;
+
+  /** The share of its wheels' rolling that moves the robot with a corner lifted. */
+  private static final double LIFTED_GRIP = 0.75;
+
+  /** The module the single-module scenarios fail. */
+  private static final String FRONT_LEFT_MODULE = FaultCatalog.module(0);
+
+  // A sensor exactly as configured: a wheel at its configured radius, a zero that is not off, a
+  // gyro that reads every turn as it is with no drift and no noise.
+  private static final double EXACT_SCALE = 1.0;
+  private static final double NO_ERROR = 0.0;
+
   /** Every scenario: faults in the robot's sensors first, then what can happen to it. */
   public static final List<Scenario> ALL =
       List.of(
@@ -68,7 +111,7 @@ public final class Scenarios {
                           Setting.of(
                               firstCamera(world),
                               MOVED,
-                              Map.of(FORWARD, 0.0, LEFT, 0.0, UP, -4.0))))
+                              Map.of(FORWARD, 0.0, LEFT, 0.0, UP, CAMERA_KNOCKED_UP_INCHES))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -78,7 +121,9 @@ public final class Scenarios {
                   world ->
                       List.of(
                           Setting.of(
-                              firstCamera(world), TURNED, Map.of(ROLL, 0.0, PITCH, 0.0, YAW, 2.0))))
+                              firstCamera(world),
+                              TURNED,
+                              Map.of(ROLL, 0.0, PITCH, 0.0, YAW, CAMERA_YAWED_DEGREES))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -87,7 +132,12 @@ public final class Scenarios {
                   "The robot's first camera 150 ms later than its configuration says: its images"
                       + " arrive past the margin allowed, and are left out.")
               .sensorFaults(
-                  world -> List.of(Setting.of(firstCamera(world), LATE, Map.of(EXTRA, 150.0))))
+                  world ->
+                      List.of(
+                          Setting.of(
+                              firstCamera(world),
+                              LATE,
+                              Map.of(EXTRA, CAMERA_EXTRA_LATENCY_MILLIS))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -98,21 +148,26 @@ public final class Scenarios {
                       + " where it was a loop before its stamp says.")
               .sensorFaults(
                   world ->
-                      List.of(Setting.of(firstCamera(world), CLOCK_OFFSET, Map.of(OFFSET, 20.0))))
+                      List.of(
+                          Setting.of(
+                              firstCamera(world),
+                              CLOCK_OFFSET,
+                              Map.of(OFFSET, CAMERA_CLOCK_OFFSET_MILLIS))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
               .name("gyro-scale")
               .description(
                   "The gyro reads 15% more turn than the robot makes; the backup IMU doesn't.")
-              .sensorFaults(Scenario.faults(Setting.of(GYRO, ERRORS, Map.of(SCALE, 1.15))))
+              .sensorFaults(
+                  Scenario.faults(Setting.of(GYRO, ERRORS, Map.of(SCALE, GYRO_READS_HIGH_SCALE))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
               .name("worn-tread")
               .description(
                   "Every wheel's tread worn 3%: the robot travels 3% less than odometry says.")
-              .sensorFaults(Scenario.faults(everyModule(WORN, Map.of(SCALE, 0.97))))
+              .sensorFaults(Scenario.faults(everyModule(WORN, Map.of(SCALE, WORN_TREAD_SCALE))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -123,7 +178,9 @@ public final class Scenarios {
               .sensorFaults(
                   Scenario.faults(
                       Setting.of(
-                          FaultCatalog.module(0), FaultCatalog.ZEROED_OFF, Map.of(OFFSET, 5.0))))
+                          FRONT_LEFT_MODULE,
+                          FaultCatalog.ZEROED_OFF,
+                          Map.of(OFFSET, MODULE_ZERO_OFF_DEGREES))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -162,7 +219,8 @@ public final class Scenarios {
                       + " counts travel the floor never saw.")
               .sensorFaults(Scenario.NO_FAULTS)
               .events(
-                  Scenario.faults(Setting.of(FaultCatalog.module(0), SLIPS, Map.of(TURNS, 0.5))))
+                  Scenario.faults(
+                      Setting.of(FRONT_LEFT_MODULE, SLIPS, Map.of(TURNS, WHEEL_SLIP_TURNS))))
               .build(),
           // An approximation: the simulator can tilt the robot and scale how far all its wheels
           // move it, but can't lift one wheel. A lifted wheel would spin free and disagree with the
@@ -176,10 +234,12 @@ public final class Scenarios {
                       + " they never disagree as a lifted one would; the robot isn't raised.")
               .sensorFaults(Scenario.NO_FAULTS)
               .events(
-                  // WPILib's convention: nose up is a negative pitch, left side up a positive roll.
                   Scenario.faults(
-                      Setting.of(ROBOT, TILTED, Map.of(PITCH, -5.0, ROLL, 5.0)),
-                      Setting.of(ROBOT, SLIPPING, Map.of(GRIP, 0.75))))
+                      Setting.of(
+                          ROBOT,
+                          TILTED,
+                          Map.of(PITCH, LIFTED_PITCH_DEGREES, ROLL, LIFTED_ROLL_DEGREES)),
+                      Setting.of(ROBOT, SLIPPING, Map.of(GRIP, LIFTED_GRIP))))
               .build(),
           Scenario.builder()
               .name("gyro-unplugged")
@@ -216,7 +276,7 @@ public final class Scenarios {
                   "The front left module's encoders go stale: their readings stop changing while"
                       + " the wheel turns on, so the wheels disagree.")
               .sensorFaults(Scenario.NO_FAULTS)
-              .events(Scenario.faults(Setting.of(FaultCatalog.module(0), STALE)))
+              .events(Scenario.faults(Setting.of(FRONT_LEFT_MODULE, STALE)))
               .build(),
           Scenario.builder()
               .name("camera-frozen")
@@ -280,7 +340,8 @@ public final class Scenarios {
    */
   public static void main(String... args) {
     try {
-      System.out.print(args.length == 0 ? listing() : line(named(args[0])));
+      boolean asksForTheList = args.length == 0;
+      System.out.print(asksForTheList ? listing() : line(named(args[0])));
     } catch (IllegalArgumentException e) {
       System.err.println(e.getMessage());
       System.exit(1);
@@ -326,12 +387,13 @@ public final class Scenarios {
   private static Setting[] exactSensors() {
     List<Setting> settings = new ArrayList<>();
     for (int i = 0; i < FaultCatalog.MODULES.size(); i++) {
-      settings.add(Setting.of(FaultCatalog.module(i), WORN, Map.of(SCALE, 1.0)));
-      settings.add(
-          Setting.of(FaultCatalog.module(i), FaultCatalog.ZEROED_OFF, Map.of(OFFSET, 0.0)));
+      String module = FaultCatalog.module(i);
+      settings.add(Setting.of(module, WORN, Map.of(SCALE, EXACT_SCALE)));
+      settings.add(Setting.of(module, FaultCatalog.ZEROED_OFF, Map.of(OFFSET, NO_ERROR)));
     }
     for (String imu : List.of(GYRO, BACKUP_IMU)) {
-      settings.add(Setting.of(imu, ERRORS, Map.of(SCALE, 1.0, DRIFT, 0.0, NOISE, 0.0)));
+      settings.add(
+          Setting.of(imu, ERRORS, Map.of(SCALE, EXACT_SCALE, DRIFT, NO_ERROR, NOISE, NO_ERROR)));
     }
     return settings.toArray(Setting[]::new);
   }

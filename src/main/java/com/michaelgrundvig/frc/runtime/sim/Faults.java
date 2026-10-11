@@ -66,6 +66,13 @@ public final class Faults {
   /** How far short of a bump's ramp the robot is set down, from its center: clear of the ramp. */
   static final double BUMP_CLEARANCE_METERS = 1.0;
 
+  /**
+   * How far a module's absolute encoder's zero may sit from where it was built and still count as
+   * not knocked off, in radians: far below any offset a fault sets, and above the rounding of a
+   * value that went to degrees and back.
+   */
+  private static final double SAME_ZERO_RADIANS = 1e-9;
+
   private Faults() {}
 
   /** Declares every part of the world that can fail. */
@@ -205,7 +212,9 @@ public final class Faults {
             () -> module.setStale(false)),
         lasting(
             FaultCatalog.Module.zeroedOff(builtOffset),
-            () -> Math.abs(module.steerOffsetRadians() - module.builtSteerOffsetRadians()) > 1e-9,
+            () ->
+                Math.abs(module.steerOffsetRadians() - module.builtSteerOffsetRadians())
+                    > SAME_ZERO_RADIANS,
             values -> module.setSteerOffset(Math.toRadians(values.get(OFFSET))),
             () -> module.setSteerOffset(module.builtSteerOffsetRadians())),
         lasting(
@@ -327,18 +336,20 @@ public final class Faults {
                         "carrying the robot to a bump needs a field with bumps, and this one has"
                             + " none"));
     Crossing crest = nearest.line();
-    boolean onTheAcrossSide = crest.acrossOffset(robot) >= 0;
+    // A crest has a direction across it. The robot is on the side that direction points to, or on
+    // the other, and it stays on its own side.
     Rotation2d across = crest.across();
+    Rotation2d backAcross = across.plus(Rotation2d.PI);
+    boolean onTheAcrossSide = crest.acrossOffset(robot) >= 0;
+    Rotation2d fromTheCrestToTheRobot = onTheAcrossSide ? across : backAcross;
+    Rotation2d facingTheCrest = onTheAcrossSide ? backAcross : across;
     // From the crest's middle to its surface's edge on the robot's side, then clear of it.
-    double out =
-        nearest
-                .surface()
-                .footprint()
-                .reach(crest.middle(), onTheAcrossSide ? across : across.plus(Rotation2d.PI))
-            + BUMP_CLEARANCE_METERS;
-    Translation2d spot =
-        crest.middle().plus(new Translation2d(onTheAcrossSide ? out : -out, across));
-    world.place(new Pose2d(spot, onTheAcrossSide ? across.plus(Rotation2d.PI) : across));
+    double toTheEdgeMeters =
+        nearest.surface().footprint().reach(crest.middle(), fromTheCrestToTheRobot);
+    double outMeters = toTheEdgeMeters + BUMP_CLEARANCE_METERS;
+    double alongAcrossMeters = onTheAcrossSide ? outMeters : -outMeters;
+    Translation2d spot = crest.middle().plus(new Translation2d(alongAcrossMeters, across));
+    world.place(new Pose2d(spot, facingTheCrest));
   }
 
   /** A crest, and the surface it's on. */

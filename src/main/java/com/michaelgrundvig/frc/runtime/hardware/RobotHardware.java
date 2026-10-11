@@ -30,7 +30,7 @@ import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import java.util.ArrayList;
 import java.util.List;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 import org.wpilib.util.Alert;
 
 /**
@@ -42,8 +42,8 @@ public final class RobotHardware implements Hardware {
   private final RobotDefinition definition;
   private final RobotMath math;
 
-  /** The drivetrain's CTRE hardware, when its definition has its wiring. */
-  private final @Nullable PhoenixDrivetrain phoenix;
+  /** The drivetrain's CTRE hardware. Empty when its definition has no wiring for it. */
+  private final Optional<PhoenixDrivetrain> phoenix;
 
   private final Alert noDrivetrain =
       new Alert(
@@ -75,17 +75,16 @@ public final class RobotHardware implements Hardware {
             .map(
                 wiring ->
                     new PhoenixDrivetrain(
-                        wiring, definition.drivetrain(), definition.imus().gyro().orientation()))
-            .orElse(null);
-    noDrivetrain.set(phoenix == null);
+                        wiring, definition.drivetrain(), definition.imus().gyro().orientation()));
+    noDrivetrain.set(phoenix.isEmpty());
   }
 
   @Override
   public DriveHardware drive() {
-    PhoenixDrivetrain drivetrain = phoenix;
-    if (drivetrain == null) {
+    if (phoenix.isEmpty()) {
       return DriveHardware.none();
     }
+    PhoenixDrivetrain drivetrain = phoenix.get();
     return DriveHardware.builder()
         .modules(List.of(drivetrain.modules()))
         .gyro(drivetrain.gyro())
@@ -140,9 +139,9 @@ public final class RobotHardware implements Hardware {
    */
   @Override
   public SensorIO sensor(Sensor.Placed sensor) {
-    SensorIO io = wired(sensor);
-    if (io != null) {
-      return io;
+    Optional<SensorIO> wired = wired(sensor);
+    if (wired.isPresent()) {
+      return wired.get();
     }
     unwiredSensors.add(sensor.label());
     sensorsUnwired.setText(
@@ -153,33 +152,33 @@ public final class RobotHardware implements Hardware {
     return new SensorIO() {};
   }
 
-  private static @Nullable SensorIO wired(Sensor.Placed sensor) {
+  /** A sensor's device, from the wiring it carries. Empty for a sensor with no wiring. */
+  private static Optional<SensorIO> wired(Sensor.Placed sensor) {
     return switch (sensor) {
-      case Sensor.Switch onSwitch ->
-          onSwitch
-              .wiring()
-              .map(
-                  wiring ->
-                      switch (wiring.input()) {
-                        case SensorWiring.Port port ->
-                            (SensorIO) new SensorIOPort(port.port(), wiring.polarity());
-                        case SensorWiring.Candi candi ->
-                            new SensorIOCandi(candi, wiring.polarity());
-                        case SensorWiring.ControllerLimit limit ->
-                            throw new IllegalArgumentException(
-                                sensor.label()
-                                    + " is on "
-                                    + possessive(limit.joint())
-                                    + " controller's limit input: "
-                                    + limit.joint()
-                                    + " reads it from its controller");
-                      })
-              .orElse(null);
+      case Sensor.Switch onSwitch -> onSwitch.wiring().map(wiring -> switchIO(onSwitch, wiring));
       case Sensor.Rangefinder rangefinder ->
-          rangefinder
-              .wiring()
-              .map(range -> (SensorIO) new SensorIOCanRange(rangefinder, range))
-              .orElse(null);
+          rangefinder.wiring().map(wiring -> new SensorIOCanRange(rangefinder, wiring));
+    };
+  }
+
+  /**
+   * A switch's device, by what its wire runs to: a Systemcore port, or a CANdi.
+   *
+   * @throws IllegalArgumentException for a switch on a joint's motor controller's limit input: its
+   *     joint reads it from the controller, so it has no device of its own
+   */
+  private static SensorIO switchIO(Sensor.Switch onSwitch, SensorWiring.Connection wiring) {
+    return switch (wiring.input()) {
+      case SensorWiring.Port port -> new SensorIOPort(port.port(), wiring.polarity());
+      case SensorWiring.Candi candi -> new SensorIOCandi(candi, wiring.polarity());
+      case SensorWiring.ControllerLimit limit ->
+          throw new IllegalArgumentException(
+              onSwitch.label()
+                  + " is on "
+                  + possessive(limit.joint())
+                  + " controller's limit input: "
+                  + limit.joint()
+                  + " reads it from its controller");
     };
   }
 
@@ -204,9 +203,6 @@ public final class RobotHardware implements Hardware {
     noDrivetrain.close();
     jointsUnwired.close();
     sensorsUnwired.close();
-    PhoenixDrivetrain drivetrain = phoenix;
-    if (drivetrain != null) {
-      drivetrain.close();
-    }
+    phoenix.ifPresent(PhoenixDrivetrain::close);
   }
 }

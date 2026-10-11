@@ -86,9 +86,12 @@ public record Scenario(String name, String description, Settings sensorFaults, S
 
   /** Lowercase letters and digits, in words joined by single hyphens: typed on a command line. */
   private static Rule<String> lowercaseWords() {
-    return value ->
-        value.matches("[a-z0-9]+(-[a-z0-9]+)*")
-            ? null
-            : "\"" + value + "\" must be lowercase words joined by hyphens, like camera-low";
+    // A rule answers null for a value it accepts, and otherwise says what is wrong with it.
+    return value -> {
+      if (value.matches("[a-z0-9]+(-[a-z0-9]+)*")) {
+        return null;
+      }
+      return "\"" + value + "\" must be lowercase words joined by hyphens, like camera-low";
+    };
   }
 }

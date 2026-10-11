@@ -98,10 +98,15 @@ public final class SimulatedWorld implements AutoCloseable {
    * robot whose definition has none.
    */
   public DriveHardware drivetrainHardware() {
+    // A backup IMU is always simulated, but only a robot whose definition has one gets to read it.
+    GyroIO backupImu = new GyroIO() {};
+    if (hasBackupImu) {
+      backupImu = drivetrain.backupGyro();
+    }
     return DriveHardware.builder()
         .modules(List.of(drivetrain.modules()))
         .gyro(drivetrain.gyro())
-        .backupImu(hasBackupImu ? drivetrain.backupGyro() : new GyroIO() {})
+        .backupImu(backupImu)
         .odometryLock(new ReentrantLock())
         .build();
   }

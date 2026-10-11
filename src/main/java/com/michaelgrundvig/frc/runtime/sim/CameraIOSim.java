@@ -6,7 +6,7 @@ import com.michaelgrundvig.frc.simulation.SensorErrors;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
@@ -36,8 +36,11 @@ final class CameraIOSim implements CameraIO {
   private double extraLatencyMillis;
   private double clockOffsetMillis;
 
-  /** The last image seen before it froze, and its tags. */
-  private @Nullable Frame lastFrame;
+  /**
+   * The last image it saw, and that image's tags: what it repeats while frozen. Empty until it sees
+   * one.
+   */
+  private Optional<Frame> lastFrame = Optional.empty();
 
   private SeenTag[] lastTags = NO_TAGS;
 
@@ -148,23 +151,33 @@ final class CameraIOSim implements CameraIO {
       refreeze(inputs);
       return;
     }
-    int count = inputs.frames.length;
-    if (count > 0) {
-      Frame last = inputs.frames[count - 1];
-      lastFrame = last;
-      lastTags =
-          Arrays.copyOfRange(inputs.tags, inputs.tags.length - last.tagCount(), inputs.tags.length);
+    rememberTheLastImage(inputs);
+  }
+
+  /**
+   * Keeps the newest image of those just read, with its tags. The tags of all the images come in
+   * one array, image after image, so the newest image's tags are the last ones in it.
+   */
+  private void rememberTheLastImage(CameraIOInputs inputs) {
+    int frameCount = inputs.frames.length;
+    if (frameCount == 0) {
+      return;
     }
+    Frame newest = inputs.frames[frameCount - 1];
+    int tagCount = inputs.tags.length;
+    lastFrame = Optional.of(newest);
+    lastTags = Arrays.copyOfRange(inputs.tags, tagCount - newest.tagCount(), tagCount);
   }
 
   /** Each new image's time, with the last image's tags before it froze. */
   private void refreeze(CameraIOInputs inputs) {
-    Frame last = lastFrame;
-    if (last == null) {
-      inputs.frames = NO_FRAMES; // frozen before it saw anything: nothing to repeat
+    if (lastFrame.isEmpty()) {
+      // Frozen before it saw anything, it has nothing to repeat.
+      inputs.frames = NO_FRAMES;
       inputs.tags = NO_TAGS;
       return;
     }
+    Frame last = lastFrame.get();
     Frame[] frames = new Frame[inputs.frames.length];
     List<SeenTag> tags = new ArrayList<>();
     for (int i = 0; i < frames.length; i++) {
