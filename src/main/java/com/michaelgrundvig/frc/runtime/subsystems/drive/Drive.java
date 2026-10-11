@@ -142,6 +142,15 @@ public class Drive implements Mechanism, AutoCloseable {
   private double skewLookaheadSeconds;
 
   /**
+   * How fast the robot can speed up and spin up, and the tuning that was worked out for. The answer
+   * depends only on the robot and its tuning, and working it out builds the robot's mass and its
+   * motors' models afresh, so it is worked out again only when the tuning has changed.
+   */
+  private DrivetrainControl.Accelerations accelerations;
+
+  private DrivetrainControl accelerationsAsTuned;
+
+  /**
    * Why the template can't drive a drivetrain wired this way, or null when it can. So far its
    * modules are TalonFXs both driving and steering, or SPARKs doing both ({@link
    * PhoenixDrivetrain}). What the wiring itself can't do, such as a controller that doesn't drive
@@ -230,6 +239,8 @@ public class Drive implements Mechanism, AutoCloseable {
     wheelPoses = new WheelPoses(modules, robot);
     applied = config.get();
     apply(applied);
+    accelerationsAsTuned = applied;
+    accelerations = DrivetrainControl.accelerations(robot, applied);
     // A move plans its path as it starts, on the robot's loop. Planning one here, as the robot
     // starts, has the planner's code loaded and compiled before the first move needs it.
     Trajectories.warmUp(RobotLoop.PERIOD_SECONDS);
@@ -360,7 +371,12 @@ public class Drive implements Mechanism, AutoCloseable {
 
   /** How fast it can speed up and spin up, by the robot's model and its current limit now. */
   DrivetrainControl.Accelerations accelerations() {
-    return DrivetrainControl.accelerations(robot, config.get());
+    DrivetrainControl tuned = config.get();
+    if (!tuned.equals(accelerationsAsTuned)) {
+      accelerations = DrivetrainControl.accelerations(robot, tuned);
+      accelerationsAsTuned = tuned;
+    }
+    return accelerations;
   }
 
   /**
