@@ -678,7 +678,11 @@ public final class LocalizationService {
     if (ground.surfaces().isEmpty() || tilt == 0) {
       return 0;
     }
-    double estimateMayBeOffBy = 2 * estimator.estimate().covariance().largestPositionStdDev();
+    // The estimate as it was last worked out is still how the estimator stands. Everything that
+    // changes it (odometry, a placement, the update that applies the cameras) works it out again
+    // as it does, and none of those has run since. So the estimate isn't worked out again here,
+    // which would be a second full estimate every loop the robot is tilted.
+    double estimateMayBeOffBy = 2 * estimate.covariance().largestPositionStdDev();
     double reach = Math.min(MAX_GROUND_REACH_METERS, wheelReach + estimateMayBeOffBy);
     return ground
         .under(pose().getTranslation(), reach)
