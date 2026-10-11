@@ -148,6 +148,11 @@ public interface JointIO {
   /**
    * Takes the pit's tuned gains and current limits, as the motor controller's own loop runs them:
    * its kP, kI, kD and kS, and its current limits. Without waiting: the loop goes on.
+   *
+   * <p>Every one of them is in force from the next request on, wherever it runs. A TalonFX holds
+   * them all in its slot. A SPARK holds its kP, its kI and the limit on the current through its
+   * motor; its kD and kS the robot works out each loop, and it has no limit on what it draws from
+   * the battery.
    */
   default void retune(MechanismControl control) {}
 }

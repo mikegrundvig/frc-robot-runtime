@@ -11,6 +11,7 @@ import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.SPA
 import static com.michaelgrundvig.frc.world.robot.MechanismWiring.DATA_PORT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.Rotations;
@@ -244,6 +245,86 @@ class JointIOSparkTest {
     double expected = 60 * 2 * Math.PI / (12 * 25);
     assertThat(((SparkMax) io.leader()).configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0))
         .isCloseTo(expected, within(1e-6 * expected));
+  }
+
+  /** A control with its gains and its stator limit changed, as the pit tunes one. */
+  private static MechanismControl tuned(
+      MechanismControl control, double kP, double kI, double statorAmps) {
+    return MechanismControlBuilder.builder(control)
+        .gains(MechanismControlGainsBuilder.builder(control.gains()).kP(kP).kI(kI).build())
+        .build()
+        .withStatorLimit(Amps.of(statorAmps));
+  }
+
+  /**
+   * Everything a retune promises that a SPARK's own loop runs reaches the SPARK, read back from
+   * what it took: its kP for positions and for speeds, its kI, and its current limit. A kI tuned
+   * back to nothing is sent too, or the SPARK would go on integrating with the last one. The rest
+   * of a retune, its kD and its feedforward, never goes to the SPARK: the robot works them out each
+   * loop from the tuned plan ({@link #aTunedDampingAndFrictionGoWithTheNextRequest}).
+   */
+  @Test
+  void aRetuneReachesEverythingTheSparksLoopRuns() {
+    Joint.Revolute pivot = pivot(46);
+    JointIOSpark io = io(pivot);
+    SparkMax spark = (SparkMax) io.leader();
+    MechanismControl control = ControllerSettings.control(pivot);
+    double kIAtStartup = spark.configAccessor.closedLoop.getI(ClosedLoopSlot.kSlot0);
+
+    io.retune(tuned(control, 60, 4, 25));
+    double kP = spark.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
+    double speedKp = spark.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot1);
+    double kI = spark.configAccessor.closedLoop.getI(ClosedLoopSlot.kSlot0);
+    int statorAmps = spark.configAccessor.getSmartCurrentLimit();
+    io.retune(tuned(control, 60, 0, 25));
+    double kITunedAway = spark.configAccessor.closedLoop.getI(ClosedLoopSlot.kSlot0);
+
+    // A gain per radian is 2π times that per turn of the pivot, 25 rotor turns, as a share of
+    // 12 V. A speed's is per rotor RPM, and the integral's per millisecond.
+    double perRotorTurn = 2 * Math.PI / (12 * 25);
+    assertThat(kIAtStartup).as("the fixture's pivot starts with no kI").isZero();
+    assertThat(kP).isCloseTo(60 * perRotorTurn, within(1e-6));
+    assertThat(speedKp).isCloseTo(60 * perRotorTurn / 60, within(1e-8));
+    assertThat(kI).isCloseTo(4 * perRotorTurn / 1000, within(1e-9));
+    assertThat(statorAmps).isEqualTo(25);
+    assertThat(kITunedAway).as("a kI tuned back to nothing").isZero();
+  }
+
+  /**
+   * What a retune changes that the SPARK's loop does not run, the robot sends with its next
+   * request, in volts: a tuned kD on how far the speed last read is from the profile's, and a tuned
+   * kS with the rest of the plan's feedforward.
+   */
+  @Test
+  void aTunedDampingAndFrictionGoWithTheNextRequest() {
+    Joint.Revolute pivot = pivot(29);
+    RobotMath math = ROBOT.with(pivot).math();
+    JointIOSpark io = io(pivot);
+    SparkSim sim = new SparkSim(io.leader(), DCMotor.getNEO(1));
+    sim.enable();
+    MechanismControl control = ControllerSettings.control(pivot);
+    MechanismControl tuned =
+        MechanismControlBuilder.builder(control)
+            .gains(MechanismControlGainsBuilder.builder(control.gains()).kD(2).kS(0.5).build())
+            .build();
+    ControllerPlan plan = ControllerSettings.spark(math, pivot, tuned).plan();
+    ControllerPlan untuned = ControllerSettings.spark(math, pivot, control).plan();
+    double rest = PIVOT.restPosition();
+    // The loop has no error, so its output is the robot's volts alone.
+    sim.setPosition(rest / (2 * Math.PI) * 25);
+
+    io.retune(tuned);
+    // Asked to pass where it rests at 0.2 rad/s while it reads still: kD works on the 0.2.
+    io.setPosition(rest, 0.2, 0);
+    for (int i = 0; i < 25; i++) {
+      sim.iterate(0, 12, 0.02);
+    }
+
+    double volts = plan.feedforward(rest, 0.2, 0) + 2 * 0.2;
+    assertThat(plan.feedforward(rest, 0.2, 0))
+        .as("the tuned kS is in the plan's feedforward")
+        .isCloseTo(untuned.feedforward(rest, 0.2, 0) + 0.5, within(1e-9));
+    assertThat(sim.getAppliedOutput()).isCloseTo(volts / 12, within(1e-3));
   }
 
   /**

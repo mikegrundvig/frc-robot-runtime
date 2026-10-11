@@ -140,13 +140,26 @@ public final class RevMechanism {
     }
 
     /**
-     * Only the settings the pit tunes live: the loop's kP for positions and for speeds, and the
-     * current limit. A configuration with nothing else set changes nothing else on the SPARK.
+     * Only what a retune changes that the SPARK itself holds: the loop's kP for positions and for
+     * speeds, its kI for positions, and the current limit. A configuration with nothing else set
+     * changes nothing else on the SPARK.
+     *
+     * <p>The kI is always sent, a kI of zero too. At startup a zero is left out, because the SPARK
+     * was just reset to REV's defaults; here the SPARK may hold a kI from an earlier retune, which
+     * only a zero takes away.
+     *
+     * <p>The rest of a retune needs no sending. The plan's kD and its feedforward (kS, kV, kA and
+     * gravity) are worked out on the robot each loop from {@link #plan}, and a SPARK has no supply
+     * current limit to set.
      */
     public SparkBaseConfig tuning(MechanismWiring.Controller controller, MechanismControl control) {
       SparkBaseConfig tuning = blank(controller);
       tuning.smartCurrentLimit(statorAmps(control));
-      tuning.closedLoop.p(positionKp, ClosedLoopSlot.kSlot0).p(velocityKp, ClosedLoopSlot.kSlot1);
+      tuning
+          .closedLoop
+          .p(positionKp, ClosedLoopSlot.kSlot0)
+          .i(positionKi, ClosedLoopSlot.kSlot0)
+          .p(velocityKp, ClosedLoopSlot.kSlot1);
       return tuning;
     }
 

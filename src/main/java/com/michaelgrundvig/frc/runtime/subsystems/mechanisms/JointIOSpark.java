@@ -358,7 +358,11 @@ public final class JointIOSpark implements JointIO {
     }
   }
 
-  /** Sends a SPARK the pit's tuning: the loop's gains and the current limit. */
+  /**
+   * Sends a SPARK the part of the pit's tuning that it holds itself: its loop's kP and kI and its
+   * current limit ({@link RevMechanism.Settings#tuning}). The rest of the tuning is in {@link
+   * #settings}, which the robot works its volts out from each loop.
+   */
   private void sendTuning(SparkBase spark) {
     sendWhileRunning(spark, settings.tuning(controller, tuned));
   }
