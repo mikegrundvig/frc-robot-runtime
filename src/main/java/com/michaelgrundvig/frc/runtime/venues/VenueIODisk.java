@@ -4,17 +4,24 @@ import java.io.IOException;
 import java.util.Optional;
 
 /**
- * The selected venue on the robot's disk: read as the robot starts, and again on Pitwall's thread
- * after the pit selects another ({@link #reread}). The robot loop takes what was read last and
- * never reads the disk itself: a venue changes once an event.
+ * The selected venue, read from the robot's disk. It is read as the robot starts, and again on
+ * Pitwall's thread after the pit selects another ({@link #reread}). The robot loop only takes what
+ * was read last and never reads the disk itself. That is enough, because a venue changes about once
+ * an event.
  */
 public final class VenueIODisk implements VenueIO {
-  /** The selection as it was read: what the loop's inputs take. */
+  /**
+   * The selection as it was read from the disk, in the shape the loop's inputs take it.
+   *
+   * @param text the selected venue's file, whole; empty for the official layout
+   * @param problem why the selection could not be read; empty when it could
+   * @param inGit whether a file with the same contents ships with the build
+   */
   private record Selection(String text, String problem, boolean inGit) {}
 
   private final VenueStore store;
 
-  /** Written by the thread that read the disk, read by the robot loop. */
+  /** Written by whichever thread read the disk, and read by the robot loop. */
   private volatile Selection selection;
 
   /** Reads the selection now, as the robot starts. */
@@ -23,7 +30,10 @@ public final class VenueIODisk implements VenueIO {
     selection = read(store);
   }
 
-  /** Reads the disk again, on the caller's thread: after a selection. The next loop takes it. */
+  /**
+   * Reads the disk again, on the caller's thread. Called after the pit makes a selection, and the
+   * next robot loop takes what it read.
+   */
   public void reread() {
     selection = read(store);
   }
@@ -39,7 +49,11 @@ public final class VenueIODisk implements VenueIO {
   private static Selection read(VenueStore store) {
     try {
       Optional<String> text = store.selectedText();
-      return new Selection(text.orElse(""), "", text.map(store::committed).orElse(true));
+      if (text.isEmpty()) {
+        // The official layout: there is no file, so nothing is missing from Git.
+        return new Selection("", "", true);
+      }
+      return new Selection(text.get(), "", store.committed(text.get()));
     } catch (IOException | RuntimeException e) {
       return new Selection("", String.valueOf(e.getMessage()), true);
     }

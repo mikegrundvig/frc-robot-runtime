@@ -10,27 +10,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Where venue files live on the robot, and which one is selected.
  *
  * <ul>
- *   <li><b>Stored:</b> venues uploaded in the pit, kept outside the deploy folder so a code deploy
- *       can't wipe them, each named by its contents' hash.
- *   <li><b>Committed:</b> venues in the repository's {@code src/main/deploy/venues/}, which ship
- *       with the build.
- *   <li><b>The selection:</b> a file in the stored folder holding the selected venue's hash. With
- *       none, the robot uses the official layout. It stays across reboots and deploys.
+ *   <li><b>Stored</b> venues are the ones uploaded in the pit. They are kept outside the deploy
+ *       folder, so that deploying code cannot wipe them, and each is named by the hash of its
+ *       contents.
+ *   <li><b>Committed</b> venues are the ones in the repository's {@code src/main/deploy/venues/},
+ *       which ship with the build.
+ *   <li><b>The selection</b> is a file in the stored folder that holds the selected venue's hash.
+ *       With no selection the robot uses the official layout. The selection survives reboots and
+ *       deploys.
  * </ul>
  */
 public final class VenueStore {
-  /** The robot user's venue folder on Systemcore (the robot user's home: to confirm, S6). */
+  /**
+   * The stored venues' folder on Systemcore, in the robot user's home. Where that home is has yet
+   * to be confirmed on a Systemcore (S6).
+   */
   public static final Path ROBOT_FOLDER = Path.of("/home/systemcore/venues");
 
   /**
-   * The most venues the robot keeps from uploads: an event's few, with room to spare, and few
-   * enough that listing them for the pit stays quick.
+   * The most uploaded venues the robot keeps. An event needs only a few, so this leaves room to
+   * spare, and it is few enough that listing them for the pit stays quick.
    */
   public static final int MOST_STORED = 32;
 
@@ -71,7 +75,7 @@ public final class VenueStore {
     throw new IOException("the selected venue (" + hash + ") isn't on the robot");
   }
 
-  /** Whether a venue file's contents ship with the build. */
+  /** Whether a venue file with these contents ships with the build. */
   public boolean committed(String text) {
     String hash = hash(text);
     try (Stream<Path> files = list(committed)) {
@@ -87,16 +91,22 @@ public final class VenueStore {
   }
 
   /**
-   * Selects a venue by its contents' hash, or the official layout with null. The robot takes it at
-   * the start of a loop while disabled.
+   * Selects a venue by the hash of its contents. The robot takes the selection at the start of a
+   * loop while it is disabled.
    */
-  public void select(@Nullable String hash) throws IOException {
-    write(SELECTION, hash == null ? "" : hash);
+  public void select(String hash) throws IOException {
+    write(SELECTION, hash);
+  }
+
+  /** Selects the official layout, which is to select no venue. */
+  public void selectOfficial() throws IOException {
+    write(SELECTION, "");
   }
 
   /**
-   * Keeps a venue file on the robot, named by its hash, and says the hash. The caller checks it
-   * first.
+   * Keeps a venue file on the robot, named by its hash. The caller checks the file first.
+   *
+   * @return the file's hash
    */
   public String save(String text) throws IOException {
     String hash = hash(text);
@@ -105,25 +115,28 @@ public final class VenueStore {
   }
 
   /**
-   * Why the robot can't keep another venue file, or null if it can: it keeps at most {@value
-   * #MOST_STORED} uploads, and one it keeps already takes no more room.
+   * Why the robot cannot keep this venue file, if it cannot. It keeps at most {@value #MOST_STORED}
+   * uploads. A file it already keeps takes no more room, so it can always be kept again.
    */
-  public @Nullable String whyNoRoomFor(String text) throws IOException {
-    if (Files.isRegularFile(stored.resolve(hash(text) + ".json"))) {
-      return null;
+  public Optional<String> whyNoRoomFor(String text) throws IOException {
+    boolean isKeptAlready = Files.isRegularFile(stored.resolve(hash(text) + ".json"));
+    if (isKeptAlready) {
+      return Optional.empty();
     }
     try (Stream<Path> files = list(stored)) {
-      return files.count() < MOST_STORED
-          ? null
-          : "the robot keeps "
-              + MOST_STORED
-              + " uploaded venues already, the most it keeps: delete those you don't need from "
-              + stored
-              + ", then upload again";
+      if (files.count() < MOST_STORED) {
+        return Optional.empty();
+      }
     }
+    return Optional.of(
+        "the robot keeps "
+            + MOST_STORED
+            + " uploaded venues already, the most it keeps: delete those you don't need from "
+            + stored
+            + ", then upload again");
   }
 
-  /** Every venue file the robot has: stored, then committed. */
+  /** Every venue file the robot has: the stored ones, then the committed ones. */
   public List<Path> files() throws IOException {
     List<Path> files = new ArrayList<>();
     for (Path folder : List.of(stored, committed)) {
@@ -144,7 +157,10 @@ public final class VenueStore {
         .sorted();
   }
 
-  /** Written whole, then moved into place, so a power cut never leaves half a file. */
+  /**
+   * Writes a file in the stored folder. It is written whole under another name and then moved into
+   * place, so a power cut never leaves half a file.
+   */
   private void write(String name, String text) throws IOException {
     Files.createDirectories(stored);
     Path temporary = stored.resolve(name + ".tmp");

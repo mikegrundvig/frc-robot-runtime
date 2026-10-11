@@ -88,7 +88,7 @@ class VenuesTest {
     Venues venues = venues(new Disk());
     assertThat(venues.update(true, false)).isEmpty();
     assertThat(venues.active()).isEqualTo("2026 FRC Rebuilt Welded");
-    assertThat(venues.unusable()).isNull();
+    assertThat(venues.unusable()).isEmpty();
   }
 
   @Test
@@ -122,12 +122,12 @@ class VenuesTest {
     Venues venues = venues(disk);
     assertThat(venues.update(true, false)).isEmpty();
     assertThat(venues.active()).isEqualTo("2026 FRC Rebuilt Welded");
-    assertThat(venues.unusable()).contains("tag 26 sits 0.500 m");
+    assertThat(venues.unusable().orElseThrow()).contains("tag 26 sits 0.500 m");
 
     disk.text = "";
     disk.problem = "the selected venue (abc) isn't on the robot";
     venues.update(true, false);
-    assertThat(venues.unusable()).contains("isn't on the robot");
+    assertThat(venues.unusable().orElseThrow()).contains("isn't on the robot");
   }
 
   @Test
@@ -170,7 +170,7 @@ class VenuesTest {
     Files.writeString(git.resolve("event.json"), text);
     assertThat(restarted.committed(text)).isTrue();
 
-    restarted.select(null);
+    restarted.selectOfficial();
     assertThat(restarted.selectedText()).isEmpty();
   }
 
