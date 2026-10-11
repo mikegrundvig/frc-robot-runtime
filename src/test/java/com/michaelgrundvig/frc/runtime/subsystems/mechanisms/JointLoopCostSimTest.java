@@ -8,7 +8,10 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER_INTAKING;
+import static com.michaelgrundvig.frc.world.robot.MechanismWiring.CANCODER;
+import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TALON_FX;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.InItsOwnJvm;
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -50,6 +53,9 @@ import org.wpilib.system.RobotController;
  * held on its switch. A fourth gives it one it rests on, so that the pivot pushed down at a voltage
  * is held neutral on that switch.
  *
+ * <p>A fifth puts the pivot on a TalonFX with a CANcoder read beside its rotor every loop, which is
+ * the reading of an absolute encoder that every such joint pays for.
+ *
  * <p>It runs in a JVM of its own ({@link InItsOwnJvm}), so that what it measures does not depend on
  * what the JVM ran before, as the drive's loop was found to.
  *
@@ -58,7 +64,7 @@ import org.wpilib.system.RobotController;
  * also held to a tight one, because each of these scenarios is a steady state, in which the same
  * thing is asked and the interlock holds or does not hold as it did the loop before, and enforcing
  * an interlock through such a loop must make no new objects. A joint held on a limit switch is held
- * as tightly.
+ * as tightly, and so is one that reads its absolute encoder beside its motor.
  */
 @SimulationTest
 @InItsOwnJvm
@@ -90,6 +96,16 @@ class JointLoopCostSimTest {
   private static final double MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH =
       MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
 
+  /**
+   * The most a joint may allocate a loop, on average, reading its absolute encoder beside its
+   * motor's count: as little as under an interlock. Working out where the encoder says the joint is
+   * makes nothing, because the window of positions the encoder tells apart is worked out once, as
+   * the joint's IO is built ({@code RobotMath#absoluteReader}). It measured 0.2 bytes when this was
+   * written, and 7,200 before, when the window was worked out every loop.
+   */
+  private static final double MOST_BYTES_A_LOOP_READING_AN_ABSOLUTE_ENCODER =
+      MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
+
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
 
@@ -119,6 +135,19 @@ class JointLoopCostSimTest {
       RobotDefinitionBuilder.builder(ROBOT)
           .name("switched below")
           .sensors(List.of(PIVOT_DOWN))
+          .build();
+
+  /**
+   * The pivot on a TalonFX with a CANcoder that tells its rotor where it is once and is read beside
+   * the rotor every loop after, so that a slip between the two shows.
+   */
+  private static final RobotDefinition READ_BESIDE_ITS_ROTOR =
+      RobotDefinitionBuilder.builder(
+              ROBOT.with(
+                  PIVOT
+                      .motors(motors -> motors.on(TALON_FX.can(21)))
+                      .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))))
+          .name("read beside its rotor")
           .build();
 
   /** What a joint is asked each loop while it is measured. */
@@ -177,6 +206,13 @@ class JointLoopCostSimTest {
             SWITCHED_BELOW,
             PIVOT,
             Asking.PIVOT_DOWN_AT_A_VOLTAGE));
+
+    costs.add(
+        measure(
+            "pivot idle, its CANcoder read beside its rotor",
+            READ_BESIDE_ITS_ROTOR,
+            PIVOT,
+            Asking.NOTHING));
 
     StringBuilder report = new StringBuilder();
     for (Cost cost : costs) {
@@ -266,6 +302,9 @@ class JointLoopCostSimTest {
     }
     if (robot == SWITCHED || robot == SWITCHED_BELOW) {
       return MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH;
+    }
+    if (robot == READ_BESIDE_ITS_ROTOR) {
+      return MOST_BYTES_A_LOOP_READING_AN_ABSOLUTE_ENCODER;
     }
     return MOST_BYTES_A_LOOP;
   }

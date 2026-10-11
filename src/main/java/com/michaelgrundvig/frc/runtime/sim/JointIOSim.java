@@ -5,6 +5,7 @@ import static org.wpilib.units.Units.Amps;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.ControllerSettings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
 import com.michaelgrundvig.frc.simulation.JointPlant;
+import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Driven;
@@ -13,7 +14,6 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
-import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +106,17 @@ final class JointIOSim implements JointIO {
     HOMING_PUSH
   }
 
+  /**
+   * An absolute encoder the motor controller reads, as the robot's definition has it, with what
+   * depends only on the definition worked out once: looking its ratio up and working its window out
+   * both make objects, and it is read every loop, or every millisecond where the controller's loop
+   * runs on it.
+   *
+   * @param turnsPerJointTurn how many turns it makes for one turn of the joint, or one meter of it
+   * @param reader turns its reading into where the joint is, inside the window it tells apart
+   */
+  private record EncoderRead(double turnsPerJointTurn, AbsoluteReader reader) {}
+
   private final Joint joint;
   private final RobotMath math;
   private final JointPlant plant;
@@ -157,13 +168,13 @@ final class JointIOSim implements JointIO {
    * The absolute encoder the robot's IO reads each loop beside the motor's count: a CANcoder that
    * its TalonFX reads its rotor beside, or a SPARK's data port. Empty where the IO reads none so.
    */
-  private final Optional<Sensor.Encoder> readBesideCount;
+  private final Optional<EncoderRead> readBesideCount;
 
   /**
    * The absolute encoder the motor controller is seeded from, as a real one is at power on and
    * after it restarts. Empty where the controller reads no absolute encoder.
    */
-  private final Optional<Sensor.Encoder> seedsFrom;
+  private final Optional<EncoderRead> seedsFrom;
 
   /**
    * Whether the motor controller's own loop runs on the absolute encoder it reads, and not on its
@@ -214,7 +225,11 @@ final class JointIOSim implements JointIO {
     reportsReverseLimit = pins.reverse().filter(ControllerPins.OnPin.class::isInstance).isPresent();
 
     Optional<Driven.AbsoluteEncoder> wired = joint.driven().absoluteEncoder();
-    Optional<Sensor.Encoder> model = Optional.ofNullable(math.absoluteEncoder(joint));
+    Optional<EncoderRead> model =
+        Optional.ofNullable(math.absoluteEncoder(joint))
+            .map(
+                encoder ->
+                    new EncoderRead(Math.abs(encoder.ratio(joint)), math.absoluteReader(encoder)));
     readBesideCount = wired.filter(JointIOSim::isReadBesideCount).flatMap(encoder -> model);
     seedsFrom = wired.filter(Driven.AbsoluteEncoder::readByController).flatMap(encoder -> model);
     loopRunsOnEncoder = wired.map(Driven.AbsoluteEncoder::runsControllerLoop).orElse(false);
@@ -539,12 +554,11 @@ final class JointIOSim implements JointIO {
    * An absolute encoder knows only the share of a turn it is in, so the reading is that share, put
    * back into the joint's units inside the window of positions the encoder's one turn tells apart.
    */
-  private double withinTheEncodersWindow(Sensor.Encoder model) {
+  private double withinTheEncodersWindow(EncoderRead model) {
     double unitsPerTurn = joint instanceof Joint.Revolute ? 2 * Math.PI : 1;
-    double encoderTurns =
-        encoder.of(plant.position()) * Math.abs(model.ratio(joint)) / unitsPerTurn;
+    double encoderTurns = encoder.of(plant.position()) * model.turnsPerJointTurn() / unitsPerTurn;
     double shareOfATurn = encoderTurns - Math.floor(encoderTurns);
-    return math.fromAbsolute(model, shareOfATurn);
+    return model.reader().position(shareOfATurn);
   }
 
   @Override

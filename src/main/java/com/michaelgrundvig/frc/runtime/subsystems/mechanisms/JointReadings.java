@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -27,9 +28,11 @@ final class JointReadings {
    * The absolute encoder of a joint, when the robot reads it itself.
    *
    * @param io the encoder's hardware
-   * @param model the encoder as the robot's definition has it, which turns its reading into where
-   *     the joint is. Empty if the definition has no encoder for the joint alone, and then its
-   *     reading is logged but says nothing of where the joint is.
+   * @param reader turns its reading into where the joint is, as the robot's definition has the
+   *     encoder. It is made once, here, because working the encoder's window out makes objects and
+   *     the encoder is read every loop ({@code RobotMath#absoluteReader}). Empty if the definition
+   *     has no encoder for the joint alone, and then its reading is logged but says nothing of
+   *     where the joint is.
    * @param port the Systemcore port it is wired to, whose offset and direction its raw reading is
    *     corrected by, if it is on one
    * @param closesLoop whether the joint's loop closes on this encoder, so that the encoder's word
@@ -37,7 +40,7 @@ final class JointReadings {
    */
   record RobotReadEncoder(
       AbsoluteEncoderIO io,
-      Optional<Sensor.Encoder> model,
+      Optional<AbsoluteReader> reader,
       Optional<MechanismWiring.PortEncoder> port,
       boolean closesLoop) {
     /** A joint's absolute encoder as the robot reads it, wired as the joint's block says. */
@@ -45,8 +48,9 @@ final class JointReadings {
       Optional<MechanismWiring.PortEncoder> port =
           joint.driven().absoluteEncoder().flatMap(Driven.AbsoluteEncoder::port);
       boolean closesLoop = port.isPresent() && port.get().closedLoop();
-      Optional<Sensor.Encoder> model = Optional.ofNullable(math.absoluteEncoder(joint));
-      return new RobotReadEncoder(io, model, port, closesLoop);
+      Optional<AbsoluteReader> reader =
+          Optional.ofNullable(math.absoluteEncoder(joint)).map(math::absoluteReader);
+      return new RobotReadEncoder(io, reader, port, closesLoop);
     }
 
     /** What the joint's homing needs to know of this encoder. */
@@ -90,7 +94,6 @@ final class JointReadings {
     }
   }
 
-  private final RobotMath math;
   private final JointIO io;
   private final JointIOInputsAutoLogged inputs = new JointIOInputsAutoLogged();
   private final Optional<RobotReadEncoder> encoder;
@@ -131,14 +134,12 @@ final class JointReadings {
    * @param hasCancoder whether the joint's leading motor controller reads a CANcoder
    */
   JointReadings(
-      RobotMath math,
       String key,
       JointIO io,
       Optional<RobotReadEncoder> encoder,
       PinnedSwitches pinned,
       Sensors sensors,
       boolean hasCancoder) {
-    this.math = math;
     this.io = io;
     this.encoder = encoder;
     this.pinned = pinned;
@@ -189,13 +190,13 @@ final class JointReadings {
     RobotReadEncoder read = encoder.get();
     read.io().updateInputs(encoderInputs);
     Logger.processInputs(encoderKey, encoderInputs);
-    if (read.model().isEmpty() || !encoderInputs.connected) {
+    if (read.reader().isEmpty() || !encoderInputs.connected) {
       return;
     }
     // The port's wiring says how the encoder is mounted: its offset and its direction.
     double share = encoderInputs.share;
     double corrected = read.port().isPresent() ? read.port().get().read(share) : share;
-    positionByEncoder = math.fromAbsolute(read.model().get(), corrected);
+    positionByEncoder = read.reader().get().position(corrected);
     encoderSaysWhere = true;
   }
 
@@ -267,7 +268,7 @@ final class JointReadings {
    * Whether the joint has an absolute encoder the robot reads itself with a model to read it by.
    */
   boolean hasRobotReadEncoder() {
-    return encoder.isPresent() && encoder.get().model().isPresent();
+    return encoder.isPresent() && encoder.get().reader().isPresent();
   }
 
   /** Whether the absolute encoder the robot reads itself gave a reading this loop. */

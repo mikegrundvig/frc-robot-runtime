@@ -432,7 +432,6 @@ public final class JointMechanism implements Mechanism {
     boolean hasCancoder = encoder.flatMap(Driven.AbsoluteEncoder::cancoder).isPresent();
     readings =
         new JointReadings(
-            math,
             key,
             io,
             robotReadEncoder,

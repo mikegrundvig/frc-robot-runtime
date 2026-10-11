@@ -18,6 +18,7 @@ import com.ctre.phoenix6.signals.MagnetHealthValue;
 import com.ctre.phoenix6.signals.ReverseLimitValue;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.Actuator;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.Drive;
@@ -28,7 +29,6 @@ import com.michaelgrundvig.frc.world.robot.MechanismRotations;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
-import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import java.util.ArrayList;
 import java.util.List;
@@ -110,7 +110,6 @@ public final class JointIOTalon implements JointIO {
    */
   private static final double FAULTS_HZ = 4;
 
-  private final RobotMath math;
   private final PhoenixTalon leader;
   private final List<FollowingTalon> followers;
 
@@ -259,8 +258,9 @@ public final class JointIOTalon implements JointIO {
    *
    * @param absolutePosition where its magnet is, with the CANcoder's own offset, direction and wrap
    *     point already applied
-   * @param model the definition's encoder that this CANcoder is, which converts its reading into
-   *     the joint's units
+   * @param reader converts its reading into the joint's units, as the definition's encoder that
+   *     this CANcoder is does. It is made once, at startup, because working the encoder's window
+   *     out makes objects and the CANcoder is read every loop ({@code RobotMath#absoluteReader}).
    * @param seedsTheRotor whether the leader reads its own rotor, so the robot tells it where the
    *     joint is from this CANcoder and reads the CANcoder each loop beside it. False when the
    *     leader reads the CANcoder itself.
@@ -270,7 +270,7 @@ public final class JointIOTalon implements JointIO {
       StatusSignal<MagnetHealthValue> magnetHealth,
       StatusSignal<Integer> faults,
       Restarts restarts,
-      Sensor.Encoder model,
+      AbsoluteReader reader,
       boolean seedsTheRotor) {}
 
   /**
@@ -303,7 +303,6 @@ public final class JointIOTalon implements JointIO {
     Drive drive = math.drivesOf(joint).get(0);
     settingsFor = control -> ControllerSettings.talon(math, joint, control);
     PhoenixMechanism.Settings settings = settingsFor.apply(ControllerSettings.control(joint));
-    this.math = math;
     rotations = settings.rotations();
     CANBus bus = PhoenixMechanism.bus(wiredLeader.bus());
     Motor motor = ((Actuator.Motors) drive.actuator()).motor();
@@ -328,7 +327,7 @@ public final class JointIOTalon implements JointIO {
                 startCancoder(
                     new CANcoder(wiring.id(), bus),
                     settings.cancoder().orElseThrow(),
-                    Objects.requireNonNull(math.absoluteEncoder(joint)),
+                    math.absoluteReader(Objects.requireNonNull(math.absoluteEncoder(joint))),
                     leaderReadsItsRotor,
                     neverConfirmed));
     unconfigured = String.join(", ", neverConfirmed);
@@ -415,14 +414,14 @@ public final class JointIOTalon implements JointIO {
   /**
    * Sends the joint's CANcoder its offset, direction and wrap point, and waits for it to confirm.
    *
-   * @param model the definition's encoder that the CANcoder is
+   * @param reader converts the CANcoder's reading into the joint's units
    * @param seedsTheRotor whether the leader reads its own rotor, and is told where the joint is
    *     from this CANcoder
    */
   private static Cancoder startCancoder(
       CANcoder device,
       CANcoderConfiguration settings,
-      Sensor.Encoder model,
+      AbsoluteReader reader,
       boolean seedsTheRotor,
       List<String> neverConfirmed) {
     boolean tookIt =
@@ -435,7 +434,7 @@ public final class JointIOTalon implements JointIO {
         device.getMagnetHealth(),
         device.getFaultField(false),
         new Restarts(device),
-        model,
+        reader,
         seedsTheRotor);
   }
 
@@ -600,7 +599,7 @@ public final class JointIOTalon implements JointIO {
     if (!reading.refresh().getStatus().isOK()) {
       return Double.NaN;
     }
-    return math.fromAbsolute(cancoder.get().model(), reading.getValueAsDouble());
+    return cancoder.get().reader().position(reading.getValueAsDouble());
   }
 
   /**

@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevMechanism;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
 import com.michaelgrundvig.frc.runtime.lib.wiring.CanPorts;
+import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
@@ -141,12 +142,12 @@ public final class JointIOSpark implements JointIO {
    *
    * @param reading the SPARK's reading of it, in turns from 0 to 1, with the encoder's direction
    *     and offset already applied by the SPARK
-   * @param model the definition's encoder that it is, which converts its reading into the joint's
-   *     units
+   * @param reader converts its reading into the joint's units, as the definition's encoder that it
+   *     is does. It is made once, here, because working the encoder's window out makes objects and
+   *     the encoder is read every loop ({@code RobotMath#absoluteReader}).
    */
-  private record DataPortEncoder(SparkAbsoluteEncoder reading, Sensor.Encoder model) {}
+  private record DataPortEncoder(SparkAbsoluteEncoder reading, AbsoluteReader reader) {}
 
-  private final RobotMath math;
   private final SparkBase leader;
   private final List<FollowingSpark> followers;
 
@@ -232,7 +233,6 @@ public final class JointIOSpark implements JointIO {
     }
     MechanismWiring.Device wiredLeader = wired.get(0);
     controller = wiredLeader.controller();
-    this.math = math;
     settingsFor = control -> ControllerSettings.spark(math, joint, control);
     tuned = ControllerSettings.control(joint);
     settings = settingsFor.apply(tuned);
@@ -285,7 +285,8 @@ public final class JointIOSpark implements JointIO {
     motorEncoder = leader.getEncoder();
     loop = leader.getClosedLoopController();
     absoluteEncoder =
-        encoderModel.map(model -> new DataPortEncoder(leader.getAbsoluteEncoder(), model));
+        encoderModel.map(
+            model -> new DataPortEncoder(leader.getAbsoluteEncoder(), math.absoluteReader(model)));
     // Until an absolute encoder says otherwise (seedMotorOnce) or the joint is homed, the joint is
     // taken to be where its definition rests it.
     motorEncoder.setPosition(rotations.toRotations(joint.restPosition()) * rotorRatio);
@@ -528,7 +529,7 @@ public final class JointIOSpark implements JointIO {
       return Double.NaN;
     }
     double encoderTurns = settings.windowEdge() + turnsFromTheEdge.get();
-    return rotations.toRotations(math.fromAbsolute(absoluteEncoder.get().model(), encoderTurns));
+    return rotations.toRotations(absoluteEncoder.get().reader().position(encoderTurns));
   }
 
   /**
