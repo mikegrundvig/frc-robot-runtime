@@ -53,6 +53,9 @@ import org.wpilib.system.RobotController;
  * <p><b>Odometry</b> is read once a loop, not at the TalonFX modules' 250 Hz: each loop gives one
  * reading.
  *
+ * <p><b>A frame that does not come</b> leaves the module's last reading standing, so the wheel
+ * reads as not having moved for that loop and not as back at 0 ({@link #takeTheFramesThatCame}).
+ *
  * <p><b>The absolute encoder's offset</b> is applied here, not on the SPARK, so it means what the
  * wiring says ({@link SwerveWiring.ModuleWiring}) whatever REV's own conventions. Its direction is
  * set on the SPARK, because the SPARK's loop runs on the reading.
@@ -121,8 +124,23 @@ final class ModuleIOSpark implements ModuleIO {
   private final Debouncer steerConnected =
       new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
 
-  /** The module's turning speed as last read, in rotations per second, for the coupling. */
+  /**
+   * The last reading of each frame that came: the drive motor's turns and its turns a second, the
+   * steering encoder's reading in turns, before its offset, and the module's turning speed in
+   * rotations per second, which the coupling is worked out with too. A frame that does not come
+   * leaves its reading here as it was. Each is 0 until its first frame, as REV reads one.
+   */
+  private double motorRotations;
+
+  private double motorRotationsPerSecond;
+  private double encoderRotations;
   private double steerRotationsPerSecond;
+
+  /** Whether this loop's frames of the drive's motor came, both of them. */
+  private boolean driveFramesCame;
+
+  /** Whether this loop's frame of the steering encoder's angle came. */
+  private boolean steerFrameCame;
 
   /**
    * @param wiring the module's SPARKs and its encoder's offset and directions
@@ -284,39 +302,97 @@ final class ModuleIOSpark implements ModuleIO {
 
   @Override
   public void updateInputs(ModuleIOInputs inputs) {
-    // A frame that did not come reads as 0 here, REV's default, not as the last reading (a joint's
-    // SPARK keeps its last: JointIOSpark). Only the connected flags say that it did not come.
-    Signal<Double> motorTurns = driveEncoder.getPosition();
-    Signal<Double> motorRpm = driveEncoder.getVelocity();
-    Signal<Double> encoderTurns = steerEncoder.getPosition();
-    Signal<Double> encoderRpm = steerEncoder.getVelocity();
-    double moduleRotations = encoderTurns.get(0.0) + encoderOffset;
-    steerRotationsPerSecond = encoderRpm.get(0.0) / SECONDS_PER_MINUTE;
+    // The frames are handed straight to a small step that takes numbers out of them, and nothing
+    // else is handed them. Measured: handing the four frames on to everything below instead cost
+    // 160 bytes more a loop, since the JIT then had to keep each frame as an object.
+    takeTheFramesThatCame(
+        driveEncoder.getPosition(),
+        driveEncoder.getVelocity(),
+        steerEncoder.getPosition(),
+        steerEncoder.getVelocity());
+    fill(inputs);
+  }
 
-    inputs.driveConnected = driveConnected.calculate(motorTurns.isValid() && motorRpm.isValid());
+  /**
+   * The same, from frames a test hands it: one that did not come, which REV's simulation never
+   * leaves out by itself.
+   */
+  void updateInputs(
+      ModuleIOInputs inputs,
+      Signal<Double> motorTurns,
+      Signal<Double> motorRpm,
+      Signal<Double> encoderTurns,
+      Signal<Double> encoderRpm) {
+    takeTheFramesThatCame(motorTurns, motorRpm, encoderTurns, encoderRpm);
+    fill(inputs);
+  }
+
+  /**
+   * Takes each frame that came this loop as the module's reading, and notes which SPARKs answered.
+   *
+   * <p>A frame that did not come reads as REV's default, 0, which is also what a wheel that has not
+   * turned and an encoder at its zero read. Taken as a reading, it would put the wheel back at 0
+   * and the module at its encoder's offset for one loop, and odometry would take the wheel to have
+   * rolled all the way back. So a missing frame is never taken as a reading: the last reading of
+   * that frame stands, as a joint's SPARK keeps its last ({@code JointIOSpark}), and the wheel
+   * reads as not having moved this loop. After half a second of missing frames the SPARK counts as
+   * disconnected, and the drivetrain leaves its wheel out of odometry.
+   *
+   * @param motorTurns the drive motor's position frame, in the motor's turns
+   * @param motorRpm the drive motor's speed frame, in the motor's turns a minute
+   * @param encoderTurns the steering encoder's position frame, in turns from 0 to 1
+   * @param encoderRpm the steering encoder's speed frame, in turns a minute
+   */
+  private void takeTheFramesThatCame(
+      Signal<Double> motorTurns,
+      Signal<Double> motorRpm,
+      Signal<Double> encoderTurns,
+      Signal<Double> encoderRpm) {
+    if (motorTurns.isValid()) {
+      motorRotations = motorTurns.get();
+    }
+    if (motorRpm.isValid()) {
+      motorRotationsPerSecond = motorRpm.get() / SECONDS_PER_MINUTE;
+    }
+    if (encoderTurns.isValid()) {
+      encoderRotations = encoderTurns.get();
+    }
+    if (encoderRpm.isValid()) {
+      steerRotationsPerSecond = encoderRpm.get() / SECONDS_PER_MINUTE;
+    }
+    driveFramesCame = motorTurns.isValid() && motorRpm.isValid();
+    steerFrameCame = encoderTurns.isValid();
+  }
+
+  /** Fills the inputs from the module's readings as they stand after this loop's frames. */
+  private void fill(ModuleIOInputs inputs) {
+    double moduleRotations = encoderRotations + encoderOffset;
+
+    inputs.driveConnected = driveConnected.calculate(driveFramesCame);
     double wheelRotations =
         ModuleIOTalonFX.wheelRotations(
-            motorTurns.get(0.0) / driveGearing, moduleRotations, couplingRatio, driveGearing);
+            motorRotations / driveGearing, moduleRotations, couplingRatio, driveGearing);
     inputs.drivePositionRad = TWO_PI * wheelRotations;
     inputs.driveVelocityRadPerSec =
         TWO_PI
             * ModuleIOTalonFX.wheelRotations(
-                motorRpm.get(0.0) / SECONDS_PER_MINUTE / driveGearing,
+                motorRotationsPerSecond / driveGearing,
                 steerRotationsPerSecond,
                 couplingRatio,
                 driveGearing);
     // A SPARK reports its output as a share of the battery's voltage.
-    inputs.driveAppliedVolts = drive.getAppliedOutput().get(0.0) * drive.getBusVoltage().get(0.0);
+    double driveShare = drive.getAppliedOutput().get(0.0);
+    inputs.driveAppliedVolts = driveShare * drive.getBusVoltage().get(0.0);
     double driveAmps = Math.abs(drive.getOutputCurrent().get(0.0));
     inputs.driveStatorCurrentAmps = driveAmps;
     // A SPARK measures the current through its motor, not what it draws from the battery. The
     // battery's share is estimated as the motor's current times the share of the battery's voltage
     // across the motor.
-    inputs.driveSupplyCurrentAmps = Math.abs(drive.getAppliedOutput().get(0.0)) * driveAmps;
+    inputs.driveSupplyCurrentAmps = Math.abs(driveShare) * driveAmps;
     // Whether the SPARK's current limit is holding the motor back is not read.
     inputs.driveTorqueLimited = false;
 
-    inputs.steerConnected = steerConnected.calculate(encoderTurns.isValid());
+    inputs.steerConnected = steerConnected.calculate(steerFrameCame);
     inputs.steerAngle = Rotation2d.fromRotations(moduleRotations);
     inputs.steerVelocityRadPerSec = TWO_PI * steerRotationsPerSecond;
     inputs.steerAppliedVolts = steer.getAppliedOutput().get(0.0) * steer.getBusVoltage().get(0.0);

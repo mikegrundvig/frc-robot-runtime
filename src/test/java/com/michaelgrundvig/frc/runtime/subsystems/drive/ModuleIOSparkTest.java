@@ -12,11 +12,14 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.revrobotics.REVLibError;
+import com.revrobotics.RelativeEncoder;
 import com.revrobotics.sim.SparkAbsoluteEncoderSim;
 import com.revrobotics.spark.ClosedLoopSlot;
 import com.revrobotics.spark.SparkFlex;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.SparkSim;
+import com.revrobotics.util.Signal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.hardware.bus.CANPort;
@@ -77,6 +80,90 @@ class ModuleIOSparkTest {
     assertThat(inputs.steerAngle.getRotations()).isCloseTo(0.2, within(1e-6));
     assertThat(inputs.odometryTimestampsNanos).hasSize(1);
     assertThat(inputs.odometrySteerAnglesRad[0]).isCloseTo(0.4 * Math.PI, within(1e-5));
+  }
+
+  /**
+   * A frame that does not come reads as REV's default, 0, which is also what a wheel that has not
+   * turned and an encoder at its zero read. So the module's last readings stand instead: the wheel
+   * stays two turns on, the module at 0.2 of a turn, and this loop's odometry reading is the last
+   * one again, so odometry sees a wheel that did not move. A wheel read at 0 would have rolled two
+   * turns back in one loop, at an angle off by the encoder's whole reading. The frames that come
+   * next are read again.
+   */
+  @Test
+  void aFrameThatDoesntComeLeavesTheLastReading() {
+    ModuleIOSpark io = module(17, 18, -0.1);
+    double gearing = MAX_SWERVE.driveGearing().ratio();
+    SparkSim drive = new SparkSim(io.drive(), DCMotor.getNeoVortex(1));
+    drive.setPosition(2 * gearing);
+    drive.iterate(120, 12, 0.02);
+    SparkAbsoluteEncoderSim encoder = new SparkAbsoluteEncoderSim((SparkMax) io.steer());
+    encoder.setPosition(0.3);
+    encoder.setVelocity(30);
+    ModuleIO.ModuleIOInputs inputs = new ModuleIO.ModuleIOInputs();
+    io.updateInputs(inputs);
+    double wheel = inputs.drivePositionRad;
+    double wheelSpeed = inputs.driveVelocityRadPerSec;
+    double angle = inputs.steerAngle.getRotations();
+    double turning = inputs.steerVelocityRadPerSec;
+    double odometryWheel = inputs.odometryDrivePositionsRad[0];
+    double odometryAngle = inputs.odometrySteerAnglesRad[0];
+    Signal<Double> lost = Signal.ofError(0.0, REVLibError.kTimeout, 0);
+
+    io.updateInputs(inputs, lost, lost, lost, lost);
+    double keptWheel = inputs.drivePositionRad;
+    double keptWheelSpeed = inputs.driveVelocityRadPerSec;
+    double keptAngle = inputs.steerAngle.getRotations();
+    double keptTurning = inputs.steerVelocityRadPerSec;
+    double[] keptOdometryWheel = inputs.odometryDrivePositionsRad;
+    double[] keptOdometryAngle = inputs.odometrySteerAnglesRad;
+    drive.setPosition(3 * gearing);
+    drive.iterate(120, 12, 0.02);
+    io.updateInputs(inputs);
+
+    // REV's simulation carries the wheel a little on as it steps at a speed.
+    assertThat(wheel).as("two turns of the wheel and a little").isCloseTo(4 * Math.PI, within(0.1));
+    assertThat(wheelSpeed).isPositive();
+    assertThat(angle).isCloseTo(0.2, within(1e-6));
+    assertThat(turning).as("30 RPM of the module").isCloseTo(Math.PI, within(1e-6));
+    assertThat(keptWheel).as("not 0").isEqualTo(wheel);
+    assertThat(keptWheelSpeed).isEqualTo(wheelSpeed);
+    assertThat(keptAngle).as("not its offset").isEqualTo(angle);
+    assertThat(keptTurning).isEqualTo(turning);
+    assertThat(keptOdometryWheel)
+        .as("odometry's wheel did not move")
+        .containsExactly(odometryWheel);
+    assertThat(keptOdometryAngle).containsExactly(odometryAngle);
+    assertThat(inputs.drivePositionRad)
+        .as("the next frame is read again")
+        .isCloseTo(6 * Math.PI, within(0.1));
+  }
+
+  /**
+   * Each frame is kept on its own: the steering's angle that does not come leaves the last angle,
+   * while the wheel, whose frame came, is read on.
+   */
+  @Test
+  void aSteeringFrameThatDoesntComeLeavesTheWheelReadOn() {
+    ModuleIOSpark io = module(19, 25, -0.1);
+    double gearing = MAX_SWERVE.driveGearing().ratio();
+    SparkSim drive = new SparkSim(io.drive(), DCMotor.getNeoVortex(1));
+    drive.setPosition(2 * gearing);
+    drive.iterate(0, 12, 0.02);
+    new SparkAbsoluteEncoderSim((SparkMax) io.steer()).setPosition(0.3);
+    ModuleIO.ModuleIOInputs inputs = new ModuleIO.ModuleIOInputs();
+    io.updateInputs(inputs);
+    Signal<Double> lost = Signal.ofError(0.0, REVLibError.kTimeout, 0);
+    RelativeEncoder motor = io.drive().getEncoder();
+
+    drive.setPosition(3 * gearing);
+    drive.iterate(0, 12, 0.02);
+    io.updateInputs(inputs, motor.getPosition(), motor.getVelocity(), lost, lost);
+
+    assertThat(inputs.steerAngle.getRotations()).as("the last angle").isCloseTo(0.2, within(1e-6));
+    assertThat(inputs.odometrySteerAnglesRad[0]).isCloseTo(0.4 * Math.PI, within(1e-5));
+    assertThat(inputs.drivePositionRad).as("three turns").isCloseTo(6 * Math.PI, within(1e-4));
+    assertThat(inputs.odometryDrivePositionsRad[0]).isCloseTo(6 * Math.PI, within(1e-4));
   }
 
   /**
