@@ -314,6 +314,14 @@ overshoot, settling and steady-state error, and runs are laid side by side.
 Nothing stops you running SysId by hand and writing its numbers in. The gains accept SysId's
 units.
 
+Why there is no routine: the method is sound, and the cost is in its seams. You need a routine in
+robot code, a log on the robot, a desktop tool, a vendor's high-rate logger for the short
+mechanisms, and gains copied back by hand. The seeded feedforward and the step experiments cover
+what most teams use SysId for on an arm or an elevator, and nothing is copied anywhere.
+
+That judgement has not met a real robot. If step runs on one show the seeded feedforward is badly
+off, a characterization routine built into the runtime is the next thing to write.
+
 ### Logging and replay
 
 This is AdvantageKit. `Robot` extends `LoggedRobot`. Every device read goes through an IO
