@@ -86,6 +86,8 @@ dependencies {
     testFixturesApi "org.junit.jupiter:junit-jupiter-api"
     testFixturesApi libs.assertj.core
     testFixturesApi libs.archunit
+    // A test that must not share its JVM is run in one of its own by JUnit's launcher (InItsOwnJvm).
+    testFixturesImplementation "org.junit.platform:junit-platform-launcher"
     // The truth suite's known gaps, which the simulator's tests share with its library's.
     testFixturesApi testFixtures(project(":simulation"))
 

@@ -3,15 +3,11 @@ package com.michaelgrundvig.frc.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
-import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -20,9 +16,6 @@ import java.util.stream.Stream;
  * the runtime's replay test reads it, and so does a team's check of its dashboards' layouts.
  */
 public final class SessionRecording {
-  /** Where the robot programs' coverage goes, beside the test's; build.gradle reports it. */
-  static final String COVERAGE = "end-to-end.exec";
-
   private SessionRecording() {}
 
   /**
@@ -41,19 +34,7 @@ public final class SessionRecording {
   static void run(
       Path dir, String name, Map<String, String> properties, Map<String, String> environment)
       throws IOException, InterruptedException {
-    List<String> command = new ArrayList<>();
-    command.add(ProcessHandle.current().info().command().orElseThrow());
-    for (String argument : ManagementFactory.getRuntimeMXBean().getInputArguments()) {
-      if (!argument.startsWith("-javaagent")) {
-        command.add(argument);
-      } else if (argument.contains("jacoco")) {
-        command.add(coverageOfItsOwn(argument));
-      }
-    }
-    properties.forEach((key, value) -> command.add("-D" + key + "=" + value));
-    command.add("-cp");
-    command.add(System.getProperty("java.class.path"));
-    command.add(ReplaySessionRobot.class.getName());
+    List<String> command = ChildJvm.command(List.of(), properties, ReplaySessionRobot.class);
 
     Path output = dir.resolve(name + ".out");
     ProcessBuilder builder =
@@ -69,19 +50,6 @@ public final class SessionRecording {
     assertThat(finished && process.exitValue() == 0)
         .as(name + " run finished cleanly; its output:\n" + tail(output))
         .isTrue();
-  }
-
-  /**
-   * The test's coverage agent (JaCoCo's), for a robot program: it writes beside the test's own
-   * coverage, to {@value #COVERAGE}, which the coverage report counts too.
-   */
-  private static String coverageOfItsOwn(String agent) {
-    Matcher destination = Pattern.compile("destfile=([^,]*)").matcher(agent);
-    if (!destination.find()) {
-      return agent;
-    }
-    Path own = Path.of(destination.group(1)).toAbsolutePath().normalize().resolveSibling(COVERAGE);
-    return destination.replaceFirst(Matcher.quoteReplacement("destfile=" + own));
   }
 
   private static Path onlyLog(Path dir) throws IOException {

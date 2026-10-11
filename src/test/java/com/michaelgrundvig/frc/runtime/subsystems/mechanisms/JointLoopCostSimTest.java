@@ -10,6 +10,7 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER_INTAKING;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.michaelgrundvig.frc.runtime.InItsOwnJvm;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
@@ -49,6 +50,9 @@ import org.wpilib.system.RobotController;
  * held on its switch. A fourth gives it one it rests on, so that the pivot pushed down at a voltage
  * is held neutral on that switch.
  *
+ * <p>It runs in a JVM of its own ({@link InItsOwnJvm}), so that what it measures does not depend on
+ * what the JVM ran before, as the drive's loop was found to.
+ *
  * <p>Only the allocation is asserted: it is exact and repeatable, where the time depends on what
  * else the computer is doing. Every joint is held to a loose bound. A joint under an interlock is
  * also held to a tight one, because each of these scenarios is a steady state, in which the same
@@ -57,6 +61,7 @@ import org.wpilib.system.RobotController;
  * as tightly.
  */
 @SimulationTest
+@InItsOwnJvm
 @ExtendWith(RobotSim.class)
 class JointLoopCostSimTest {
   /** Loops run before anything is measured, so the JIT has compiled the loop. */

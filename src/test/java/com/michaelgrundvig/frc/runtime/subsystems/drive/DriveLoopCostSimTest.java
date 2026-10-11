@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.InItsOwnJvm;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
@@ -38,6 +39,10 @@ import org.wpilib.system.RobotController;
  * soon that happens differs from run to run by a few hundred bytes a loop, so one batch alone is
  * not repeatable.
  *
+ * <p>It runs in a JVM of its own ({@link InItsOwnJvm}). What the JIT makes of the drive's loop
+ * depends on what the JVM ran before, and after the test of the drive's paths the sticks' loop
+ * allocated 700 bytes more than it does here.
+ *
  * <p>Only the allocation is asserted. Each situation is held to a bound a little above what it
  * measured when the bound was set, so that a change that makes the drive allocate more each loop
  * fails here and is looked at. The time is not asserted, because it depends on what else the
@@ -51,6 +56,7 @@ import org.wpilib.system.RobotController;
  * log while the wheels turn (512).
  */
 @SimulationTest
+@InItsOwnJvm
 @ExtendWith(RobotSim.class)
 class DriveLoopCostSimTest {
   /** Loops run before anything is measured, so the JIT has compiled the loop. */
