@@ -216,7 +216,7 @@ public final class DriveMove implements Command {
   static DriveMove goTo(Drive drive, Place place) {
     String refused =
         Refusals.asBuilt(
-            drive.getRegisteredScheduler(), drive.driver() == null ? Drive.NO_FIELD : null);
+            drive.getRegisteredScheduler(), drive.driver().isEmpty() ? Drive.NO_FIELD : null);
     return new DriveMove(
         drive,
         Kind.FOLLOW,
@@ -262,7 +262,7 @@ public final class DriveMove implements Command {
       shown.add(keyframe.toString());
       places |= keyframe.place() != null;
     }
-    if (why == null && places && drive.driver() == null) {
+    if (why == null && places && drive.driver().isEmpty()) {
       why = Drive.NO_FIELD;
     }
     String refused = Refusals.asBuilt(drive.getRegisteredScheduler(), why);

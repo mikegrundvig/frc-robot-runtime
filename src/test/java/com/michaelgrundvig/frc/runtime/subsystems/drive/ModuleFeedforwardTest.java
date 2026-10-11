@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.within;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Rotation2d;
-import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.system.DCMotor;
 
@@ -39,9 +38,9 @@ class ModuleFeedforwardTest {
 
     module.runSetpoint(ahead);
     double coasting = controller.feedforwardVolts;
-    module.runSetpoint(ahead, new Translation2d(50, 0));
+    module.runSetpoint(ahead, 50, 0);
     double pushing = controller.feedforwardVolts;
-    module.runSetpoint(ahead, new Translation2d(0, 50));
+    module.runSetpoint(ahead, 0, 50);
     double sideways = controller.feedforwardVolts;
 
     assertThat(pushing - coasting).isCloseTo(voltsFor50, within(1e-9));

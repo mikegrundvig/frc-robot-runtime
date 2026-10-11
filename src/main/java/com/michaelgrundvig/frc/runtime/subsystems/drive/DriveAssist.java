@@ -55,7 +55,7 @@ public final class DriveAssist implements Command {
   private final Drive drive;
   private final Heading heading;
   private final double toleranceRadians;
-  private final Drive.@Nullable Driver driver;
+  private final @Nullable Driver driver;
 
   /** Why it can't work, as it's built, or null. */
   private final @Nullable String refused;
@@ -72,7 +72,7 @@ public final class DriveAssist implements Command {
     this.drive = drive;
     this.heading = heading;
     this.toleranceRadians = toleranceRadians;
-    this.driver = drive.driver();
+    this.driver = drive.driver().orElse(null);
     this.refused =
         Refusals.asBuilt(drive.getRegisteredScheduler(), driver == null ? Drive.NO_DRIVER : why);
     this.name = "Drive facing " + heading.name();
@@ -115,7 +115,7 @@ public final class DriveAssist implements Command {
     Gate gate = aimed;
     if (gate == null) {
       String gateName = "aimed at " + heading.name();
-      Drive.Driver sticks = driver;
+      Driver sticks = driver;
       gate =
           refused != null || sticks == null
               ? Refusals.gate(
@@ -128,7 +128,7 @@ public final class DriveAssist implements Command {
     return gate;
   }
 
-  private boolean isAimed(Drive.Driver sticks, List<String> why) {
+  private boolean isAimed(Driver sticks, List<String> why) {
     Pose2d pose = drive.getPose();
     Optional<Alliance> alliance = sticks.alliance().get();
     Optional<Rotation2d> target = heading.resolve(pose, sticks.field().get(), alliance);
@@ -177,7 +177,7 @@ public final class DriveAssist implements Command {
 
   @Override
   public void run(Coroutine coroutine) {
-    Drive.Driver sticks = driver;
+    Driver sticks = driver;
     if (refused != null || sticks == null) {
       // Never works: it takes its loop all the same, and the drive's default command goes on.
       Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + refused);
@@ -216,13 +216,13 @@ public final class DriveAssist implements Command {
         omega =
             Math.abs(want) > Math.abs(from) ? from + Math.clamp(want - from, -step, step) : want;
       }
-      if (Math.abs(stick) > Drive.STICK_DEADBAND) {
-        omega = drive.turnFrom(stick);
+      if (Sticks.isPushed(stick)) {
+        omega = drive.turnRateAskedBy(stick);
       }
       asked = omega;
       Logger.recordOutput("Drive/HeadingTargetDegrees", target);
       Logger.recordOutput("Drive/HeadingErrorDegrees", error);
-      drive.driveField(drive.translationFrom(sticks.translation().get()), omega);
+      drive.driveField(drive.velocityAskedBy(sticks.translation().get()), omega);
       coroutine.yield();
     }
   }
