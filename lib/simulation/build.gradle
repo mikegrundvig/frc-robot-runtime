@@ -11,6 +11,7 @@ plugins {
     id "jacoco"
     id "com.diffplug.spotless"
     id "net.ltgt.errorprone"
+    alias(libs.plugins.pitest)
 }
 
 java {
@@ -76,3 +77,38 @@ tasks.named("test") {
 }
 
 apply from: rootProject.file("gradle/quality.gradle")
+
+// Mutation testing: PIT changes the simulation's compiled code a little at a time (a comparison
+// turned round, a returned value emptied, a call removed) and runs the tests that cover each
+// change. A change no test notices is a line the tests run without checking. Coverage says which
+// lines ran; this says which are checked. It takes minutes, so nothing runs it but its own task,
+// `pitest`: not `check`, not `ci`. Its report is build/reports/pitest/index.html. It judges the
+// library by its own tests alone: the robot program's truth suites and recorded runs, which hold
+// the simulator's numbers loop by loop, are not counted here.
+pitest {
+    pitestVersion = libs.versions.pitest.core.get()
+    junit5PluginVersion = libs.versions.pitest.junit5.get()
+    // All of the simulation, or the classes -PpitClasses names, for a shorter run while working on
+    // one: ./gradlew :runtime:simulation:pitest -PpitClasses='com.michaelgrundvig.frc.simulation.RigidFit*'
+    targetClasses = [
+        project.findProperty("pitClasses") ?: "com.michaelgrundvig.frc.simulation.*"
+    ]
+    targetTests = [
+        "com.michaelgrundvig.frc.simulation.*"
+    ]
+    // The builders are generated as the records compile: nothing of the simulation's to test.
+    excludedClasses = [
+        "com.michaelgrundvig.frc.simulation.**.*Builder*"
+    ]
+    // The physics' tests need WPILib's native math, as the tests themselves do.
+    jvmArgs = [
+        "-Djava.library.path=" + natives.get().asFile.absolutePath
+    ]
+    // Two test JVMs at once, as the tests themselves run (gradle/quality.gradle).
+    threads = 2
+    outputFormats = ["HTML", "XML"]
+    timestampedReports = false
+}
+tasks.named("pitest") {
+    dependsOn ":extractReleaseNative"
+}
