@@ -5,10 +5,11 @@ import java.util.List;
 /**
  * What can go wrong with the simulated world's parts, as data: each part's name and kind, and each
  * fault's name, whether it lasts or happens once, what it does, the numbers it takes, and how it's
- * undone. The robot program's simulator controls ({@code frc.robot.sim.Faults}) bind each fault to
- * the part it fails and declare it to Pitwall; the scenarios name them; docs/simulator.md lists
- * them. Where a fault's numbers depend on the world (the field's size, how a part was built), its
- * part's factory method takes what they depend on.
+ * undone. The robot program's simulator controls ({@code
+ * com.michaelgrundvig.frc.runtime.sim.Faults}) bind each fault to the part it fails and declare it
+ * to Pitwall; the scenarios name them; docs/simulator.md lists them. Where a fault's numbers depend
+ * on the world (the field's size, how a part was built), its part's factory method takes what they
+ * depend on.
  *
  * <p>A fault that lasts (a camera unplugged) can be undone, and undoing it puts the part back as
  * the world was built. An event (a hit) happens once; nothing undoes it, and its {@link
@@ -103,28 +104,48 @@ public final class FaultCatalog {
     return MODULES.get(module);
   }
 
+  /** How long a fault's effect is the fault's to keep up. */
+  public enum Lifetime {
+    /** It lasts until it is undone, and undoing it puts the part back as the world was built. */
+    LASTS_UNTIL_UNDONE,
+
+    /** It happens once, as a hit does. Nothing undoes it. */
+    HAPPENS_ONCE
+  }
+
   /**
    * One thing that can go wrong with a part.
    *
    * @param name what it's called, on the page and in the scenarios
-   * @param lasting whether it lasts until undone; otherwise it happens once
+   * @param lifetime whether it lasts until undone, or happens once
    * @param does what it does to the part, for the page
    * @param parameters the numbers it takes, in the order the page shows them
    * @param undone for a fault that lasts, what undoing it does; for one that happens once, how the
    *     robot recovers, since nothing undoes it
    */
   public record Fault(
-      String name, boolean lasting, String does, List<Parameter> parameters, String undone) {
+      String name, Lifetime lifetime, String does, List<Parameter> parameters, String undone) {
     public Fault {
       parameters = List.copyOf(parameters);
     }
 
-    /** The parameter with this name. */
+    /** Whether it lasts until undone; otherwise it happens once. */
+    public boolean lasting() {
+      return lifetime == Lifetime.LASTS_UNTIL_UNDONE;
+    }
+
+    /**
+     * The parameter with this name.
+     *
+     * @throws IllegalArgumentException if the fault takes no such parameter
+     */
     public Parameter parameter(String name) {
-      return parameters.stream()
-          .filter(parameter -> parameter.name().equals(name))
-          .findFirst()
-          .orElseThrow(() -> new IllegalArgumentException(this.name + " takes no " + name));
+      for (Parameter parameter : parameters) {
+        if (parameter.name().equals(name)) {
+          return parameter;
+        }
+      }
+      throw new IllegalArgumentException(this.name + " takes no " + name);
     }
   }
 
@@ -139,7 +160,8 @@ public final class FaultCatalog {
    */
   public record Parameter(String name, String unit, double min, double max, double initial) {
     public Parameter {
-      if (!(min <= initial && initial <= max)) {
+      boolean withinItsRange = min <= initial && initial <= max;
+      if (!withinItsRange) {
         throw new IllegalArgumentException(
             name + ": " + initial + " must be between " + min + " and " + max);
       }
@@ -155,11 +177,11 @@ public final class FaultCatalog {
   }
 
   private static Fault lasting(String name, String does, String undone, Parameter... parameters) {
-    return new Fault(name, true, does, List.of(parameters), undone);
+    return new Fault(name, Lifetime.LASTS_UNTIL_UNDONE, does, List.of(parameters), undone);
   }
 
   private static Fault event(String name, String does, String undone, Parameter... parameters) {
-    return new Fault(name, false, does, List.of(parameters), undone);
+    return new Fault(name, Lifetime.HAPPENS_ONCE, does, List.of(parameters), undone);
   }
 
   private static Parameter parameter(

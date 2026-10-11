@@ -1,7 +1,7 @@
 /**
  * The simulation: the simulated world's truth, and how its sensors read it. The robot's code never
  * sees any of it directly; it reads its IO, and in the simulator the robot program's adapters
- * ({@code frc.robot.sim}) answer that IO from here, as hardware would.
+ * ({@code com.michaelgrundvig.frc.runtime.sim}) answer that IO from here, as hardware would.
  *
  * <p>Where to start reading:
  *

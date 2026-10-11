@@ -5,35 +5,57 @@ import org.jspecify.annotations.Nullable;
 import org.wpilib.math.geometry.Translation2d;
 
 /**
- * A simulated IMU: the robot's true rotation, read with the scale error, drift, and noise of {@link
- * SensorErrors.GyroErrors}, and its attitude and acceleration. Like a real gyro, it reads zero
- * wherever the robot pointed when it started, and it follows the robot when someone picks it up and
- * turns it. The rest of the IMU reads the robot's attitude as it truly is, and its acceleration
- * through its own accelerometer ({@link AccelerometerModel}), which feels a hit's jolt on its own;
- * unplugged, it feels none. It can fail as a real one does, at any moment: disconnected (no
- * readings at all), frozen (still reporting, the same yaw every time), erring differently from now
+ * A simulated IMU: its gyro, and with it the robot's attitude and its accelerometer.
+ *
+ * <p><b>The gyro's model.</b> Its yaw reading is
+ *
+ * <pre>
+ *   reading = offset + scale · (every turn the robot truly made) + drift rate · (time run) + noise
+ * </pre>
+ *
+ * <p>The scale error, the steady drift and the noise are {@link SensorErrors.GyroErrors}. The noise
+ * is drawn fresh for each reading and does not add up. The drift is a steady rate, not a random
+ * walk. The offset is zero until the gyro's errors are changed or it is reset, and then it is
+ * whatever keeps the reading from jumping, or sets it to zero.
+ *
+ * <p>Like a real gyro, it reads zero wherever the robot pointed when it started, and it follows the
+ * robot when someone picks it up and turns it, since that is a turn the robot truly made ({@link
+ * ChassisTruth#yawTurnedRadians}).
+ *
+ * <p><b>The rest of the IMU.</b> The robot's pitch and roll are read exactly as they truly are. Its
+ * acceleration is read through its own accelerometer ({@link AccelerometerModel}), which feels a
+ * hit's jolt on its own.
+ *
+ * <p><b>How it fails</b>, as a real one does, at any moment: disconnected (no readings at all, and
+ * it feels no jolt), frozen (still reporting, the same yaw every time), erring differently from now
  * on, or reset to zero, as one that browns out and restarts does.
  *
- * <p>It reads the chassis's truth ({@link ChassisTruth}): every turn the robot truly made, and how
- * long the world has run, for its drift. The robot program's IO adapter reports it.
+ * <p>The robot program's IO adapter reports it.
  */
 public final class GyroModel {
   private final ChassisTruth chassis;
+  private final AccelerometerModel accelerometer;
+  private final Random noise;
+
+  /** How it erred as the robot was built: what undoing a change of its errors goes back to. */
   private final SensorErrors.GyroErrors built;
+
+  /** How it errs now, and the same in the units its reading is worked out in. */
   private SensorErrors.GyroErrors errors;
+
   private double scale;
   private double driftRadiansPerSecond;
   private double noiseRadians;
-  private final Random noise;
-  private final AccelerometerModel accelerometer;
 
   /**
-   * Added to its reading so the reading carries on from where it was when its errors change or it
-   * resets: none until one does.
+   * Added to its reading so that the reading carries on from where it was when its errors change,
+   * or starts again from zero when it resets. Zero until either happens.
    */
   private double offsetRadians;
 
-  private double latestYaw;
+  /** Its latest yaw reading: what it goes on reporting while frozen. */
+  private double latestYawRadians;
+
   private boolean connected = true;
   private boolean frozen;
 
@@ -79,10 +101,11 @@ public final class GyroModel {
    * scale and drifts at the new rate.
    */
   public void setErrors(SensorErrors.GyroErrors errors) {
-    double before = trueReading();
+    double readingBefore = readingWithoutNoise();
     takeErrors(errors);
     this.errors = errors;
-    offsetRadians += before - trueReading();
+    double readingAfter = readingWithoutNoise();
+    offsetRadians += readingBefore - readingAfter;
   }
 
   /** How it errs now. */
@@ -97,7 +120,7 @@ public final class GyroModel {
 
   /** Reads zero from now on wherever the robot points, as a gyro that restarts does. */
   public void reset() {
-    offsetRadians -= trueReading();
+    offsetRadians -= readingWithoutNoise();
   }
 
   private void takeErrors(SensorErrors.GyroErrors errors) {
@@ -107,7 +130,7 @@ public final class GyroModel {
   }
 
   /** What it reads before noise: the true turn at its scale, with its drift, from its offset. */
-  private double trueReading() {
+  private double readingWithoutNoise() {
     return offsetRadians
         + chassis.yawTurnedRadians() * scale
         + driftRadiansPerSecond * chassis.seconds();
@@ -138,16 +161,18 @@ public final class GyroModel {
     if (!connected) {
       return false;
     }
-    double reading = trueReading() + noiseRadians * noise.nextGaussian();
+    // The noise is drawn whether or not the reading is kept, so that freezing the gyro does not
+    // change the numbers it draws once it thaws.
+    double reading = readingWithoutNoise() + noiseRadians * noise.nextGaussian();
     if (!frozen) {
-      latestYaw = reading;
+      latestYawRadians = reading;
     }
     return true;
   }
 
   /** Its latest yaw reading, in radians. */
   public double yawRadians() {
-    return latestYaw;
+    return latestYawRadians;
   }
 
   /** How fast it reads the robot turning, at its scale, in rad/s. */
