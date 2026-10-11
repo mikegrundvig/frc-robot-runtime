@@ -53,7 +53,7 @@ import org.wpilib.system.RobotController;
  * also held to a tight one, because each of these scenarios is a steady state, in which the same
  * thing is asked and the interlock holds or does not hold as it did the loop before, and enforcing
  * an interlock through such a loop must make no new objects. A joint held on a limit switch is held
- * as tightly, above what checking the switch costs any joint that has one.
+ * as tightly.
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
@@ -77,19 +77,12 @@ class JointLoopCostSimTest {
   private static final double MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK = 8;
 
   /**
-   * What the model's check of one limit switch against where its joint is allocates a loop ({@code
-   * SwitchDoubt}): 64 bytes, for every joint with a limit switch whose position is known, whether
-   * or not the switch holds the joint.
-   */
-  private static final double BYTES_A_LOOP_CHECKING_A_SWITCH = 64;
-
-  /**
-   * The most a joint held on its limit switch may allocate a loop, on average: what checking the
-   * switch costs and no more, by the same margin as under an interlock. It measured 64.0 when this
-   * was written, so holding the joint on the switch makes nothing itself.
+   * The most a joint held on its limit switch may allocate a loop, on average: as little as under
+   * an interlock. Neither holding the joint on the switch nor the model's check of the switch
+   * against where the joint is ({@code SwitchDoubt}) makes anything.
    */
   private static final double MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH =
-      BYTES_A_LOOP_CHECKING_A_SWITCH + MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
+      MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
 
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
