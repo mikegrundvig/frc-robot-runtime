@@ -45,7 +45,9 @@ import com.revrobotics.spark.SparkSim;
 import com.revrobotics.spark.config.LimitSwitchConfig;
 import com.revrobotics.spark.config.LimitSwitchConfigAccessor;
 import com.revrobotics.util.Signal;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -422,6 +424,84 @@ class JointIOSparkTest {
     assertThat(before).isTrue();
     assertThat(homing).isFalse();
     assertThat(after).isTrue();
+  }
+
+  /**
+   * A homing that ends without finding where the joint is, canceled or out of time, never tells the
+   * SPARK where it is, so nothing switches its soft limits back on that way. The next request that
+   * is not a homing push does: the limits are on again, read back from the SPARK, and they hold.
+   * The pivot, past its upper limit and asked for a position farther past, gets nothing across its
+   * motor, where the same request with the limits off drives it on.
+   */
+  @Test
+  void anAbandonedHomingsSoftLimitsAreBackOnAtTheNextRequest() {
+    JointIOSpark io =
+        io(
+            pivot(28)
+                .retuned(
+                    control ->
+                        control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
+    SparkMax spark = (SparkMax) io.leader();
+    SparkSim sim = new SparkSim(spark, DCMotor.getNEO(1));
+    sim.enable();
+    // The pivot is at 2.35 rad, past its upper soft limit at 2.3.
+    double pastTheLimit = 2.35 / (2 * Math.PI) * 25;
+
+    io.home(2);
+    sim.setPosition(pastTheLimit);
+    sim.iterate(0, 12, 0.02);
+    boolean whileHoming = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
+    double pushedPast = sim.getAppliedOutput();
+    // The homing is abandoned here: nothing tells the SPARK where the joint is.
+    io.setPosition(2.5, 0, 0);
+    boolean forwardAfter = spark.configAccessor.softLimit.getForwardSoftLimitEnabled();
+    boolean reverseAfter = spark.configAccessor.softLimit.getReverseSoftLimitEnabled();
+    sim.setPosition(pastTheLimit);
+    for (int i = 0; i < 25; i++) {
+      sim.iterate(0, 12, 0.02);
+    }
+
+    assertThat(whileHoming).as("off while it homes").isFalse();
+    assertThat(pushedPast).as("the homing push drives it past the limit").isPositive();
+    assertThat(forwardAfter).as("on again at the next request").isTrue();
+    assertThat(reverseAfter).isTrue();
+    assertThat(sim.getAppliedOutput()).as("held at its soft limit").isZero();
+  }
+
+  /**
+   * Every request but a homing push switches the soft limits back on after a homing, and a homing
+   * push after any of them switches them off again.
+   */
+  @Test
+  void everyRequestButAHomingPushObeysTheSoftLimits() {
+    JointIOSpark io =
+        io(
+            pivot(27)
+                .retuned(
+                    control ->
+                        control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
+    SparkMax spark = (SparkMax) io.leader();
+    Map<String, Runnable> requests = new LinkedHashMap<>();
+    requests.put("a position", () -> io.setPosition(1, 0, 0));
+    requests.put("a speed", () -> io.setVelocity(1));
+    requests.put("a voltage", () -> io.setVoltage(1));
+    requests.put("a share of the battery", () -> io.setDutyCycle(0.1));
+    requests.put("neutral", io::stop);
+
+    requests.forEach(
+        (name, request) -> {
+          io.home(-2);
+          boolean whileHoming = spark.configAccessor.softLimit.getReverseSoftLimitEnabled();
+          request.run();
+
+          assertThat(whileHoming).as("off for the homing push before " + name).isFalse();
+          assertThat(spark.configAccessor.softLimit.getReverseSoftLimitEnabled())
+              .as("on again after " + name)
+              .isTrue();
+          assertThat(spark.configAccessor.softLimit.getForwardSoftLimitEnabled())
+              .as("on again after " + name)
+              .isTrue();
+        });
   }
 
   /**

@@ -72,6 +72,13 @@ import org.wpilib.math.filter.Debouncer;
  * encoder, if it has one, and the joint handles the rest ({@link JointMechanism}). The pit's tuning
  * is not saved on the SPARK, since it belongs to the session, so every restarted SPARK is sent it
  * again. The leader's soft limits come back switched on, as they were saved.
+ *
+ * <p><b>Soft limits and homing.</b> A SPARK has no request that ignores its soft limits, as a
+ * TalonFX's homing push does, so homing switches them off in the SPARK's settings ({@link #home}).
+ * A homing can end without finding where the joint is, canceled or out of time, so they are not
+ * left for the end of homing to switch back on: every other request switches them on first if a
+ * homing push left them off ({@link #obeySoftLimitsAgain}). The soft limits are then off only while
+ * the joint is being pushed home, as on a TalonFX and in the simulator.
  */
 public final class JointIOSpark implements JointIO {
   /** At startup each SPARK is sent its settings up to this many times, until it confirms them. */
@@ -92,7 +99,8 @@ public final class JointIOSpark implements JointIO {
     ON,
     /**
      * Switched off while the joint homes. Homing pushes the joint into a hard stop, and until the
-     * joint is homed its soft limits are in the wrong place.
+     * joint is homed its soft limits are in the wrong place. They stay off only as long as homing
+     * pushes: the next request of any other kind switches them back on.
      */
     OFF_FOR_HOMING
   }
@@ -590,6 +598,7 @@ public final class JointIOSpark implements JointIO {
    */
   @Override
   public void setPosition(double position, double velocity, double feedforwardVolts) {
+    obeySoftLimitsAgain();
     ControllerPlan plan = settings.plan();
     double speedLastRead = rotations.fromRotations(velocityRotationsPerSecond);
     double volts =
@@ -610,6 +619,7 @@ public final class JointIOSpark implements JointIO {
    */
   @Override
   public void setVelocity(double velocity) {
+    obeySoftLimitsAgain();
     double positionLastRead = rotations.fromRotations(positionRotations);
     loop.setSetpoint(
         rotations.toRotations(velocity) * settings.loopRatio() * SECONDS_PER_MINUTE,
@@ -621,23 +631,26 @@ public final class JointIOSpark implements JointIO {
 
   @Override
   public void setVoltage(double volts) {
+    obeySoftLimitsAgain();
     leader.setVoltage(volts);
   }
 
   @Override
   public void setDutyCycle(double share) {
+    obeySoftLimitsAgain();
     leader.setThrottle(share);
   }
 
   @Override
   public void stop() {
+    obeySoftLimitsAgain();
     leader.stopMotor();
   }
 
   /**
    * A voltage that ignores the soft limits. A SPARK has no request that ignores them, so they are
-   * switched off in its settings first, once, and stay off until the joint is told where it is
-   * ({@link #resetPosition}).
+   * switched off in its settings first, once, and stay off until the joint is asked anything else
+   * ({@link #obeySoftLimitsAgain}) or is told where it is ({@link #resetPosition}).
    */
   @Override
   public void home(double volts) {
@@ -656,9 +669,21 @@ public final class JointIOSpark implements JointIO {
   @Override
   public void resetPosition(double position) {
     motorEncoder.setPosition(rotations.toRotations(position) * rotorRatio);
-    if (softLimits == SoftLimits.OFF_FOR_HOMING) {
-      sendWhileRunning(leader, settings.softLimitsEnabled(controller, true));
-      softLimits = SoftLimits.ON;
+    obeySoftLimitsAgain();
+  }
+
+  /**
+   * Switches the soft limits back on if a homing push switched them off. Every request but a homing
+   * push starts with this, so a homing that was abandoned leaves the joint without its soft limits
+   * for no longer than it pushed.
+   *
+   * <p>They are sent once, when the state changes. Every other loop this is one comparison.
+   */
+  private void obeySoftLimitsAgain() {
+    if (softLimits == SoftLimits.ON) {
+      return;
     }
+    sendWhileRunning(leader, settings.softLimitsEnabled(controller, true));
+    softLimits = SoftLimits.ON;
   }
 }
