@@ -9,9 +9,11 @@ import static org.wpilib.units.Units.Seconds;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.configs.CANcoderConfiguration;
 import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
+import com.ctre.phoenix6.configs.FeedbackConfigs;
 import com.ctre.phoenix6.configs.HardwareLimitSwitchConfigs;
 import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.configs.SlotConfigs;
+import com.ctre.phoenix6.configs.SoftwareLimitSwitchConfigs;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.configs.TalonFXSConfiguration;
 import com.ctre.phoenix6.controls.Follower;
@@ -44,70 +46,78 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 
 /**
  * A mechanism's Phoenix 6 settings, translated from how the program drives its joint ({@link
- * ControllerPlan}): its TalonFX's ratios, gains, gravity, limits, direction and followers, in
- * Phoenix's units and terms, and its CANcoder's. The plan owns every value; this says them as
- * Phoenix holds them. Pure functions: the configurations are new objects for the caller to apply,
- * and no device is touched here.
+ * ControllerPlan}): the leading TalonFX's ratios, gains, gravity, limits and direction, each
+ * follower's settings, and the CANcoder's. The plan owns every value. This class only says them the
+ * way Phoenix holds them, in Phoenix's units and names. Every function here is pure: it returns new
+ * configuration objects for the caller to apply, and touches no device.
  *
- * <p>Positions are in the joint's rotations ({@link MechanismRotations}): a revolute joint's
- * rotations, a prismatic joint's drum's rotations. Every ratio Phoenix is given is a magnitude, and
- * every direction is the wiring's, as the joint moves forward ({@link MechanismWiring}): each motor
- * controller's, the leader first, as the joint's block names them. The gains go in slot 0, which
- * runs the plan's feedforward law itself, but for its kA term, which the program adds with each
- * request.
+ * <p><b>Units.</b> Phoenix's positions are in the joint's rotations ({@link MechanismRotations}): a
+ * turning joint's own rotations, or for a sliding joint, its drum's. Every ratio given to Phoenix
+ * is a magnitude. Every direction comes from the wiring ({@link MechanismWiring}), which says which
+ * way each motor turns as the joint moves forward.
  *
- * <p>What Phoenix can't hold is refused, by an {@link IllegalArgumentException} saying what and
- * why: a ratio, a gain or a gravity offset past its limits. What no motor controller could do the
- * plan refuses, and what the definition refuses of the joint's own block, soft limits past its
- * stops among them, never gets here. What's doubtful is noted, beside the settings ({@link
- * Settings#notes}): the plan's doubts, then Phoenix's own, an encoder wrapping close to the joint's
- * range and a gravity offset at Phoenix's limit.
+ * <p><b>Gains.</b> The gains go in slot 0, and the TalonFX runs the plan's feedforward law itself
+ * (kS, kV and gravity). The one exception is the kA term, which the program works out from its
+ * motion profile and adds to each request.
+ *
+ * <p><b>What is refused.</b> A value Phoenix cannot hold is refused with an {@link
+ * IllegalArgumentException} that says what and why: a ratio, a gain or a gravity offset past
+ * Phoenix's limits. What no motor controller could do, the plan has already refused, and what the
+ * robot's definition refuses about the joint's own block (soft limits past its stops, for one)
+ * never gets here.
+ *
+ * <p><b>What is doubted.</b> A value that is allowed but risky is noted beside the settings ({@link
+ * Settings#notes}): first the plan's own doubts, then Phoenix's, which are an encoder whose reading
+ * wraps close to the joint's range and a gravity offset close to Phoenix's limit.
  */
 public final class PhoenixMechanism {
   private PhoenixMechanism() {}
 
-  // Phoenix's own limits, in 26.70.0-alpha-2's configuration classes.
+  // Phoenix's own limits, as its configuration classes document them in 26.70.0-alpha-2.
 
   /**
-   * The largest ratio Phoenix holds: {@code FeedbackConfigs.SensorToMechanismRatio} and {@code
-   * RotorToSensorRatio}, and {@code DifferentialSensorsConfigs.SensorToDifferentialRatio}, each
-   * from -1000 to 1000.
+   * The largest ratio Phoenix holds, either way. It applies to {@code
+   * FeedbackConfigs.SensorToMechanismRatio} and {@code RotorToSensorRatio}, and to {@code
+   * DifferentialSensorsConfigs.SensorToDifferentialRatio}: each runs from -1000 to 1000.
    */
   static final double MAX_RATIO = 1000;
 
   /**
-   * The farthest {@code Slot0Configs.GravityArmPositionOffset} goes, in rotations, either way: its
-   * documented minimum and maximum, -0.25 and 0.25.
+   * The farthest {@code Slot0Configs.GravityArmPositionOffset} goes, in rotations, either way. Its
+   * documented range is -0.25 to 0.25: a quarter turn.
    */
   static final double MAX_GRAVITY_OFFSET = 0.25;
 
-  /** kS and kG, in volts: from -128 to 127. */
+  /** The least and most Phoenix holds as kS or kG, in volts: -128 to 127. */
   static final double MIN_VOLTS = -128;
 
   static final double MAX_VOLTS = 127;
 
-  // The helper's own judgment: chosen, each with its reason.
+  // This helper's own judgment, each value with its reason.
 
   /**
-   * How near Phoenix's ±0.25-rotation limit a gravity offset may come before it's noted: 5°. A
-   * center of mass that close to straight above or below the pivot at the joint's zero crosses it
-   * with a CAD change (wiring, a heavier roller), and Phoenix can't take the offset then.
+   * How near Phoenix's quarter-turn limit a gravity offset may come before it is noted, in
+   * rotations: 5°. An arm whose center of mass is that close to straight above or below the pivot,
+   * with the joint at zero, can cross the limit after an ordinary CAD change (wiring, a heavier
+   * roller), and then Phoenix cannot take the offset at all.
    */
   static final double GRAVITY_OFFSET_MARGIN = 5.0 / 360;
+
+  /** How far past a limit a value may be by rounding alone before it is refused. */
+  private static final double ROUNDING = 1e-9;
 
   /**
    * One mechanism's settings.
    *
-   * @param plan how the program drives its joint, which they say in Phoenix's terms: its units are
-   *     what its code converts the joint's positions with, to and from Phoenix's
-   * @param leader the leading TalonFX's: everything Phoenix needs to drive the joint
-   * @param followers each following TalonFX's, in the wiring's order
-   * @param cancoder the CANcoder's, if the mechanism has one
-   * @param notes what's doubtful about them, each a sentence for a log or a test
+   * @param plan how the program drives its joint, which these settings say in Phoenix's terms. Its
+   *     rotations are what the joint's IO converts positions with, to and from Phoenix's.
+   * @param leader the leading TalonFX's settings: everything Phoenix needs to drive the joint
+   * @param followers each following TalonFX's settings, in the wiring's order
+   * @param cancoder the CANcoder's settings, if the mechanism has one
+   * @param notes what is doubtful about the settings, each a sentence for a log or a test
    */
   public record Settings(
       ControllerPlan plan,
@@ -127,45 +137,58 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * A following TalonFX: its request and its own configuration, which keeps its current limits,
-   * neutral mode and position reading in step with the leader's.
+   * A following TalonFX. Following copies the leader's output and nothing else, so a follower still
+   * needs its own configuration to have the leader's current limits and neutral mode.
    *
    * @param id its CAN ID
-   * @param request what to send it: follow the leader, aligned or opposed as the wiring's
-   *     directions say
+   * @param request what to send it: follow the leader, turning the same way or the opposite way as
+   *     the wiring's directions say
    * @param configuration its own settings
    */
   public record FollowerSettings(int id, Follower request, TalonFXConfiguration configuration) {}
 
   /**
-   * A mechanism read by its motors' rotors alone.
+   * The CANcoder a mechanism has, with what is needed to work out its settings.
    *
-   * @param plan how the program drives its joint, its motors' controllers named, the leader first
+   * @param math what the robot's definition derives: where the encoder's reading should wrap
+   * @param encoder the definition's absolute encoder that the CANcoder is
+   * @param wiring where the CANcoder is wired, and how the TalonFX reads it
+   */
+  private record WiredCancoder(
+      RobotMath math, Sensor.Encoder encoder, MechanismWiring.Cancoder wiring) {}
+
+  /**
+   * The settings for a mechanism read by its motors' rotors alone.
+   *
+   * @param plan how the program drives its joint, naming its motors' controllers, the leader first
    * @throws IllegalArgumentException for what Phoenix can't hold
    */
   public static Settings configure(ControllerPlan plan) {
-    return build(plan, null, null, null);
+    return build(plan, Optional.empty());
   }
 
   /**
-   * A mechanism with a CANcoder: the definition's absolute encoder on the joint, wired as its
-   * block's CANcoder says, and read as its feedback says.
+   * The settings for a mechanism with a CANcoder: the definition's absolute encoder on the joint,
+   * wired as the joint's block says and read the way its feedback says.
    *
    * @param math what the robot's definition derives: where the encoder's reading wraps
-   * @param encoder the definition's absolute encoder the CANcoder is
-   * @param cancoder where it's wired, and how the TalonFX reads it
-   * @throws IllegalArgumentException as the other does, and for an encoder that isn't absolute on
-   *     the joint alone
+   * @param encoder the definition's absolute encoder that the CANcoder is
+   * @param cancoder where it is wired, and how the TalonFX reads it
+   * @throws IllegalArgumentException as {@link #configure(ControllerPlan)} does, and for an encoder
+   *     that isn't an absolute encoder on this joint alone
    */
   public static Settings configure(
       RobotMath math,
       ControllerPlan plan,
       Sensor.Encoder encoder,
       MechanismWiring.Cancoder cancoder) {
-    return build(plan, math, encoder, cancoder);
+    return build(plan, Optional.of(new WiredCancoder(math, encoder, cancoder)));
   }
 
-  /** The TalonFXS's motor arrangement for each catalog motor it drives, by its JST connector. */
+  /**
+   * Which motor a TalonFXS is told it drives, for each catalog motor it can drive. Each is plugged
+   * into the TalonFXS's JST connector.
+   */
   private static final Map<Motor, MotorArrangementValue> ARRANGEMENTS =
       Map.of(
           Motor.MINION, MotorArrangementValue.Minion_JST,
@@ -174,10 +197,10 @@ public final class PhoenixMechanism {
           Motor.NEO_VORTEX, MotorArrangementValue.VORTEX_JST);
 
   /**
-   * A TalonFXS's settings, from the ones worked out for a TalonFX on the same mechanism: the same
-   * slot, limits, profile, direction and neutral mode; its feedback in a TalonFXS's own terms (its
-   * motor's hall sensor for a TalonFX's rotor); and the motor plugged into it, which a TalonFXS
-   * needs to be told.
+   * A TalonFXS's settings, from the ones worked out for a TalonFX on the same mechanism. The gains,
+   * limits, direction and neutral mode carry over as they are. Two things differ. A TalonFXS has to
+   * be told which motor is plugged into it. And its feedback settings have other names: what a
+   * TalonFX calls its rotor, a TalonFXS reads from its motor's own commutation sensor.
    *
    * @throws IllegalArgumentException for a motor a TalonFXS doesn't drive
    */
@@ -208,13 +231,14 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * A CANcoder's settings: its offset and direction from the wiring, and its discontinuity point
-   * from the definition ({@link ControllerPlan#wrapPoint}), where its reading wraps as far from the
-   * joint's range as a turn allows.
+   * A CANcoder's settings: its offset and direction from the wiring, and where its reading wraps
+   * from the definition. An absolute encoder reads a share of one turn, so somewhere in the turn
+   * its reading jumps from its highest value back to its lowest. That point is put as far from the
+   * joint's range as one turn allows ({@link ControllerPlan#wrapPoint}).
    *
-   * @throws IllegalArgumentException for an encoder that isn't absolute, or whose joint's range is
-   *     more of its turn than one turn holds: a pair decoded together is read in code ({@code
-   *     RobotMath.absoluteWindow})
+   * @throws IllegalArgumentException for an encoder that isn't absolute, or whose joint's range
+   *     covers more than one turn of it. (A pair of encoders decoded together is read in code:
+   *     {@code RobotMath.absoluteWindow}.)
    */
   public static CANcoderConfiguration cancoder(
       RobotMath math, Sensor.Encoder encoder, MechanismWiring.Cancoder wiring) {
@@ -229,21 +253,37 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * A TalonFX's or TalonFXS's limits, from what's on them ({@link ControllerPins}): a switch on its
-   * pin, its polarity told; a limit switch on a CANdi on its bus, read over CAN, the CANdi's closed
-   * already meaning tripped; and nothing, which stops nothing. It stops only on a limit switch.
-   * Neither resets its position as it trips: homing is the robot's, where it can be checked.
+   * Sets a TalonFX's or TalonFXS's two limit inputs from what is wired to them ({@link
+   * ControllerPins}). Each input is one of three things:
+   *
+   * <ul>
+   *   <li>Nothing. The controller never stops on it.
+   *   <li>A switch on the controller's own limit pin. The controller is told its polarity, and
+   *       stops on it only if it is a limit switch (a beam break wired there is read, not stopped
+   *       on).
+   *   <li>A limit switch on a CANdi on the same bus, which the controller reads over CAN and always
+   *       stops on. The CANdi is told which state means tripped, so its "closed" already does.
+   * </ul>
+   *
+   * <p>Neither input resets the controller's position when it trips. Working out where the joint is
+   * belongs to the robot's homing, where it can be checked.
    */
   public static void limits(HardwareLimitSwitchConfigs limits, ControllerPins pins) {
     limits.ForwardLimitAutosetPositionEnable = false;
     limits.ReverseLimitAutosetPositionEnable = false;
     limits.ForwardLimitEnable = pins.forward().map(ControllerPins.Limit::stops).orElse(false);
     limits.ReverseLimitEnable = pins.reverse().map(ControllerPins.Limit::stops).orElse(false);
+    // What an input with nothing on it is left as: its own pin, normally open.
     limits.ForwardLimitSource = ForwardLimitSourceValue.LimitSwitchPin;
     limits.ReverseLimitSource = ReverseLimitSourceValue.LimitSwitchPin;
     limits.ForwardLimitType = ForwardLimitTypeValue.NormallyOpen;
     limits.ReverseLimitType = ReverseLimitTypeValue.NormallyOpen;
-    switch (pins.forward().orElse(null)) {
+    pins.forward().ifPresent(limit -> setForwardLimit(limits, limit));
+    pins.reverse().ifPresent(limit -> setReverseLimit(limits, limit));
+  }
+
+  private static void setForwardLimit(HardwareLimitSwitchConfigs limits, ControllerPins.Limit on) {
+    switch (on) {
       case ControllerPins.OnPin pin ->
           limits.ForwardLimitType =
               pin.polarity() == SensorWiring.Polarity.NORMALLY_OPEN
@@ -256,9 +296,12 @@ public final class PhoenixMechanism {
                 : ForwardLimitSourceValue.RemoteCANdiS2;
         limits.ForwardLimitRemoteSensorID = candi.id();
       }
-      case null -> {}
     }
-    switch (pins.reverse().orElse(null)) {
+  }
+
+  /** The same as {@link #setForwardLimit}, for the reverse input: Phoenix names each separately. */
+  private static void setReverseLimit(HardwareLimitSwitchConfigs limits, ControllerPins.Limit on) {
+    switch (on) {
       case ControllerPins.OnPin pin ->
           limits.ReverseLimitType =
               pin.polarity() == SensorWiring.Polarity.NORMALLY_OPEN
@@ -271,11 +314,10 @@ public final class PhoenixMechanism {
                 : ReverseLimitSourceValue.RemoteCANdiS2;
         limits.ReverseLimitRemoteSensorID = candi.id();
       }
-      case null -> {}
     }
   }
 
-  /** Phoenix's bus for the wiring's. */
+  /** Phoenix's name for a CAN bus the wiring names: one of Systemcore's ports, or a CANivore. */
   public static CANBus bus(CanBus bus) {
     return switch (bus) {
       case CanBus.Port port -> new CANBus(CanPorts.of(port.port()));
@@ -283,89 +325,119 @@ public final class PhoenixMechanism {
     };
   }
 
-  private static Settings build(
-      ControllerPlan plan,
-      @Nullable RobotMath math,
-      Sensor.@Nullable Encoder encoder,
-      MechanismWiring.@Nullable Cancoder wired) {
-    Joint joint = plan.joint();
-    List<MechanismWiring.Device> controllers = plan.controllers();
+  /** Works out every device's settings for one mechanism, with or without a CANcoder. */
+  private static Settings build(ControllerPlan plan, Optional<WiredCancoder> wired) {
     List<String> notes = new ArrayList<>(plan.notes());
+    MechanismWiring.Device leading = plan.controllers().get(0);
+
+    TalonFXConfiguration leader = new TalonFXConfiguration();
+    setOutput(leader, leading, plan);
+    Optional<CANcoderConfiguration> cancoder =
+        wired.map(each -> cancoderFor(plan.joint(), each, notes));
+    setFeedback(leader.Feedback, plan, wired);
+    leader.Slot0 = Slot0Configs.from(slot(plan, notes));
+    // A joint that turns freely, with no stops, takes the short way round to a position: for it,
+    // one turn on is the same place.
+    leader.ClosedLoopGeneral.ContinuousWrap = plan.turnsFreely();
+    plan.softLimits().ifPresent(limits -> setSoftLimits(leader.SoftwareLimitSwitch, plan, limits));
+
+    return new Settings(plan, leader, followers(plan, leading), cancoder, notes);
+  }
+
+  /**
+   * The CANcoder's settings for a mechanism, after checking that the definition's encoder is one a
+   * CANcoder can be. A reading that wraps too near the joint's range is noted.
+   *
+   * @throws IllegalArgumentException for an encoder that isn't absolute, or isn't on this joint
+   *     alone
+   */
+  private static CANcoderConfiguration cancoderFor(
+      Joint joint, WiredCancoder wired, List<String> notes) {
+    Sensor.Encoder encoder = wired.encoder();
+    boolean onThisJointAlone = encoder.joints().equals(List.of(joint));
+    if (!encoder.absolute() || !onThisJointAlone) {
+      throw new IllegalArgumentException(
+          encoder.label()
+              + " must be an absolute encoder on "
+              + joint.label()
+              + " alone, as a CANcoder is");
+    }
+    CANcoderConfiguration config = cancoder(wired.math(), encoder, wired.wiring());
+    double wrapPoint = config.MagnetSensor.AbsoluteSensorDiscontinuityPoint;
+    Optional.ofNullable(ControllerPlan.wrapProblem(encoder, wrapPoint)).ifPresent(notes::add);
+    return config;
+  }
+
+  /**
+   * Sets which sensor the leader's position comes from, and the ratios that turn that sensor's
+   * rotations into the joint's.
+   *
+   * <p>A leader that reads its own rotor has one ratio: rotor turns for each rotation of the joint
+   * ({@code SensorToMechanismRatio}). A leader that reads the CANcoder has two: CANcoder turns for
+   * each rotation of the joint ({@code SensorToMechanismRatio}), and rotor turns for each turn of
+   * the CANcoder ({@code RotorToSensorRatio}), which Phoenix uses to relate the two sensors.
+   *
+   * @throws IllegalArgumentException for a ratio Phoenix can't hold
+   */
+  private static void setFeedback(
+      FeedbackConfigs feedback, ControllerPlan plan, Optional<WiredCancoder> wired) {
+    Joint joint = plan.joint();
     MechanismRotations rotations = plan.rotations();
     double rotorRatio = plan.rotorRatio();
-    TalonFXConfiguration leader = new TalonFXConfiguration();
-    MechanismWiring.Device leading = controllers.get(0);
-    output(leader, leading, plan);
-    Optional<CANcoderConfiguration> cancoder = Optional.empty();
-    String ratioName = possessive(joint.label()) + " SensorToMechanismRatio";
-    if (math == null || encoder == null || wired == null) {
-      leader.Feedback.FeedbackSensorSource = FeedbackSensorSourceValue.RotorSensor;
-      leader.Feedback.SensorToMechanismRatio =
-          ratio(ratioName, rotations.ratioPerRotation(rotorRatio));
-    } else {
-      if (!encoder.absolute() || !encoder.joints().equals(List.of(joint))) {
-        throw new IllegalArgumentException(
-            encoder.label()
-                + " must be an absolute encoder on "
-                + joint.label()
-                + " alone, as a CANcoder is");
-      }
-      CANcoderConfiguration config = cancoder(math, encoder, wired);
-      String wraps =
-          ControllerPlan.wrapProblem(encoder, config.MagnetSensor.AbsoluteSensorDiscontinuityPoint);
-      if (wraps != null) {
-        notes.add(wraps);
-      }
-      cancoder = Optional.of(config);
-      double sensor = Math.abs(encoder.ratio(joint));
-      switch (wired.feedback()) {
-        case ROTOR -> {
-          leader.Feedback.FeedbackSensorSource = FeedbackSensorSourceValue.RotorSensor;
-          leader.Feedback.SensorToMechanismRatio =
-              ratio(ratioName, rotations.ratioPerRotation(rotorRatio));
-        }
-        case REMOTE, FUSED, SYNC -> {
-          leader.Feedback.FeedbackSensorSource = source(wired.feedback());
-          leader.Feedback.FeedbackRemoteSensorID = wired.id();
-          leader.Feedback.SensorToMechanismRatio =
-              ratio(ratioName, rotations.ratioPerRotation(sensor));
-          leader.Feedback.RotorToSensorRatio =
-              ratio(possessive(joint.label()) + " RotorToSensorRatio", rotorRatio / sensor);
-        }
-      }
+    String sensorToMechanism = possessive(joint.label()) + " SensorToMechanismRatio";
+    Optional<WiredCancoder> readByTheLeader =
+        wired.filter(each -> each.wiring().feedback() != MechanismWiring.Feedback.ROTOR);
+    if (readByTheLeader.isEmpty()) {
+      feedback.FeedbackSensorSource = FeedbackSensorSourceValue.RotorSensor;
+      feedback.SensorToMechanismRatio =
+          ratio(sensorToMechanism, rotations.ratioPerRotation(rotorRatio));
+      return;
     }
-    leader.Slot0 = Slot0Configs.from(slot(plan, notes));
-    // A joint that turns freely takes the short way round to a position, a turn being a turn.
-    leader.ClosedLoopGeneral.ContinuousWrap = plan.turnsFreely();
-    plan.softLimits()
-        .ifPresent(
-            limits -> {
-              leader.SoftwareLimitSwitch.ForwardSoftLimitEnable = true;
-              leader.SoftwareLimitSwitch.ForwardSoftLimitThreshold =
-                  rotations.toRotations(limits.upper());
-              leader.SoftwareLimitSwitch.ReverseSoftLimitEnable = true;
-              leader.SoftwareLimitSwitch.ReverseSoftLimitThreshold =
-                  rotations.toRotations(limits.lower());
-            });
+    MechanismWiring.Cancoder cancoder = readByTheLeader.get().wiring();
+    double cancoderRatio = Math.abs(readByTheLeader.get().encoder().ratio(joint));
+    feedback.FeedbackSensorSource = source(cancoder.feedback());
+    feedback.FeedbackRemoteSensorID = cancoder.id();
+    feedback.SensorToMechanismRatio =
+        ratio(sensorToMechanism, rotations.ratioPerRotation(cancoderRatio));
+    feedback.RotorToSensorRatio =
+        ratio(possessive(joint.label()) + " RotorToSensorRatio", rotorRatio / cancoderRatio);
+  }
 
+  /** Switches the leader's soft limits on, at the plan's limits in Phoenix's rotations. */
+  private static void setSoftLimits(
+      SoftwareLimitSwitchConfigs softLimits,
+      ControllerPlan plan,
+      MechanismControl.SoftLimits limits) {
+    softLimits.ForwardSoftLimitEnable = true;
+    softLimits.ForwardSoftLimitThreshold = plan.rotations().toRotations(limits.upper());
+    softLimits.ReverseSoftLimitEnable = true;
+    softLimits.ReverseSoftLimitThreshold = plan.rotations().toRotations(limits.lower());
+  }
+
+  /**
+   * Each follower's settings, in the wiring's order: its own direction, neutral mode and current
+   * limits, the rotor's ratio so its position reads in step with the leader's, and a request to
+   * follow the leader, turning the opposite way where the wiring's directions differ.
+   */
+  private static List<FollowerSettings> followers(
+      ControllerPlan plan, MechanismWiring.Device leading) {
+    List<MechanismWiring.Device> controllers = plan.controllers();
+    String sensorToMechanism = possessive(plan.joint().label()) + " SensorToMechanismRatio";
     List<FollowerSettings> followers = new ArrayList<>();
     for (MechanismWiring.Device motor : controllers.subList(1, controllers.size())) {
       TalonFXConfiguration config = new TalonFXConfiguration();
-      output(config, motor, plan);
+      setOutput(config, motor, plan);
       config.Feedback.SensorToMechanismRatio =
-          ratio(ratioName, rotations.ratioPerRotation(rotorRatio));
+          ratio(sensorToMechanism, plan.rotations().ratioPerRotation(plan.rotorRatio()));
+      MotorAlignmentValue alignment =
+          plan.opposes(motor) ? MotorAlignmentValue.Opposed : MotorAlignmentValue.Aligned;
       followers.add(
-          new FollowerSettings(
-              motor.id(),
-              new Follower(
-                  leading.id(),
-                  plan.opposes(motor) ? MotorAlignmentValue.Opposed : MotorAlignmentValue.Aligned),
-              config));
+          new FollowerSettings(motor.id(), new Follower(leading.id(), alignment), config));
     }
-    return new Settings(plan, leader, followers, cancoder, notes);
+    return followers;
   }
 
-  /** Phoenix's feedback source for how the wiring reads the CANcoder. */
+  /** Phoenix's feedback source for how the wiring has the TalonFX read the CANcoder. */
   private static FeedbackSensorSourceValue source(MechanismWiring.Feedback feedback) {
     return switch (feedback) {
       case ROTOR -> FeedbackSensorSourceValue.RotorSensor;
@@ -375,8 +447,16 @@ public final class PhoenixMechanism {
     };
   }
 
-  /** A motor's direction, neutral mode and current limits. */
-  private static void output(
+  /**
+   * Sets one motor controller's direction, neutral mode and current limits.
+   *
+   * <p>Both current limits are switched on and given the plan's values. The stator limit caps the
+   * current through the motor, and so its torque. The supply limit caps what the controller draws
+   * from the battery, and steps down to a lower limit once it has been held for a time, which is
+   * what keeps a breaker from tripping. Phoenix has defaults for all of these, so all are set here
+   * rather than left to change unseen with a Phoenix update.
+   */
+  private static void setOutput(
       TalonFXConfiguration config, MechanismWiring.Device motor, ControllerPlan plan) {
     config.MotorOutput.Inverted =
         motor.turnsClockwise()
@@ -395,8 +475,10 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * A slot's gains in Phoenix's units, per rotation: the plan's, tuned where given and seeded where
-   * not, and gravity's type, offset and kG.
+   * The plan's gains as one Phoenix slot holds them: per rotation where the plan's are per radian
+   * or per meter, with gravity's kind, offset and kG.
+   *
+   * @throws IllegalArgumentException for a kS, a kG or a gravity offset Phoenix can't hold
    */
   private static SlotConfigs slot(ControllerPlan plan, List<String> notes) {
     Joint joint = plan.joint();
@@ -412,16 +494,15 @@ public final class PhoenixMechanism {
     switch (gravity.kind()) {
       case NONE -> {}
       case STEADY -> {
+        // The same pull wherever the joint is, as on an elevator.
         slot.GravityType = GravityTypeValue.Elevator_Static;
         slot.kG = volts(joint, "kG", gravity.kG());
       }
       case COSINE -> {
-        // Phoenix's onboard gravity takes an offset within ±0.25 rotations.
+        // A pull that varies as the cosine of an arm's angle from level. Phoenix needs to know
+        // where level is, as an offset from the joint's zero, and holds only a quarter turn.
         slot.GravityType = GravityTypeValue.Arm_Cosine;
-        slot.GravityArmPositionOffset =
-            plan.control().gains().gravityAngle().isPresent()
-                ? givenOffset(joint, -gravity.offset())
-                : gravityOffset(joint, gravity.offset() / (2 * Math.PI), notes);
+        slot.GravityArmPositionOffset = armOffset(plan, gravity, notes);
         slot.kG = volts(joint, "kG", gravity.kG());
       }
     }
@@ -429,13 +510,31 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * Phoenix's {@code GravityArmPositionOffset} for an arm's gravity angle as its control gives it,
-   * within half a turn of its zero, in radians: refused more than a quarter turn from its zero,
-   * where Phoenix can't take it.
+   * Phoenix's {@code GravityArmPositionOffset} for an arm, in rotations. The plan's offset is in
+   * radians. It comes either from an angle the joint's control gives outright, or from where the
+   * definition puts the arm's center of mass; each is checked with its own message.
+   *
+   * @throws IllegalArgumentException for an offset past Phoenix's quarter turn
+   */
+  private static double armOffset(
+      ControllerPlan plan, ControllerPlan.Gravity gravity, List<String> notes) {
+    boolean angleIsGiven = plan.control().gains().gravityAngle().isPresent();
+    if (angleIsGiven) {
+      return givenOffset(plan.joint(), -gravity.offset());
+    }
+    return gravityOffset(plan.joint(), gravity.offset() / (2 * Math.PI), notes);
+  }
+
+  /**
+   * Phoenix's {@code GravityArmPositionOffset} for an arm whose control gives its gravity angle, in
+   * radians within half a turn of the joint's zero.
+   *
+   * @throws IllegalArgumentException for an angle more than a quarter turn from the joint's zero,
+   *     which Phoenix can't take
    */
   private static double givenOffset(Joint joint, double angle) {
     double offset = -angle / (2 * Math.PI);
-    if (Math.abs(offset) > MAX_GRAVITY_OFFSET + 1e-9) {
+    if (Math.abs(offset) > MAX_GRAVITY_OFFSET + ROUNDING) {
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,
@@ -452,13 +551,18 @@ public final class PhoenixMechanism {
   }
 
   /**
-   * Phoenix's {@code GravityArmPositionOffset} for an offset in rotations: refused past ±0.25,
-   * noted near it.
+   * Phoenix's {@code GravityArmPositionOffset} for an offset in rotations worked out from the
+   * definition. An offset close to Phoenix's limit is noted.
+   *
+   * @throws IllegalArgumentException for an offset past ±0.25 rotations
    */
   private static double gravityOffset(Joint joint, double offset, List<String> notes) {
-    if (Math.abs(offset) > MAX_GRAVITY_OFFSET + 1e-9) {
+    if (Math.abs(offset) > MAX_GRAVITY_OFFSET + ROUNDING) {
+      // What the offset would be with the joint's axis turned around, for the message.
       double turned = offset > 0 ? 0.5 - offset : -0.5 - offset;
-      turned = Math.abs(turned) < 1e-9 ? 0 : turned;
+      if (Math.abs(turned) < ROUNDING) {
+        turned = 0;
+      }
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,
@@ -470,7 +574,8 @@ public final class PhoenixMechanism {
               shown(offset),
               shown(turned)));
     }
-    if (Math.abs(offset) > MAX_GRAVITY_OFFSET - GRAVITY_OFFSET_MARGIN) {
+    boolean nearTheLimit = Math.abs(offset) > MAX_GRAVITY_OFFSET - GRAVITY_OFFSET_MARGIN;
+    if (nearTheLimit) {
       notes.add(
           String.format(
               Locale.ROOT,
@@ -486,9 +591,15 @@ public final class PhoenixMechanism {
     return Math.max(-MAX_GRAVITY_OFFSET, Math.min(MAX_GRAVITY_OFFSET, offset));
   }
 
-  /** A ratio Phoenix holds, or a refusal naming it. */
+  /**
+   * A ratio, checked against what Phoenix holds.
+   *
+   * @param name what the ratio is, for the refusal
+   * @throws IllegalArgumentException for a ratio that is zero, not a number, or past ±1000
+   */
   private static double ratio(String name, double ratio) {
-    if (!(Math.abs(ratio) <= MAX_RATIO) || ratio == 0) {
+    boolean withinPhoenixsRange = Math.abs(ratio) <= MAX_RATIO;
+    if (!withinPhoenixsRange || ratio == 0) {
       throw new IllegalArgumentException(
           String.format(
               Locale.ROOT,
@@ -499,7 +610,11 @@ public final class PhoenixMechanism {
     return ratio;
   }
 
-  /** Volts Phoenix holds as kS or kG, or a refusal. */
+  /**
+   * A kS or kG in volts, checked against what Phoenix holds.
+   *
+   * @throws IllegalArgumentException for volts outside -128 to 127
+   */
   private static double volts(Joint joint, String gain, double volts) {
     if (volts < MIN_VOLTS || volts > MAX_VOLTS) {
       throw new IllegalArgumentException(
