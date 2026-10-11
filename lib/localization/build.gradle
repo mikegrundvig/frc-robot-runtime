@@ -8,6 +8,7 @@ plugins {
     id "jacoco"
     id "com.diffplug.spotless"
     id "net.ltgt.errorprone"
+    alias(libs.plugins.pitest)
 }
 
 java {
@@ -61,3 +62,29 @@ tasks.named("test") {
 }
 
 apply from: rootProject.file("gradle/quality.gradle")
+
+// Mutation testing: PIT changes localization's compiled code a little at a time (a comparison
+// turned round, a returned value emptied, a call removed) and runs the tests that cover each
+// change. A change no test notices is a line the tests run without checking. Coverage says which
+// lines ran; this says which are checked. It takes minutes, so nothing runs it but its own task,
+// `pitest`: not `check`, not `ci`. Its report is build/reports/pitest/index.html.
+pitest {
+    pitestVersion = libs.versions.pitest.core.get()
+    junit5PluginVersion = libs.versions.pitest.junit5.get()
+    // All of localization, or the classes -PpitClasses names, for a shorter run while working on
+    // one: ./gradlew :localization:pitest -PpitClasses='com.michaelgrundvig.frc.localization.SlipCheck*'
+    targetClasses = [
+        project.findProperty("pitClasses") ?: "com.michaelgrundvig.frc.localization.*"
+    ]
+    targetTests = [
+        "com.michaelgrundvig.frc.localization.*"
+    ]
+    // The builders are generated as the records compile: nothing of localization's to test.
+    excludedClasses = [
+        "com.michaelgrundvig.frc.localization.**.*Builder*"
+    ]
+    // Two test JVMs at once, as the tests themselves run (gradle/quality.gradle).
+    threads = 2
+    outputFormats = ["HTML", "XML"]
+    timestampedReports = false
+}
