@@ -20,6 +20,7 @@ import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
@@ -44,11 +45,15 @@ import org.wpilib.system.RobotController;
  * interlocks costs. The numbers are printed, and written to {@code build/joint-loop-cost.txt} under
  * the directory the tests run in.
  *
+ * <p>A third robot gives the pivot a limit switch short of "out", so that the pivot sent there is
+ * held on its switch.
+ *
  * <p>Only the allocation is asserted: it is exact and repeatable, where the time depends on what
  * else the computer is doing. Every joint is held to a loose bound. A joint under an interlock is
  * also held to a tight one, because each of these scenarios is a steady state, in which the same
  * thing is asked and the interlock holds or does not hold as it did the loop before, and enforcing
- * an interlock through such a loop must make no new objects.
+ * an interlock through such a loop must make no new objects. A joint held on a limit switch is held
+ * as tightly, above what checking the switch costs any joint that has one.
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
@@ -71,6 +76,21 @@ class JointLoopCostSimTest {
    */
   private static final double MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK = 8;
 
+  /**
+   * What the model's check of one limit switch against where its joint is allocates a loop ({@code
+   * SwitchDoubt}): 64 bytes, for every joint with a limit switch whose position is known, whether
+   * or not the switch holds the joint.
+   */
+  private static final double BYTES_A_LOOP_CHECKING_A_SWITCH = 64;
+
+  /**
+   * The most a joint held on its limit switch may allocate a loop, on average: what checking the
+   * switch costs and no more, by the same margin as under an interlock. It measured 64.0 when this
+   * was written, so holding the joint on the switch makes nothing itself.
+   */
+  private static final double MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH =
+      BYTES_A_LOOP_CHECKING_A_SWITCH + MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
+
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
 
@@ -85,10 +105,20 @@ class JointLoopCostSimTest {
                       .when(ELEVATOR.atMost(ELEVATOR_CLEAR))))
           .build();
 
+  /** The pivot's switch at 120°, short of "out" at 130°. */
+  private static final Sensor.Switch PIVOT_UP =
+      JointFixtures.limit("pivot up", PIVOT, Sensor.Switch.Limit.End.UPPER, Math.toRadians(120));
+
+  private static final RobotDefinition SWITCHED =
+      RobotDefinitionBuilder.builder(ROBOT).name("switched").sensors(List.of(PIVOT_UP)).build();
+
   /** What a joint is asked each loop while it is measured. */
   private enum Asking {
-    /** The pivot is sent to "out", past the keep-out, which holds it at the region's edge. */
-    PIVOT_OUT_PAST_KEEP_OUT,
+    /**
+     * The pivot is sent to "out". That is past the keep-out, which holds it at the region's edge,
+     * and past the limit switch, which holds it where it tripped.
+     */
+    PIVOT_OUT,
     /** The roller is run at "intaking", which its run-only-when holds while the pivot is in. */
     ROLLER_INTAKING_WITH_PIVOT_IN,
     /** Nothing is asked: the joint does what it does idle. */
@@ -96,7 +126,7 @@ class JointLoopCostSimTest {
   }
 
   /** What one joint's loop cost, averaged over the measured loops. */
-  private record Cost(String what, boolean underAnInterlock, double bytesALoop, double nanosALoop) {
+  private record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
           Locale.ROOT, "%-58s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
@@ -106,15 +136,9 @@ class JointLoopCostSimTest {
   @Test
   void aJointsLoopAllocatesLittle() throws IOException {
     List<Cost> costs = new ArrayList<>();
+    costs.add(measure("pivot to a position, no interlocks", ROBOT, PIVOT, Asking.PIVOT_OUT));
     costs.add(
-        measure(
-            "pivot to a position, no interlocks", ROBOT, PIVOT, Asking.PIVOT_OUT_PAST_KEEP_OUT));
-    costs.add(
-        measure(
-            "pivot to a position, held by its keep-out",
-            GUARDED,
-            PIVOT,
-            Asking.PIVOT_OUT_PAST_KEEP_OUT));
+        measure("pivot to a position, held by its keep-out", GUARDED, PIVOT, Asking.PIVOT_OUT));
     costs.add(measure("pivot idle, no interlocks", ROBOT, PIVOT, Asking.NOTHING));
     costs.add(measure("pivot idle, under its keep-out", GUARDED, PIVOT, Asking.NOTHING));
     costs.add(
@@ -131,6 +155,9 @@ class JointLoopCostSimTest {
             Asking.ROLLER_INTAKING_WITH_PIVOT_IN));
     costs.add(measure("roller idle, no interlocks", ROBOT, ROLLER, Asking.NOTHING));
     costs.add(measure("roller idle, under its run-only-when", GUARDED, ROLLER, Asking.NOTHING));
+    costs.add(
+        measure(
+            "pivot to a position, held on its limit switch", SWITCHED, PIVOT, Asking.PIVOT_OUT));
 
     StringBuilder report = new StringBuilder();
     for (Cost cost : costs) {
@@ -141,12 +168,7 @@ class JointLoopCostSimTest {
     System.out.print(report);
 
     for (Cost cost : costs) {
-      assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(MOST_BYTES_A_LOOP);
-      if (cost.underAnInterlock()) {
-        assertThat(cost.bytesALoop())
-            .as(cost.what())
-            .isLessThan(MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK);
-      }
+      assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(cost.mostBytesALoop());
     }
   }
 
@@ -211,9 +233,22 @@ class JointLoopCostSimTest {
         nanos += loopNanos;
       }
     }
-    boolean underAnInterlock = robot == GUARDED;
     return new Cost(
-        what, underAnInterlock, (double) bytes / MEASURED_LOOPS, (double) nanos / MEASURED_LOOPS);
+        what,
+        mostBytesALoop(robot),
+        (double) bytes / MEASURED_LOOPS,
+        (double) nanos / MEASURED_LOOPS);
+  }
+
+  /** The most a joint of a robot may allocate a loop, on average. */
+  private static double mostBytesALoop(RobotDefinition robot) {
+    if (robot == GUARDED) {
+      return MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
+    }
+    if (robot == SWITCHED) {
+      return MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH;
+    }
+    return MOST_BYTES_A_LOOP;
   }
 
   /** What a move would ask each loop: built once, as a move builds it as it begins. */
@@ -226,7 +261,7 @@ class JointLoopCostSimTest {
 
   private static void ask(JointMechanism joint, Asking asking) {
     switch (asking) {
-      case PIVOT_OUT_PAST_KEEP_OUT -> joint.ask(TO_PIVOT_OUT, PIVOT_OUT_NAME);
+      case PIVOT_OUT -> joint.ask(TO_PIVOT_OUT, PIVOT_OUT_NAME);
       case ROLLER_INTAKING_WITH_PIVOT_IN -> joint.ask(ROLLER_AT_INTAKING, ROLLER_INTAKING_NAME);
       case NOTHING -> {}
     }

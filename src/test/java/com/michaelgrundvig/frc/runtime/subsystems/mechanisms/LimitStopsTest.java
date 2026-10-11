@@ -35,19 +35,126 @@ class LimitStopsTest {
   }
 
   /**
-   * A position past a tripped switch holds where the joint was as it tripped, however far it then
-   * goes, and says so; its profile starts again from where it is.
+   * A position past a tripped switch holds where the joint was as it tripped, and says so; its
+   * profile starts again from where it is, in the loop the hold begins.
    */
   @Test
   void aMovePastATrippedSwitchHoldsWhereItTripped() {
     switches.trip(TURRET_RIGHT, true);
 
     Demand held = turret.apply(BACK, 1.6, switches.sensors());
-    Demand later = turret.apply(BACK, 1.65, switches.sensors());
 
     assertThat(held)
         .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, "turret right tripped"));
-    assertThat(Demands.position(later)).as("where it tripped").isEqualTo(1.6);
+  }
+
+  /**
+   * In the loops after the hold begins the profile is left alone, however far the joint is pushed
+   * off where it tripped, so the joint's position loop brings it back there. The demand is the very
+   * same each loop: a steady hold makes no objects.
+   */
+  @Test
+  void aHoldRestartsItsProfileOnlyAsItBegins() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+
+    Demand pushedOn = turret.apply(BACK, 1.65, switches.sensors());
+    Demand pushedBack = turret.apply(BACK, 1.57, switches.sensors());
+
+    assertThat(pushedOn)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), false, "turret right tripped"));
+    assertThat(pushedBack).isSameAs(pushedOn);
+  }
+
+  /** The same thing asked again as another object, as a command may each loop, is the same hold. */
+  @Test
+  void theSameThingAskedAgainIsTheSameHold() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+    Demand lasting = turret.apply(BACK, 1.6, switches.sensors());
+
+    Demand askedAgain = turret.apply(Demands.toPosition(Math.PI, 0.5), 1.62, switches.sensors());
+
+    assertThat(askedAgain).isSameAs(lasting);
+  }
+
+  /**
+   * The switch clears and trips again under the same move: a new hold, where the joint is as it
+   * trips again, its profile starting again from there.
+   */
+  @Test
+  void trippingAgainBeginsANewHoldWhereItIsThen() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+    turret.apply(BACK, 1.6, switches.sensors());
+
+    switches.trip(TURRET_RIGHT, false);
+    Demand cleared = turret.apply(BACK, 1.59, switches.sensors());
+    switches.trip(TURRET_RIGHT, true);
+    Demand again = turret.apply(BACK, 1.62, switches.sensors());
+
+    assertThat(cleared).isSameAs(BACK);
+    assertThat(again)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.62, 0.5), true, "turret right tripped"));
+  }
+
+  /**
+   * Another position past the switch, asked while it holds: a new hold at the same point, at the
+   * new ask's share of the cruise, its profile starting again once.
+   */
+  @Test
+  void anotherPositionPastItBeginsANewHoldAtTheSamePoint() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+    turret.apply(BACK, 1.6, switches.sensors());
+    Demand further = Demands.toPosition(2.5, 0.25);
+
+    Demand begun = turret.apply(further, 1.64, switches.sensors());
+    Demand lasting = turret.apply(further, 1.64, switches.sensors());
+
+    assertThat(begun)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), true, "turret right tripped"));
+    assertThat(lasting)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), false, "turret right tripped"));
+  }
+
+  /**
+   * A position short of where it tripped, asked while it holds, ends the hold; the first one asked
+   * again is then held where the joint is by then.
+   */
+  @Test
+  void aPositionShortOfItEndsTheHold() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+
+    Demand away = turret.apply(FRONT, 1.6, switches.sensors());
+    Demand back = turret.apply(BACK, 1.55, switches.sensors());
+
+    assertThat(away).isSameAs(FRONT);
+    assertThat(back)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.55, 0.5), true, "turret right tripped"));
+  }
+
+  /**
+   * A demand that restarts the profile itself, in a loop of a hold, still does; what already holds
+   * the joint above the switch is said first, and a change in it begins a new hold.
+   */
+  @Test
+  void whatComesInRestartingOrHeldStillIs() {
+    switches.trip(TURRET_RIGHT, true);
+    turret.apply(BACK, 1.6, switches.sensors());
+    turret.apply(BACK, 1.6, switches.sensors());
+
+    Demand restarting = turret.apply(BACK.restartingProfile(), 1.6, switches.sensors());
+    Demand interlocked = BACK.heldTo(BACK.ask(), "turret stays in while elevator is down");
+    Demand begun = turret.apply(interlocked, 1.6, switches.sensors());
+    Demand lasting = turret.apply(interlocked, 1.6, switches.sensors());
+
+    assertThat(restarting.restartProfile()).as("restarted from above").isTrue();
+    assertThat(begun.restartProfile()).as("a new hold").isTrue();
+    assertThat(lasting.restartProfile()).isFalse();
+    assertThat(lasting.heldBy())
+        .isEqualTo("turret stays in while elevator is down; turret right tripped");
   }
 
   /** Leaving it is free, and once it clears, a move past it is held where it next trips. */

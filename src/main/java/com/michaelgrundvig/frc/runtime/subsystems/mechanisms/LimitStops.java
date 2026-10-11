@@ -57,7 +57,50 @@ final class LimitStops {
     }
   }
 
-  private final List<Stop> stops;
+  /**
+   * A joint held where a switch stopped it, short of a position it was asked for. One hold lasts
+   * for as long as the same switch stops the same demand. A different position asked for, or
+   * something else coming to hold the joint above this stage, begins a new hold.
+   *
+   * @param by the switch that holds the joint
+   * @param asked the demand that came in as the hold began
+   * @param asItBegins the demand that goes out in the loop the hold begins, which restarts the
+   *     joint's profile from where the joint is
+   * @param asItLasts the demand that goes out in the loops after, which leaves the profile alone
+   */
+  private record Hold(Stop by, Demand asked, Demand asItBegins, Demand asItLasts) {
+    /**
+     * @param toPosition what the demand asks, a position beyond where the joint was stopped
+     * @param stopped where the joint was stopped, which it holds
+     */
+    static Hold beginning(Stop by, Demand asked, JointAsk.ToPosition toPosition, double stopped) {
+      JointAsk held = new JointAsk.ToPosition(stopped, toPosition.cruiseShare());
+      String heldBy = Demand.joined(asked.heldBy(), by.shown());
+      return new Hold(by, asked, new Demand(held, true, heldBy), new Demand(held, false, heldBy));
+    }
+
+    /**
+     * Whether this is the hold of a demand by a switch: the same switch, the same thing asked, and
+     * the same things already holding the joint. Whether the demand restarts the joint's profile is
+     * left out, because that is true for a single loop and does not make the hold another one.
+     */
+    boolean isOf(Stop stop, Demand demand) {
+      return by == stop
+          && asked.ask().equals(demand.ask())
+          && asked.heldBy().equals(demand.heldBy());
+    }
+
+    /**
+     * The demand that goes out in a loop after the one the hold began in. It restarts the joint's
+     * profile only if the demand that came in this loop does.
+     */
+    Demand carryingOn(Demand demand) {
+      return demand.restartProfile() ? asItBegins : asItLasts;
+    }
+  }
+
+  /** The joint's switches. An array, because going through a list makes an iterator each loop. */
+  private final Stop[] stops;
 
   /**
    * Where the joint was when a tripped switch first met a position the joint was asked for, or
@@ -68,14 +111,20 @@ final class LimitStops {
   private OptionalDouble stoppedAt = OptionalDouble.empty();
 
   /**
+   * The hold a switch has the joint in, or empty while no switch holds the joint at a position. It
+   * is built in the loop the hold begins and used in every loop after that, so that a joint held on
+   * a switch allocates nothing.
+   */
+  private Optional<Hold> hold = Optional.empty();
+
+  /**
    * @param switches the joint's limit switches
    */
   LimitStops(List<Sensor.Switch> switches) {
-    List<Stop> each = new ArrayList<>();
-    for (Sensor.Switch limit : switches) {
-      each.add(Stop.at(limit));
+    stops = new Stop[switches.size()];
+    for (int index = 0; index < stops.length; index++) {
+      stops[index] = Stop.at(switches.get(index));
     }
-    stops = List.copyOf(each);
   }
 
   /**
@@ -98,6 +147,7 @@ final class LimitStops {
     boolean nothingHoldsIt = left == demand;
     if (nothingHoldsIt) {
       stoppedAt = OptionalDouble.empty();
+      hold = Optional.empty();
     }
     return left;
   }
@@ -114,7 +164,9 @@ final class LimitStops {
   /**
    * A position, with a switch tripped. If the position lies beyond where the joint was stopped,
    * toward the switch's end, the joint holds where it was stopped. The joint's profile starts again
-   * from where the joint is in every loop of such a hold.
+   * from where the joint is in the loop such a hold begins, and only in that loop: from then on the
+   * profile carries on to the stopping point and rests there, and the joint's position loop keeps
+   * the joint at it.
    */
   private Demand positionStoppedBy(
       Stop stop, Demand demand, JointAsk.ToPosition toPosition, double at) {
@@ -125,8 +177,12 @@ final class LimitStops {
     if (!stop.isBeyond(toPosition.position(), stopped)) {
       return demand;
     }
-    JointAsk hold = new JointAsk.ToPosition(stopped, toPosition.cruiseShare());
-    return new Demand(hold, true, Demand.joined(demand.heldBy(), stop.shown()));
+    if (hold.isPresent() && hold.get().isOf(stop, demand)) {
+      return hold.get().carryingOn(demand);
+    }
+    Hold begun = Hold.beginning(stop, demand, toPosition, stopped);
+    hold = Optional.of(begun);
+    return begun.asItBegins();
   }
 
   /** An output, with a switch tripped: neutral if the output pushes toward the switch's end. */
