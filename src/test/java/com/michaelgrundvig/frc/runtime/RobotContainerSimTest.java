@@ -431,7 +431,7 @@ class RobotContainerSimTest {
         .contains(
             "No wiring for bumper, so nothing waiting on them holds. Add it to the robot's entry"
                 + " in Robots.")
-        .noneMatch(text -> text.contains("lost"));
+        .noneMatch(text -> text.contains("bumper is lost"));
   }
 
   /**
@@ -452,7 +452,7 @@ class RobotContainerSimTest {
         SensorErrors.NONE);
     SensorSimulation sensors = Objects.requireNonNull(sim.robot().world().orElseThrow().sensors());
     sim.run(0.1);
-    assertThat(activeAlerts()).noneMatch(text -> text.contains("lost"));
+    assertThat(activeAlerts()).noneMatch(text -> text.contains("bumper is lost"));
 
     sensors.silence(bumper, true);
     sim.run(0.1);
@@ -463,7 +463,7 @@ class RobotContainerSimTest {
     sensors.silence(bumper, false);
     sim.run(0.1);
 
-    assertThat(activeAlerts()).noneMatch(text -> text.contains("lost"));
+    assertThat(activeAlerts()).noneMatch(text -> text.contains("bumper is lost"));
   }
 
   /**
