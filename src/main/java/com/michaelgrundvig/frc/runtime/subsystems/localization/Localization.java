@@ -182,7 +182,7 @@ public final class Localization implements AutoCloseable {
    */
   public LocalizationOutput update() {
     LocalizationOutput output = service.update();
-    notReadyToScore = LocalizationGate.SCORING.whyNot(output.estimate());
+    notReadyToScore = LocalizationGate.SCORING.whyNot(output.estimate()).orElse(null);
     List<String> beyond = new ArrayList<>();
     for (Map.Entry<String, CameraTrust> camera : output.trust().cameras().entrySet()) {
       if (!camera.getValue().keptApart()) {

@@ -5,7 +5,7 @@ import static com.michaelgrundvig.frc.world.config.Rules.positive;
 import com.michaelgrundvig.frc.world.config.Checks;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
 import java.util.Locale;
-import org.jspecify.annotations.Nullable;
+import java.util.Optional;
 
 /**
  * Whether an estimate is good enough to act on where precision matters: scoring, aiming, a final
@@ -53,55 +53,63 @@ public record LocalizationGate(
   }
 
   /**
-   * Why the estimate isn't good enough, for the drive team to read; null when it is.
+   * Why the estimate isn't good enough, for the drive team to read. Empty when it is good enough.
    *
    * @return the first reason found, the most basic first
    */
-  public @Nullable String whyNot(LocalizationEstimate estimate) {
+  public Optional<String> whyNot(LocalizationEstimate estimate) {
+    Optional<String> restsOnTooLittle = whyItsModeIsNotEnough(estimate.mode());
+    if (restsOnTooLittle.isPresent()) {
+      return restsOnTooLittle;
+    }
+    // Each limit is written so that a value that isn't a number is past it.
     LocalizationEstimate.Health health = estimate.health();
-    switch (estimate.mode()) {
-      case TRACKING -> {}
-      case INITIALIZING -> {
-        return "not placed or seen yet";
-      }
-      case DEAD_RECKONING -> {
-        return "no camera measurement lately";
-      }
-      case LOST -> {
-        return "the cameras disagree with the estimate";
-      }
-      case IMU_FAULT -> {
-        return "the gyro is lost";
-      }
+    boolean visionIsRecent = health.visionAgeSeconds() <= maxVisionAgeSeconds;
+    if (!visionIsRecent) {
+      return Optional.of(
+          String.format(
+              Locale.ROOT, "the last camera measurement is %.1f s old", health.visionAgeSeconds()));
     }
-    if (!(health.visionAgeSeconds() <= maxVisionAgeSeconds)) {
-      return String.format(
-          Locale.ROOT, "the last camera measurement is %.1f s old", health.visionAgeSeconds());
-    }
-    if (!(health.recentDisagreementMeters() <= maxDisagreementMeters)) {
-      return Double.isNaN(health.recentDisagreementMeters())
-          ? "no camera measurement lately"
-          : String.format(
-              Locale.ROOT,
-              "the cameras and odometry disagree by %.2f m",
-              health.recentDisagreementMeters());
+    double disagreement = health.recentDisagreementMeters();
+    boolean camerasAgree = disagreement <= maxDisagreementMeters;
+    if (!camerasAgree) {
+      if (Double.isNaN(disagreement)) {
+        // No measurement was accepted lately, so there is nothing to agree or disagree.
+        return Optional.of("no camera measurement lately");
+      }
+      return Optional.of(
+          String.format(Locale.ROOT, "the cameras and odometry disagree by %.2f m", disagreement));
     }
     double spread = estimate.covariance().largestPositionStdDev();
-    if (!(spread <= maxPositionStdDevMeters)) {
-      return String.format(Locale.ROOT, "the position is uncertain by %.2f m", spread);
+    boolean positionIsSure = spread <= maxPositionStdDevMeters;
+    if (!positionIsSure) {
+      return Optional.of(String.format(Locale.ROOT, "the position is uncertain by %.2f m", spread));
     }
-    double tilt = Math.toDegrees(health.tiltRadians());
-    if (!(tilt <= maxTiltDegrees)) {
-      return String.format(Locale.ROOT, "the robot is tilted %.0f degrees", tilt);
+    double tiltDegrees = Math.toDegrees(health.tiltRadians());
+    boolean level = tiltDegrees <= maxTiltDegrees;
+    if (!level) {
+      return Optional.of(
+          String.format(Locale.ROOT, "the robot is tilted %.0f degrees", tiltDegrees));
     }
     if (health.collisionActive()) {
-      return "the robot was just hit";
+      return Optional.of("the robot was just hit");
     }
-    return null;
+    return Optional.empty();
+  }
+
+  /** Why an estimate in a mode rests on too little: every mode but tracking does. */
+  private static Optional<String> whyItsModeIsNotEnough(LocalizationEstimate.Mode mode) {
+    return switch (mode) {
+      case TRACKING -> Optional.empty();
+      case INITIALIZING -> Optional.of("not placed or seen yet");
+      case DEAD_RECKONING -> Optional.of("no camera measurement lately");
+      case LOST -> Optional.of("the cameras disagree with the estimate");
+      case IMU_FAULT -> Optional.of("the gyro is lost");
+    };
   }
 
   /** Whether the estimate is good enough. */
   public boolean allows(LocalizationEstimate estimate) {
-    return whyNot(estimate) == null;
+    return whyNot(estimate).isEmpty();
   }
 }

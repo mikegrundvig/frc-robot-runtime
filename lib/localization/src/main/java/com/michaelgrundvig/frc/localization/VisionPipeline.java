@@ -45,6 +45,9 @@ import org.wpilib.math.geometry.Translation2d;
  * in as arguments.
  */
 public final class VisionPipeline {
+  /** An alternate pose closer to the camera than this is no pose: the vision software gave none. */
+  private static final double NO_ALTERNATE_BELOW_METERS = 1e-6;
+
   private final FieldModel field;
 
   public VisionPipeline(FieldModel field) {
@@ -146,22 +149,19 @@ public final class VisionPipeline {
         seen.timestampNanos(), seen.camera(), tags, allTrusted ? multiTag : null);
   }
 
+  /**
+   * Solves an image, by the first of the three ways that applies (the class comment says which and
+   * why), or refuses it.
+   */
   private VisionResult solve(Image image) {
     TagDetections seen = image.seen();
     CaptureContext robot = image.robot();
     VisionConfig config = image.config();
-    List<TagDetections.Tag> known = new ArrayList<>();
-    double distance = 0;
-    for (TagDetections.Tag tag : seen.tags()) {
-      if (field.tag(tag.id()).isPresent()) {
-        known.add(tag);
-        distance += tag.bestCameraToTag().getTranslation().getNorm();
-      }
-    }
+    List<TagDetections.Tag> known = tagsTheFieldHas(seen);
     if (known.isEmpty()) {
       return rejected(seen, Verdict.UNKNOWN_TAGS, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
     }
-    distance /= known.size();
+    double distance = averageDistance(known);
     if (!Double.isFinite(distance)) {
       return rejected(
           seen, Verdict.TAG_NOT_A_NUMBER, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
@@ -179,26 +179,18 @@ public final class VisionPipeline {
       return rejected(
           seen, Verdict.TOO_FAR, distance, config.maxDistanceMeters(), distance, Double.NaN);
     }
+
+    // The gyro's heading solves the image only while the estimate is sure of it.
     Rotation2d heading = robot.heading();
     if (heading != null && robot.headingStdDevRadians() <= config.maxHeadingStdDevToConstrain()) {
       return headingConstrained(image, known, heading, distance);
     }
     TagDetections.MultiTag multiTag = seen.multiTag();
     if (multiTag != null) {
-      Pose3d pose =
-          TagSolver.robotFromCamera(
-              new Pose3d(
-                  multiTag.fieldToCamera().getTranslation(),
-                  multiTag.fieldToCamera().getRotation()),
-              image.mount());
+      Pose3d pose = robotFromMultiTag(multiTag, image.mount());
       return fullPose(image, pose, known, distance, VisionMeasurement.Solver.MULTI_TAG);
     }
-    TagDetections.Tag clearest = known.get(0);
-    for (TagDetections.Tag tag : known) {
-      if (tag.ambiguity() < clearest.ambiguity()) {
-        clearest = tag;
-      }
-    }
+    TagDetections.Tag clearest = leastAmbiguous(known);
     if (clearest.ambiguity() > config.maxAmbiguity()) {
       return rejected(
           seen,
@@ -219,41 +211,118 @@ public final class VisionPipeline {
         VisionMeasurement.Solver.SINGLE_TAG);
   }
 
+  /** The tags in an image that the field's layout has: only those can place the robot. */
+  private List<TagDetections.Tag> tagsTheFieldHas(TagDetections seen) {
+    List<TagDetections.Tag> known = new ArrayList<>();
+    for (TagDetections.Tag tag : seen.tags()) {
+      if (field.tag(tag.id()).isPresent()) {
+        known.add(tag);
+      }
+    }
+    return known;
+  }
+
+  /** How far the tags are from the camera, on average, by each one's best pose. */
+  private static double averageDistance(List<TagDetections.Tag> tags) {
+    double sum = 0;
+    for (TagDetections.Tag tag : tags) {
+      sum += tag.bestCameraToTag().getTranslation().getNorm();
+    }
+    return sum / tags.size();
+  }
+
+  /** The tag whose two possible poses are furthest from equally likely. The first, if they tie. */
+  private static TagDetections.Tag leastAmbiguous(List<TagDetections.Tag> tags) {
+    TagDetections.Tag clearest = tags.get(0);
+    for (TagDetections.Tag tag : tags) {
+      if (tag.ambiguity() < clearest.ambiguity()) {
+        clearest = tag;
+      }
+    }
+    return clearest;
+  }
+
+  /** The robot's pose, from the vision software's solution for the camera's pose on the field. */
+  private static Pose3d robotFromMultiTag(TagDetections.MultiTag multiTag, Transform3d mount) {
+    Pose3d fieldToCamera =
+        new Pose3d(
+            multiTag.fieldToCamera().getTranslation(), multiTag.fieldToCamera().getRotation());
+    return TagSolver.robotFromCamera(fieldToCamera, mount);
+  }
+
+  /**
+   * The working of one heading-constrained solve: the sums that give where the robot stands as the
+   * average of where each tag puts it. It lives for one image.
+   *
+   * <p>A tag counts by one over its distance squared, since a nearer tag is seen that much more
+   * sharply. The same weights average the vector from the robot to each tag, which is the lever a
+   * heading error swings the position by, and the weights are handed on as each tag's share of the
+   * position.
+   */
+  private static final class WeightedFixes {
+    /** A tag nearer than the square root of this, in meters, weighs as if it were that far. */
+    private static final double LEAST_DISTANCE_SQUARED = 1e-6;
+
+    private double sumOfWeights;
+    private double weightedX;
+    private double weightedY;
+    private double weightedToTagX;
+    private double weightedToTagY;
+    private final List<Double> weights = new ArrayList<>();
+
+    /** The largest miss of any tag's known height, with its sign: zero before any tag. */
+    private double worstHeightErrorMeters;
+
+    void add(Pose3d fieldToTag, TagSolver.PositionFix fix, double tagDistanceMeters) {
+      double weight = 1 / Math.max(tagDistanceMeters * tagDistanceMeters, LEAST_DISTANCE_SQUARED);
+      weightedX += weight * fix.position().getX();
+      weightedY += weight * fix.position().getY();
+      // What the heading turned to place the robot: from where it puts the robot, to the tag.
+      weightedToTagX += weight * (fieldToTag.getX() - fix.position().getX());
+      weightedToTagY += weight * (fieldToTag.getY() - fix.position().getY());
+      sumOfWeights += weight;
+      weights.add(weight);
+      if (Math.abs(fix.heightErrorMeters()) > Math.abs(worstHeightErrorMeters)) {
+        worstHeightErrorMeters = fix.heightErrorMeters();
+      }
+    }
+
+    Translation2d position() {
+      return new Translation2d(weightedX / sumOfWeights, weightedY / sumOfWeights);
+    }
+
+    Translation2d robotToTags() {
+      return new Translation2d(weightedToTagX / sumOfWeights, weightedToTagY / sumOfWeights);
+    }
+  }
+
+  /**
+   * Solves an image with the robot's heading from the gyro: each tag fixes only where the robot
+   * stands, and the fixes are averaged.
+   *
+   * @param heading the robot's heading when the image was taken
+   * @param distance the tags' average distance from the camera
+   */
   private VisionResult headingConstrained(
       Image image, List<TagDetections.Tag> known, Rotation2d heading, double distance) {
     TagDetections seen = image.seen();
-    CameraConfig camera = image.camera();
     CaptureContext robot = image.robot();
     VisionConfig config = image.config();
     Transform3d robotToCamera = image.mount();
     Rotation3d attitude =
         new Rotation3d(robot.rollRadians(), robot.pitchRadians(), heading.getRadians());
-    double sumX = 0;
-    double sumY = 0;
-    double sumToTagX = 0;
-    double sumToTagY = 0;
-    double sumWeights = 0;
-    double worstHeight = 0;
-    List<Double> weights = new ArrayList<>(known.size());
+    WeightedFixes fixes = new WeightedFixes();
     for (TagDetections.Tag tag : known) {
       Pose3d fieldToTag = field.tag(tag.id()).orElseThrow();
       Transform3d cameraToTag = agreeingWithTheGyro(tag, fieldToTag, robotToCamera, heading);
       TagSolver.PositionFix fix =
           TagSolver.positionFromTag(fieldToTag, robotToCamera.plus(cameraToTag), attitude);
-      double tagDistance = cameraToTag.getTranslation().getNorm();
-      double weight = 1 / Math.max(tagDistance * tagDistance, 1e-6);
-      sumX += weight * fix.position().getX();
-      sumY += weight * fix.position().getY();
-      // What the heading turned to place the robot: from where it puts the robot, to the tag.
-      sumToTagX += weight * (fieldToTag.getX() - fix.position().getX());
-      sumToTagY += weight * (fieldToTag.getY() - fix.position().getY());
-      sumWeights += weight;
-      weights.add(weight);
-      if (Math.abs(fix.heightErrorMeters()) > Math.abs(worstHeight)) {
-        worstHeight = fix.heightErrorMeters();
-      }
+      fixes.add(fieldToTag, fix, cameraToTag.getTranslation().getNorm());
     }
-    if (!(Math.abs(worstHeight) <= config.maxHeightErrorMeters())) {
+    double worstHeight = fixes.worstHeightErrorMeters;
+    // Written so a height error that isn't a number is refused too.
+    boolean heightsFit = Math.abs(worstHeight) <= config.maxHeightErrorMeters();
+    if (!heightsFit) {
       return rejected(
           seen,
           Verdict.TAG_HEIGHT,
@@ -262,7 +331,7 @@ public final class VisionPipeline {
           distance,
           worstHeight);
     }
-    Translation2d position = new Translation2d(sumX / sumWeights, sumY / sumWeights);
+    Translation2d position = fixes.position();
     if (!Double.isFinite(position.getX()) || !Double.isFinite(position.getY())) {
       return rejected(
           seen, Verdict.SOLVE_NOT_A_NUMBER, Double.NaN, Double.NaN, distance, worstHeight);
@@ -274,21 +343,13 @@ public final class VisionPipeline {
                 * image.scale(known.size(), distance),
             image.mountDoubtMeters());
 
-    // Heading, too, only under strict conditions; otherwise the gyro keeps it to itself.
+    // The measurement's heading is the gyro's own, and says nothing new about it, unless the
+    // vision software's multi-tag solution is good enough to correct the heading with.
     Rotation2d measuredHeading = heading;
     double headingStdDev = Double.POSITIVE_INFINITY;
     TagDetections.MultiTag multiTag = seen.multiTag();
-    if (multiTag != null
-        && multiTag.tagIds().size() >= config.minTagsForHeading()
-        && robot.recentYawRateRadiansPerSecond() <= config.maxYawRateForHeading()
-        && multiTag.reprojectionErrorPixels() <= config.maxReprojectionErrorForHeadingPixels()) {
-      Pose3d full =
-          TagSolver.robotFromCamera(
-              new Pose3d(
-                  multiTag.fieldToCamera().getTranslation(),
-                  multiTag.fieldToCamera().getRotation()),
-              robotToCamera);
-      Rotation2d solved = full.toPose2d().getRotation();
+    if (multiTag != null && mayCorrectHeading(multiTag, robot, config)) {
+      Rotation2d solved = robotFromMultiTag(multiTag, robotToCamera).toPose2d().getRotation();
       if (Double.isFinite(solved.getRadians())) {
         measuredHeading = solved;
         headingStdDev =
@@ -302,11 +363,10 @@ public final class VisionPipeline {
             seen.timestampNanos(),
             new Pose2d(position, measuredHeading),
             PoseCovariance.fromStdDevs(spread, spread, headingStdDev),
-            new VisionMeasurement.Lever(
-                heading, new Translation2d(sumToTagX / sumWeights, sumToTagY / sumWeights)),
-            camera.name(),
+            new VisionMeasurement.Lever(heading, fixes.robotToTags()),
+            image.camera().name(),
             ids(known),
-            weights,
+            fixes.weights,
             VisionMeasurement.Solver.HEADING_CONSTRAINED);
     return new VisionResult(
         seen,
@@ -324,31 +384,56 @@ public final class VisionPipeline {
         Double.NaN);
   }
 
-  /** Of a tag's two possible poses, the one whose robot heading is closer to the gyro's. */
+  /**
+   * Whether a multi-tag solution may correct the heading. Only under strict conditions: it used
+   * enough tags, the robot was barely turning, and the solution fits its tags well. Otherwise the
+   * gyro keeps the heading to itself.
+   */
+  private static boolean mayCorrectHeading(
+      TagDetections.MultiTag multiTag, CaptureContext robot, VisionConfig config) {
+    boolean enoughTags = multiTag.tagIds().size() >= config.minTagsForHeading();
+    boolean barelyTurning = robot.recentYawRateRadiansPerSecond() <= config.maxYawRateForHeading();
+    boolean fitsWell =
+        multiTag.reprojectionErrorPixels() <= config.maxReprojectionErrorForHeadingPixels();
+    return enoughTags && barelyTurning && fitsWell;
+  }
+
+  /**
+   * Of a tag's two possible poses, the one whose robot heading is closer to the gyro's. The best
+   * pose is kept unless the alternate is strictly closer, and when there is no alternate (the
+   * vision software gives a zero transform for none).
+   */
   private static Transform3d agreeingWithTheGyro(
       TagDetections.Tag tag, Pose3d fieldToTag, Transform3d robotToCamera, Rotation2d heading) {
     Transform3d best = tag.bestCameraToTag();
     Transform3d alternate = tag.altCameraToTag();
-    if (alternate.getTranslation().getNorm() < 1e-6) {
+    boolean hasAlternate = !(alternate.getTranslation().getNorm() < NO_ALTERNATE_BELOW_METERS);
+    if (!hasAlternate) {
       return best;
     }
-    double bestMiss =
-        Math.abs(
-            TagSolver.robotFromTag(fieldToTag, best, robotToCamera)
-                .toPose2d()
-                .getRotation()
-                .minus(heading)
-                .getRadians());
-    double alternateMiss =
-        Math.abs(
-            TagSolver.robotFromTag(fieldToTag, alternate, robotToCamera)
-                .toPose2d()
-                .getRotation()
-                .minus(heading)
-                .getRadians());
+    double bestMiss = headingMiss(fieldToTag, best, robotToCamera, heading);
+    double alternateMiss = headingMiss(fieldToTag, alternate, robotToCamera, heading);
     return alternateMiss < bestMiss ? alternate : best;
   }
 
+  /** How far the robot heading one of a tag's poses gives is from the gyro's, in radians. */
+  private static double headingMiss(
+      Pose3d fieldToTag, Transform3d cameraToTag, Transform3d robotToCamera, Rotation2d heading) {
+    return Math.abs(
+        TagSolver.robotFromTag(fieldToTag, cameraToTag, robotToCamera)
+            .toPose2d()
+            .getRotation()
+            .minus(heading)
+            .getRadians());
+  }
+
+  /**
+   * A measurement from a full pose, one that found its own heading: the vision software's multi-tag
+   * solution, or a single tag's best pose. It is refused if it does not put the robot on the floor.
+   *
+   * @param used the tags the pose came from
+   * @param distance how far those tags are from the camera, on average
+   */
   private VisionResult fullPose(
       Image image,
       Pose3d pose,
@@ -363,21 +448,21 @@ public final class VisionPipeline {
         || !Double.isFinite(pose.getRotation().getZ())) {
       return rejected(seen, Verdict.SOLVE_NOT_A_NUMBER, Double.NaN, Double.NaN, distance, height);
     }
-    if (!(Math.abs(height) <= config.maxHeightErrorMeters())) {
+    // Written so a height that isn't a number is refused too.
+    boolean onTheFloor = Math.abs(height) <= config.maxHeightErrorMeters();
+    if (!onTheFloor) {
       return rejected(
           seen, Verdict.OFF_THE_FLOOR, height, config.maxHeightErrorMeters(), distance, height);
     }
     double scale = image.scale(used.size(), distance);
     double linear = widened(config.linearStdDevBaseline() * scale, image.mountDoubtMeters());
+    double angular =
+        widened(config.angularStdDevBaseline() * scale, image.mountDoubtMeters() / distance);
     VisionMeasurement measurement =
         new VisionMeasurement(
             seen.timestampNanos(),
             pose.toPose2d(),
-            PoseCovariance.fromStdDevs(
-                linear,
-                linear,
-                widened(
-                    config.angularStdDevBaseline() * scale, image.mountDoubtMeters() / distance)),
+            PoseCovariance.fromStdDevs(linear, linear, angular),
             VisionMeasurement.Lever.NONE,
             image.camera().name(),
             ids(used),

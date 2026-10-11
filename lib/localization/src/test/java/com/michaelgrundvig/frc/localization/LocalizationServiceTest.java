@@ -864,7 +864,7 @@ class LocalizationServiceTest {
     LocalizationEstimate estimate = silent.getLast().estimate();
     assertThat(estimate.mode()).isEqualTo(LocalizationEstimate.Mode.DEAD_RECKONING);
     assertThat(estimate.health().visionAgeSeconds()).isGreaterThan(1);
-    assertThat(LocalizationGate.SCORING.whyNot(estimate)).isEqualTo("no camera measurement lately");
+    assertThat(LocalizationGate.SCORING.whyNot(estimate)).contains("no camera measurement lately");
   }
 
   /** What the session compares by: every bit, where WPILib's geometry allows 1e-9. */

@@ -48,38 +48,38 @@ class LocalizationGateTest {
 
   @Test
   void aTrackingEstimateThatAgreesIsGoodToScoreFrom() {
-    assertThat(GATE.whyNot(good())).isNull();
+    assertThat(GATE.whyNot(good())).isEmpty();
     assertThat(GATE.allows(good())).isTrue();
   }
 
   @Test
   void eachReasonSaysWhatIsWrong() {
     assertThat(GATE.whyNot(estimate(Mode.INITIALIZING, 0.05, 0.03, 0.04, 1, false)))
-        .isEqualTo("not placed or seen yet");
+        .contains("not placed or seen yet");
     assertThat(GATE.whyNot(estimate(Mode.DEAD_RECKONING, 0.05, 0.03, 0.04, 1, false)))
-        .isEqualTo("no camera measurement lately");
+        .contains("no camera measurement lately");
     assertThat(GATE.whyNot(estimate(Mode.LOST, 0.05, 0.03, 0.04, 1, false)))
-        .isEqualTo("the cameras disagree with the estimate");
+        .contains("the cameras disagree with the estimate");
     assertThat(GATE.whyNot(estimate(Mode.IMU_FAULT, 0.05, 0.03, 0.04, 1, false)))
-        .isEqualTo("the gyro is lost");
+        .contains("the gyro is lost");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.8, 0.03, 0.04, 1, false)))
-        .isEqualTo("the last camera measurement is 0.8 s old");
+        .contains("the last camera measurement is 0.8 s old");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.05, 0.3, 0.04, 1, false)))
-        .isEqualTo("the cameras and odometry disagree by 0.30 m");
+        .contains("the cameras and odometry disagree by 0.30 m");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.05, Double.NaN, 0.04, 1, false)))
-        .isEqualTo("no camera measurement lately");
+        .contains("no camera measurement lately");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.05, 0.03, 0.2, 1, false)))
-        .isEqualTo("the position is uncertain by 0.20 m");
+        .contains("the position is uncertain by 0.20 m");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.05, 0.03, 0.04, 8, false)))
-        .isEqualTo("the robot is tilted 8 degrees");
+        .contains("the robot is tilted 8 degrees");
     assertThat(GATE.whyNot(estimate(Mode.TRACKING, 0.05, 0.03, 0.04, 1, true)))
-        .isEqualTo("the robot was just hit");
+        .contains("the robot was just hit");
   }
 
   @Test
   void theMostBasicReasonComesFirst() {
     assertThat(GATE.whyNot(estimate(Mode.DEAD_RECKONING, 3, Double.NaN, 0.5, 20, true)))
-        .isEqualTo("no camera measurement lately");
+        .contains("no camera measurement lately");
   }
 
   @Test
