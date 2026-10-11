@@ -36,8 +36,19 @@ import org.wpilib.system.RobotController;
  * <p>Each situation is measured in several batches of loops, one after another, and the cheapest
  * batch is the one reported. What a loop allocates settles as the JIT compiles more of it, and how
  * soon that happens differs from run to run by a few hundred bytes a loop, so one batch alone is
- * not repeatable. Only the allocation is asserted, and loosely. The time depends on what else the
+ * not repeatable.
+ *
+ * <p>Only the allocation is asserted. Each situation is held to a bound a little above what it
+ * measured when the bound was set, so that a change that makes the drive allocate more each loop
+ * fails here and is looked at. The time is not asserted, because it depends on what else the
  * computer is doing.
+ *
+ * <p>Most of what is still allocated is not the drive's own to save. In the order of size when the
+ * bounds were set: the simulator's module and gyro IO, which copy their high-rate readings each
+ * loop (about 1,000 bytes); WPILib's kinematics, which turn a velocity into four wheel velocities
+ * and back (about 1,200); the command scheduler resuming the command (about 700); a sample of the
+ * wheels for each high-rate reading, which localization keeps (640); and the wheels' poses for the
+ * log while the wheels turn (512).
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
@@ -50,9 +61,6 @@ class DriveLoopCostSimTest {
 
   private static final int LOOPS_A_BATCH = 2000;
 
-  /** A drive's loop allocated nothing like this much when this test was written. */
-  private static final double MOST_BYTES_A_LOOP = 12_000;
-
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
 
@@ -63,16 +71,26 @@ class DriveLoopCostSimTest {
 
   /** What drives the drivetrain while it is measured. */
   private enum Driving {
-    /** The driver's sticks, translating and turning. */
-    STICKS,
-    /** The sticks translating, the drivetrain facing the hub. */
-    FACING_A_PLACE,
-    /** One move after another between two poses. Only loops in which a move follows count. */
-    FOLLOWING_A_MOVE
+    /** The driver's sticks, translating and turning. It measured 4,540 bytes a loop. */
+    STICKS(5_200),
+    /** The sticks translating, the drivetrain facing the hub. It measured 5,380 bytes a loop. */
+    FACING_A_PLACE(6_200),
+    /**
+     * One move after another between two poses. Only loops in which a move follows count. It
+     * measured 4,980 bytes a loop.
+     */
+    FOLLOWING_A_MOVE(5_700);
+
+    /** The most the drive's loop may allocate in this situation, in bytes, on average. */
+    final double mostBytesALoop;
+
+    Driving(double mostBytesALoop) {
+      this.mostBytesALoop = mostBytesALoop;
+    }
   }
 
   /** What the drive's loop cost, averaged over the loops of the cheapest batch. */
-  private record Cost(String what, double bytesALoop, double nanosALoop) {
+  private record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
           Locale.ROOT, "%-44s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
@@ -80,7 +98,7 @@ class DriveLoopCostSimTest {
   }
 
   @Test
-  void theDrivesLoopAllocatesLittle() throws IOException {
+  void theDrivesLoopAllocatesNoMoreThanItDid() throws IOException {
     List<Cost> costs = new ArrayList<>();
     costs.add(measure("driven by the sticks", Driving.STICKS));
     costs.add(measure("facing a place while translating", Driving.FACING_A_PLACE));
@@ -95,7 +113,7 @@ class DriveLoopCostSimTest {
     System.out.print(report);
 
     for (Cost cost : costs) {
-      assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(MOST_BYTES_A_LOOP);
+      assertThat(cost.bytesALoop()).as(cost.what()).isLessThan(cost.mostBytesALoop());
     }
   }
 
@@ -183,7 +201,7 @@ class DriveLoopCostSimTest {
           batches++;
         }
       }
-      return new Cost(what, leastBytesALoop, leastNanosALoop);
+      return new Cost(what, driving.mostBytesALoop, leastBytesALoop, leastNanosALoop);
     }
   }
 }
