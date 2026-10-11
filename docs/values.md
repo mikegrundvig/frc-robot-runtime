@@ -1246,8 +1246,9 @@ switch goes on a CANdi.
 
 `com.michaelgrundvig.frc.world.game.SeasonLimits` (in the world model): what the game manual allows a robot to be. One per season, in its
 game class in the model (`Rebuilt.LIMITS`); every robot's definition is checked against it in the tests
-(`SeasonLimitsTest`), with its joints where they rest, and a mechanism's guard can ask how far the
-robot would reach at a set of positions (`whyTooFar`). The next season's manual replaces every number at
+(`SeasonLimitsTest`, by `SeasonLimits.problems`), with its joints where they rest and in each of its
+named configurations. Where the robot reaches between its configurations, mid-move, isn't checked: no
+guard reads the limits while the robot runs. The next season's manual replaces every number at
 kickoff.
 
 | Value | Kind | Source | How to measure it, or why |
