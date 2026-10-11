@@ -14,43 +14,38 @@ import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.geometry.Twist2d;
-import org.wpilib.math.linalg.Matrix;
-import org.wpilib.math.linalg.VecBuilder;
-import org.wpilib.math.numbers.N1;
-import org.wpilib.math.numbers.N2;
-import org.wpilib.math.numbers.N3;
 import org.wpilib.math.system.DCMotor;
-import org.wpilib.math.system.LinearSystem;
-import org.wpilib.math.system.Models;
-import org.wpilib.math.util.Nat;
 
 /**
- * Today's physics: the robot moves as its wheels roll, kinematically, as the best fit of their
- * travel, and each wheel carries an equal share of the robot's mass as inertia on its own drive
- * motor. It's the template's physics behind {@link Physics}: the simulator tests the robot's code,
- * not its traction or power, and the truth suite measures what that leaves out.
+ * Today's physics. The robot moves as its wheels roll: kinematically, by the one rigid motion that
+ * best fits how far each wheel rolled and which way it pointed. Each wheel's drive motor turns an
+ * equal share of the robot's mass as inertia. It is the template's physics behind {@link Physics}.
+ * The simulator is there to test the robot's code, not its traction or its power, and the truth
+ * suite measures what this leaves out.
  *
- * <p>Each step is one sub-step. In it:
+ * <p>Each call to {@link #step} is one sub-step, in four parts:
  *
- * <ul>
- *   <li>Each drive motor turns its wheel's share of the robot's configured mass ({@code
- *       Body.mass}), (m / N) r² at the configured radius, plus the wheel's own moving parts ({@code
- *       DrivetrainGeometry.ModuleType.driveInertia}), at the voltage its controller asks for, held
- *       to its current limit at the wheel's speed as the step starts and held through the step, as
- *       WPILib's {@code DCMotorSim} holds a voltage. So the robot speeds up as F = m a, short of it
- *       by the current falling within each step at the controller's limit.
- *   <li>The robot moves by the one rigid motion that best fits every wheel's travel (each wheel's
- *       turn at its true radius, at its true angle), scaled by the share of grip ({@link
- *       Disturbance.Grip}) and the slope it rolls along, and changes its velocity no faster than
- *       the tread's grip allows, μ g. Past that, every wheel skids alike.
- *   <li>It sits on the plane that best fits the ground under its four wheels, which gives its
- *       height and attitude, unless tilted by hand.
- * </ul>
+ * <ol>
+ *   <li><b>The motors turn the wheels</b> ({@link WheelMotor}). Each drive motor turns its wheel's
+ *       share of the robot's mass, (m / N)·r² at the configured radius, plus the wheel's own moving
+ *       parts, at the voltage its controller asks for, held to its current limit as the step
+ *       starts.
+ *   <li><b>The wheels' rolling moves the robot</b> ({@link RigidFit}). The robot is asked to move
+ *       by the rigid motion that best fits every wheel's travel, at each wheel's true radius and
+ *       true angle. Only the gripping share of that moves it ({@link Disturbance.Grip}), and
+ *       rolling up or down a slope moves it less far across the field.
+ *   <li><b>The floor's grip limits how fast its velocity changes.</b> The robot's velocity follows
+ *       what the wheels ask for no faster than μ·g. Past that, every wheel skids alike. A push from
+ *       outside ({@link Disturbance.Pushed}) adds a velocity of its own.
+ *   <li><b>The robot settles on the ground</b> ({@link GroundPlane}). It sits on the plane that
+ *       best fits the ground under its wheels, which gives its height and its attitude, unless it
+ *       is tilted by hand.
+ * </ol>
  *
- * <p>What that leaves out, the truth suite keeps as known gaps (docs/simulator.md): the robot's yaw
- * inertia (it spins as if its mass sat at its wheels), weight transfer and each wheel's own load
- * and slip, wheels that disagree scrubbing (the fit just splits the difference), a wheel leaving
- * the ground, and gravity along a slope.
+ * <p><b>What is left out</b>, which the truth suite keeps as known gaps (docs/simulator.md): the
+ * robot's yaw inertia (it spins as if its mass sat at its wheels); weight transfer, and each
+ * wheel's own load and slip; scrub between wheels that disagree (the fit splits the difference); a
+ * wheel leaving the ground; and gravity along a slope.
  */
 public final class KinematicPhysics implements Physics {
   /**
@@ -59,58 +54,96 @@ public final class KinematicPhysics implements Physics {
    */
   public static final double PUSH_ACCELERATION_METERS_PER_SECOND_SQUARED = 3.0;
 
+  /** Where each wheel sits, from the robot's center, in the robot's frame. */
+  private final Translation2d[] wheelPlaces;
+
   private final Wheel[] wheels;
+
+  /** What drives each wheel over a step, filled in by the actuators as the step starts. */
   private final WheelDrive[] drives;
-  private final Translation2d[] moduleLocations;
-  private final RigidFit fit;
+
+  /** Each wheel's radius as the drivetrain's definition gives it, before any wear. */
   private final double[] configuredRadiusMeters;
 
+  private final RigidFit fit;
+  private final GroundPlane ground;
+
   /** Each wheel's load: an equal share of the robot's weight. */
-  private final double loadNewtons;
+  private final double wheelLoadNewtons;
 
-  /** The most acceleration the floor's grip allows the robot: its wheels' friction times g. */
-  private final double gripLimit;
+  /**
+   * The most the floor's grip can accelerate the robot, in m/s²: its wheels' coefficient of
+   * friction times g.
+   */
+  private final double gripLimitMetersPerSecondSquared;
 
-  private final double[] planeFit = new double[9];
-
-  /** The last step's rigid motion, in the robot's frame: forward, left, and turned. */
-  private final double[] motion = new double[3];
+  /** How far the wheels' rolling asked the robot to move in the last step, in its own frame. */
+  private final RigidMotion rolled = new RigidMotion();
 
   private final Chassis chassis = new Chassis();
 
-  // The wheels' travel at the last step's end: each one's distance rolled and the angle it pointed.
-  private double[] lastDistances;
-  private double[] lastAngles;
+  /** The wheels' travel as the last step ended, and as this one ends. They swap every step. */
+  private WheelTravel travelBefore;
+
+  private WheelTravel travelNow;
 
   private Pose2d truePose = Pose2d.ZERO;
   private double yawTurnedRadians;
   private double yawRateRadiansPerSecond;
   private double elapsedSeconds;
 
+  /** The share of the wheels' rolling that moves the robot: 1 with full grip. */
   private double grip = 1;
+
   private double pitchRadians;
   private double rollRadians;
 
-  // The ground under the robot: the terrain, and the plane through its wheels' contact points.
   private Terrain terrain = Terrain.FLAT;
-  private boolean tiltedByHand;
-  private double heightMeters;
-  private double riseForward;
-  private double riseLeft;
 
-  /** The robot's velocity on the field over the last step, for what its IMUs feel. */
+  /**
+   * Whether the robot's attitude is held by hand, whatever the ground says. Otherwise it follows
+   * the plane under its wheels.
+   */
+  private boolean tiltedByHand;
+
+  /** The robot's velocity on the field over the last step: what its IMUs feel. */
   private Translation2d lastVelocity = Translation2d.ZERO;
 
-  /** A push the wheels don't see, in the field's frame: the velocity it's headed for, and now. */
+  /**
+   * The share of the robot's velocity that comes from its wheels, on the field: what the wheels ask
+   * of it, followed no faster than the floor's grip allows.
+   */
+  private Translation2d wheelDrivenVelocity = Translation2d.ZERO;
+
+  /**
+   * A push the wheels do not see, on the field: the velocity it is headed for, and the velocity it
+   * has reached so far.
+   */
   private Translation2d pushTarget = Translation2d.ZERO;
 
   private Translation2d pushVelocity = Translation2d.ZERO;
 
   /**
-   * The robot's velocity on the field: what its wheels ask of it, followed no faster than the
-   * floor's grip allows.
+   * How far each wheel has rolled the robot along and which way it points, at one instant. The
+   * arrays are in the wheels' order.
    */
-  private Translation2d chassisVelocity = Translation2d.ZERO;
+  private static final class WheelTravel {
+    final double[] distancesMeters;
+    final double[] anglesRadians;
+
+    WheelTravel(int wheelCount) {
+      distancesMeters = new double[wheelCount];
+      anglesRadians = new double[wheelCount];
+    }
+
+    /** Takes the wheels' travel as it stands now. A wheel rolls the robot at its true radius. */
+    void read(Wheel[] wheels) {
+      for (int i = 0; i < wheels.length; i++) {
+        distancesMeters[i] = wheels[i].rotationRadians() * wheels[i].radiusMeters;
+        anglesRadians[i] = wheels[i].steerRadians;
+      }
+    }
+  }
 
   /**
    * On flat ground until given its terrain ({@link Disturbance.Ground}), standing at the field's
@@ -122,36 +155,36 @@ public final class KinematicPhysics implements Physics {
    * @param wheelRadiusScale each wheel's true radius over the configured one, as built
    */
   public KinematicPhysics(Body body, DrivetrainGeometry drivetrain, List<Double> wheelRadiusScale) {
-    moduleLocations = drivetrain.moduleTranslations();
-    fit = new RigidFit(moduleLocations);
-    planeFit(moduleLocations, planeFit);
-    int count = moduleLocations.length;
-    configuredRadiusMeters = new double[count];
-    double carriedKilograms = body.mass().in(Kilograms) / count;
-    wheels = new Wheel[count];
-    drives = new WheelDrive[count];
-    for (int i = 0; i < count; i++) {
+    wheelPlaces = drivetrain.moduleTranslations();
+    fit = new RigidFit(wheelPlaces);
+    ground = new GroundPlane(wheelPlaces);
+    int wheelCount = wheelPlaces.length;
+    configuredRadiusMeters = new double[wheelCount];
+    double carriedKilograms = body.mass().in(Kilograms) / wheelCount;
+    wheels = new Wheel[wheelCount];
+    drives = new WheelDrive[wheelCount];
+    for (int i = 0; i < wheelCount; i++) {
       DrivetrainGeometry.ModuleType module = drivetrain.module(i);
       configuredRadiusMeters[i] = module.wheelRadius().in(Meters);
-      double inertia =
+      double inertiaKgM2 =
           driveInertiaKgM2(
               carriedKilograms,
               configuredRadiusMeters[i],
               module.driveInertiaOrDefault().in(KilogramSquareMeters));
+      DCMotor motor = module.driveMotors().model(module.driveGearing().efficiency());
+      double trueRadiusMeters = configuredRadiusMeters[i] * wheelRadiusScale.get(i);
       wheels[i] =
           new Wheel(
               i,
-              module.driveMotors().model(module.driveGearing().efficiency()),
-              inertia,
-              module.driveGearing().ratio(),
-              configuredRadiusMeters[i] * wheelRadiusScale.get(i));
+              new WheelMotor(motor, inertiaKgM2, module.driveGearing().ratio()),
+              trueRadiusMeters);
       drives[i] = new WheelDrive();
     }
-    loadNewtons = body.mass().in(Kilograms) * STANDARD_GRAVITY / count;
-    gripLimit = drivetrain.wheelCoefficientOfFriction() * STANDARD_GRAVITY;
-    lastDistances = new double[count];
-    lastAngles = new double[count];
-    rollAlong();
+    wheelLoadNewtons = body.mass().in(Kilograms) * STANDARD_GRAVITY / wheelCount;
+    gripLimitMetersPerSecondSquared = drivetrain.wheelCoefficientOfFriction() * STANDARD_GRAVITY;
+    travelBefore = new WheelTravel(wheelCount);
+    travelNow = new WheelTravel(wheelCount);
+    countTravelFromHere();
   }
 
   /**
@@ -178,39 +211,69 @@ public final class KinematicPhysics implements Physics {
     for (int i = 0; i < wheels.length; i++) {
       wheels[i].turn(drives[i], seconds);
     }
-    double[] distances = distances();
-    double[] angles = angles();
-    fit.motion(lastDistances, lastAngles, distances, angles, motion);
-    double dx = motion[0];
-    double dy = motion[1];
-    double dtheta = motion[2];
-    Translation2d before = truePose.getTranslation();
-    // Only the gripping share of the wheels' rolling moves the robot, and rolling up or down a
-    // slope moves it less across the field.
-    double travel = Math.hypot(dx, dy);
-    double rise = travel > 0 ? (riseForward * dx + riseLeft * dy) / travel : 0;
-    double level = grip / Math.sqrt(1 + rise * rise);
-    Pose2d asked = truePose.plus(new Twist2d(level * dx, level * dy, grip * dtheta).exp());
-    // The robot goes where its wheels take it, as fast as the floor's grip lets it change course:
-    // past that, they skid.
-    chassisVelocity =
-        toward(
-            chassisVelocity,
-            asked.getTranslation().minus(before).div(seconds),
-            gripLimit * seconds);
+    travelNow.read(wheels);
+    fit.motion(
+        travelBefore.distancesMeters,
+        travelBefore.anglesRadians,
+        travelNow.distancesMeters,
+        travelNow.anglesRadians,
+        rolled);
+
+    Translation2d placeBefore = truePose.getTranslation();
+    Pose2d asked = whereTheWheelsAskItToBe();
+    Translation2d askedVelocity = asked.getTranslation().minus(placeBefore).div(seconds);
+
+    // Friction as a limit on acceleration: the robot's velocity follows what its wheels ask for,
+    // but changes by no more than the grip's acceleration times the step. Past that, they skid.
+    wheelDrivenVelocity =
+        toward(wheelDrivenVelocity, askedVelocity, gripLimitMetersPerSecondSquared * seconds);
+    // A push gets going, and stops, at its own steady acceleration, whatever the wheels do.
     pushVelocity =
         toward(pushVelocity, pushTarget, PUSH_ACCELERATION_METERS_PER_SECOND_SQUARED * seconds);
-    truePose =
-        new Pose2d(
-            before.plus(chassisVelocity.times(seconds)).plus(pushVelocity.times(seconds)),
-            asked.getRotation());
-    settle();
-    yawTurnedRadians += grip * dtheta;
-    yawRateRadiansPerSecond = grip * dtheta / seconds;
-    lastVelocity = truePose.getTranslation().minus(before).div(seconds);
-    lastDistances = distances;
-    lastAngles = angles;
+
+    // The robot's place moves at the two velocities together. Its heading is the wheels' own: the
+    // grip limit holds back how the robot's place changes, not its turn.
+    Translation2d placeAfter =
+        placeBefore.plus(wheelDrivenVelocity.times(seconds)).plus(pushVelocity.times(seconds));
+    truePose = new Pose2d(placeAfter, asked.getRotation());
+    settleOnTheGround();
+
+    double turnedRadians = grip * rolled.turnRadians;
+    yawTurnedRadians += turnedRadians;
+    yawRateRadiansPerSecond = turnedRadians / seconds;
+    lastVelocity = truePose.getTranslation().minus(placeBefore).div(seconds);
     elapsedSeconds += seconds;
+
+    WheelTravel reused = travelBefore;
+    travelBefore = travelNow;
+    travelNow = reused;
+  }
+
+  /**
+   * Where the wheels' rolling over the last step asks the robot to be: from where it is, moved by
+   * the motion that best fits their travel. Only the gripping share of the rolling moves it, and
+   * rolling along a slope moves it less far across the field, which is flat.
+   */
+  private Pose2d whereTheWheelsAskItToBe() {
+    double forwardMeters = rolled.forwardMeters;
+    double leftMeters = rolled.leftMeters;
+    // The slope along the way the robot travels: how much the ground rises for each meter rolled
+    // that way, from the plane under the wheels. A robot standing still is on no slope.
+    double rolledMeters = Math.hypot(forwardMeters, leftMeters);
+    double slopeAlongTravel = 0;
+    if (rolledMeters > 0) {
+      slopeAlongTravel =
+          (ground.riseForward() * forwardMeters + ground.riseLeft() * leftMeters) / rolledMeters;
+    }
+    // A distance d rolled along a slope s covers d / sqrt(1 + s²) across the field: the cosine of
+    // the slope's angle. The grip's share scales it too.
+    double shareAcrossTheField = grip / Math.sqrt(1 + slopeAlongTravel * slopeAlongTravel);
+    Twist2d moved =
+        new Twist2d(
+            shareAcrossTheField * forwardMeters,
+            shareAcrossTheField * leftMeters,
+            grip * rolled.turnRadians);
+    return truePose.plus(moved.exp());
   }
 
   @Override
@@ -231,118 +294,77 @@ public final class KinematicPhysics implements Physics {
   @Override
   public void apply(Disturbance disturbance) {
     switch (disturbance) {
-      case Disturbance.Placed placed -> {
-        Pose2d pose = placed.pose();
-        yawTurnedRadians += pose.getRotation().minus(truePose.getRotation()).getRadians();
-        truePose = pose;
-        settle();
-      }
+      case Disturbance.Placed placed -> place(placed.pose());
       case Disturbance.Pushed pushed -> pushTarget = pushed.fieldVelocity();
-      case Disturbance.TiltedByHand tilt -> {
-        tiltedByHand = true;
-        pitchRadians = tilt.pitchRadians();
-        rollRadians = tilt.rollRadians();
-      }
-      case Disturbance.Ground ground -> {
-        terrain = ground.terrain();
-        tiltedByHand = false;
-        settle();
-      }
+      case Disturbance.TiltedByHand tilt -> tiltByHand(tilt);
+      case Disturbance.Ground onGround -> setDownOn(onGround.terrain());
       case Disturbance.Grip slick -> grip = slick.share();
-      case Disturbance.TreadWorn worn -> {
-        wheels[worn.wheel()].radiusMeters = configuredRadiusMeters[worn.wheel()] * worn.scale();
-        // The wheels' travel so far was at the old radius: start counting again from here.
-        rollAlong();
-      }
+      case Disturbance.TreadWorn worn -> wearTread(worn);
     }
   }
 
-  /** Takes the wheels' travel as it stands for where the next step's starts. */
-  private void rollAlong() {
-    lastDistances = distances();
-    lastAngles = angles();
+  /**
+   * Sets the robot down at a pose. The turn from where it faced counts as one the robot truly made,
+   * so its gyro feels it. Its velocity is kept.
+   */
+  private void place(Pose2d pose) {
+    yawTurnedRadians += pose.getRotation().minus(truePose.getRotation()).getRadians();
+    truePose = pose;
+    settleOnTheGround();
   }
 
-  /** How far each wheel has rolled the robot along, at its true radius. */
-  private double[] distances() {
-    double[] distances = new double[wheels.length];
-    for (int i = 0; i < wheels.length; i++) {
-      distances[i] = wheels[i].rotationRadians() * wheels[i].radiusMeters;
-    }
-    return distances;
+  private void tiltByHand(Disturbance.TiltedByHand tilt) {
+    tiltedByHand = true;
+    pitchRadians = tilt.pitchRadians();
+    rollRadians = tilt.rollRadians();
   }
 
-  /** Which way each wheel points. */
-  private double[] angles() {
-    double[] angles = new double[wheels.length];
-    for (int i = 0; i < wheels.length; i++) {
-      angles[i] = wheels[i].steerRadians;
-    }
-    return angles;
+  /** Gives the robot its ground, and sets it back down on it, which undoes a tilt by hand. */
+  private void setDownOn(Terrain terrain) {
+    this.terrain = terrain;
+    tiltedByHand = false;
+    settleOnTheGround();
   }
 
-  /** A velocity moved toward another by at most so much. */
-  private static Translation2d toward(Translation2d from, Translation2d to, double most) {
+  private void wearTread(Disturbance.TreadWorn worn) {
+    wheels[worn.wheel()].radiusMeters = configuredRadiusMeters[worn.wheel()] * worn.scale();
+    // The wheels' travel so far was at the old radius, and the same rotation at the new radius is
+    // a different distance. Counting again from here keeps the change from moving the robot.
+    countTravelFromHere();
+  }
+
+  /** Takes the wheels' travel as it stands for where the next step's travel is counted from. */
+  private void countTravelFromHere() {
+    travelBefore.read(wheels);
+  }
+
+  /**
+   * A velocity moved toward another, by no more than so much: the whole way if the other is within
+   * reach, and otherwise that far along the straight line to it.
+   */
+  private static Translation2d toward(Translation2d from, Translation2d to, double mostChange) {
     Translation2d change = to.minus(from);
-    double size = change.getNorm();
-    return size <= most ? to : from.plus(change.times(most / size));
+    double changeSize = change.getNorm();
+    if (changeSize <= mostChange) {
+      return to;
+    }
+    return from.plus(change.times(mostChange / changeSize));
   }
 
   /**
    * Sets the robot on the ground where it is: the plane through the ground under its wheels gives
-   * its height and, unless tilted by hand, its attitude.
+   * its height and, unless it is tilted by hand, its attitude.
    */
-  private void settle() {
-    double sum = 0;
-    double sumX = 0;
-    double sumY = 0;
-    for (Translation2d wheel : moduleLocations) {
-      double height =
-          terrain.heightAt(truePose.getTranslation().plus(wheel.rotateBy(truePose.getRotation())));
-      sum += height;
-      sumX += wheel.getX() * height;
-      sumY += wheel.getY() * height;
+  private void settleOnTheGround() {
+    ground.fitUnder(terrain, truePose);
+    if (tiltedByHand) {
+      return;
     }
-    // Least squares: height = a + (rise forward) x + (rise left) y, in the robot's frame.
-    heightMeters = planeFit[0] * sum + planeFit[1] * sumX + planeFit[2] * sumY;
-    riseForward = planeFit[3] * sum + planeFit[4] * sumX + planeFit[5] * sumY;
-    riseLeft = planeFit[6] * sum + planeFit[7] * sumX + planeFit[8] * sumY;
-    if (!tiltedByHand) {
-      // WPILib's convention: nose up is a negative pitch, the left side up a positive roll.
-      pitchRadians = -Math.atan(riseForward);
-      rollRadians = Math.atan(riseLeft * Math.cos(pitchRadians));
-    }
-  }
-
-  /** The inverse of the plane fit's normal equations for these wheels, row by row. */
-  private static void planeFit(Translation2d[] wheels, double[] inverse) {
-    double n = wheels.length;
-    double sx = 0;
-    double sy = 0;
-    double sxx = 0;
-    double sxy = 0;
-    double syy = 0;
-    for (Translation2d wheel : wheels) {
-      sx += wheel.getX();
-      sy += wheel.getY();
-      sxx += wheel.getX() * wheel.getX();
-      sxy += wheel.getX() * wheel.getY();
-      syy += wheel.getY() * wheel.getY();
-    }
-    double[] m = {n, sx, sy, sx, sxx, sxy, sy, sxy, syy};
-    double det =
-        m[0] * (m[4] * m[8] - m[5] * m[7])
-            - m[1] * (m[3] * m[8] - m[5] * m[6])
-            + m[2] * (m[3] * m[7] - m[4] * m[6]);
-    inverse[0] = (m[4] * m[8] - m[5] * m[7]) / det;
-    inverse[1] = (m[2] * m[7] - m[1] * m[8]) / det;
-    inverse[2] = (m[1] * m[5] - m[2] * m[4]) / det;
-    inverse[3] = (m[5] * m[6] - m[3] * m[8]) / det;
-    inverse[4] = (m[0] * m[8] - m[2] * m[6]) / det;
-    inverse[5] = (m[2] * m[3] - m[0] * m[5]) / det;
-    inverse[6] = (m[3] * m[7] - m[4] * m[6]) / det;
-    inverse[7] = (m[1] * m[6] - m[0] * m[7]) / det;
-    inverse[8] = (m[0] * m[4] - m[1] * m[3]) / det;
+    // The plane's two slopes as WPILib's angles: nose up is a negative pitch, and the left side up
+    // is a positive roll. The roll is taken about the robot's forward axis after it has pitched,
+    // which is where the pitch's cosine comes from.
+    pitchRadians = -Math.atan(ground.riseForward());
+    rollRadians = Math.atan(ground.riseLeft() * Math.cos(pitchRadians));
   }
 
   /** The chassis's truth: a view of this world. */
@@ -357,7 +379,7 @@ public final class KinematicPhysics implements Physics {
       return new Pose3d(
           truePose.getX(),
           truePose.getY(),
-          heightMeters,
+          ground.heightAtCenterMeters(),
           new Rotation3d(rollRadians, pitchRadians, truePose.getRotation().getRadians()));
     }
 
@@ -391,6 +413,10 @@ public final class KinematicPhysics implements Physics {
       return elapsedSeconds;
     }
 
+    /**
+     * A point fixed on a turning body moves at the body's velocity plus ω × r, where r is the arm
+     * from the body's center to the point. In the plane, ω × r is (−ω·r.y, ω·r.x).
+     */
     @Override
     public Translation2d pointVelocity(Translation2d place) {
       Translation2d arm = place.rotateBy(truePose.getRotation());
@@ -401,94 +427,35 @@ public final class KinematicPhysics implements Physics {
   }
 
   /**
-   * One wheel: its drive motor turning the wheel's share of the robot, exactly as WPILib's {@code
-   * DCMotorSim} turns a load (its state-space model, discretized for the step, at the voltage held
-   * through it), and the angle its steering was turned to.
+   * One wheel: its drive motor turning it ({@link WheelMotor}), the angle its steering was turned
+   * to, its true radius, and where it meets the ground.
    */
   private final class Wheel implements WheelTruth {
     private final int index;
-    private final DCMotor motor;
-    private final LinearSystem<N2, N1, N2> plant;
-
-    /** The gearing as configured: motor turns per turn of the wheel. */
-    private final double ratio;
-
-    /** The gearing as {@code DCMotorSim} works it back out of its model. */
-    private final double gearing;
-
-    private Matrix<N2, N1> state = new Matrix<>(Nat.N2(), Nat.N1());
-    private Matrix<N1, N1> input = new Matrix<>(Nat.N1(), Nat.N1());
-    private Matrix<N2, N1> output = new Matrix<>(Nat.N2(), Nat.N1());
+    private final WheelMotor motor;
     private double radiusMeters;
     private double steerRadians;
-    private boolean currentLimited;
 
-    /**
-     * The model discretized for a step this long: worked out once for each length of step, since
-     * the matrix exponential it takes is native code, and today's steps are all one length.
-     */
-    private double discretizedSeconds = Double.NaN;
-
-    private Matrix<N2, N2> discreteA = new Matrix<>(Nat.N2(), Nat.N2());
-    private Matrix<N2, N1> discreteB = new Matrix<>(Nat.N2(), Nat.N1());
-
-    Wheel(int index, DCMotor motor, double inertiaKgM2, double ratio, double radiusMeters) {
+    Wheel(int index, WheelMotor motor, double radiusMeters) {
       this.index = index;
       this.motor = motor;
-      this.ratio = ratio;
-      // WPILib 2027 names this model for an arm; without gravity it's a motor turning a load.
-      plant = Models.singleJointedArmFromPhysicalConstants(motor, inertiaKgM2, ratio);
-      gearing = -motor.Kv * plant.getA(1, 1) / plant.getB(1, 0);
       this.radiusMeters = radiusMeters;
     }
 
-    /**
-     * Turns the wheel through a step, its motor at what its controller asks, held to the
-     * controller's current limit as a TalonFX holds it at the step's start: no more than the
-     * limit's worth of voltage past the motor's back EMF, and within the battery. Held through the
-     * step, the current then falls as the wheel speeds up, short of the limit (the truth suite's F
-     * = m a gap). The velocity loop's gain goes unused: the voltage is held.
-     */
+    /** Turns the wheel through a step as its actuators say, and points it where they steered it. */
     void turn(WheelDrive drive, double seconds) {
-      double backEmf = spinRadPerSec() * ratio / motor.Kv;
-      double headroom = drive.currentLimitAmps() * motor.R;
-      double limited = Math.clamp(drive.volts(), backEmf - headroom, backEmf + headroom);
-      currentLimited = limited != drive.volts();
-      input = VecBuilder.fill(limited * Math.min(1.0, drive.batteryVolts() / Math.abs(limited)));
+      motor.turn(drive.volts(), drive.currentLimitAmps(), drive.batteryVolts(), seconds);
       steerRadians = drive.steerRadians();
-      if (seconds != discretizedSeconds) {
-        discretize(seconds);
-      }
-      // As LinearSystem.calculateX works it, to the bit, but discretized once.
-      state = discreteA.times(state).plus(discreteB.times(input));
-      output = plant.calculateY(state, input);
-    }
-
-    /**
-     * Discretizes the model for a step this long, exactly as WPILib's {@code
-     * Discretization.discretizeAB} does (which hands the result back in a pair outside WPILib's
-     * math): the exponential of [A B; 0 0] times the step, its blocks the discrete A and B.
-     */
-    private void discretize(double seconds) {
-      Matrix<N3, N3> continuous = new Matrix<>(Nat.N3(), Nat.N3());
-      continuous.assignBlock(0, 0, plant.getA());
-      continuous.assignBlock(0, 2, plant.getB());
-      Matrix<N3, N3> phi = continuous.times(seconds).exp();
-      discreteA = new Matrix<>(Nat.N2(), Nat.N2());
-      discreteA.extractFrom(0, 0, phi);
-      discreteB = new Matrix<>(Nat.N2(), Nat.N1());
-      discreteB.extractFrom(0, 2, phi);
-      discretizedSeconds = seconds;
     }
 
     @Override
     public double rotationRadians() {
-      return output.get(0, 0);
+      return motor.rotationRadians();
     }
 
     @Override
     public double spinRadPerSec() {
-      return output.get(1, 0);
+      return motor.speedRadPerSec();
     }
 
     @Override
@@ -501,25 +468,19 @@ public final class KinematicPhysics implements Physics {
       return radiusMeters;
     }
 
-    /**
-     * As WPILib's {@code DCMotorSim} gives it: the motor's current, signed by its voltage, so none
-     * at all at 0 V, where a motor braking a spinning wheel truly carries current in its windings.
-     */
     @Override
     public double driveCurrentAmps() {
-      double volts = input.get(0, 0);
-      return motor.getCurrent(state.get(1, 0) * gearing, volts) * Math.signum(volts);
+      return motor.currentAmps();
     }
 
-    /** The voltage held through the last step. */
     @Override
     public double driveVolts() {
-      return input.get(0, 0);
+      return motor.volts();
     }
 
     @Override
     public boolean driveCurrentLimited() {
-      return currentLimited;
+      return motor.currentLimited();
     }
 
     /** No scrub: the steering turns freely on the carpet. */
@@ -531,10 +492,10 @@ public final class KinematicPhysics implements Physics {
     /** An equal share of the robot's weight, however hard it speeds up or tilts. */
     @Override
     public double loadNewtons() {
-      return loadNewtons;
+      return wheelLoadNewtons;
     }
 
-    /** Always: the robot stands on the plane through its four wheels' ground. */
+    /** Always: the robot stands on the plane through the ground under its wheels. */
     @Override
     public boolean inContact() {
       return true;
@@ -542,11 +503,10 @@ public final class KinematicPhysics implements Physics {
 
     @Override
     public Translation3d contactPoint() {
-      Translation2d location = moduleLocations[index];
+      Translation2d place = wheelPlaces[index];
       Translation2d onTheField =
-          truePose.getTranslation().plus(location.rotateBy(truePose.getRotation()));
-      double height = heightMeters + riseForward * location.getX() + riseLeft * location.getY();
-      return new Translation3d(onTheField.getX(), onTheField.getY(), height);
+          truePose.getTranslation().plus(place.rotateBy(truePose.getRotation()));
+      return new Translation3d(onTheField.getX(), onTheField.getY(), ground.heightUnder(place));
     }
   }
 }

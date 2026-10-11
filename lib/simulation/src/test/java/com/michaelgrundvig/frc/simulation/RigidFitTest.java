@@ -17,7 +17,7 @@ class RigidFitTest {
   };
 
   private final RigidFit fit = new RigidFit(SQUARE);
-  private final double[] motion = new double[3];
+  private final RigidMotion motion = new RigidMotion();
 
   private static final double[] NONE = {0, 0, 0, 0};
 
@@ -27,9 +27,9 @@ class RigidFitTest {
     double[] angles = {angle, angle, angle, angle};
     fit.motion(NONE, angles, new double[] {0.1, 0.1, 0.1, 0.1}, angles, motion);
 
-    assertThat(motion[0]).isCloseTo(0.1 * Math.cos(angle), within(1e-12));
-    assertThat(motion[1]).isCloseTo(0.1 * Math.sin(angle), within(1e-12));
-    assertThat(motion[2]).isCloseTo(0, within(1e-12));
+    assertThat(motion.forwardMeters).isCloseTo(0.1 * Math.cos(angle), within(1e-12));
+    assertThat(motion.leftMeters).isCloseTo(0.1 * Math.sin(angle), within(1e-12));
+    assertThat(motion.turnRadians).isCloseTo(0, within(1e-12));
   }
 
   @Test
@@ -42,9 +42,9 @@ class RigidFitTest {
     }
     fit.motion(NONE, angles, rolled, angles, motion);
 
-    assertThat(motion[0]).isCloseTo(0, within(1e-12));
-    assertThat(motion[1]).isCloseTo(0, within(1e-12));
-    assertThat(motion[2]).isCloseTo(0.01, within(1e-12));
+    assertThat(motion.forwardMeters).isCloseTo(0, within(1e-12));
+    assertThat(motion.leftMeters).isCloseTo(0, within(1e-12));
+    assertThat(motion.turnRadians).isCloseTo(0.01, within(1e-12));
   }
 
   /**
@@ -54,7 +54,7 @@ class RigidFitTest {
   void oneWheelRollingAloneMovesTheRobotAQuarterAsFar() {
     fit.motion(NONE, NONE, new double[] {0.04, 0, 0, 0}, NONE, motion);
 
-    assertThat(motion[0]).isCloseTo(0.01, within(1e-12));
+    assertThat(motion.forwardMeters).isCloseTo(0.01, within(1e-12));
   }
 
   /** A wheel that steered on the way is taken at the angle halfway, the short way round. */
@@ -64,8 +64,8 @@ class RigidFitTest {
     double[] to = {-Math.PI + 0.1, -Math.PI + 0.1, -Math.PI + 0.1, -Math.PI + 0.1};
     fit.motion(NONE, from, new double[] {0.1, 0.1, 0.1, 0.1}, to, motion);
 
-    assertThat(motion[0]).isCloseTo(-0.1, within(1e-12));
-    assertThat(motion[1]).isCloseTo(0, within(1e-12));
+    assertThat(motion.forwardMeters).isCloseTo(-0.1, within(1e-12));
+    assertThat(motion.leftMeters).isCloseTo(0, within(1e-12));
   }
 
   @Test
