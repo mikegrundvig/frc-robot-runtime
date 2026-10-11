@@ -762,7 +762,9 @@ joint and its end ([`Driven.LimitSwitch`](#drivenlimitswitch)).
 
 `com.michaelgrundvig.frc.world.robot.Sensor.Rangefinder`: a distance along its axis, from its mount
 on a part: a CANrange, a LaserCAN, an analog ultrasonic. Used as "is something there", it's still a
-rangefinder: the threshold is a condition (`nearerThan`, `fartherThan`).
+rangefinder: the threshold is a condition (`nearerThan`, `fartherThan`), at a distance short of
+its `range`. One at the range or beyond is refused: the condition could never change, so either
+the distance or the range is wrong.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
