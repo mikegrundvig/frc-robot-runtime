@@ -99,6 +99,26 @@ final class LimitStops {
     }
   }
 
+  /**
+   * A joint held neutral by a switch, in place of an output that pushes toward the switch's end.
+   * One lasts for as long as the same switch stops the very same demand: the same output asked, the
+   * same things already holding the joint, and the same say on its profile.
+   *
+   * @param by the switch that holds the joint
+   * @param asked the demand that came in as it began
+   * @param neutral the demand that goes out in its place
+   */
+  private record Stilled(Stop by, Demand asked, Demand neutral) {
+    static Stilled beginning(Stop by, Demand asked) {
+      return new Stilled(by, asked, asked.heldTo(JointAsk.NEUTRAL, by.shown()));
+    }
+
+    /** Whether this is a demand held neutral by a switch: the same switch, and an equal demand. */
+    boolean isOf(Stop stop, Demand demand) {
+      return by == stop && asked.equals(demand);
+    }
+  }
+
   /** The joint's switches. An array, because going through a list makes an iterator each loop. */
   private final Stop[] stops;
 
@@ -118,6 +138,13 @@ final class LimitStops {
   private Optional<Hold> hold = Optional.empty();
 
   /**
+   * The output a switch holds the joint neutral in place of, or empty while no switch does. As with
+   * a hold at a position, it is built in the loop it begins and used in every loop after that, so
+   * that a joint pushed steadily at a tripped switch allocates nothing.
+   */
+  private Optional<Stilled> stilled = Optional.empty();
+
+  /**
    * @param switches the joint's limit switches
    */
   LimitStops(List<Sensor.Switch> switches) {
@@ -130,7 +157,8 @@ final class LimitStops {
   /**
    * What the joint's tripped limit switches leave of what it is asked this loop. Each switch that
    * holds the joint says so ("pivot upper limit tripped"). A demand that no switch changes is
-   * handed back as the very same object.
+   * handed back as the very same object, and so is what a switch leaves of a demand it stopped the
+   * same way the loop before.
    *
    * @param demand what the joint is asked, as its interlocks left it
    * @param at where the joint is
@@ -148,6 +176,7 @@ final class LimitStops {
     if (nothingHoldsIt) {
       stoppedAt = OptionalDouble.empty();
       hold = Optional.empty();
+      stilled = Optional.empty();
     }
     return left;
   }
@@ -185,12 +214,20 @@ final class LimitStops {
     return begun.asItBegins();
   }
 
-  /** An output, with a switch tripped: neutral if the output pushes toward the switch's end. */
-  private static Demand outputStoppedBy(Stop stop, Demand demand, JointAsk.AtOutput output) {
+  /**
+   * An output, with a switch tripped: neutral if the output pushes toward the switch's end. While
+   * the same switch stops an equal demand, loop after loop, the very same neutral demand goes out.
+   */
+  private Demand outputStoppedBy(Stop stop, Demand demand, JointAsk.AtOutput output) {
     if (!stop.isPushedTowardBy(output)) {
       return demand;
     }
-    return demand.heldTo(JointAsk.NEUTRAL, stop.shown());
+    if (stilled.isPresent() && stilled.get().isOf(stop, demand)) {
+      return stilled.get().neutral();
+    }
+    Stilled begun = Stilled.beginning(stop, demand);
+    stilled = Optional.of(begun);
+    return begun.neutral();
   }
 
   /** The robot's limit switches that are one joint's. */

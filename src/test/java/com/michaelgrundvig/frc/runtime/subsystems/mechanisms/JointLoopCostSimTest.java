@@ -46,7 +46,8 @@ import org.wpilib.system.RobotController;
  * the directory the tests run in.
  *
  * <p>A third robot gives the pivot a limit switch short of "out", so that the pivot sent there is
- * held on its switch.
+ * held on its switch. A fourth gives it one it rests on, so that the pivot pushed down at a voltage
+ * is held neutral on that switch.
  *
  * <p>Only the allocation is asserted: it is exact and repeatable, where the time depends on what
  * else the computer is doing. Every joint is held to a loose bound. A joint under an interlock is
@@ -105,6 +106,16 @@ class JointLoopCostSimTest {
   private static final RobotDefinition SWITCHED =
       RobotDefinitionBuilder.builder(ROBOT).name("switched").sensors(List.of(PIVOT_UP)).build();
 
+  /** The pivot's switch at 5°, above where it rests at 1.5°: tripped while the pivot is in. */
+  private static final Sensor.Switch PIVOT_DOWN =
+      JointFixtures.limit("pivot down", PIVOT, Sensor.Switch.Limit.End.LOWER, Math.toRadians(5));
+
+  private static final RobotDefinition SWITCHED_BELOW =
+      RobotDefinitionBuilder.builder(ROBOT)
+          .name("switched below")
+          .sensors(List.of(PIVOT_DOWN))
+          .build();
+
   /** What a joint is asked each loop while it is measured. */
   private enum Asking {
     /**
@@ -114,6 +125,10 @@ class JointLoopCostSimTest {
     PIVOT_OUT,
     /** The roller is run at "intaking", which its run-only-when holds while the pivot is in. */
     ROLLER_INTAKING_WITH_PIVOT_IN,
+    /**
+     * The pivot is pushed down at a voltage, into the switch it rests on, which holds it neutral.
+     */
+    PIVOT_DOWN_AT_A_VOLTAGE,
     /** Nothing is asked: the joint does what it does idle. */
     NOTHING
   }
@@ -151,6 +166,12 @@ class JointLoopCostSimTest {
     costs.add(
         measure(
             "pivot to a position, held on its limit switch", SWITCHED, PIVOT, Asking.PIVOT_OUT));
+    costs.add(
+        measure(
+            "pivot at a voltage, held neutral on its limit switch",
+            SWITCHED_BELOW,
+            PIVOT,
+            Asking.PIVOT_DOWN_AT_A_VOLTAGE));
 
     StringBuilder report = new StringBuilder();
     for (Cost cost : costs) {
@@ -238,7 +259,7 @@ class JointLoopCostSimTest {
     if (robot == GUARDED) {
       return MOST_BYTES_A_LOOP_UNDER_AN_INTERLOCK;
     }
-    if (robot == SWITCHED) {
+    if (robot == SWITCHED || robot == SWITCHED_BELOW) {
       return MOST_BYTES_A_LOOP_HELD_ON_A_SWITCH;
     }
     return MOST_BYTES_A_LOOP;
@@ -252,9 +273,12 @@ class JointLoopCostSimTest {
   private static final JointAsk ROLLER_AT_INTAKING = Asks.running(ROLLER_INTAKING);
   private static final Optional<String> ROLLER_INTAKING_NAME = Optional.of(ROLLER_INTAKING.name());
 
+  private static final JointAsk PIVOT_PUSHED_DOWN = new JointAsk.AtVoltage(-1);
+
   private static void ask(JointMechanism joint, Asking asking) {
     switch (asking) {
       case PIVOT_OUT -> joint.ask(TO_PIVOT_OUT, PIVOT_OUT_NAME);
+      case PIVOT_DOWN_AT_A_VOLTAGE -> joint.ask(PIVOT_PUSHED_DOWN, Optional.empty());
       case ROLLER_INTAKING_WITH_PIVOT_IN -> joint.ask(ROLLER_AT_INTAKING, ROLLER_INTAKING_NAME);
       case NOTHING -> {}
     }

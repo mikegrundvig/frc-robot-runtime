@@ -188,6 +188,47 @@ class LimitStopsTest {
     assertThat(turret.apply(Demand.NEUTRAL, 1.6, switches.sensors()).heldBy()).isEmpty();
   }
 
+  /**
+   * An output pushed steadily at a tripped switch is held neutral by the very same demand each
+   * loop, asked as the same object or as an equal one: a steady stop makes no objects. Anything
+   * that changes begins another: another output, something else holding the joint above, or the
+   * switch clearing and tripping again. Until 2026-10-11 every loop made a new demand.
+   */
+  @Test
+  void anOutputHeldNeutralIsTheSameDemandWhileNothingChanges() {
+    switches.trip(TURRET_RIGHT, true);
+    Demand toward = Demands.atVoltage(2);
+    Demand neutral = new Demand(JointAsk.NEUTRAL, false, "turret right tripped");
+
+    Demand begun = turret.apply(toward, 1.6, switches.sensors());
+    Demand lasting = turret.apply(toward, 1.62, switches.sensors());
+    Demand askedAgain = turret.apply(Demands.atVoltage(2), 1.61, switches.sensors());
+    Demand harder = turret.apply(Demands.atVoltage(3), 1.61, switches.sensors());
+    Demand interlocked =
+        turret.apply(
+            Demands.atVoltage(3).heldTo(new JointAsk.AtVoltage(1), "turret slow near its end"),
+            1.61,
+            switches.sensors());
+    Demand away = turret.apply(Demands.atVoltage(-2), 1.61, switches.sensors());
+    Demand towardAgain = turret.apply(toward, 1.6, switches.sensors());
+    switches.trip(TURRET_RIGHT, false);
+    Demand cleared = turret.apply(toward, 1.5, switches.sensors());
+    switches.trip(TURRET_RIGHT, true);
+    Demand trippedAgain = turret.apply(toward, 1.6, switches.sensors());
+
+    assertThat(begun).isEqualTo(neutral);
+    assertThat(lasting).as("the next loop").isSameAs(begun);
+    assertThat(askedAgain).as("asked again as another object").isSameAs(begun);
+    assertThat(harder).as("another output").isEqualTo(neutral).isNotSameAs(begun);
+    assertThat(interlocked)
+        .isEqualTo(
+            new Demand(JointAsk.NEUTRAL, false, "turret slow near its end; turret right tripped"));
+    assertThat(away.ask()).as("leaving is free").isEqualTo(new JointAsk.AtVoltage(-2));
+    assertThat(towardAgain).isEqualTo(neutral);
+    assertThat(cleared).isSameAs(toward);
+    assertThat(trippedAgain).as("tripped again").isEqualTo(neutral).isNotSameAs(towardAgain);
+  }
+
   /** A lost switch holds no condition, so it stops nothing; nor does one never read. */
   @Test
   void aLostSwitchStopsNothing() {
