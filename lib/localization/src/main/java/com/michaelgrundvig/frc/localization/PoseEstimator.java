@@ -245,7 +245,7 @@ public final class PoseEstimator {
       lastSource = reading;
       history.start(timestampNanos, reading, yaw);
       filter.set(initial, yaw);
-      history.store(0, filter);
+      history.store(OdometryHistory.OLDEST_STEP, filter);
       lastResetNanos = timestampNanos;
       return;
     }
@@ -473,7 +473,7 @@ public final class PoseEstimator {
    * @return empty outside the history
    */
   public Optional<Pose2d> poseAt(long timestampNanos) {
-    if (!started || timestampNanos < history.time(0)) {
+    if (!started || timestampNanos < history.oldestTime()) {
       return Optional.empty();
     }
     if (timestampNanos >= history.newestTime()) {
@@ -495,7 +495,7 @@ public final class PoseEstimator {
     OdometryHistory.Motion motion =
         started
             ? history.motionOver(VELOCITY_WINDOW_NANOS, filter.offset())
-            : new OdometryHistory.Motion(Translation2d.ZERO, 0);
+            : OdometryHistory.Motion.NONE;
     boolean gyroConnected = !started || lastSource != YawSource.WHEELS;
     double visionAge =
         lastAcceptedNanos == Long.MIN_VALUE
@@ -512,8 +512,8 @@ public final class PoseEstimator {
         now,
         pose(),
         filter.covariance(),
-        motion.velocity(),
-        motion.yawRate(),
+        motion.fieldVelocity(),
+        motion.yawRateRadiansPerSecond(),
         mode(
             gyroConnected,
             placed,
@@ -525,7 +525,7 @@ public final class PoseEstimator {
             rejectedCount,
             lastInnovationMeters,
             disagreement,
-            started ? history.residual(history.size() - 1) : 0,
+            started ? history.wheelResidual(history.newestStep()) : 0,
             suspectTravel,
             conditions.tiltRadians(),
             started && now <= collisionUntilNanos,
@@ -573,7 +573,7 @@ public final class PoseEstimator {
     if (t <= lastResetNanos) {
       return Verdict.BEFORE_RESET;
     }
-    if (t <= history.time(0)) {
+    if (t <= history.oldestTime()) {
       return Verdict.STALE;
     }
     if (t > history.newestTime() + futureToleranceNanos) {
@@ -594,7 +594,7 @@ public final class PoseEstimator {
       earliest = Math.min(earliest, measurement.timestampNanos());
     }
     int start = history.lastStepBefore(earliest);
-    long startTime = history.time(start);
+    long startTime = history.endTime(start);
     List<Event> events = new ArrayList<>();
     for (CameraCorrection done : applied) {
       if (done.time() > startTime) {
@@ -612,25 +612,25 @@ public final class PoseEstimator {
 
     history.restore(start, filter);
     int next = 0;
-    for (int j = start + 1; j < history.size(); j++) {
-      long before = history.time(j - 1);
-      long after = history.time(j);
+    for (int j = start + 1; j < history.stepCount(); j++) {
+      long before = history.endTime(j - 1);
+      long after = history.endTime(j);
       double done = 0;
       while (next < events.size() && events.get(next).time() <= after) {
         Event event = events.get(next++);
         double fraction = (double) (event.time() - before) / (after - before);
         advance(j, done, fraction);
         done = fraction;
-        apply(event, history.yawAt(j, fraction), decisions);
+        apply(event, history.yawPartWayThrough(j, fraction), decisions);
       }
       advance(j, done, 1);
       history.store(j, filter);
     }
     // Only when the history is a single step: measurements at that step itself.
     while (next < events.size()) {
-      apply(events.get(next++), history.yawAfter(history.size() - 1), decisions);
+      apply(events.get(next++), history.yawAfter(history.newestStep()), decisions);
     }
-    history.store(history.size() - 1, filter);
+    history.store(history.newestStep(), filter);
   }
 
   private void apply(Event event, double yawThen, List<VisionDecision> decisions) {
@@ -774,7 +774,7 @@ public final class PoseEstimator {
       filter.setCameraVariances(slot, turnVariance + turn * turn, shiftVariance + meters * meters);
     }
     mountDoubts.clear();
-    history.store(history.size() - 1, filter);
+    history.store(history.newestStep(), filter);
   }
 
   /**
@@ -815,10 +815,10 @@ public final class PoseEstimator {
       return;
     }
     double stepTurn = history.yawAfter(j) - history.yawAfter(j - 1);
-    double stepDx = history.dx(j);
-    double stepDy = history.dy(j);
+    double stepDx = history.travelForward(j);
+    double stepDy = history.travelLeft(j);
     double distance = Math.hypot(stepDx, stepDy);
-    double seconds = Timestamps.toSeconds(history.time(j) - history.time(j - 1));
+    double seconds = Timestamps.toSeconds(history.endTime(j) - history.endTime(j - 1));
     filter.predict(
         history.yawAfter(j - 1) + f0 * stepTurn,
         fraction * stepTurn,
@@ -827,7 +827,7 @@ public final class PoseEstimator {
         fraction
             * (translationVariancePerMeter * distance
                 + translationVariancePerRadian * Math.abs(stepTurn)
-                + history.extra(j)),
+                + history.addedPositionVariance(j)),
         fraction
             * (headingVariancePerSecond * seconds
                 + (history.turnedBy(j) == YawSource.WHEELS
@@ -874,16 +874,16 @@ public final class PoseEstimator {
   /** Drops the history: the newest step, with the current state, becomes its start. */
   private void startHistoryHere() {
     history.keepOnlyNewest();
-    history.store(0, filter);
+    history.store(OdometryHistory.OLDEST_STEP, filter);
     applied.clear();
     agreements.clear();
-    lastResetNanos = history.time(0);
+    lastResetNanos = history.oldestTime();
   }
 
   /** Drops steps older than the history keeps, and the measurements already inside the oldest. */
   private void prune() {
-    history.dropThrough(history.newestTime() - historyNanos);
-    long oldestTime = history.time(0);
+    history.dropStepsNotNeededSince(history.newestTime() - historyNanos);
+    long oldestTime = history.oldestTime();
     applied.removeIf(done -> done.time() <= oldestTime);
   }
 
