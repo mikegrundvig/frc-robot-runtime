@@ -8,6 +8,7 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.world.config.Rules;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
@@ -95,11 +96,15 @@ public final class DriveMove implements Command {
 
   /**
    * The deadline a team gave the move ({@link #within}), in seconds, or empty for the move's own: 3
-   * s for a run-until, and for a path a deadline worked out from the path's time.
+   * s for a run-until, and for a path a deadline worked out from the path's time. One that was
+   * given is a time above zero: {@link #within} refuses any other.
    */
   private final OptionalDouble within;
 
-  /** Why the move cannot run at all, if it cannot: it then ends refused as it starts. */
+  /**
+   * Why the move cannot run at all, if it cannot, whatever kind it is: it then ends refused as it
+   * starts.
+   */
   private final Optional<String> refused;
 
   /** The gates on its named keyframes that have been asked for, by keyframe name. */
@@ -255,9 +260,41 @@ public final class DriveMove implements Command {
 
   // ---- Its options and its gates ----
 
-  /** The same move with another deadline. */
+  /**
+   * The same move with another deadline: {@code drive.turnTo(heading).within(Seconds.of(1))}. A
+   * deadline that is not a time above zero (none, a negative one, one without end, or one that is
+   * not a number) is refused, whatever kind of move it is, as a joint's move refuses an option that
+   * can't be ({@link Refusals}): thrown as the robot starts, and once it runs, the move ends {@link
+   * Outcome#REFUSED} as it starts, saying why.
+   *
+   * @throws IllegalArgumentException with the move's name and why, for such a deadline, as the
+   *     robot starts
+   */
   public DriveMove within(Time deadline) {
-    return new DriveMove(drive, task, name, OptionalDouble.of(deadline.in(Seconds)), refused);
+    double seconds = deadline.in(Seconds);
+    boolean isATimeAboveZero = Double.isFinite(seconds) && seconds > 0;
+    if (!isATimeAboveZero) {
+      return refusedFor(
+          "a deadline is a time above 0 s, not "
+              + Rules.shown(seconds)
+              + " s: give within() how long the move may take");
+    }
+    return new DriveMove(drive, task, name, OptionalDouble.of(seconds), refused);
+  }
+
+  /**
+   * The same move, refused for an option that can't be. As the robot starts, that is thrown after
+   * the move's name. Once the robot runs, the move ends {@link Outcome#REFUSED} as it starts,
+   * saying why it was refused first.
+   *
+   * @throws IllegalArgumentException with the move's name and why, as the robot starts
+   */
+  private DriveMove refusedFor(String why) {
+    if (Refusals.starting(drive.getRegisteredScheduler())) {
+      throw new IllegalArgumentException(name + ": " + why);
+    }
+    Optional<String> refusedFirst = refused.isPresent() ? refused : Optional.of(why);
+    return new DriveMove(drive, task, name, within, refusedFirst);
   }
 
   /**
@@ -341,9 +378,13 @@ public final class DriveMove implements Command {
   @Override
   public void run(Coroutine coroutine) {
     startRun();
-    switch (task) {
-      case DriveTask.RunUntil runUntil -> driveUntil(coroutine, runUntil);
-      case DriveTask.AlongAPath path -> follow(coroutine, path);
+    if (refused.isPresent()) {
+      end(Outcome.REFUSED, "", refused);
+    } else {
+      switch (task) {
+        case DriveTask.RunUntil runUntil -> driveUntil(coroutine, runUntil);
+        case DriveTask.AlongAPath path -> follow(coroutine, path);
+      }
     }
     if (!tookALoop) {
       // The run ended in the loop it started, refused or already there. It takes a loop all the
@@ -392,10 +433,6 @@ public final class DriveMove implements Command {
    * its end or the deadline passes.
    */
   private void follow(Coroutine coroutine, DriveTask.AlongAPath path) {
-    if (refused.isPresent()) {
-      end(Outcome.REFUSED, "", refused);
-      return;
-    }
     DrivetrainControl control = drive.control();
     Trajectories.Plan plan;
     try {
@@ -451,16 +488,12 @@ public final class DriveMove implements Command {
   }
 
   /**
-   * How long a path's move has before it times out, in seconds: what a team gave it, or else the
-   * deadline every move has by its profile's time ({@link Outcome#deadline}). A deadline that isn't
-   * a number is taken as none given.
+   * How long a path's move has before it times out, in seconds: what a team gave it ({@link
+   * #within}), or else the deadline every move has by its profile's time ({@link
+   * Outcome#deadline}).
    */
   private double deadlineSecondsFor(double pathSeconds) {
-    boolean teamGaveOne = within.isPresent() && !Double.isNaN(within.getAsDouble());
-    if (teamGaveOne) {
-      return within.getAsDouble();
-    }
-    return Outcome.deadline(pathSeconds);
+    return within.orElse(Outcome.deadline(pathSeconds));
   }
 
   /** Sets this run's deadline to so many seconds after it started, and hands it back. */

@@ -10,6 +10,10 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
+import com.michaelgrundvig.frc.world.path.Keyframe;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -201,6 +205,121 @@ class DriveMovesSimTest {
     assertThat(out.reason())
         .isEqualTo("drive until bumped: TIMED_OUT after 3.00 s: bumped is false");
     assertThat(brief.reason()).startsWith("drive until bumped: TIMED_OUT after 1.00 s");
+  }
+
+  /** One of each kind of move, by name, made new each time it's asked for. */
+  private Map<String, Supplier<DriveMove>> everyKindOfMove() {
+    Map<String, Supplier<DriveMove>> kinds = new LinkedHashMap<>();
+    kinds.put("drive until", () -> drive.runUntil(new ChassisVelocities(0.5, 0, 0), () -> false));
+    kinds.put("drive → 90.0°", () -> drive.turnTo(Rotation2d.fromDegrees(90)));
+    kinds.put("drive → (1.00, 0.00) 0.0°", () -> drive.goTo(new Pose2d(1, 0, Rotation2d.ZERO)));
+    kinds.put(
+        "drive → (1.00, 0.00) → (2.00, 0.00) 0.0°",
+        () ->
+            drive.follow(
+                Keyframe.at(new Pose2d(1, 0, Rotation2d.ZERO)),
+                Keyframe.at(new Pose2d(2, 0, Rotation2d.ZERO))));
+    return kinds;
+  }
+
+  /** Deadlines that aren't a time above zero, each with how a refusal shows it. */
+  private static final Map<Double, String> NOT_DEADLINES = notDeadlines();
+
+  private static Map<Double, String> notDeadlines() {
+    Map<Double, String> shown = new LinkedHashMap<>();
+    shown.put(Double.NaN, "NaN");
+    shown.put(Double.POSITIVE_INFINITY, "Infinity");
+    shown.put(Double.NEGATIVE_INFINITY, "-Infinity");
+    shown.put(0.0, "0");
+    shown.put(-1.5, "-1.5");
+    return shown;
+  }
+
+  /**
+   * A deadline that isn't a time above zero is refused as the move is made, the same for every kind
+   * of move: made as the robot starts, it throws, so the robot doesn't start. Until 2026-10-11 a
+   * path took a deadline that wasn't a number as none given, and a run-until timed out in its first
+   * loop.
+   */
+  @Test
+  void aDeadlineThatIsntATimeAboveZeroMadeAsTheRobotStartsThrows() {
+    Map<String, String> thrown = new LinkedHashMap<>();
+    Map<String, String> expected = new LinkedHashMap<>();
+
+    everyKindOfMove()
+        .forEach(
+            (name, move) ->
+                NOT_DEADLINES.forEach(
+                    (seconds, shown) -> {
+                      String row = name + " within " + seconds;
+                      try {
+                        DriveMove made = move.get().within(Seconds.of(seconds));
+                        thrown.put(row, "made: " + made);
+                      } catch (IllegalArgumentException e) {
+                        thrown.put(row, e.getMessage());
+                      }
+                      expected.put(
+                          row,
+                          name
+                              + ": a deadline is a time above 0 s, not "
+                              + shown
+                              + " s: give within() how long the move may take");
+                    }));
+
+    assertThat(thrown).containsExactlyEntriesOf(expected);
+  }
+
+  /**
+   * Made once the robot runs, inside a command, the same deadlines make moves that end REFUSED as
+   * they start, saying the same, every kind alike: the robot stays put and the command runs on.
+   */
+  @Test
+  void aDeadlineThatIsntATimeAboveZeroMadeWhileTheRobotRunsIsRefused() {
+    Map<String, DriveMove> moves = new LinkedHashMap<>();
+    Map<String, String> expected = new LinkedHashMap<>();
+    boolean[] ended = {false};
+    Command wrong =
+        Command.requiring(drive)
+            .executing(
+                co -> {
+                  everyKindOfMove()
+                      .forEach(
+                          (name, move) ->
+                              NOT_DEADLINES.forEach(
+                                  (seconds, shown) -> {
+                                    String row = name + " within " + seconds;
+                                    moves.put(row, move.get().within(Seconds.of(seconds)));
+                                    expected.put(
+                                        row,
+                                        name
+                                            + ": REFUSED: a deadline is a time above 0 s, not "
+                                            + shown
+                                            + " s: give within() how long the move may take");
+                                  }));
+                  for (DriveMove move : moves.values()) {
+                    co.await(move);
+                  }
+                  ended[0] = true;
+                })
+            .named("Bad deadlines");
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(wrong);
+    int loops = 0;
+    while (!ended[0] && loops < 100) {
+      harness.loop();
+      loops++;
+    }
+
+    Map<String, String> reasons = new LinkedHashMap<>();
+    moves.forEach((row, move) -> reasons.put(row, move.reason()));
+    assertThat(reasons).containsExactlyEntriesOf(expected);
+    assertThat(moves.values())
+        .allSatisfy(move -> assertThat(move.outcome()).contains(Outcome.REFUSED));
+    assertThat(ended[0]).as("the command ran on to its end").isTrue();
+    assertThat(loops)
+        .as("a loop for each refused move, and one to end")
+        .isEqualTo(moves.size() + 1);
+    assertThat(harness.simulation.truePose().getTranslation().getNorm()).isLessThan(0.01);
   }
 
   /** Canceled, a move says so, and stops the drivetrain. */
