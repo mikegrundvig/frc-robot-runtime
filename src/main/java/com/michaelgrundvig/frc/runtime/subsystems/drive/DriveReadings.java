@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.localization.OdometrySample;
+import com.michaelgrundvig.frc.localization.YawSamples;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -162,15 +163,14 @@ final class DriveReadings {
     return !forLocalization.wheels().isEmpty();
   }
 
-  /** One IMU's readings this loop, as localization takes them. */
+  /**
+   * One IMU's readings this loop, as localization takes them. Its high-rate yaws are handed over as
+   * the very arrays the IMU's hardware layer filled, with no copy: every read of an IMU makes new
+   * arrays and never writes to the ones before ({@link GyroIO.GyroIOInputs}).
+   */
   private static ImuReadings imuReadings(GyroIOInputsAutoLogged imu) {
+    // A yaw counts only if it has a time, so only as many count as both arrays have.
     int yaws = Math.min(imu.odometryTimestampsNanos.length, imu.odometryYawsRad.length);
-    List<Long> yawTimesNanos = new ArrayList<>(yaws);
-    List<Double> yawsRadians = new ArrayList<>(yaws);
-    for (int i = 0; i < yaws; i++) {
-      yawTimesNanos.add(imu.odometryTimestampsNanos[i]);
-      yawsRadians.add(imu.odometryYawsRad[i]);
-    }
     return ImuReadings.builder()
         .reporting(imu.connected)
         .yawRadians(imu.yaw.getRadians())
@@ -179,8 +179,7 @@ final class DriveReadings {
         .rollRadians(imu.rollRad)
         .forwardAccelerationMetersPerSecSq(imu.accelerationXMetersPerSecSq)
         .leftAccelerationMetersPerSecSq(imu.accelerationYMetersPerSecSq)
-        .yawTimesNanos(yawTimesNanos)
-        .yawsRadians(yawsRadians)
+        .yaws(YawSamples.handedOver(imu.odometryTimestampsNanos, imu.odometryYawsRad, yaws))
         .build();
   }
 

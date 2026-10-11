@@ -98,7 +98,8 @@ final class OdometrySteps {
 
   /** Takes an IMU's yaw readings this loop, or forgets them all while it is lost. */
   private static void keepThisLoopsYaws(YawTrack yaws, ImuReadings imu) {
-    int count = imu.yawTimesNanos().size();
+    YawSamples readings = imu.yaws();
+    int count = readings.count();
     if (!imu.usable() || count == 0) {
       yaws.clear();
       return;
@@ -106,8 +107,8 @@ final class OdometrySteps {
     long[] times = new long[count];
     double[] values = new double[count];
     for (int i = 0; i < count; i++) {
-      times[i] = imu.yawTimesNanos().get(i);
-      values[i] = imu.yawsRadians().get(i);
+      times[i] = readings.timeNanos(i);
+      values[i] = readings.yawRadians(i);
     }
     yaws.update(times, values);
   }

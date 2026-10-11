@@ -24,6 +24,7 @@ import com.michaelgrundvig.frc.localization.TagAllowlist;
 import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.localization.VisionConfigBuilder;
+import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
@@ -222,8 +223,7 @@ class VisionTest {
                 .forwardAccelerationMetersPerSecSq(-ImuReadings.STANDARD_GRAVITY * Math.sin(pitch))
                 .leftAccelerationMetersPerSecSq(
                     ImuReadings.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch))
-                .yawTimesNanos(List.of(now))
-                .yawsRadians(List.of(0.3))
+                .yaws(YawSamples.of(new long[] {now}, new double[] {0.3}))
                 .build())
         .backupImu(ImuReadings.NONE)
         .velocities(new ChassisVelocities())

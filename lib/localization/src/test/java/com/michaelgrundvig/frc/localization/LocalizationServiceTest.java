@@ -230,8 +230,7 @@ class LocalizationServiceTest {
                 .forwardAccelerationMetersPerSecSq(-ImuReadings.STANDARD_GRAVITY * Math.sin(pitch))
                 .leftAccelerationMetersPerSecSq(
                     ImuReadings.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch))
-                .yawTimesNanos(List.of(nanos))
-                .yawsRadians(List.of(0.3))
+                .yaws(YawSamples.of(new long[] {nanos}, new double[] {0.3}))
                 .build())
         .backupImu(ImuReadings.NONE)
         .velocities(new ChassisVelocities())

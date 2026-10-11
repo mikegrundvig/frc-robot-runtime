@@ -1,14 +1,13 @@
 package com.michaelgrundvig.frc.localization;
 
-import com.michaelgrundvig.frc.world.config.Checks;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
-import java.util.List;
 
 /**
  * What one IMU read over one robot loop: whether it's reporting, its attitude and the jolt it felt
  * as of the loop, and each yaw reading taken since the last loop, with when it was taken (on a
- * robot, faster than the loop, so odometry turns with every one). Built by name, so pitch and roll
- * can't trade places: {@code ImuReadings.builder().reporting(true).yawRadians(...)...build()}.
+ * robot, faster than the loop, so odometry turns with every one: {@link YawSamples}). Built by
+ * name, so pitch and roll can't trade places: {@code
+ * ImuReadings.builder().reporting(true).yawRadians(...)...build()}.
  *
  * @param reporting whether the IMU is connected and answering
  * @param yawRadians its yaw as of the loop, counterclockwise from wherever it started
@@ -21,8 +20,7 @@ import java.util.List;
  *     feels it: over the loop, as its filter reads it, with gravity's share as the robot tilts. Not
  *     a number from an IMU that can't say.
  * @param leftAccelerationMetersPerSecSq acceleration along the robot's left axis
- * @param yawTimesNanos when each yaw reading since the last loop was taken, oldest first
- * @param yawsRadians those readings, one for each time
+ * @param yaws each yaw reading since the last loop, with when it was taken, oldest first
  */
 @ConfigRecord
 public record ImuReadings(
@@ -33,8 +31,7 @@ public record ImuReadings(
     double rollRadians,
     double forwardAccelerationMetersPerSecSq,
     double leftAccelerationMetersPerSecSq,
-    List<Long> yawTimesNanos,
-    List<Double> yawsRadians) {
+    YawSamples yaws) {
   /**
    * Standard gravity, in m/s²: what an IMU at rest feels holding it up, and its share along the
    * robot's axes as the robot tilts.
@@ -51,28 +48,8 @@ public record ImuReadings(
           .rollRadians(0)
           .forwardAccelerationMetersPerSecSq(0)
           .leftAccelerationMetersPerSecSq(0)
-          .yawTimesNanos(List.of())
-          .yawsRadians(List.of())
+          .yaws(YawSamples.NONE)
           .build();
-
-  public ImuReadings {
-    yawTimesNanos = List.copyOf(yawTimesNanos);
-    yawsRadians = List.copyOf(yawsRadians);
-    int times = yawTimesNanos.size();
-    int readings = yawsRadians.size();
-    Checks.on(ImuReadings.class)
-        .check(
-            "yawsRadians",
-            () ->
-                readings == times
-                    ? null
-                    : "must have one reading for each time: "
-                        + times
-                        + " times, "
-                        + readings
-                        + " readings")
-        .orThrow();
-  }
 
   public static ImuReadingsBuilder.ReportingStage builder() {
     return ImuReadingsBuilder.builder();
@@ -89,11 +66,6 @@ public record ImuReadings(
         || !Double.isFinite(rollRadians)) {
       return false;
     }
-    for (double yaw : yawsRadians) {
-      if (!Double.isFinite(yaw)) {
-        return false;
-      }
-    }
-    return true;
+    return yaws.areAllNumbers();
   }
 }

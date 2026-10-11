@@ -55,8 +55,7 @@ class MeasurementsTest {
             .rollRadians(0)
             .forwardAccelerationMetersPerSecSq(0)
             .leftAccelerationMetersPerSecSq(0)
-            .yawTimesNanos(List.of(1L, 2L))
-            .yawsRadians(List.of(0.29, 0.3))
+            .yaws(YawSamples.of(new long[] {1L, 2L}, new double[] {0.29, 0.3}))
             .build();
 
     assertThat(level.usable()).isTrue();
@@ -66,12 +65,14 @@ class MeasurementsTest {
         .isFalse();
     assertThat(
             ImuReadingsBuilder.builder(level)
-                .yawsRadians(List.of(0.29, Double.POSITIVE_INFINITY))
+                .yaws(
+                    YawSamples.of(
+                        new long[] {1L, 2L}, new double[] {0.29, Double.POSITIVE_INFINITY}))
                 .build()
                 .usable())
         .as("a yaw reading that isn't one")
         .isFalse();
-    assertThatThrownBy(() -> ImuReadingsBuilder.builder(level).yawsRadians(List.of(0.3)).build())
+    assertThatThrownBy(() -> YawSamples.of(new long[] {1L, 2L}, new double[] {0.3}))
         .hasMessage(
             "ImuReadings.yawsRadians: must have one reading for each time: 2 times, 1 readings");
   }

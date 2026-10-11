@@ -133,7 +133,7 @@ public final class LocalizationInvariants {
 
   /** Whether an IMU turned odometry this loop: it reads, and sent yaws. */
   private static boolean turns(ImuReadings imu) {
-    return imu.usable() && !imu.yawTimesNanos().isEmpty();
+    return imu.usable() && imu.yaws().count() > 0;
   }
 
   private @Nullable String failover(DrivetrainReadings readings, LocalizationEstimate estimate) {

@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.localization.OdometrySample;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.VisionMeasurement;
+import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -33,8 +34,7 @@ class LocalizationTest {
           .rollRadians(0)
           .forwardAccelerationMetersPerSecSq(0)
           .leftAccelerationMetersPerSecSq(0)
-          .yawTimesNanos(List.of(1_000_000L))
-          .yawsRadians(List.of(0.2))
+          .yaws(YawSamples.of(new long[] {1_000_000L}, new double[] {0.2}))
           .build();
 
   private static final ImuReadings SENDING_NAN =
@@ -46,8 +46,7 @@ class LocalizationTest {
           .rollRadians(Double.NaN)
           .forwardAccelerationMetersPerSecSq(Double.NaN)
           .leftAccelerationMetersPerSecSq(Double.NaN)
-          .yawTimesNanos(List.of(1_000_000L))
-          .yawsRadians(List.of(Double.NaN))
+          .yaws(YawSamples.of(new long[] {1_000_000L}, new double[] {Double.NaN}))
           .build();
 
   private static DrivetrainReadings readings(ImuReadings gyro, ImuReadings backup) {

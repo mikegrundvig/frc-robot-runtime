@@ -30,7 +30,11 @@ public interface GyroIO {
 
     public double accelerationYMetersPerSecSq = 0.0;
 
-    /** Yaw readings taken since the last loop, with the modules' readings (see ModuleIO). */
+    /**
+     * Yaw readings taken since the last loop, with the modules' readings (see ModuleIO). Each read
+     * puts new arrays here and never writes to the ones it put here before: the drivetrain hands
+     * these arrays to localization as they are, without copying them.
+     */
     public long[] odometryTimestampsNanos = new long[] {};
 
     public double[] odometryYawsRad = new double[] {};

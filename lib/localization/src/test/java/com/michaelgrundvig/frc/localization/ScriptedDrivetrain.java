@@ -170,8 +170,10 @@ final class ScriptedDrivetrain {
         .forwardAccelerationMetersPerSecSq(forward - ImuReadings.STANDARD_GRAVITY * Math.sin(pitch))
         .leftAccelerationMetersPerSecSq(
             left + ImuReadings.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch))
-        .yawTimesNanos(yawTimes)
-        .yawsRadians(yaws.stream().map(yaw -> yaw + zero).toList())
+        .yaws(
+            YawSamples.of(
+                yawTimes.stream().mapToLong(Long::longValue).toArray(),
+                yaws.stream().mapToDouble(yaw -> yaw + zero).toArray()))
         .build();
   }
 
