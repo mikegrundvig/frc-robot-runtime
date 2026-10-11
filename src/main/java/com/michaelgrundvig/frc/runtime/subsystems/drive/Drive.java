@@ -465,18 +465,20 @@ public class Drive implements Mechanism, AutoCloseable {
    * squared past a deadband for fine control near center, the turn stick the same ({@link Sticks}).
    * The drive's default command.
    *
-   * @throws IllegalArgumentException as the robot starts, if it has not been handed the driver's
-   *     sticks ({@link #takeDriver}); once it runs, a command that ends as it starts
+   * <p>It reads the driver's sticks each time it starts, so it may be built before the robot hands
+   * them over ({@link #takeDriver}). Run on a drive that was never handed them, it ends as it
+   * starts, and the drive's outcome says so.
    */
   public Command driven() {
     String name = "Drive with the sticks";
-    if (driver.isEmpty()) {
-      Optional<String> refused = refusedAsBuilt(Optional.of(NO_DRIVER));
-      String outcome = name + ": REFUSED: " + refused.orElse(NO_DRIVER);
-      return run(coroutine -> Logger.recordOutput("Drive/Outcome", outcome)).named(name);
-    }
-    Driver sticks = driver.get();
     return run(coroutine -> {
+          // The driver's sticks are read here, as the command starts, and not when it was built.
+          Optional<Driver> handedOver = driver;
+          if (handedOver.isEmpty()) {
+            Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + NO_DRIVER);
+            return;
+          }
+          Driver sticks = handedOver.get();
           while (true) {
             driveField(
                 velocityAskedBy(sticks.translation().get()),

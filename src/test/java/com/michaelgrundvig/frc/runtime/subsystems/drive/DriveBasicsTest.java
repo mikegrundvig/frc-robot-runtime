@@ -20,6 +20,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.command3.Command;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -156,17 +157,16 @@ class DriveBasicsTest {
 
   /**
    * A drivetrain the robot hasn't handed the driver's sticks has nothing to drive from. Driving
-   * with the sticks is refused as the robot starts, saying what to do, as any command that can't
-   * work is ({@code Refusals}). An assist reads the sticks when it runs, so it is built all the
-   * same ({@code DriveAssistSticksSimTest} runs one), and its gate says what to do until then.
+   * with the sticks and an assist both read the sticks when they run, so each is built all the same
+   * ({@code DriveAssistSticksSimTest} runs them), and an assist's gate says what to do until then.
    */
   @Test
-  void commandsOnTheSticksAreRefusedUntilTheRobotHandsThemOver() {
+  void commandsOnTheSticksAreBuiltBeforeTheRobotHandsThemOver() {
     try (Drive drive = drive("NoSticks", hardware(new GyroIO() {}, fourModules()))) {
-      IllegalArgumentException driven = assertThrows(IllegalArgumentException.class, drive::driven);
+      Command driven = drive.driven();
       Gate aimed = drive.facing(Heading.field(Rotation2d.ZERO)).aimed();
 
-      assertTrue(String.valueOf(driven.getMessage()).contains("drive.takeDriver"));
+      assertEquals("Drive with the sticks", driven.name());
       assertFalse(aimed.getAsBoolean());
       assertTrue(aimed.why().contains("drive.takeDriver"));
     }

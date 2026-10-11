@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.world.field.Heading;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.command3.Command;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 
@@ -105,5 +106,29 @@ class DriveAssistSticksSimTest {
     assertThat(truth().getRotation().getDegrees()).isCloseTo(0, within(0.5));
     assertThat(aimed.getAsBoolean()).isFalse();
     assertThat(aimed.why()).isEqualTo("aimed at field 90° is false: " + NO_STICKS);
+  }
+
+  /**
+   * Driving with the sticks is the same: the command built before the drive has the sticks ends as
+   * it starts and says why, and the very same command drives once they are handed over.
+   */
+  @Test
+  void drivingWithTheSticksBuiltBeforeTheyAreHandedOverDrivesOnceTheyAre() {
+    Command driven = drive.driven();
+    RobotSim.setEnabled(true);
+    harness.sticks(1, 0, 0);
+
+    harness.scheduler.schedule(driven);
+    run(0.5);
+
+    assertThat(harness.scheduler.isRunning(driven)).as("no sticks yet: ended").isFalse();
+    assertThat(truth().getTranslation().getNorm()).as("no sticks yet: stayed put").isLessThan(0.01);
+
+    harness.takeDriver();
+    harness.scheduler.schedule(driven);
+    run(2);
+
+    assertThat(harness.scheduler.isRunning(driven)).as("with the sticks: runs on").isTrue();
+    assertThat(truth().getX()).as("with the sticks: drives along the field").isGreaterThan(3.0);
   }
 }
