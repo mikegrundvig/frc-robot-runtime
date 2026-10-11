@@ -14,8 +14,8 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
-import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Coroutine;
@@ -32,19 +32,22 @@ import org.wpilib.units.measure.Angle;
  * Drive#driven} drives it. The turning is the drivetrain's, toward the {@link Heading} worked out
  * again every loop from where the robot is, the field and the alliance.
  *
- * <p>Each loop:
+ * <p>Each loop, the robot's turning rate is decided in this order:
  *
  * <ul>
- *   <li>While the driver's turn stick is past its deadband, the robot turns as the stick says: the
- *       driver takes the heading back. Let go, and it returns to the target.
- *   <li>Otherwise, with a target, the turning rate is the target's own rate (the bearing to a place
- *       turns as the robot moves past it) plus {@code headingKp} for each radian off, the nearer
- *       way round, up to the top turning rate. A computed rate isn't squared or deadbanded as a
- *       stick's is, so the robot settles on the target. The robot spins up no faster than a move
- *       would (half the model's turning acceleration); slowing down follows the same law, so a
- *       quarter turn goes 1.4° past in the simulator, not 3.3°.
- *   <li>With no target (the alliance isn't known, or the robot is on the place) it doesn't turn,
- *       and {@link #aimed} says why.
+ *   <li><b>Nothing to face.</b> If the heading can't be worked out (the alliance isn't known, or
+ *       the robot is on the place it should face), the robot doesn't turn, and {@link #aimed} says
+ *       why.
+ *   <li><b>The heading law</b> ({@link #turnRateToward}). Otherwise the robot turns at the target's
+ *       own rate (the bearing to a place turns as the robot moves past it) plus {@code headingKp}
+ *       for each radian it is off, the nearer way round, up to the top turning rate. A computed
+ *       rate isn't squared or deadbanded as a stick's is, so the robot settles on the target.
+ *   <li><b>The spin-up limit</b> ({@link #spunUpNoFasterThanAMove}). The rate the law asks is
+ *       reached no faster than a move would spin the robot up: half the model's turning
+ *       acceleration. Slowing down isn't limited, since the law itself slows the robot as it closes
+ *       on the target. A quarter turn goes 1.4° past in the simulator, not 3.3°.
+ *   <li><b>The driver takes the heading back.</b> While the driver's turn stick is past its
+ *       deadband, the robot turns as the stick says instead. Let go, and it returns to the target.
  * </ul>
  *
  * <p>The target and how far off the robot is log as {@code Drive/HeadingTargetDegrees} and {@code
@@ -53,33 +56,50 @@ import org.wpilib.units.measure.Angle;
 @CheckReturnValue
 public final class DriveAssist implements Command {
   private final Drive drive;
-  private final Heading heading;
-  private final double toleranceRadians;
-  private final @Nullable Driver driver;
 
-  /** Why it can't work, as it's built, or null. */
-  private final @Nullable String refused;
+  /** Where the robot is to face. */
+  private final Heading heading;
+
+  /** How near the heading the robot must be for {@link #aimed} to open, in radians. */
+  private final double toleranceRadians;
+
+  /** The driver's sticks, the field and the alliance, if the drive had them as this was built. */
+  private final Optional<Driver> driver;
+
+  /**
+   * Why the assist cannot work at all, if it cannot: the drive has no driver's sticks, or its
+   * tolerance is not a positive angle. It then ends as it starts, and {@link #aimed} holds false.
+   */
+  private final Optional<String> refused;
 
   private final String name;
-  private @Nullable Gate aimed;
 
-  /** The off-by text last made, and the tenths of a degree it was made for. */
-  private int shownTenths = Integer.MIN_VALUE;
+  /** Its {@link #aimed} gate, made the first time it is asked for. */
+  private Optional<Gate> aimed = Optional.empty();
 
-  private String shownOff = "";
+  /**
+   * What {@link #aimed} last said of how far off the robot is, and the tenths of a degree it said
+   * it for. The text is made again only when the tenths change, so a gate that is asked every loop
+   * doesn't format a new string every loop.
+   */
+  private String offByShown = "";
 
-  private DriveAssist(Drive drive, Heading heading, double toleranceRadians, @Nullable String why) {
+  private OptionalInt offByShownForTenths = OptionalInt.empty();
+
+  private DriveAssist(
+      Drive drive, Heading heading, double toleranceRadians, Optional<String> whyNot) {
     this.drive = drive;
     this.heading = heading;
     this.toleranceRadians = toleranceRadians;
-    this.driver = drive.driver().orElse(null);
-    this.refused =
-        Refusals.asBuilt(drive.getRegisteredScheduler(), driver == null ? Drive.NO_DRIVER : why);
+    this.driver = drive.driver();
     this.name = "Drive facing " + heading.name();
+    // Having no driver's sticks is the first thing to fix, so it is the reason said.
+    Optional<String> cannot = driver.isEmpty() ? Optional.of(Drive.NO_DRIVER) : whyNot;
+    this.refused = drive.refusedAsBuilt(cannot);
   }
 
   static DriveAssist facing(Drive drive, Heading heading) {
-    return new DriveAssist(drive, heading, DriveMove.TURNED_RADIANS, null);
+    return new DriveAssist(drive, heading, DriveMove.TURNED_RADIANS, Optional.empty());
   }
 
   /**
@@ -92,16 +112,18 @@ public final class DriveAssist implements Command {
    */
   public DriveAssist within(Angle tolerance) {
     double radians = tolerance.in(Radians);
-    return new DriveAssist(
-        drive,
-        heading,
-        radians,
-        radians > 0
-            ? null
-            : name
-                + ": aim within a positive angle, not "
-                + String.format(Locale.ROOT, "%.1f°", Math.toDegrees(radians)));
+    boolean isAPositiveAngle = radians > 0;
+    if (isAPositiveAngle) {
+      return new DriveAssist(drive, heading, radians, Optional.empty());
+    }
+    String whyNot =
+        name
+            + ": aim within a positive angle, not "
+            + String.format(Locale.ROOT, "%.1f°", Math.toDegrees(radians));
+    return new DriveAssist(drive, heading, radians, Optional.of(whyNot));
   }
+
+  // ---- Is it aimed? ----
 
   /**
    * A gate that's open while the robot is within the tolerance of the target heading (2° unless
@@ -112,58 +134,67 @@ public final class DriveAssist implements Command {
    * "alliance unknown", or "on the Hub".
    */
   public Gate aimed() {
-    Gate gate = aimed;
-    if (gate == null) {
-      String gateName = "aimed at " + heading.name();
-      Driver sticks = driver;
-      gate =
-          refused != null || sticks == null
-              ? Refusals.gate(
-                  drive.getRegisteredScheduler(),
-                  gateName,
-                  refused != null ? refused : Drive.NO_DRIVER)
-              : new Gate(drive.getRegisteredScheduler(), gateName, why -> isAimed(sticks, why));
-      aimed = gate;
+    if (aimed.isEmpty()) {
+      aimed = Optional.of(aimedGate());
     }
-    return gate;
+    return aimed.get();
   }
 
-  private boolean isAimed(Driver sticks, List<String> why) {
+  private Gate aimedGate() {
+    String gateName = "aimed at " + heading.name();
+    if (refused.isPresent()) {
+      return Refusals.gate(drive.getRegisteredScheduler(), gateName, refused.get());
+    }
+    Driver sticks = driver.orElseThrow();
+    return new Gate(drive.getRegisteredScheduler(), gateName, whyNot -> isAimed(sticks, whyNot));
+  }
+
+  /**
+   * Whether the robot is aimed as of this loop: on the heading, and turning as the heading does.
+   *
+   * @param whyNot takes each thing that keeps the robot from being aimed, in the gate's words
+   */
+  private boolean isAimed(Driver sticks, List<String> whyNot) {
     Pose2d pose = drive.getPose();
+    FieldModel field = sticks.field().get();
     Optional<Alliance> alliance = sticks.alliance().get();
-    Optional<Rotation2d> target = heading.resolve(pose, sticks.field().get(), alliance);
+    Optional<Rotation2d> target = heading.resolve(pose, field, alliance);
     if (target.isEmpty()) {
-      why.add(alliance.isEmpty() ? "alliance unknown" : "on " + heading.name());
+      whyNot.add(alliance.isEmpty() ? "alliance unknown" : "on " + heading.name());
       return false;
     }
-    double error = target.get().minus(pose.getRotation()).getRadians();
-    boolean off = Math.abs(error) > toleranceRadians;
-    // Still against the target, which turns as the robot moves past a place: a robot tracking
-    // the bearing is aimed, though it turns.
+    double headingErrorRadians = target.get().minus(pose.getRotation()).getRadians();
+    boolean offTheHeading = Math.abs(headingErrorRadians) > toleranceRadians;
+
+    // The robot's turning is judged against the target's own. The bearing to a place turns as the
+    // robot drives past it, so a robot that keeps up with the bearing is aimed, though it turns.
     ChassisVelocities moving = drive.getRobotRelativeVelocities();
-    ChassisVelocities onField = moving.toFieldRelative(pose.getRotation());
-    double rate =
-        heading.rate(
-            pose, sticks.field().get(), alliance, new Translation2d(onField.vx, onField.vy));
-    boolean turning = Math.abs(moving.omega - rate) > DriveMove.STILL_RADIANS_PER_SECOND;
-    if (off) {
-      why.add(off(error));
+    double targetTurnRate = targetTurnRate(pose, field, alliance, moving);
+    boolean stillTurning =
+        Math.abs(moving.omega - targetTurnRate) > DriveMove.STILL_RADIANS_PER_SECOND;
+
+    if (offTheHeading) {
+      whyNot.add(offBy(headingErrorRadians));
     }
-    if (turning) {
-      why.add("still turning");
+    if (stillTurning) {
+      whyNot.add("still turning");
     }
-    return !off && !turning;
+    return !offTheHeading && !stillTurning;
   }
 
-  /** "3.4° off the Hub", made again only when the tenth of a degree changes. */
-  private String off(double errorRadians) {
-    int tenths = (int) Math.round(Math.abs(Math.toDegrees(errorRadians)) / 0.1);
-    if (tenths != shownTenths) {
-      shownTenths = tenths;
-      shownOff = String.format(Locale.ROOT, "%.1f° off %s", tenths * 0.1, heading.name());
+  /** How far off the heading the robot is, as the gate says it: "3.4° off the Hub". */
+  private String offBy(double headingErrorRadians) {
+    int tenths = (int) Math.round(Math.abs(Math.toDegrees(headingErrorRadians)) / 0.1);
+    boolean alreadyShown =
+        offByShownForTenths.isPresent() && offByShownForTenths.getAsInt() == tenths;
+    if (!alreadyShown) {
+      offByShown = String.format(Locale.ROOT, "%.1f° off %s", tenths * 0.1, heading.name());
+      offByShownForTenths = OptionalInt.of(tenths);
     }
-    return shownOff;
+    return offByShown;
   }
+
+  // ---- The command ----
 
   @Override
   public String name() {
@@ -177,60 +208,120 @@ public final class DriveAssist implements Command {
 
   @Override
   public void run(Coroutine coroutine) {
-    Driver sticks = driver;
-    if (refused != null || sticks == null) {
-      // Never works: it takes its loop all the same, and the drive's default command goes on.
-      Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + refused);
+    if (refused.isPresent()) {
+      // It never works. It takes its loop all the same, and the drive's default command goes on.
+      Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + refused.get());
       coroutine.yield();
       return;
     }
-    // The turning rate last asked for, which a computed rate may change only so fast.
-    double asked = drive.getRobotRelativeVelocities().omega;
+    Driver sticks = driver.orElseThrow();
+    // The turning rate asked for in the loop before, which the spin-up limit starts from. As the
+    // command starts, that is how fast the robot is turning already.
+    double lastTurnRateAsked = drive.getRobotRelativeVelocities().omega;
     while (true) {
       DrivetrainControl control = drive.control();
       Pose2d pose = drive.getPose();
       FieldModel field = sticks.field().get();
       Optional<Alliance> alliance = sticks.alliance().get();
-      double stick = sticks.turn().getAsDouble();
-      Optional<Rotation2d> facing = heading.resolve(pose, field, alliance);
-      double omega = 0;
-      double target = Double.NaN;
-      double error = Double.NaN;
-      if (facing.isPresent()) {
-        double off = facing.get().minus(pose.getRotation()).getRadians();
-        target = facing.get().getDegrees();
-        error = Math.toDegrees(off);
-        ChassisVelocities moving =
-            drive.getRobotRelativeVelocities().toFieldRelative(pose.getRotation());
-        double turn =
-            heading.rate(pose, field, alliance, new Translation2d(moving.vx, moving.vy))
-                + control.gains().headingKp() * off;
-        double fastest = control.limits().maxAngularSpeed().in(RadiansPerSecond);
-        double want = Math.clamp(turn, -fastest, fastest);
-        // Spinning up is limited to the acceleration a move asks of the robot: faster, and it
-        // reaches the heading's braking zone spinning quicker than the wheels can stop it (a 90°
-        // snap overshot 3.3°, 1.4° with the limit). Slowing down follows the heading's own law.
-        double step =
-            DriveMove.PROFILE_SHARE * drive.accelerations().angular() * RobotLoop.PERIOD_SECONDS;
-        double from = want * asked >= 0 ? asked : 0; // turning back starts from still
-        omega =
-            Math.abs(want) > Math.abs(from) ? from + Math.clamp(want - from, -step, step) : want;
+      double turnStick = sticks.turn().getAsDouble();
+      Optional<Rotation2d> target = heading.resolve(pose, field, alliance);
+
+      double turnRate = 0; // with nothing to face, the robot doesn't turn
+      if (target.isPresent()) {
+        double headingErrorRadians = target.get().minus(pose.getRotation()).getRadians();
+        ChassisVelocities moving = drive.getRobotRelativeVelocities();
+        double targetTurnRate = targetTurnRate(pose, field, alliance, moving);
+        double wanted = turnRateToward(headingErrorRadians, targetTurnRate, control);
+        turnRate = spunUpNoFasterThanAMove(wanted, lastTurnRateAsked);
+        logHeading(target.get().getDegrees(), Math.toDegrees(headingErrorRadians));
+      } else {
+        logNoHeading();
       }
-      if (Sticks.isPushed(stick)) {
-        omega = drive.turnRateAskedBy(stick);
+      if (Sticks.isPushed(turnStick)) {
+        // The driver takes the heading back for as long as the stick is held.
+        turnRate = drive.turnRateAskedBy(turnStick);
       }
-      asked = omega;
-      Logger.recordOutput("Drive/HeadingTargetDegrees", target);
-      Logger.recordOutput("Drive/HeadingErrorDegrees", error);
-      drive.driveField(drive.velocityAskedBy(sticks.translation().get()), omega);
+      lastTurnRateAsked = turnRate;
+      drive.driveField(drive.velocityAskedBy(sticks.translation().get()), turnRate);
       coroutine.yield();
     }
   }
 
+  /**
+   * How fast the target heading itself is turning, in radians a second. A fixed heading doesn't.
+   * The bearing to a place does, as the robot moves past the place.
+   *
+   * @param moving how fast the robot is measured to move, relative to itself
+   */
+  private double targetTurnRate(
+      Pose2d pose, FieldModel field, Optional<Alliance> alliance, ChassisVelocities moving) {
+    ChassisVelocities onField = moving.toFieldRelative(pose.getRotation());
+    Translation2d velocityOnField = new Translation2d(onField.vx, onField.vy);
+    return heading.rate(pose, field, alliance, velocityOnField);
+  }
+
+  /**
+   * The heading law: the turning rate that takes the robot onto the target heading and keeps it
+   * there, in radians a second. It is the target's own turning rate, so that the robot keeps up
+   * with a target that turns, plus a correction in proportion to how far off the robot is, and no
+   * more than the top turning rate either way.
+   *
+   * @param headingErrorRadians how far the target is from the robot's heading, the nearer way
+   *     round, counterclockwise positive
+   * @param targetTurnRateRadiansPerSecond how fast the target heading itself turns
+   */
+  private static double turnRateToward(
+      double headingErrorRadians,
+      double targetTurnRateRadiansPerSecond,
+      DrivetrainControl control) {
+    double correction = control.gains().headingKp() * headingErrorRadians;
+    double topTurnRate = control.limits().maxAngularSpeed().in(RadiansPerSecond);
+    return Math.clamp(targetTurnRateRadiansPerSecond + correction, -topTurnRate, topTurnRate);
+  }
+
+  /**
+   * The spin-up limit: the turning rate to ask this loop, given the rate the heading law wants and
+   * the rate asked in the loop before.
+   *
+   * <p>Spinning up is limited to the turning acceleration a move asks of the robot ({@link
+   * DriveMove#PROFILE_SHARE} of the model's). Faster than that, the robot reaches the part of the
+   * turn where the law slows it spinning quicker than its wheels can stop it, and goes past the
+   * heading: a quarter turn went 3.3° past without the limit, and goes 1.4° past with it.
+   *
+   * <p>Slowing down is not limited. The law slows the robot by itself as the robot closes on the
+   * heading, and holding the robot to a slower stop would only carry it further past.
+   *
+   * @param wanted the turning rate the heading law wants, in radians a second
+   * @param lastAsked the turning rate asked in the loop before, in radians a second
+   */
+  private double spunUpNoFasterThanAMove(double wanted, double lastAsked) {
+    double mostChangeALoop =
+        DriveMove.PROFILE_SHARE * drive.accelerations().angular() * RobotLoop.PERIOD_SECONDS;
+    // A robot asked to turn back the other way first has to stop, which isn't limited, so its
+    // spinning up the other way starts from standing still.
+    boolean sameWayAsBefore = wanted * lastAsked >= 0;
+    double startingFrom = sameWayAsBefore ? lastAsked : 0;
+    boolean spinningUp = Math.abs(wanted) > Math.abs(startingFrom);
+    if (!spinningUp) {
+      return wanted;
+    }
+    double change = Math.clamp(wanted - startingFrom, -mostChangeALoop, mostChangeALoop);
+    return startingFrom + change;
+  }
+
+  private static void logHeading(double targetDegrees, double errorDegrees) {
+    Logger.recordOutput("Drive/HeadingTargetDegrees", targetDegrees);
+    Logger.recordOutput("Drive/HeadingErrorDegrees", errorDegrees);
+  }
+
+  /** The log shows a gap, not a number, while there is no heading to face. */
+  private static void logNoHeading() {
+    logHeading(Double.NaN, Double.NaN);
+  }
+
   @Override
   public void onCancel() {
-    Logger.recordOutput("Drive/HeadingTargetDegrees", Double.NaN);
-    Logger.recordOutput("Drive/HeadingErrorDegrees", Double.NaN);
+    logNoHeading();
   }
 
   @Override
