@@ -60,7 +60,8 @@ final class LimitStops {
   /**
    * A joint held where a switch stopped it, short of a position it was asked for. One hold lasts
    * for as long as the same switch stops the same demand. A different position asked for, or
-   * something else coming to hold the joint above this stage, begins a new hold.
+   * something else coming to hold the joint above this stage, begins a new hold. So does a position
+   * asked for after the joint was held neutral in place of an output ({@link Stilled}).
    *
    * @param by the switch that holds the joint
    * @param asked the demand that came in as the hold began
@@ -127,6 +128,10 @@ final class LimitStops {
    * empty while no switch holds the joint. A joint held at a switch is held at this one point for
    * as long as the hold lasts: if the point followed the joint, a joint pushed past its switch
    * would be held ever further past it.
+   *
+   * <p>The point belongs to a hold at a position, and is forgotten when the joint is held neutral
+   * in place of an output instead ({@link #outputStoppedBy}). A joint held neutral coasts, so a
+   * position asked for after that is held where the joint is by then.
    */
   private OptionalDouble stoppedAt = OptionalDouble.empty();
 
@@ -209,6 +214,8 @@ final class LimitStops {
     if (hold.isPresent() && hold.get().isOf(stop, demand)) {
       return hold.get().carryingOn(demand);
     }
+    // A hold at a position begins, so the joint is no longer held neutral in place of an output.
+    stilled = Optional.empty();
     Hold begun = Hold.beginning(stop, demand, toPosition, stopped);
     hold = Optional.of(begun);
     return begun.asItBegins();
@@ -217,11 +224,18 @@ final class LimitStops {
   /**
    * An output, with a switch tripped: neutral if the output pushes toward the switch's end. While
    * the same switch stops an equal demand, loop after loop, the very same neutral demand goes out.
+   *
+   * <p>The joint is now held neutral, not at a position, so a hold at a position that came before
+   * is over, and where the joint was stopped for it is forgotten. Otherwise a position asked for
+   * later would be held at that old point, and the joint, having coasted since, would jump back to
+   * it.
    */
   private Demand outputStoppedBy(Stop stop, Demand demand, JointAsk.AtOutput output) {
     if (!stop.isPushedTowardBy(output)) {
       return demand;
     }
+    stoppedAt = OptionalDouble.empty();
+    hold = Optional.empty();
     if (stilled.isPresent() && stilled.get().isOf(stop, demand)) {
       return stilled.get().neutral();
     }

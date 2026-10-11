@@ -229,6 +229,47 @@ class LimitStopsTest {
     assertThat(trippedAgain).as("tripped again").isEqualTo(neutral).isNotSameAs(towardAgain);
   }
 
+  /**
+   * Where the joint was stopped is forgotten when the kind of hold changes. Held at a position on a
+   * tripped switch, the joint is then pushed at the switch by an output, held neutral, and coasts
+   * back. A position past the switch asked after that is held where the joint is by then, its
+   * profile starting again once, and not back where the first hold was. The same is so each time
+   * the hold changes kind, and each kind of hold is still the very same demand while it lasts.
+   * Until 2026-10-11 the later position was held at the first hold's point, so the joint jumped
+   * back to it.
+   */
+  @Test
+  void aHoldThatChangesKindForgetsWhereTheJointWasStopped() {
+    switches.trip(TURRET_RIGHT, true);
+    Demand toward = Demands.atVoltage(2);
+    Demand neutral = new Demand(JointAsk.NEUTRAL, false, "turret right tripped");
+
+    Demand held = turret.apply(BACK, 1.6, switches.sensors());
+    Demand stilled = turret.apply(toward, 1.6, switches.sensors());
+    Demand coasting = turret.apply(toward, 1.55, switches.sensors());
+    Demand heldAgain = turret.apply(BACK, 1.52, switches.sensors());
+    Demand lasting = turret.apply(BACK, 1.53, switches.sensors());
+    Demand lastingOn = turret.apply(BACK, 1.51, switches.sensors());
+    Demand stilledAgain = turret.apply(toward, 1.52, switches.sensors());
+    Demand heldOnceMore = turret.apply(BACK, 1.5, switches.sensors());
+
+    assertThat(held)
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, "turret right tripped"));
+    assertThat(stilled).isEqualTo(neutral);
+    assertThat(coasting).as("held neutral, the next loop").isSameAs(stilled);
+    assertThat(heldAgain)
+        .as("a new hold where the joint is by then")
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), true, "turret right tripped"));
+    assertThat(lasting)
+        .as("its profile started again once")
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), false, "turret right tripped"));
+    assertThat(lastingOn).as("the very same demand while it lasts").isSameAs(lasting);
+    assertThat(stilledAgain).isEqualTo(neutral);
+    assertThat(heldOnceMore)
+        .as("and back again")
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.5, 0.5), true, "turret right tripped"));
+  }
+
   /** A lost switch holds no condition, so it stops nothing; nor does one never read. */
   @Test
   void aLostSwitchStopsNothing() {
