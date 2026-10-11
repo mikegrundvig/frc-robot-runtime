@@ -389,7 +389,7 @@ public class Drive implements Mechanism, AutoCloseable {
    * @throws IllegalArgumentException with the reason, as the robot starts
    */
   Optional<String> refusedAsBuilt(Optional<String> why) {
-    return Optional.ofNullable(Refusals.asBuilt(scheduler, why.orElse(null)));
+    return Refusals.asBuilt(scheduler, why);
   }
 
   // ---- Driving at a velocity ----

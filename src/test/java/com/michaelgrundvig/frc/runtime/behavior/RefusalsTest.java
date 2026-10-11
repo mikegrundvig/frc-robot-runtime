@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
@@ -42,15 +43,15 @@ class RefusalsTest {
 
   @Test
   void aReasonIsThrownAsTheRobotStartsAndKeptOnceItRuns() {
-    assertThatThrownBy(() -> Refusals.asBuilt(scheduler, "pivot has no position clear"))
+    Optional<String> why = Optional.of("pivot has no position clear");
+    assertThatThrownBy(() -> Refusals.asBuilt(scheduler, why))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("pivot has no position clear");
-    assertThat(Refusals.asBuilt(scheduler, null)).isNull();
+    assertThat(Refusals.asBuilt(scheduler, Optional.empty())).isEmpty();
 
     scheduler.run();
 
-    assertThat(Refusals.asBuilt(scheduler, "pivot has no position clear"))
-        .isEqualTo("pivot has no position clear");
+    assertThat(Refusals.asBuilt(scheduler, why)).isSameAs(why);
   }
 
   /** A gate that can't be holds false once the robot runs, saying why, and never opens. */

@@ -180,7 +180,7 @@ public final class Autos implements AutoCloseable {
    * @throws IllegalArgumentException as the robot starts, for a blank name or two autos of one name
    */
   public void add(String name, Place start, Supplier<Command> command) {
-    Optional<String> refusal = Refusals.whenBuilt(scheduler, whyNotDeclared(name));
+    Optional<String> refusal = Refusals.asBuilt(scheduler, whyNotDeclared(name));
     if (refusal.isPresent()) {
       refused.setText("An auto was left out: " + refusal.get());
       refused.set(true);

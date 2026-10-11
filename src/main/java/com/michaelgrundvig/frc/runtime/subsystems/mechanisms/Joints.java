@@ -385,7 +385,7 @@ public final class Joints implements AutoCloseable {
       return mechanism;
     }
     String why = noMechanism(joint);
-    Refusals.asBuilt(scheduler, why);
+    Refusals.asBuilt(scheduler, Optional.of(why));
     return standIns.computeIfAbsent(
         joint,
         standIn -> JointMechanism.standIn(definition.math(), standIn, sensors, scheduler, why));
@@ -451,9 +451,10 @@ public final class Joints implements AutoCloseable {
    */
   private Optional<String> refused(Configuration configuration) {
     for (Condition.At target : configuration.targets()) {
-      String notOwn = Refusals.asBuilt(scheduler, definition.whyNotOwn(target));
-      if (notOwn != null) {
-        return Optional.of(notOwn);
+      Optional<String> notOwn =
+          Refusals.asBuilt(scheduler, Optional.ofNullable(definition.whyNotOwn(target)));
+      if (notOwn.isPresent()) {
+        return notOwn;
       }
     }
     return Optional.ofNullable(undriven(definition, configuration));

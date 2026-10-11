@@ -2,7 +2,6 @@ package com.michaelgrundvig.frc.runtime.behavior;
 
 import java.util.Locale;
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 
 /**
  * How a move ended, whether it is a joint's or the drivetrain's. Each move records one, with a
@@ -48,7 +47,7 @@ public enum Outcome {
    * @param why why it ended this way, such as a gate's terms or a refusal, if the move has a reason
    *     of its own
    */
-  public String reasonGiven(String name, double seconds, String details, Optional<String> why) {
+  public String reason(String name, double seconds, String details, Optional<String> why) {
     StringBuilder text = new StringBuilder(name).append(": ").append(this);
     if (this != REFUSED) {
       String howLong = this == ARRIVED ? " in %.2f s" : " after %.2f s";
@@ -59,15 +58,5 @@ public enum Outcome {
       text.append(": ").append(why.get());
     }
     return text.toString();
-  }
-
-  /**
-   * The same reason as {@link #reasonGiven}, for a caller that holds why as a string that may be
-   * null.
-   *
-   * @param why why it ended this way; null when the move has no reason of its own
-   */
-  public String reason(String name, double seconds, String details, @Nullable String why) {
-    return reasonGiven(name, seconds, details, Optional.ofNullable(why));
   }
 }

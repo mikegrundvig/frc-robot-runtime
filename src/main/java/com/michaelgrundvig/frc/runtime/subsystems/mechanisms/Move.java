@@ -695,7 +695,7 @@ public final class Move implements Command {
     double seconds = (now() - startNanos) / 1e9;
     Map<Joint, Double> came = arrivalsAsItEnded();
     arrivals = Collections.unmodifiableMap(came);
-    reason = how.reason(plan.name(), seconds, details(how, came), why.orElse(null));
+    reason = how.reason(plan.name(), seconds, details(how, came), why);
 
     boolean homedTheJoint = plan.task() instanceof Home;
     boolean arrivedAtItsPlaces = how == Outcome.ARRIVED && plan.task() instanceof GoTo;

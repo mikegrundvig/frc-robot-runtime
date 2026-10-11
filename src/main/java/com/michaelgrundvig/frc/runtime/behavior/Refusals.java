@@ -1,7 +1,6 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.command3.Scheduler;
 
 /**
@@ -44,23 +43,11 @@ public final class Refusals {
    * @return the same reason
    * @throws IllegalArgumentException with the reason, as the robot starts
    */
-  public static Optional<String> whenBuilt(Scheduler scheduler, Optional<String> why) {
+  public static Optional<String> asBuilt(Scheduler scheduler, Optional<String> why) {
     if (why.isPresent() && starting(scheduler)) {
       throw new IllegalArgumentException(why.get());
     }
     return why;
-  }
-
-  /**
-   * The same rule as {@link #whenBuilt}, for a caller that holds its reason as a string that may be
-   * null.
-   *
-   * @param why what cannot work, and what to do about it; null when it can work
-   * @return the same reason, or null for none
-   * @throws IllegalArgumentException with the reason, as the robot starts
-   */
-  public static @Nullable String asBuilt(Scheduler scheduler, @Nullable String why) {
-    return whenBuilt(scheduler, Optional.ofNullable(why)).orElse(null);
   }
 
   /**
@@ -71,7 +58,7 @@ public final class Refusals {
    * @throws IllegalArgumentException with the reason, as the robot starts
    */
   public static Gate gate(Scheduler scheduler, String name, String why) {
-    whenBuilt(scheduler, Optional.of(why));
+    asBuilt(scheduler, Optional.of(why));
     return new Gate(
         scheduler,
         name,

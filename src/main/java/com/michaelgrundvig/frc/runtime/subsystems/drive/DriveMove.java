@@ -589,7 +589,7 @@ public final class DriveMove implements Command {
   private void end(Outcome how, String details, Optional<String> why) {
     running = false;
     outcome = Optional.of(how);
-    reason = how.reason(name, elapsedSeconds(), details, why.orElse(null));
+    reason = how.reason(name, elapsedSeconds(), details, why);
     drive.runVelocity(new ChassisVelocities());
     Logger.recordOutput("Drive/Outcome", reason);
   }

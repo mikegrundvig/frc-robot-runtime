@@ -723,7 +723,7 @@ public final class JointMechanism implements Mechanism {
    */
   private Optional<String> refusedAsBuilt(Optional<String> why) {
     Optional<String> cannot = standsIn.isPresent() ? standsIn : why;
-    return Optional.ofNullable(Refusals.asBuilt(scheduler, cannot.orElse(null)));
+    return Refusals.asBuilt(scheduler, cannot);
   }
 
   /**
