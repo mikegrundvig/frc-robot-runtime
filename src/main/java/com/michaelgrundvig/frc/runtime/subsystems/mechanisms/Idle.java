@@ -1,5 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.world.config.Rules.possessive;
+
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import java.util.OptionalDouble;
 
@@ -18,6 +20,10 @@ import java.util.OptionalDouble;
  *       came to a stop ({@link #moveEnded});
  *   <li>where it was when it stopped running at an output and was left idle ({@link #demand}).
  * </ul>
+ *
+ * <p>A joint whose position reads as something that is not a number has nowhere to hold. Left idle
+ * like that it is neutral, saying why, until it reads a number again, and then it holds there. A
+ * joint that already holds somewhere goes on holding there whatever it reads.
  *
  * <p>The idle is the joint's own, not a command, so a joint that a command owns but no longer
  * drives does not sag. A default command replaces it, as it would in Commands v3.
@@ -41,16 +47,26 @@ final class Idle {
 
   /**
    * The demand that holds the joint there. It is built when where the joint holds changes and
-   * handed out in every idle loop after that, so that a joint left idle allocates nothing.
+   * handed out in every idle loop after that, so that a joint left idle allocates nothing. It is
+   * handed out only while the joint has somewhere to hold.
    */
-  private Demand hold = holdingAt(Double.NaN);
+  private Demand hold = Demand.NEUTRAL;
 
   /**
+   * What the joint does idle while it has nowhere to hold: neutral, saying that its position is not
+   * a number. It is built once, so that a joint whose position stays that way allocates nothing.
+   */
+  private final Demand nowhereToHold;
+
+  /**
+   * @param label the joint's label, which names it in what holds it
    * @param holdsPositions whether the joint is one that holds positions
    */
-  Idle(boolean holdsPositions) {
+  Idle(String label, boolean holdsPositions) {
     this.holdsPositions = holdsPositions;
     holdsWhenIdle = holdsPositions;
+    nowhereToHold =
+        Demand.NEUTRAL.heldTo(JointAsk.NEUTRAL, possessive(label) + " position isn't a number");
   }
 
   /** Where the joint holds when idle, or empty while there is nowhere to hold yet. */
@@ -58,13 +74,17 @@ final class Idle {
     return holdsAt;
   }
 
-  /** From now on the joint holds at a position: where it was read, or where its homing found it. */
+  /**
+   * From now on the joint holds at a position: where it was read, or where its homing found it. A
+   * position that is not a number is nowhere to hold, and nothing is built for it, so it costs
+   * nothing to be told so every loop.
+   */
   void holdAt(double position) {
     if (Double.isNaN(position)) {
       holdsAt = OptionalDouble.empty();
-    } else {
-      holdsAt = OptionalDouble.of(position);
+      return;
     }
+    holdsAt = OptionalDouble.of(position);
     hold = holdingAt(position);
   }
 
@@ -89,18 +109,22 @@ final class Idle {
    * What the joint does this loop, no command having asked anything of it.
    *
    * @param lastLoop what the joint's motors were told in the loop before
-   * @param here where the joint is now, inside its limits
+   * @param here where the joint is now, inside its limits, or not a number if that is what the
+   *     joint reads
    */
   Demand demand(Applied lastLoop, double here) {
     if (!holdsWhenIdle) {
       return Demand.NEUTRAL;
     }
-    if (lastLoop.wasToAPosition()) {
+    if (lastLoop.wasToAPosition() && holdsAt.isPresent()) {
       return hold;
     }
-    // The joint was running at an output, or was not driven at all. It holds where it is now, and
-    // its profile starts from there.
+    // The joint was running at an output, or was not driven at all, or had nowhere to hold. It
+    // holds where it is now, and its profile starts from there.
     holdAt(here);
+    if (holdsAt.isEmpty()) {
+      return nowhereToHold;
+    }
     return hold.restartingProfile();
   }
 

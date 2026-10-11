@@ -9,14 +9,17 @@ import java.util.List;
  * A simulated joint's IO that a test can silence, so it reads as motor controllers that aren't
  * there, or say they didn't take their settings, or whose frames don't come for a while, so its
  * readings aren't fresh: what the simulator's joints don't do of themselves, but go silent ({@code
- * JointSimulation.silence}). It notes anything it's told that isn't a number, which no motor
- * controller should be.
+ * JointSimulation.silence}), or whose position reads as something that isn't a number. It notes
+ * anything it's told that isn't a number, which no motor controller should be.
  */
 final class Silenceable implements JointIO {
   private final JointIO joint;
   boolean silent;
   boolean stale;
   String unconfigured = "";
+
+  /** Whether its position reads as something that isn't a number, as a bad ratio's would. */
+  boolean readsNoNumber;
 
   /** Each request it was told with an argument that isn't a number. */
   final List<String> notNumbers = new ArrayList<>();
@@ -42,6 +45,9 @@ final class Silenceable implements JointIO {
     }
     inputs.fresh = !stale;
     inputs.unconfigured = unconfigured;
+    if (readsNoNumber) {
+      inputs.position = Double.NaN;
+    }
   }
 
   @Override

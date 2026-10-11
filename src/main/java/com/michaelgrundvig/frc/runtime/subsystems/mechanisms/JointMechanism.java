@@ -411,7 +411,7 @@ public final class JointMechanism implements Mechanism {
     positionBands = holdsPositions ? control.bands().orElse(kindBands) : kindBands;
     speedBands = holdsPositions ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
 
-    idle = new Idle(holdsPositions);
+    idle = new Idle(label, holdsPositions);
     interlocks = new Interlocks(travel);
     List<Sensor.Switch> limits = LimitStops.switchesOf(math, joint);
     stops = new LimitStops(limits);
@@ -585,7 +585,10 @@ public final class JointMechanism implements Mechanism {
     return homing.shown();
   }
 
-  /** What holds it this loop, its interlocks and its limit switches, as logged; empty for none. */
+  /**
+   * What holds it this loop, as logged: its interlocks, its limit switches, and, left idle with
+   * nowhere to hold, a position that isn't a number. Empty for none.
+   */
   public String heldBy() {
     return applied.heldBy();
   }
@@ -1086,10 +1089,19 @@ public final class JointMechanism implements Mechanism {
             + " didn't take its settings: check its CAN ID and wiring, then restart the robot");
   }
 
-  /** From now on the joint's idle holds where the joint is, and its profile starts from there. */
+  /**
+   * From now on the joint's idle holds where the joint is, and its profile starts from there.
+   *
+   * <p>A joint whose position reads as something that is not a number has nowhere to hold, and its
+   * idle is told only that. Its profile is left alone: there is nowhere to start it from, and this
+   * is asked again every loop until the joint reads a number.
+   */
   private void holdWhereItIs() {
-    idle.holdAt(clamp(readings.position()));
-    profile.restart();
+    double at = clamp(readings.position());
+    idle.holdAt(at);
+    if (!Double.isNaN(at)) {
+      profile.restart();
+    }
   }
 
   /**
@@ -1161,9 +1173,22 @@ public final class JointMechanism implements Mechanism {
     return readings.restarts();
   }
 
-  /** What its limit switches are doubted for this loop, by switch: none while they agree. */
+  /**
+   * What is doubted of the joint's sensors this loop: each of its limit switches that disagrees
+   * with where the joint is, and its own position while that reads as something that is not a
+   * number. None while they agree and the position is a number.
+   */
   List<String> switchDoubts() {
-    return doubts.doubts();
+    List<String> doubted = doubts.doubts();
+    if (Double.isNaN(readings.position())) {
+      doubted.add(
+          possessive(label)
+              + " position reads NaN, which isn't a number: "
+              + label
+              + " is neutral while it has nowhere to hold; check its encoder and its motor"
+              + " controller's settings");
+    }
+    return doubted;
   }
 
   // ---- Each loop: decide and write ----

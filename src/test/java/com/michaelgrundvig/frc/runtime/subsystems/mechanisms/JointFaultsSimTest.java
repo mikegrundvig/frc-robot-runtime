@@ -4,15 +4,22 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.simulation.AlertSim;
 import org.wpilib.system.RobotController;
 
 /**
@@ -38,6 +45,12 @@ class JointFaultsSimTest {
           Joints.untuned(),
           scheduler);
   private final JointMechanism pivot = joints.of(PIVOT);
+
+  /** Releases the joints' alerts, so that the next test's robot can raise its own. */
+  @AfterEach
+  void tearDown() {
+    joints.close();
+  }
 
   private void loop() {
     RobotSim.stepClock();
@@ -111,6 +124,74 @@ class JointFaultsSimTest {
         .isEqualTo(
             "pivot → out: REFUSED: can't go on: pivot isn't answering: its motor controllers are"
                 + " silent");
+  }
+
+  /** One loop, with the robot enabled or not. */
+  private void loop(boolean enabled) {
+    RobotSim.stepClock();
+    simulation.step(RobotLoop.PERIOD_SECONDS);
+    joints.read(RobotController.getTime(), enabled);
+    scheduler.run();
+    joints.write();
+  }
+
+  /** What the pivot did over some loops: what held it each loop, and each doubt said of it. */
+  private record Idled(List<String> heldBy, List<String> doubts) {}
+
+  private Idled idleFor(int loops, boolean enabled) {
+    Set<String> heldBy = new LinkedHashSet<>();
+    Set<String> doubts = new LinkedHashSet<>();
+    for (int i = 0; i < loops; i++) {
+      loop(enabled);
+      heldBy.add(pivot.heldBy());
+      doubts.addAll(joints.switchDoubts());
+    }
+    return new Idled(List.copyOf(heldBy), List.copyOf(doubts));
+  }
+
+  /**
+   * A pivot whose position reads as something that isn't a number, left idle. While it already
+   * holds somewhere it holds on there. Enabled with nowhere to hold, it's neutral, saying why, and
+   * its motor controller is never told anything that isn't a number; reading a number again, it
+   * holds where it is. All the while its doubt says the reading isn't a number, and is gone with
+   * it. Until 2026-10-11 it took a new hold at NaN every loop, and its motor controller was sent
+   * there.
+   */
+  @Test
+  void aJointWhosePositionReadsNoNumberHoldsOnOrGoesNeutralAndSaysSo() {
+    String doubt =
+        "pivot's position reads NaN, which isn't a number: pivot is neutral while it has nowhere to"
+            + " hold; check its encoder and its motor controller's settings";
+    Idled whole = idleFor(5, true);
+    double held = pivot.goal();
+
+    pivotIo.readsNoNumber = true;
+    Idled holdingOn = idleFor(10, true);
+    double stillHeld = pivot.goal();
+    idleFor(2, false);
+    Idled nowhere = idleFor(10, true);
+    pivotIo.readsNoNumber = false;
+    Idled wholeAgain = idleFor(5, true);
+
+    assertThat(whole).isEqualTo(new Idled(List.of(""), List.of()));
+    assertThat(holdingOn)
+        .as("it holds on where it held")
+        .isEqualTo(new Idled(List.of(""), List.of(doubt)));
+    assertThat(stillHeld).isEqualTo(held);
+    assertThat(nowhere)
+        .as("enabled with nowhere to hold")
+        .isEqualTo(new Idled(List.of("pivot's position isn't a number"), List.of(doubt)));
+    assertThat(wholeAgain).isEqualTo(new Idled(List.of(""), List.of()));
+    assertThat(pivot.goal())
+        .as("it holds where it read a number again, having sunk while it was neutral")
+        .isCloseTo(pivot.position(), within(1e-3));
+    assertThat(pivotIo.notNumbers).as("told its motor controller").isEmpty();
+    assertThat(
+            Arrays.stream(AlertSim.getActive())
+                .filter(alert -> alert.group.equals("Sensors"))
+                .map(alert -> alert.text))
+        .as("the doubt's alert fell with it")
+        .isEmpty();
   }
 
   /**
