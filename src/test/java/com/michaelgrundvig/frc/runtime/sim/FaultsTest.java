@@ -8,7 +8,9 @@ import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.localization.ImuReadings;
+import com.michaelgrundvig.frc.pitwall.simulator.Component;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
+import com.michaelgrundvig.frc.pitwall.simulator.Fault;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -20,6 +22,7 @@ import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -97,6 +100,103 @@ class FaultsTest {
   private static void turn(SimulatedWorld world, double degrees) {
     world.drivetrain().shove(new Transform2d(0, 0, Rotation2d.fromDegrees(degrees)));
     step(world);
+  }
+
+  /** Every fault in the catalog, as this world's parts have them, by its part's kind. */
+  private static Map<String, List<FaultCatalog.Fault>> catalog(SimulatedWorld world) {
+    SensorErrors.GyroErrors gyro = SensorErrors.NONE.gyro();
+    List<FaultCatalog.Fault> robot =
+        List.of(
+            FaultCatalog.Robot.SHOVED,
+            FaultCatalog.Robot.PUSHED,
+            FaultCatalog.Robot.HIT,
+            FaultCatalog.Robot.TILTED,
+            FaultCatalog.Robot.SLIPPING,
+            FaultCatalog.Robot.placed(world.field().length(), world.field().width()),
+            FaultCatalog.Robot.TO_A_BUMP);
+    Map<String, List<FaultCatalog.Fault>> byKind = new LinkedHashMap<>();
+    byKind.put(FaultCatalog.Camera.KIND, FaultCatalog.Camera.ALL);
+    byKind.put(FaultCatalog.Imu.GYRO_KIND, FaultCatalog.Imu.all(gyro));
+    byKind.put(FaultCatalog.Imu.BACKUP_KIND, FaultCatalog.Imu.all(gyro));
+    byKind.put(FaultCatalog.Module.KIND, FaultCatalog.Module.all(0, 1));
+    byKind.put(FaultCatalog.Robot.KIND, robot);
+    byKind.put(FaultCatalog.Field.KIND, List.of(FaultCatalog.Field.tagMoved(1, 32, 1)));
+    return byKind;
+  }
+
+  /**
+   * Whether a fault lasts or happens once is the catalog's to say, and the world's faults say the
+   * same, every one of them, on a robot with cameras on a field with bumps: each part's faults are
+   * the catalog's for its kind, by name, each of the kind its lifetime there makes it.
+   */
+  @Test
+  void everyFaultIsDeclaredWithTheLifetimeTheCatalogGivesIt() {
+    SimulatedWorld world =
+        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+    worlds.add(world);
+    components = new Components(said::add);
+    world.addTo(components);
+    Map<String, List<FaultCatalog.Fault>> catalog = catalog(world);
+    List<String> declared = new ArrayList<>();
+    List<String> cataloged = new ArrayList<>();
+
+    for (Component part : components.components()) {
+      for (Fault fault : part.faults()) {
+        declared.add(part.name() + ": " + fault.name() + " " + fault.kind());
+      }
+      for (FaultCatalog.Fault fault : catalog.getOrDefault(part.kind(), List.of())) {
+        Fault.Kind kind = fault.lasting() ? Fault.Kind.LASTING : Fault.Kind.EVENT;
+        cataloged.add(part.name() + ": " + fault.name() + " " + kind);
+      }
+    }
+
+    assertThat(declared).isNotEmpty().containsExactlyElementsOf(cataloged);
+    assertThat(components.components())
+        .extracting(Component::kind)
+        .as("every kind of part the catalog has faults for")
+        .containsAll(catalog.keySet());
+  }
+
+  /**
+   * A binding written for the other lifetime than the catalog's is refused as the world is built,
+   * for every fault in the catalog, and one written for the catalog's is taken.
+   */
+  @Test
+  void aFaultBoundAsTheOtherLifetimeThanTheCatalogsIsRefused() {
+    SimulatedWorld world = world();
+    Map<String, String> refused = new LinkedHashMap<>();
+    Map<String, String> expected = new LinkedHashMap<>();
+
+    catalog(world)
+        .forEach(
+            (kind, faults) -> {
+              for (FaultCatalog.Fault fault : faults) {
+                FaultCatalog.Lifetime other =
+                    fault.lasting()
+                        ? FaultCatalog.Lifetime.HAPPENS_ONCE
+                        : FaultCatalog.Lifetime.LASTS_UNTIL_UNDONE;
+                String row = kind + ": " + fault.name();
+                try {
+                  Faults.declared(fault, other);
+                  refused.put(row, "taken");
+                } catch (IllegalArgumentException e) {
+                  refused.put(row, e.getMessage());
+                }
+                expected.put(
+                    row,
+                    "the fault catalog's \""
+                        + fault.name()
+                        + (fault.lasting()
+                            ? "\" lasts until it is undone, but it was bound as one that happens"
+                                + " once: bind it with lasting(), saying how it is undone, or"
+                                + " change its lifetime in FaultCatalog"
+                            : "\" happens once, but it was bound as one that lasts: bind it with"
+                                + " event(), or change its lifetime in FaultCatalog"));
+                assertThat(Faults.declared(fault, fault.lifetime())).as(row).isNotNull();
+              }
+            });
+
+    assertThat(refused).hasSizeGreaterThan(20).containsExactlyEntriesOf(expected);
   }
 
   @Test

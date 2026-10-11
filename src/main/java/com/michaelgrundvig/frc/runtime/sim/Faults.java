@@ -57,6 +57,9 @@ import org.wpilib.math.geometry.Translation3d;
  * scenarios ({@link Scenarios}) are made of them. The robot's code is never told: it has to find
  * out from its sensors.
  *
+ * <p>Whether a fault lasts or happens once is the catalog's to say ({@link FaultCatalog.Lifetime}):
+ * a binding here that was written for the other is refused as the world is built.
+ *
  * <p>A fault that lasts (a camera unplugged) says whether it's on by asking the world, and undoing
  * it puts the part back as the world was built: a season-worn robot's sensors ({@link
  * SensorErrors}), not perfect ones. An event (a hit) happens once; nothing undoes it, and each says
@@ -92,25 +95,52 @@ public final class Faults {
     }
   }
 
-  /** A fault that lasts, as the catalog has it, bound to its part. */
+  /**
+   * A fault that lasts, as the catalog has it, bound to its part: how the world says it is on, how
+   * it is applied, and how it is undone.
+   *
+   * @throws IllegalArgumentException for a fault the catalog says happens once
+   */
   private static Fault lasting(
       FaultCatalog.Fault fault, BooleanSupplier isOn, Consumer<Values> apply, Runnable undo) {
-    return parameters(Fault.lasting(fault.name()), fault)
+    return declared(fault, FaultCatalog.Lifetime.LASTS_UNTIL_UNDONE)
         .isOn(isOn)
         .apply(apply)
         .undo(fault.undone(), undo)
         .build();
   }
 
-  /** A fault that happens once, as the catalog has it, bound to its part. */
+  /**
+   * A fault that happens once, as the catalog has it, bound to its part: how it is applied.
+   *
+   * @throws IllegalArgumentException for a fault the catalog says lasts until it is undone
+   */
   private static Fault event(FaultCatalog.Fault fault, Consumer<Values> apply) {
-    return parameters(Fault.event(fault.name()), fault)
+    return declared(fault, FaultCatalog.Lifetime.HAPPENS_ONCE)
         .apply(apply)
         .undoneBy(fault.undone())
         .build();
   }
 
-  private static Fault.Builder parameters(Fault.Builder builder, FaultCatalog.Fault fault) {
+  /**
+   * Starts a fault's declaration from the catalog: its name, what it does, its parameters, and
+   * whether it lasts or happens once. Only the catalog says which ({@link FaultCatalog.Lifetime}).
+   * A binding is written for one or the other, with a way to undo the fault or without, so it says
+   * here which it was written for, and one written for the other is refused as the world is built.
+   *
+   * @param bindsItAs the lifetime the binding was written for
+   * @throws IllegalArgumentException if the catalog gives the fault the other lifetime
+   */
+  static Fault.Builder declared(FaultCatalog.Fault fault, FaultCatalog.Lifetime bindsItAs) {
+    FaultCatalog.Lifetime lifetime = fault.lifetime();
+    if (lifetime != bindsItAs) {
+      throw new IllegalArgumentException(whyBoundWrongly(fault));
+    }
+    Fault.Builder builder =
+        switch (lifetime) {
+          case LASTS_UNTIL_UNDONE -> Fault.lasting(fault.name());
+          case HAPPENS_ONCE -> Fault.event(fault.name());
+        };
     builder.does(fault.does());
     for (FaultCatalog.Parameter parameter : fault.parameters()) {
       builder.parameter(
@@ -120,6 +150,21 @@ public final class Faults {
           parameter.initial());
     }
     return builder;
+  }
+
+  /** What a fault bound as the other lifetime than the catalog's is refused with. */
+  private static String whyBoundWrongly(FaultCatalog.Fault fault) {
+    String name = "the fault catalog's \"" + fault.name() + "\" ";
+    return switch (fault.lifetime()) {
+      case LASTS_UNTIL_UNDONE ->
+          name
+              + "lasts until it is undone, but it was bound as one that happens once: bind it"
+              + " with lasting(), saying how it is undone, or change its lifetime in FaultCatalog";
+      case HAPPENS_ONCE ->
+          name
+              + "happens once, but it was bound as one that lasts: bind it with event(), or"
+              + " change its lifetime in FaultCatalog";
+    };
   }
 
   private static Component camera(CameraIOSim camera) {
