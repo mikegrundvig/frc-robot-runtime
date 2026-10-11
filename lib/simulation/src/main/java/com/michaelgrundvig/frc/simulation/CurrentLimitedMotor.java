@@ -3,50 +3,72 @@ package com.michaelgrundvig.frc.simulation;
 import org.wpilib.math.system.DCMotor;
 
 /**
- * A motor turning a load through its gearing, its motor controller holding the current through it
- * to a limit: a swerve module's steering, or one of the robot's joints ({@link JointPlant}), which
- * gravity pulls on too.
+ * A motor turning a load through its gearing, with its motor controller holding the current through
+ * it to a limit: a swerve module's steering, or one of the robot's joints ({@link JointPlant}),
+ * which gravity pulls on too.
  *
- * <p>Its motion is worked out exactly rather than stepped, because a steering motor is quick: with
- * the simulated inertia, its speed closes on the speed its voltage gives with a time constant under
- * a millisecond, well inside one of the simulator's steps. WPILib's {@code DCMotorSim} holds a
- * voltage through each step, so a current limit set at the step's start would hold only at that
- * instant, and the motor would give far less torque than its limit allows. A motor controller holds
- * the limit the whole time. So here, at the limit, the motor gives a steady torque until its back
- * EMF leaves no more than the limit's worth of voltage across its windings; below the limit, the
- * load's speed closes on the speed the voltage gives, exponentially, exactly as in {@code
- * DCMotorSim}. The drive's limit is the physics' to hold ({@link WheelDrive}): its motor is about
- * sixty times slower, and today's physics holds the limit at each step's start, so it falls a
- * little short of the limit within each step (the truth suite's F = m a gap).
+ * <p><b>The model.</b> A brushed DC motor's two equations, with V the voltage across the motor, I
+ * its current, ω the load's speed, G the gearing and J the load's inertia:
  *
- * <p>A torque from outside, gravity on a joint, is held steady through each step and adds to the
- * motor's: below the limit it moves the speed the load closes on; at the limit it adds to the
- * steady acceleration, and a motor held at its limit by more than it can lift stays there through
- * the step. Taken at each step's start, it's exact for steps short against how fast the load's
- * angle changes it: the simulator steps a joint every millisecond, as its motor controller runs.
+ * <pre>
+ *   V = I·R + G·ω / Kv                    the voltage drives the current and overcomes the back EMF
+ *   J · dω/dt = G · Kt · I + loadTorque   the current's torque, and any torque from outside
+ * </pre>
  *
- * <p>Friction is left out: a real module's wheel scrubs on the carpet as it turns, and its gearbox
- * drags, so a real one coasts less than this one. Both need measuring on a real module before they
- * belong here. Once measured, add them in {@link #run} as a steady torque against the motion: it
- * takes {@code torque / (gearing * Kt)} amps of the motor's current, both at the limit and below
- * it, and the module stays put while the motor's torque can't beat it.
+ * <p>The motion over a step is worked out exactly, in up to two stretches ({@link #run}):
+ *
+ * <ul>
+ *   <li><b>At the limit.</b> While the voltage asked for would drive more current than the limit
+ *       allows, the controller holds the current at the limit. A steady current is a steady torque,
+ *       so the load's speed changes at a steady rate, until its back EMF has grown enough that the
+ *       voltage asked for drives no more than the limit's current.
+ *   <li><b>Below the limit.</b> The voltage is what was asked for. Taking the current out of the
+ *       two equations leaves dω/dt = −k·(ω − ω<sub>free</sub>): the speed closes on the speed the
+ *       voltage gives, exponentially, at the rate k = G²·Kt / (Kv·R·J). This is exactly what
+ *       WPILib's {@code DCMotorSim} works out.
+ * </ul>
+ *
+ * <p><b>Why it is not simply stepped.</b> A steering motor is quick: with the simulated inertia, k
+ * is more than a thousand a second, so the speed settles well inside one of the simulator's steps.
+ * {@code DCMotorSim} holds a voltage through each step, so a current limit applied at the step's
+ * start would hold only at that instant, and the motor would give far less torque than its limit
+ * allows. A real motor controller holds the limit the whole time, as the first stretch does here. A
+ * swerve wheel's drive motor is about sixty times slower, and the physics holds its limit at each
+ * step's start ({@link WheelMotor}).
+ *
+ * <p><b>A torque from outside</b>, such as gravity on a joint, is taken as steady through each
+ * step. That is exact for steps that are short against how fast the load's angle changes the
+ * torque: the simulator steps a joint every millisecond, as its motor controller runs.
+ *
+ * <p><b>What is left out.</b> Friction: a real module's wheel scrubs on the carpet as it turns, and
+ * its gearbox drags, so a real one coasts less than this one. Both need measuring on a real module
+ * before they belong here. Once measured, they go in {@link #run} as a steady torque against the
+ * motion: it takes {@code torque / (gearing * Kt)} amps of the motor's current, both at the limit
+ * and below it, and the module stays put while the motor's torque cannot beat it.
  */
 public final class CurrentLimitedMotor {
   private final DCMotor motor;
+
+  /** Motor turns for each turn of the load, or radians of motor for each meter of a slide. */
   private final double gearing;
+
+  /** The load's moment of inertia, in kg m², or its mass in kg for a load that slides. */
   private final double inertia;
 
-  /** The load's acceleration per amp through the motor, in radians per second squared. */
+  /** The load's acceleration for each amp through the motor: G·Kt / J. */
   private final double accelerationPerAmp;
 
   /**
-   * How quickly the load's speed closes on the speed its voltage gives: one over a time constant.
+   * How quickly the load's speed closes on the speed its voltage gives, in 1/s: k = G²·Kt /
+   * (Kv·R·J), one over the motor's mechanical time constant.
    */
   private final double settlingRate;
 
   private double positionRadians;
   private double velocityRadPerSec;
   private double appliedVolts;
+
+  /** Whether the motor carries no current at all, as its controller in coast leaves it. */
   private boolean coasting;
 
   /**
@@ -87,37 +109,80 @@ public final class CurrentLimitedMotor {
    */
   public double run(double volts, double limitAmps, double loadTorque, double seconds) {
     coasting = false;
-    double pulled = loadTorque / inertia;
-    double amps = motor.getCurrent(velocityRadPerSec * gearing, volts);
-    double remaining = seconds;
-    if (Math.abs(amps) > limitAmps) {
-      // At the limit: a steady torque, until the speed leaves no more than the limit's current.
-      double limit = Math.copySign(limitAmps, amps);
-      double acceleration = limit * accelerationPerAmp + pulled;
-      double releaseSpeed = (volts - limit * motor.R) * motor.Kv / gearing;
-      double toRelease = (releaseSpeed - velocityRadPerSec) / acceleration;
-      double atLimit = toRelease >= 0 ? Math.min(toRelease, remaining) : remaining;
-      positionRadians += (velocityRadPerSec + acceleration * atLimit / 2) * atLimit;
-      velocityRadPerSec += acceleration * atLimit;
-      remaining -= atLimit;
-      if (remaining <= 0) {
-        appliedVolts = velocityRadPerSec * gearing / motor.Kv + limit * motor.R;
+    double loadAcceleration = loadTorque / inertia;
+    double motorSpeedRadPerSec = velocityRadPerSec * gearing;
+    double ampsAtStart = motor.getCurrent(motorSpeedRadPerSec, volts);
+    boolean startsAtTheLimit = Math.abs(ampsAtStart) > limitAmps;
+    double secondsBelowTheLimit = seconds;
+    if (startsAtTheLimit) {
+      double heldAmps = Math.copySign(limitAmps, ampsAtStart);
+      secondsBelowTheLimit -= runAtTheLimit(volts, heldAmps, loadAcceleration, seconds);
+      boolean stayedAtTheLimit = secondsBelowTheLimit <= 0;
+      if (stayedAtTheLimit) {
+        // The voltage that drives the held current at the speed the load ends at: back EMF + I·R.
+        appliedVolts = velocityRadPerSec * gearing / motor.Kv + heldAmps * motor.R;
         return limitAmps;
       }
     }
-    // Below the limit: the speed closes on the voltage's free speed, shifted by the load, exactly.
-    double freeSpeed = volts * motor.Kv / gearing + pulled / settlingRate;
-    double decay = Math.exp(-settlingRate * remaining);
-    positionRadians +=
-        freeSpeed * remaining + (velocityRadPerSec - freeSpeed) * (1 - decay) / settlingRate;
-    velocityRadPerSec = freeSpeed + (velocityRadPerSec - freeSpeed) * decay;
+    settleBelowTheLimit(volts, loadAcceleration, secondsBelowTheLimit);
     appliedVolts = volts;
-    return Math.min(Math.abs(amps), limitAmps);
+    return Math.min(Math.abs(ampsAtStart), limitAmps);
+  }
+
+  /**
+   * The first stretch of a step: the controller holds the current at its limit, so the motor gives
+   * a steady torque and the load's speed changes at a steady rate. It lasts until the load reaches
+   * the speed at which the voltage asked for drives exactly the limit's current, or until the step
+   * ends.
+   *
+   * @param heldAmps the limit, with the sign of the current the voltage would drive
+   * @param loadAcceleration what the torque from outside adds to the load's acceleration
+   * @param seconds the whole step's length
+   * @return how long the stretch lasted, in seconds: the whole step, if the limit never let go
+   */
+  private double runAtTheLimit(
+      double volts, double heldAmps, double loadAcceleration, double seconds) {
+    double acceleration = heldAmps * accelerationPerAmp + loadAcceleration;
+    // From V = I·R + G·ω/Kv with I at the limit: the speed at which the limit lets go.
+    double releaseSpeed = (volts - heldAmps * motor.R) * motor.Kv / gearing;
+    double secondsToRelease = (releaseSpeed - velocityRadPerSec) / acceleration;
+    // A negative time means the load is moving away from the release speed: the torque from
+    // outside is more than the motor at its limit can hold, and the limit holds all step.
+    boolean headedForRelease = secondsToRelease >= 0;
+    double secondsAtLimit = seconds;
+    if (headedForRelease) {
+      secondsAtLimit = Math.min(secondsToRelease, seconds);
+    }
+    // Steady acceleration: x += (v + a·t/2)·t, then v += a·t.
+    positionRadians += (velocityRadPerSec + acceleration * secondsAtLimit / 2) * secondsAtLimit;
+    velocityRadPerSec += acceleration * secondsAtLimit;
+    return secondsAtLimit;
+  }
+
+  /**
+   * The second stretch of a step, or all of it: below the limit, the speed closes on the speed the
+   * voltage gives, exponentially. With k the settling rate and ω<sub>free</sub> the speed it closes
+   * on, the exact solution over a time t is
+   *
+   * <pre>
+   *   ω(t) = ω_free + (ω₀ − ω_free)·e^(−k·t)
+   *   x(t) = x₀ + ω_free·t + (ω₀ − ω_free)·(1 − e^(−k·t)) / k
+   * </pre>
+   *
+   * <p>A steady torque from outside shifts ω<sub>free</sub> by its acceleration over k: the speed
+   * at which the motor's torque balances it.
+   */
+  private void settleBelowTheLimit(double volts, double loadAcceleration, double seconds) {
+    double freeSpeed = volts * motor.Kv / gearing + loadAcceleration / settlingRate;
+    double decay = Math.exp(-settlingRate * seconds);
+    positionRadians +=
+        freeSpeed * seconds + (velocityRadPerSec - freeSpeed) * (1 - decay) / settlingRate;
+    velocityRadPerSec = freeSpeed + (velocityRadPerSec - freeSpeed) * decay;
   }
 
   /**
    * Lets the load turn freely for a time, no current through the motor, as a motor controller in
-   * coast leaves it: only the torque from outside moves it.
+   * coast leaves it: only the torque from outside moves it, at a steady acceleration.
    */
   public void coast(double loadTorque, double seconds) {
     double acceleration = loadTorque / inertia;
@@ -138,9 +203,14 @@ public final class CurrentLimitedMotor {
    */
   public void stall(double volts, double limitAmps) {
     velocityRadPerSec = 0;
-    double amps = motor.getCurrent(0, volts);
-    appliedVolts = Math.abs(amps) <= limitAmps ? volts : Math.copySign(limitAmps, amps) * motor.R;
     coasting = false;
+    double stalledAmps = motor.getCurrent(0, volts);
+    boolean withinTheLimit = Math.abs(stalledAmps) <= limitAmps;
+    if (withinTheLimit) {
+      appliedVolts = volts;
+      return;
+    }
+    appliedVolts = Math.copySign(limitAmps, stalledAmps) * motor.R;
   }
 
   /** Puts the load at a position and speed: against a hard stop, where it's held still. */
@@ -166,6 +236,9 @@ public final class CurrentLimitedMotor {
 
   /** The current through the motor now, in amps: none while it coasts. */
   public double currentAmps() {
-    return coasting ? 0 : motor.getCurrent(velocityRadPerSec * gearing, appliedVolts);
+    if (coasting) {
+      return 0;
+    }
+    return motor.getCurrent(velocityRadPerSec * gearing, appliedVolts);
   }
 }

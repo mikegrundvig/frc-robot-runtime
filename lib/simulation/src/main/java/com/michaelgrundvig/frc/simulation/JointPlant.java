@@ -9,100 +9,123 @@ import com.michaelgrundvig.frc.world.robot.Range;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import org.wpilib.math.system.DCMotor;
 
 /**
  * One of the robot's joints as the simulator moves it, in closed form, from the robot's definition
- * alone: its motors through its transmission, with its losses, their current held to a limit
- * ({@link CurrentLimitedMotor}); the link and everything it carries, and its motors' rotors, as its
- * inertia ({@code RobotMath.inertia}), the rotors alone for links without mass; gravity ({@link
- * #gravityTorque}); and its hard stops, which stop it dead, its motors stalled against one they
- * drive it into: they draw what their voltage drives through them standing still, held to their
- * limit. Its motor controller isn't here: what the controller puts across the motors is its maker's
- * to work out, each millisecond, as the controller would, and hand to {@link #run}. The battery
- * holds 12 V.
+ * alone. It is made of:
  *
- * <p>Gravity is what the kG tuned in the joint's block holds, through its motors, since that's what
- * a team measures: its plan's gravity, one cosine about where its weight pulls hardest for an arm,
- * the same all along a slide ({@link ControllerPlan#gravity}). Where its block tunes none, gravity
- * is its links' weight ({@code RobotMath.gravityTorque}), with the other joints where they are, and
- * none for links without mass. Gravity is the definition's block's, whatever control its motor
- * controller runs. An arm's tuned gravity doesn't follow a parent that tilts it, as one cosine
- * doesn't.
+ * <ul>
+ *   <li><b>Its motors</b>, through its transmission with its losses, their current held to a limit
+ *       ({@link CurrentLimitedMotor}).
+ *   <li><b>Its inertia</b>: the link, everything the link carries, and the motors' rotors ({@code
+ *       RobotMath.inertia}). For links without mass, it is the rotors alone.
+ *   <li><b>Gravity</b> ({@link #gravityTorque}).
+ *   <li><b>Its hard stops</b>, which stop it dead. Motors that drive the joint into a stop are
+ *       stalled against it: they draw what their voltage drives through them standing still, held
+ *       to their limit.
+ * </ul>
  *
- * <p>Pure and deterministic: no clock, nothing random; it moves only as it's stepped. Joints move
- * independently: one joint's motion doesn't push on another's. Friction isn't modeled: it isn't
- * known until measured.
+ * <p>Its motor controller is not here. What the controller puts across the motors is for whoever
+ * runs this plant to work out, each millisecond, as the controller would, and hand to {@link #run}.
+ * The battery holds 12 V.
+ *
+ * <p><b>Gravity</b> is what the kG tuned in the joint's block holds, through its motors, since that
+ * is what a team measures: for an arm, one cosine about the angle where its weight pulls hardest,
+ * and for a slide, the same all along it ({@link ControllerPlan#gravity}). Where the joint's block
+ * tunes no kG, gravity is its links' weight ({@code RobotMath.gravityTorque}), with the other
+ * joints where they are, and none for links without mass. Gravity belongs to the robot's
+ * definition, whatever control the motor controller runs. An arm's tuned gravity does not follow a
+ * parent joint that tilts it, since one cosine cannot.
+ *
+ * <p><b>What is left out.</b> Joints move independently: one joint's motion does not push on
+ * another's. Friction is not modeled, because it is not known until measured.
+ *
+ * <p>Pure and deterministic: no clock and nothing random. It moves only as it is stepped.
  */
 public final class JointPlant {
   private final Joint joint;
   private final RobotMath math;
 
-  /** Its motors driving it together: all of them, or those still driven ({@link #drivenBy}). */
+  /** The motors that drive it, together: all of them, or those still driven ({@link #drivenBy}). */
   private CurrentLimitedMotor motor;
 
-  /** How many motors turn it: its currents are each one's, as each motor's controller reads it. */
-  private final int count;
+  /** How many motors turn it. Its currents are each one's, as each motor's controller reads it. */
+  private final int motorCount;
 
-  /** How many of them drive it now: all, until one is left neutral ({@link #drivenBy}). */
-  private int driving;
+  /** How many of them drive it now: all of them, until one is left neutral ({@link #drivenBy}). */
+  private int drivingCount;
 
-  /**
-   * One of its motors, through its transmission, its losses taken off; and its gearing, inertia.
-   */
-  private final DCMotor each;
+  /** One of its motors alone, through its transmission, with its losses taken off. */
+  private final DCMotor oneMotor;
 
   private final double gearing;
   private final double inertia;
 
   /**
-   * Newton meters at the joint for each volt across its motors held still (newtons, for a slide):
-   * their stall torque per volt, all of them, through its gearing, less its losses.
+   * Newton meters at the joint for each volt across its motors while they are held still (newtons,
+   * for a slide): the stall torque per volt of all of them together, through its gearing, less its
+   * losses.
    */
   private final double torquePerVolt;
 
   /**
-   * Gravity as the kG tuned in the joint's block holds it; empty where none is, and its links' mass
-   * does.
+   * Gravity as the kG tuned in the joint's block holds it. Empty where the block tunes none, and
+   * the links' mass gives gravity instead.
    */
-  private final Optional<ControllerPlan.Gravity> weight;
+  private final Optional<ControllerPlan.Gravity> tunedGravity;
 
-  private final double lower;
-  private final double upper;
+  /** Its hard stops, in its units. A joint that turns without end has them at infinity. */
+  private final double lowerStop;
 
-  /** Where it's jammed, a stop on both sides; NaN while it moves freely. */
-  private double jammedAt = Double.NaN;
+  private final double upperStop;
+
+  /** Where it is jammed, which is a stop on both sides. Empty while it moves freely. */
+  private OptionalDouble jammedAt = OptionalDouble.empty();
 
   private JointPlant(RobotMath math, Joint joint) {
     this.joint = joint;
     this.math = math;
     Drive drive = math.drivesOf(joint).get(0);
     Actuator.Motors motors = (Actuator.Motors) drive.actuator();
-    DCMotor model = motors.model(drive.transmission().efficiency());
+    DCMotor allMotors = motors.model(drive.transmission().efficiency());
     gearing = Math.abs(drive.transmission().shaftRadiansPer(joint));
     inertia = math.inertia(joint, Map.of());
-    motor = new CurrentLimitedMotor(model, inertia, gearing);
-    torquePerVolt = gearing * model.stallTorque / model.nominalVoltage;
-    count = motors.count();
-    driving = count;
-    each =
+    motor = new CurrentLimitedMotor(allMotors, inertia, gearing);
+    torquePerVolt = gearing * allMotors.stallTorque / allMotors.nominalVoltage;
+    motorCount = motors.count();
+    drivingCount = motorCount;
+    oneMotor =
         new DCMotor(
-            model.nominalVoltage,
-            model.stallTorque / count,
-            model.stallCurrent / count,
-            model.freeCurrent / count,
-            model.freeSpeed,
+            allMotors.nominalVoltage,
+            allMotors.stallTorque / motorCount,
+            allMotors.stallCurrent / motorCount,
+            allMotors.freeCurrent / motorCount,
+            allMotors.freeSpeed,
             1);
-    // The definition's own joint, the same but perhaps for how it's driven: its block's kG.
-    Joint defined = math.joints().get(math.joints().indexOf(joint));
-    weight =
-        math.gravityActsOn(joint)
-                && defined.driven().control().flatMap(control -> control.gains().kG()).isPresent()
-            ? Optional.of(ControllerPlan.of(math, defined).gravity())
-            : Optional.empty();
-    lower = joint.range().map(Range::lower).orElse(Double.NEGATIVE_INFINITY);
-    upper = joint.range().map(Range::upper).orElse(Double.POSITIVE_INFINITY);
+    tunedGravity = tunedGravity(math, joint);
+    lowerStop = joint.range().map(Range::lower).orElse(Double.NEGATIVE_INFINITY);
+    upperStop = joint.range().map(Range::upper).orElse(Double.POSITIVE_INFINITY);
     motor.place(joint.restPosition(), 0);
+  }
+
+  /**
+   * Gravity as the kG tuned in the joint's block holds it, if gravity acts on the joint and its
+   * block tunes a kG. The block read is the definition's own: the joint handed in may be the same
+   * joint driven some other way, which changes nothing about its weight.
+   */
+  private static Optional<ControllerPlan.Gravity> tunedGravity(RobotMath math, Joint joint) {
+    Joint asDefined = math.joints().get(math.joints().indexOf(joint));
+    if (!math.gravityActsOn(joint)) {
+      return Optional.empty();
+    }
+    boolean tunesKg =
+        asDefined.driven().control().flatMap(control -> control.gains().kG()).isPresent();
+    if (!tunesKg) {
+      return Optional.empty();
+    }
+    return Optional.of(ControllerPlan.of(math, asDefined).gravity());
   }
 
   /**
@@ -123,7 +146,7 @@ public final class JointPlant {
 
   /** How many motors turn it together. */
   public int motors() {
-    return count;
+    return motorCount;
   }
 
   /**
@@ -135,28 +158,27 @@ public final class JointPlant {
    * @throws IllegalArgumentException for none, or more than it has
    */
   public void drivenBy(int motors) {
-    if (motors < 1 || motors > count) {
+    if (motors < 1 || motors > motorCount) {
       throw new IllegalArgumentException(
-          joint.label() + " has " + count + " motors to drive it, not " + motors);
+          joint.label() + " has " + motorCount + " motors to drive it, not " + motors);
     }
-    if (motors == driving) {
+    if (motors == drivingCount) {
       return;
     }
+    // A new motor model for the motors that still drive it, carrying on from where the joint is.
     double position = motor.positionRadians();
     double velocity = motor.velocityRadPerSec();
-    motor =
-        new CurrentLimitedMotor(
-            new DCMotor(
-                each.nominalVoltage,
-                each.stallTorque,
-                each.stallCurrent,
-                each.freeCurrent,
-                each.freeSpeed,
-                motors),
-            inertia,
-            gearing);
+    DCMotor stillDriving =
+        new DCMotor(
+            oneMotor.nominalVoltage,
+            oneMotor.stallTorque,
+            oneMotor.stallCurrent,
+            oneMotor.freeCurrent,
+            oneMotor.freeSpeed,
+            motors);
+    motor = new CurrentLimitedMotor(stillDriving, inertia, gearing);
     motor.place(position, velocity);
-    driving = motors;
+    drivingCount = motors;
   }
 
   /**
@@ -165,10 +187,13 @@ public final class JointPlant {
    * where none is tuned, its links' weight.
    */
   public double gravityTorque(Map<Joint, Double> positions) {
-    if (weight.isEmpty()) {
+    if (tunedGravity.isEmpty()) {
       return -math.gravityTorque(joint, positions);
     }
-    return -weight.get().volts(position()) * torquePerVolt;
+    // A tuned kG is the volts that hold the joint against gravity, so gravity's torque is the
+    // torque those volts give through the stalled motors, the other way.
+    double holdingVolts = tunedGravity.get().volts(position());
+    return -holdingVolts * torquePerVolt;
   }
 
   /**
@@ -180,11 +205,13 @@ public final class JointPlant {
    * @param gravityTorque gravity's torque on the joint, positive turning it forward
    */
   public void run(double volts, double limitAmps, double gravityTorque, double seconds) {
-    double limit = limitAmps * driving;
-    motor.run(volts, limit, gravityTorque, seconds);
-    if (stops()) {
-      // Driven into a stop, its motors are held still: stalled, at their controller's voltage.
-      motor.stall(volts, limit);
+    // The motors that drive it are modeled as one motor, which carries all of their currents.
+    double limitOfAllAmps = limitAmps * drivingCount;
+    motor.run(volts, limitOfAllAmps, gravityTorque, seconds);
+    boolean drivenIntoAStop = holdWithinItsStops();
+    if (drivenIntoAStop) {
+      // Its motors are held still: stalled, at their controller's voltage.
+      motor.stall(volts, limitOfAllAmps);
     }
   }
 
@@ -194,23 +221,28 @@ public final class JointPlant {
    */
   public void coast(double gravityTorque, double seconds) {
     motor.coast(gravityTorque, seconds);
-    stops();
+    holdWithinItsStops();
   }
 
   /**
-   * Holds it at a hard stop it went past, still, or moving away from it: whether the stop holds it
-   * still.
+   * Puts the joint back at a stop it went past in the last step. A joint moving into the stop is
+   * stopped dead. One already moving away from it keeps its speed.
+   *
+   * @return whether a stop holds it still: it was past the stop and not moving away from it
    */
-  private boolean stops() {
+  private boolean holdWithinItsStops() {
     double velocity = motor.velocityRadPerSec();
-    double below = Double.isNaN(jammedAt) ? lower : jammedAt;
-    double above = Double.isNaN(jammedAt) ? upper : jammedAt;
-    if (motor.positionRadians() < below) {
-      motor.place(below, Math.max(0, velocity));
+    // Jammed, it has a stop on both sides, right where it is.
+    double lowest = jammedAt.orElse(lowerStop);
+    double highest = jammedAt.orElse(upperStop);
+    if (motor.positionRadians() < lowest) {
+      double awayFromTheStop = Math.max(0, velocity);
+      motor.place(lowest, awayFromTheStop);
       return velocity <= 0;
     }
-    if (motor.positionRadians() > above) {
-      motor.place(above, Math.min(0, velocity));
+    if (motor.positionRadians() > highest) {
+      double awayFromTheStop = Math.min(0, velocity);
+      motor.place(highest, awayFromTheStop);
       return velocity >= 0;
     }
     return false;
@@ -221,7 +253,11 @@ public final class JointPlant {
    * part leaves it, which its motors stall against as against a hard stop.
    */
   public void jam(boolean jammed) {
-    jammedAt = jammed ? motor.positionRadians() : Double.NaN;
+    if (jammed) {
+      jammedAt = OptionalDouble.of(motor.positionRadians());
+    } else {
+      jammedAt = OptionalDouble.empty();
+    }
   }
 
   /** Puts it somewhere, still: where a test starts it. */
@@ -248,7 +284,7 @@ public final class JointPlant {
    * The current through each of its motors that drive it, either way: what its stator limit holds.
    */
   public double statorAmps() {
-    return Math.abs(motor.currentAmps()) / driving;
+    return Math.abs(motor.currentAmps()) / drivingCount;
   }
 
   /**
@@ -257,6 +293,9 @@ public final class JointPlant {
    * load; one left neutral draws nothing.
    */
   public double supplyAmps() {
-    return Math.abs(motor.currentAmps() * motor.appliedVolts()) / Motor.NOMINAL_VOLTS / driving;
+    // Power in equals power out: the battery's 12 V times the supply current is the voltage
+    // across the motors times the current through them.
+    double wattsOfAll = Math.abs(motor.currentAmps() * motor.appliedVolts());
+    return wattsOfAll / Motor.NOMINAL_VOLTS / drivingCount;
   }
 }
