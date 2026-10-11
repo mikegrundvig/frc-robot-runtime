@@ -118,8 +118,8 @@ return Command.requiring(drive, shooter, feeder, indexer)
 
 ### Locking the wheels
 
-`drive.lockWheels()` turns the wheels into an X, each across its line to the robot's center, with the
-drive motors holding still, until something else takes the drive. The robot is hard to push. Each
+`drive.lockWheels()` turns the wheels into an X, each along its line to the robot's center, with the
+drive motors holding still, until something else takes the drive. The robot is hard to push or spin. Each
 wheel turns whichever way is shorter.
 
 ## How a move drives

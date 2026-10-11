@@ -503,9 +503,9 @@ public class Drive implements Mechanism, AutoCloseable {
   }
 
   /**
-   * Turns every wheel into an X, each perpendicular to its line to the robot's center, with the
-   * drive motors held at zero speed, until interrupted: the robot resists being pushed. Each wheel
-   * turns whichever end it points the nearer way.
+   * Turns every wheel into an X, each along its line to the robot's center, with the drive motors
+   * held at zero speed, until interrupted: the robot resists being pushed or spun. Each wheel turns
+   * whichever end it points the nearer way.
    */
   public Command lockWheels() {
     return run(coroutine -> {

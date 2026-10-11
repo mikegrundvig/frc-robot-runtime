@@ -40,13 +40,15 @@ final class DriveOutput {
   private final double sumOfSquaredWheelDistances;
 
   /**
-   * The two directions that lock each wheel: across its line to the robot's center, pointing one
-   * way or the other. They are worked out once, since they depend only on where the wheels are.
+   * The two directions that lock each wheel: along its line to the robot's center, pointing at the
+   * center or away from it. Together the four wheels make an X. A wheel rolls only the way it
+   * points, so no push along the floor and no turn about the center can roll all four at once. The
+   * directions are worked out once, since they depend only on where the wheels are.
    */
-  private final double[] acrossRadians = new double[Module.COUNT];
+  private final double[] towardCenterRadians = new double[Module.COUNT];
 
-  private final Rotation2d[] across = new Rotation2d[Module.COUNT];
-  private final Rotation2d[] acrossOtherWay = new Rotation2d[Module.COUNT];
+  private final Rotation2d[] towardCenter = new Rotation2d[Module.COUNT];
+  private final Rotation2d[] awayFromCenter = new Rotation2d[Module.COUNT];
 
   /** The fastest any wheel is told to roll, in meters a second, as tuned. */
   private double topWheelSpeedMetersPerSecond;
@@ -64,10 +66,9 @@ final class DriveOutput {
     sumOfSquaredWheelDistances = sum;
     for (int i = 0; i < Module.COUNT; i++) {
       Translation2d at = moduleTranslations[i];
-      double towardCenterLineRadians = Math.atan2(at.getY(), at.getX());
-      acrossRadians[i] = towardCenterLineRadians + Math.PI / 2;
-      across[i] = new Rotation2d(acrossRadians[i]);
-      acrossOtherWay[i] = new Rotation2d(acrossRadians[i] + Math.PI);
+      towardCenterRadians[i] = Math.atan2(at.getY(), at.getX());
+      towardCenter[i] = new Rotation2d(towardCenterRadians[i]);
+      awayFromCenter[i] = new Rotation2d(towardCenterRadians[i] + Math.PI);
     }
   }
 
@@ -125,8 +126,9 @@ final class DriveOutput {
   }
 
   /**
-   * Locks the wheels for one loop: each wheel is turned across its line to the robot's center, and
-   * its drive motor holds it still, so that the robot is hard to push.
+   * Locks the wheels for one loop: each wheel is turned along its line to the robot's center, so
+   * the four make an X, and its drive motor holds it still, so that the robot is hard to push or to
+   * spin.
    *
    * <p>A wheel locks just as well pointing either way along that direction, so each turns to
    * whichever is nearer.
@@ -134,9 +136,9 @@ final class DriveOutput {
   void lockWheels() {
     for (int i = 0; i < Module.COUNT; i++) {
       double pointsNowRadians = modules[i].steerAngle().getRadians();
-      double turnRadians = MathUtil.angleModulus(acrossRadians[i] - pointsNowRadians);
+      double turnRadians = MathUtil.angleModulus(towardCenterRadians[i] - pointsNowRadians);
       boolean otherWayIsNearer = Math.abs(turnRadians) > Math.PI / 2;
-      modules[i].holdSteer(otherWayIsNearer ? acrossOtherWay[i] : across[i]);
+      modules[i].holdSteer(otherWayIsNearer ? awayFromCenter[i] : towardCenter[i]);
     }
   }
 

@@ -316,7 +316,7 @@ class DriveAssistSimTest {
   }
 
   /**
-   * The wheels turn into an X, each across its line to the center (either end forward), the robot
+   * The wheels turn into an X, each along its line to the center (either end forward), the robot
    * stays where it is while the sticks push, and the default command drives again after.
    */
   @Test
@@ -331,9 +331,9 @@ class DriveAssistSimTest {
     var angles = drive.moduleVelocities();
 
     for (int i = 0; i < 4; i++) {
-      double across = Math.toDegrees(Math.atan2(wheels[i].getY(), wheels[i].getX())) + 90;
-      assertThat(Math.IEEEremainder(angles[i].angle.getDegrees() - across, 180))
-          .as("wheel " + i + " across its line to the center")
+      double towardCenter = Math.toDegrees(Math.atan2(wheels[i].getY(), wheels[i].getX()));
+      assertThat(Math.IEEEremainder(angles[i].angle.getDegrees() - towardCenter, 180))
+          .as("wheel " + i + " along its line to the center")
           .isCloseTo(0, within(2.0));
     }
     assertThat(truth().getTranslation().getNorm()).as("stayed put").isLessThan(0.02);
