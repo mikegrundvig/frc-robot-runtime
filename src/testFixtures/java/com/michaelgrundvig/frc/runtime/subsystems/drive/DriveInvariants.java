@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.jspecify.annotations.Nullable;
 import org.wpilib.command3.Scheduler;
@@ -64,14 +65,15 @@ public final class DriveInvariants {
       judged++;
     }
     for (DriveMove move : running) {
-      long deadline = move.deadlineNanos();
-      if (found == null && deadline != Long.MAX_VALUE && now >= deadline) {
+      OptionalLong deadline = move.deadlineNanos();
+      boolean pastItsDeadline = deadline.isPresent() && now >= deadline.getAsLong();
+      if (found == null && pastItsDeadline) {
         found =
             String.format(
                 Locale.ROOT,
                 "%s is still running %.2f s past its deadline",
                 move.name(),
-                (now - deadline) / 1e9);
+                (now - deadline.getAsLong()) / 1e9);
       }
     }
     return found == null ? null : NAME + ": " + found;

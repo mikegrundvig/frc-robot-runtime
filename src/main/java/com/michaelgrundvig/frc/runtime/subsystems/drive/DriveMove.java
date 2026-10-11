@@ -8,33 +8,28 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
-import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import java.util.ArrayList;
-import java.util.Collections;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
-import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
-import org.wpilib.math.geometry.Translation2d;
-import org.wpilib.math.kinematics.ChassisAccelerations;
 import org.wpilib.math.kinematics.ChassisVelocities;
-import org.wpilib.math.trajectory.HolonomicSample;
-import org.wpilib.math.trajectory.HolonomicTrajectory;
 import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.Time;
 
@@ -61,28 +56,24 @@ import org.wpilib.units.measure.Time;
  * Canceled, it's {@link Outcome#CANCELED}. It stops the drivetrain as it ends; the drive's default
  * command takes over from the next loop. Each run takes a loop at least, one that ends as it starts
  * too, so a command that awaits moves in a loop goes round once a loop.
+ *
+ * <p><b>Inside</b>, what a move does is its {@link DriveTask}, one kind for each of the moves
+ * above. This class is the command around the task: it starts a run, keeps the run's deadline, and
+ * records how the run ended. How a path is followed from loop to loop is in {@link PathFollower}.
  */
 @CheckReturnValue
 public final class DriveMove implements Command {
-  /**
-   * How near its pose a move must come to arrive, and how still, for the dwell every move arrives
-   * by ({@link Outcome#DWELL_NANOS}).
-   */
+  /** How near the path's last place a move must come to arrive, in meters. */
   static final double PLACED_METERS = 0.02;
 
+  /** How near the path's last heading a move must come to arrive, in radians. */
   static final double TURNED_RADIANS = Math.toRadians(2);
 
+  /** How slowly the robot must be moving for a move to arrive, in meters a second. */
   static final double STILL_METERS_PER_SECOND = 0.05;
 
+  /** How slowly the robot must be turning for a move to arrive, in radians a second. */
   static final double STILL_RADIANS_PER_SECOND = 0.2;
-
-  /**
-   * How much of the gap between the profile's speed and turning rate and the robot's measured ones
-   * a move adds to what it asks. Even given the volts each acceleration takes, the drivetrain's
-   * speed loop trails a little; damping it takes a quarter turn from 49 loops to 42 in the
-   * simulator.
-   */
-  static final double RATE_DAMPING = 0.5;
 
   /**
    * The share of the robot's own accelerations, by its model, a move is profiled at. Half: the
@@ -92,118 +83,88 @@ public final class DriveMove implements Command {
    */
   static final double PROFILE_SHARE = 0.5;
 
-  private enum Kind {
-    RUN_UNTIL,
-    FOLLOW
-  }
-
-  /** What a following move follows, worked out as it starts from where the robot is then. */
-  @FunctionalInterface
-  interface Planner {
-    /**
-     * @throws IllegalArgumentException with why it won't go
-     */
-    Trajectories.Plan plan(Pose2d start, ChassisVelocities moving, Trajectories.Limits limits);
-  }
+  // What the move is. None of it changes: within() makes a new move.
 
   private final Drive drive;
-  private final Kind kind;
+
+  /** What the move does. */
+  private final DriveTask task;
+
+  /** The move's name, as the log and its outcome say it: "drive → 90.0°". */
   private final String name;
-  private final ChassisVelocities velocity;
-  private final @Nullable BooleanSupplier until;
-  private final @Nullable Planner planner;
 
-  /** Whether it only turns: judged by its heading alone, and says where it's facing. */
-  private final boolean turning;
+  /**
+   * The deadline a team gave the move ({@link #within}), in seconds, or empty for the move's own: 3
+   * s for a run-until, and for a path a deadline worked out from the path's time.
+   */
+  private final OptionalDouble within;
 
-  /** Its keyframes' names, in order, a null for each unnamed one. */
-  private final List<@Nullable String> keyframes;
+  /** Why the move cannot run at all, if it cannot: it then ends refused as it starts. */
+  private final Optional<String> refused;
 
-  private final double deadlineSeconds;
+  /** The gates on its named keyframes that have been asked for, by keyframe name. */
+  private final Map<String, Gate> passedGates = new HashMap<>();
 
-  private @Nullable Outcome outcome;
+  // How its latest run went, or is going.
+
+  /** How the latest run ended. Empty while it runs, and before the move has first run. */
+  private Optional<Outcome> outcome = Optional.empty();
+
   private String reason = "";
   private boolean running;
 
-  /** Whether its latest run has waited a loop yet. */
-  private boolean yielded;
+  /** Whether the latest run has waited for a loop yet. */
+  private boolean tookALoop;
 
   private long startNanos;
 
-  /** When its latest run's deadline passes, on the robot's clock: none until it's set. */
-  private long deadlineNanos = Long.MAX_VALUE;
+  /**
+   * When the latest run's deadline passes, on the robot's clock. Empty until it is known: a path's
+   * deadline depends on the path, which is planned as the run starts.
+   */
+  private OptionalLong deadlineNanos = OptionalLong.empty();
 
-  private boolean[] passed = new boolean[0];
-  private final Map<String, Gate> gates = new HashMap<>();
+  /** Whether the path has passed each keyframe in the latest run, in the keyframes' order. */
+  private final boolean[] passed;
+
+  /** When the robot came to the path's end in the latest run, or empty while it is not there. */
+  private OptionalLong atEndSince = OptionalLong.empty();
 
   private DriveMove(
-      Drive drive,
-      Kind kind,
-      String name,
-      ChassisVelocities velocity,
-      @Nullable BooleanSupplier until,
-      @Nullable Planner planner,
-      boolean turning,
-      List<@Nullable String> keyframes,
-      double deadlineSeconds) {
+      Drive drive, DriveTask task, String name, OptionalDouble within, Optional<String> refused) {
     this.drive = drive;
-    this.kind = kind;
+    this.task = task;
     this.name = name;
-    this.velocity = velocity;
-    this.until = until;
-    this.planner = planner;
-    this.turning = turning;
-    this.keyframes = keyframes;
-    this.deadlineSeconds = deadlineSeconds;
+    this.within = within;
+    this.refused = refused;
+    passed = new boolean[task.keyframeNames().size()];
   }
 
+  // ---- The kinds of move ----
+
   static DriveMove runUntil(Drive drive, ChassisVelocities velocity, BooleanSupplier until) {
-    String name = "drive until" + (until instanceof Gate gate ? " " + gate.name() : "");
+    String name = "drive until";
+    if (until instanceof Gate gate) {
+      name = "drive until " + gate.name();
+    }
     return new DriveMove(
         drive,
-        Kind.RUN_UNTIL,
+        new DriveTask.RunUntil(velocity, until),
         name,
-        velocity,
-        until,
-        null,
-        false,
-        List.of(),
-        Outcome.RUN_UNTIL_SECONDS);
+        OptionalDouble.empty(),
+        Optional.empty());
   }
 
   static DriveMove turnTo(Drive drive, Rotation2d heading) {
+    String name = String.format(Locale.ROOT, "drive → %.1f°", heading.getDegrees());
     return new DriveMove(
-        drive,
-        Kind.FOLLOW,
-        String.format(Locale.ROOT, "drive → %.1f°", heading.getDegrees()),
-        new ChassisVelocities(),
-        null,
-        (start, moving, limits) ->
-            Trajectories.line(
-                start, moving, start.getTranslation(), heading, limits, RobotLoop.PERIOD_SECONDS),
-        true,
-        List.of(),
-        Double.NaN);
+        drive, new DriveTask.TurnTo(heading), name, OptionalDouble.empty(), Optional.empty());
   }
 
   static DriveMove goTo(Drive drive, Pose2d pose) {
+    String name = "drive → " + shown(pose);
     return new DriveMove(
-        drive,
-        Kind.FOLLOW,
-        "drive → " + shown(pose),
-        new ChassisVelocities(),
-        null,
-        (start, moving, limits) ->
-            Trajectories.line(
-                start,
-                moving,
-                pose.getTranslation(),
-                pose.getRotation(),
-                limits,
-                RobotLoop.PERIOD_SECONDS),
-        false,
-        List.of(),
-        Double.NaN);
+        drive, new DriveTask.ToPose(pose), name, OptionalDouble.empty(), Optional.empty());
   }
 
   /**
@@ -214,31 +175,12 @@ public final class DriveMove implements Command {
    * @throws IllegalArgumentException as the robot starts, if the drive has no field to find it on
    */
   static DriveMove goTo(Drive drive, Place place) {
-    String refused =
-        Refusals.asBuilt(
-            drive.getRegisteredScheduler(), drive.driver().isEmpty() ? Drive.NO_FIELD : null);
+    Optional<String> noField =
+        drive.driver().isEmpty() ? Optional.of(Drive.NO_FIELD) : Optional.empty();
+    Optional<String> refused = drive.refusedAsBuilt(noField);
+    String name = "drive → " + place.name();
     return new DriveMove(
-        drive,
-        Kind.FOLLOW,
-        "drive → " + place.name(),
-        new ChassisVelocities(),
-        null,
-        (start, moving, limits) -> {
-          if (refused != null) {
-            throw new IllegalArgumentException(refused);
-          }
-          Pose2d pose = drive.found(place);
-          return Trajectories.line(
-              start,
-              moving,
-              pose.getTranslation(),
-              pose.getRotation(),
-              limits,
-              RobotLoop.PERIOD_SECONDS);
-        },
-        false,
-        List.of(),
-        Double.NaN);
+        drive, new DriveTask.ToPlace(place), name, OptionalDouble.empty(), refused);
   }
 
   /**
@@ -250,51 +192,72 @@ public final class DriveMove implements Command {
    */
   static DriveMove follow(Drive drive, List<Keyframe> keyframes) {
     List<Keyframe> path = List.copyOf(keyframes);
-    List<@Nullable String> names = new ArrayList<>();
-    List<String> shown = new ArrayList<>();
-    String why = path.isEmpty() ? "a path needs a keyframe: give one, Keyframe.at(pose)" : null;
-    boolean places = false;
-    for (Keyframe keyframe : path) {
-      if (why == null && keyframe.name() != null && names.contains(keyframe.name())) {
-        why = "two keyframes are named " + keyframe.name() + ": name each once";
-      }
-      names.add(keyframe.name());
-      shown.add(keyframe.toString());
-      places |= keyframe.place() != null;
-    }
-    if (why == null && places && drive.driver().isEmpty()) {
-      why = Drive.NO_FIELD;
-    }
-    String refused = Refusals.asBuilt(drive.getRegisteredScheduler(), why);
-    if (!path.isEmpty() && path.get(path.size() - 1).pose() != null) {
-      Pose2d end = Objects.requireNonNull(path.get(path.size() - 1).pose());
-      shown.set(
-          shown.size() - 1,
-          shown.get(shown.size() - 1)
-              + String.format(Locale.ROOT, " %.1f°", end.getRotation().getDegrees()));
-    }
-    return new DriveMove(
-        drive,
-        Kind.FOLLOW,
-        "drive → " + (path.isEmpty() ? "a path" : String.join(" → ", shown)),
-        new ChassisVelocities(),
-        null,
-        refused != null
-            ? (start, moving, limits) -> {
-              throw new IllegalArgumentException(refused);
-            }
-            : (start, moving, limits) ->
-                Trajectories.through(
-                    start, moving, drive.found(path), limits, RobotLoop.PERIOD_SECONDS),
-        false,
-        Collections.unmodifiableList(names),
-        Double.NaN);
+    Optional<String> refused = drive.refusedAsBuilt(whyNotAPath(drive, path));
+    String name = "drive → " + shownPath(path);
+    return new DriveMove(drive, DriveTask.Through.of(path), name, OptionalDouble.empty(), refused);
   }
+
+  /**
+   * Why keyframes cannot be a path at all, whatever the robot is doing when the move starts, or
+   * empty when they can. The first thing wrong is the one said.
+   */
+  private static Optional<String> whyNotAPath(Drive drive, List<Keyframe> path) {
+    if (path.isEmpty()) {
+      return Optional.of("a path needs a keyframe: give one, Keyframe.at(pose)");
+    }
+    List<String> namesSoFar = new ArrayList<>();
+    boolean anyAtAPlace = false;
+    for (Keyframe keyframe : path) {
+      String keyframeName = keyframe.name();
+      if (keyframeName != null && namesSoFar.contains(keyframeName)) {
+        return Optional.of("two keyframes are named " + keyframeName + ": name each once");
+      }
+      if (keyframeName != null) {
+        namesSoFar.add(keyframeName);
+      }
+      anyAtAPlace |= keyframe.place() != null;
+    }
+    if (anyAtAPlace && drive.driver().isEmpty()) {
+      return Optional.of(Drive.NO_FIELD);
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * A path as a move's name shows it: its keyframes joined by arrows, and the heading it ends at,
+   * if its last keyframe is at a pose. "(2.00, 1.00) → pickup → (7.00, 2.00) 180.0°".
+   */
+  private static String shownPath(List<Keyframe> path) {
+    if (path.isEmpty()) {
+      return "a path";
+    }
+    List<String> shown = new ArrayList<>();
+    for (Keyframe keyframe : path) {
+      shown.add(keyframe.toString());
+    }
+    String joined = String.join(" → ", shown);
+    Pose2d end = path.get(path.size() - 1).pose();
+    if (end == null) {
+      return joined;
+    }
+    return joined + String.format(Locale.ROOT, " %.1f°", end.getRotation().getDegrees());
+  }
+
+  /** A pose as a move's name shows it: "(2.00, 1.00) 90.0°". */
+  private static String shown(Pose2d pose) {
+    return String.format(
+        Locale.ROOT,
+        "(%.2f, %.2f) %.1f°",
+        pose.getX(),
+        pose.getY(),
+        pose.getRotation().getDegrees());
+  }
+
+  // ---- Its options and its gates ----
 
   /** The same move with another deadline. */
   public DriveMove within(Time deadline) {
-    return new DriveMove(
-        drive, kind, name, velocity, until, planner, turning, keyframes, deadline.in(Seconds));
+    return new DriveMove(drive, task, name, OptionalDouble.of(deadline.in(Seconds)), refused);
   }
 
   /**
@@ -307,42 +270,41 @@ public final class DriveMove implements Command {
    * @throws IllegalArgumentException for a name none of its keyframes has, as the robot starts
    */
   public Gate passed(String keyframe) {
-    int index = keyframes.indexOf(keyframe);
-    if (index < 0) {
-      List<String> named = new ArrayList<>();
-      for (String each : keyframes) {
-        if (each != null) {
-          named.add(each);
-        }
-      }
+    List<Optional<String>> names = task.keyframeNames();
+    int index = names.indexOf(Optional.ofNullable(keyframe));
+    boolean hasThatKeyframe = index >= 0;
+    if (!hasThatKeyframe) {
       return Refusals.gate(
-          drive.getRegisteredScheduler(),
-          "passed " + keyframe,
-          name
-              + " has no keyframe "
-              + keyframe
-              + ": "
-              + (named.isEmpty()
-                  ? "name one, Keyframe.at(...).named(\"" + keyframe + "\")"
-                  : "its keyframes are " + String.join(", ", named)));
+          drive.getRegisteredScheduler(), "passed " + keyframe, whyNoKeyframe(keyframe, names));
     }
-    return gates.computeIfAbsent(
+    return passedGates.computeIfAbsent(
         keyframe,
-        k ->
-            Gate.of(
-                drive.getRegisteredScheduler(),
-                "passed " + k,
-                () -> index < passed.length && passed[index]));
+        asked -> Gate.of(drive.getRegisteredScheduler(), "passed " + asked, () -> passed[index]));
   }
+
+  /** What a gate on a keyframe the move doesn't have says, with what to do about it. */
+  private String whyNoKeyframe(String keyframe, List<Optional<String>> names) {
+    List<String> named = new ArrayList<>();
+    for (Optional<String> each : names) {
+      each.ifPresent(named::add);
+    }
+    String whatToDo = "its keyframes are " + String.join(", ", named);
+    if (named.isEmpty()) {
+      whatToDo = "name one, Keyframe.at(...).named(\"" + keyframe + "\")";
+    }
+    return name + " has no keyframe " + keyframe + ": " + whatToDo;
+  }
+
+  // ---- How its latest run went ----
 
   /** Whether its latest run arrived: its condition held, or it got where it was going. */
   public boolean arrived() {
-    return outcome == Outcome.ARRIVED;
+    return outcome.isPresent() && outcome.get() == Outcome.ARRIVED;
   }
 
   /** How its latest run ended: empty while it runs, or before it first has. */
   public Optional<Outcome> outcome() {
-    return Optional.ofNullable(outcome);
+    return outcome;
   }
 
   /** Why its latest run ended as it did: "drive → 90.0°: ARRIVED in 0.84 s". */
@@ -351,12 +313,12 @@ public final class DriveMove implements Command {
   }
 
   /**
-   * When its latest run's deadline passes, in nanoseconds on the robot's clock: none ({@link
-   * Long#MAX_VALUE}) before its path is planned and once it has ended. For tests that check every
-   * move ends by its deadline.
+   * When its latest run's deadline passes, in nanoseconds on the robot's clock. Empty before its
+   * path is planned and once the run has ended. For tests that check every move ends by its
+   * deadline.
    */
-  long deadlineNanos() {
-    return running ? deadlineNanos : Long.MAX_VALUE;
+  OptionalLong deadlineNanos() {
+    return running ? deadlineNanos : OptionalLong.empty();
   }
 
   @Override
@@ -370,180 +332,204 @@ public final class DriveMove implements Command {
   }
 
   @Override
+  public String toString() {
+    return name;
+  }
+
+  // ---- A run ----
+
+  @Override
   public void run(Coroutine coroutine) {
-    running = true;
-    outcome = null;
-    reason = "";
-    passed = new boolean[keyframes.size()];
-    startNanos = RobotController.getTime();
-    deadlineNanos = Long.MAX_VALUE;
-    yielded = false;
-    switch (kind) {
-      case RUN_UNTIL -> runUntil(coroutine);
-      case FOLLOW -> follow(coroutine, Objects.requireNonNull(planner));
+    startRun();
+    switch (task) {
+      case DriveTask.RunUntil runUntil -> driveUntil(coroutine, runUntil);
+      case DriveTask.AlongAPath path -> follow(coroutine, path);
     }
-    if (!yielded) {
-      // Ended as it started, refused or there already: it takes its loop all the same, so a loop
-      // of moves goes round once a loop, never without end in one.
+    if (!tookALoop) {
+      // The run ended in the loop it started, refused or already there. It takes a loop all the
+      // same, so that a command that awaits moves in a loop goes round once a robot loop, and
+      // never without end inside one.
       coroutine.yield();
     }
+  }
+
+  /** Forgets how the last run went, and notes when this one starts. */
+  private void startRun() {
+    running = true;
+    outcome = Optional.empty();
+    reason = "";
+    Arrays.fill(passed, false);
+    atEndSince = OptionalLong.empty();
+    startNanos = RobotController.getTime();
+    deadlineNanos = OptionalLong.empty();
+    tookALoop = false;
   }
 
   @Override
   public void onCancel() {
     if (running) {
-      end(Outcome.CANCELED, null);
+      end(Outcome.CANCELED);
     }
   }
 
-  @Override
-  public String toString() {
-    return name;
-  }
-
-  private void runUntil(Coroutine coroutine) {
-    BooleanSupplier condition = until;
-    deadlineNanos = startNanos + Math.round(deadlineSeconds * 1e9);
-    while (condition != null && !condition.getAsBoolean()) {
-      if (RobotController.getTime() >= deadlineNanos) {
-        end(Outcome.TIMED_OUT, condition instanceof Gate gate ? gate.why() : null);
+  /** Drives at the task's velocity until its condition holds, or the deadline passes. */
+  private void driveUntil(Coroutine coroutine, DriveTask.RunUntil runUntil) {
+    long deadline = deadlineAfter(within.orElse(Outcome.RUN_UNTIL_SECONDS));
+    while (!runUntil.until().getAsBoolean()) {
+      if (RobotController.getTime() >= deadline) {
+        end(Outcome.TIMED_OUT, "", runUntil.whyItNeverHeld());
         return;
       }
-      drive.runVelocity(velocity);
-      yielded = true;
+      drive.runVelocity(runUntil.velocity());
+      tookALoop = true;
       coroutine.yield();
     }
-    end(Outcome.ARRIVED, null);
+    end(Outcome.ARRIVED);
   }
 
   /**
-   * Its path, planned from where the robot is: each loop, the robot's speed and turning rate asked
-   * for are the path's where it's due at the loop's end, pushed back toward the path's place and
-   * heading, and toward its speed; and the wheels given the volts the path's acceleration takes.
+   * Plans the task's path from where the robot is, and follows it until the robot has arrived at
+   * its end or the deadline passes.
    */
-  private void follow(Coroutine coroutine, Planner planner) {
-    DrivetrainControl control = drive.control();
-    DrivetrainControl.Accelerations most = drive.accelerations();
-    double speed = control.limits().maxLinearSpeed().in(MetersPerSecond);
-    double rate = control.limits().maxAngularSpeed().in(RadiansPerSecond);
-    Pose2d start = drive.getPose();
-    Trajectories.Plan plan;
-    try {
-      plan =
-          planner.plan(
-              start,
-              drive.getRobotRelativeVelocities().toFieldRelative(start.getRotation()),
-              new Trajectories.Limits(
-                  speed, rate, PROFILE_SHARE * most.linear(), PROFILE_SHARE * most.angular()));
-    } catch (IllegalArgumentException e) {
-      end(Outcome.REFUSED, e.getMessage());
+  private void follow(Coroutine coroutine, DriveTask.AlongAPath path) {
+    if (refused.isPresent()) {
+      end(Outcome.REFUSED, "", refused);
       return;
     }
-    HolonomicTrajectory path = plan.trajectory();
-    double[] passing = plan.passing();
-    HolonomicSample last = path.end();
-    double deadline =
-        Double.isNaN(deadlineSeconds) ? Outcome.deadline(path.duration) : deadlineSeconds;
-    deadlineNanos = startNanos + Math.round(deadline * 1e9);
-    long arrivedSince = -1;
+    DrivetrainControl control = drive.control();
+    Trajectories.Plan plan;
+    try {
+      plan = planned(path, control);
+    } catch (IllegalArgumentException e) {
+      end(Outcome.REFUSED, "", Optional.ofNullable(e.getMessage()));
+      return;
+    }
+    PathFollower follower = new PathFollower(drive, plan.trajectory(), path.arrival(), control);
+    long deadline = deadlineAfter(deadlineSecondsFor(follower.pathSeconds()));
+
     while (true) {
       Pose2d pose = drive.getPose();
-      ChassisVelocities measured =
+      ChassisVelocities measuredOnField =
           drive.getRobotRelativeVelocities().toFieldRelative(pose.getRotation());
-      double t = seconds();
-      for (int k = 0; k < passing.length; k++) {
-        passed[k] |= t >= passing[k];
-      }
-      // A turn is judged by its heading alone: turning against a wall, the robot's corners push it
-      // off its spot, which it only leans back toward.
-      boolean arrived =
-          t >= path.duration
-              && (turning
-                  || pose.getTranslation().getDistance(last.pose.getTranslation()) <= PLACED_METERS)
-              && Math.abs(last.pose.getRotation().minus(pose.getRotation()).getRadians())
-                  <= TURNED_RADIANS
-              && Math.hypot(measured.vx, measured.vy) <= STILL_METERS_PER_SECOND
-              && Math.abs(measured.omega) <= STILL_RADIANS_PER_SECOND;
+      double elapsedSeconds = elapsedSeconds();
+      notePassedKeyframes(elapsedSeconds, plan.passing());
+
+      boolean atItsEnd = follower.isAtItsEnd(elapsedSeconds, pose, measuredOnField);
       long now = RobotController.getTime();
-      if (!arrived) {
-        arrivedSince = -1;
-      } else if (arrivedSince < 0) {
-        arrivedSince = now;
-      } else if (now - arrivedSince >= Outcome.DWELL_NANOS) {
-        end(Outcome.ARRIVED, null);
+      if (hasStayedAtItsEnd(atItsEnd, now)) {
+        end(Outcome.ARRIVED);
         return;
       }
-      if (now >= deadlineNanos) {
-        end(Outcome.TIMED_OUT, ", " + where(pose), null);
+      if (now >= deadline) {
+        end(Outcome.TIMED_OUT, ", " + whereItGotTo(path.arrival(), pose), Optional.empty());
         return;
       }
-      HolonomicSample due = path.sampleAt(t + RobotLoop.PERIOD_SECONDS);
-      ChassisVelocities was = path.sampleAt(t).velocity;
-      Translation2d planned = new Translation2d(due.velocity.vx, due.velocity.vy);
-      Translation2d ask =
-          planned
-              .plus(
-                  due.pose
-                      .getTranslation()
-                      .minus(pose.getTranslation())
-                      .times(control.gains().translationKp()))
-              .plus(planned.minus(new Translation2d(measured.vx, measured.vy)).times(RATE_DAMPING));
-      if (ask.getNorm() > speed) {
-        ask = ask.times(speed / ask.getNorm());
-      }
-      double turn =
-          due.velocity.omega
-              + control.gains().headingKp()
-                  * due.pose.getRotation().minus(pose.getRotation()).getRadians()
-              + RATE_DAMPING * (due.velocity.omega - measured.omega);
-      drive.runVelocity(
-          new ChassisVelocities(ask.getX(), ask.getY(), Math.clamp(turn, -rate, rate))
-              .toRobotRelative(pose.getRotation()),
-          new ChassisAccelerations(
-                  (due.velocity.vx - was.vx) / RobotLoop.PERIOD_SECONDS,
-                  (due.velocity.vy - was.vy) / RobotLoop.PERIOD_SECONDS,
-                  (due.velocity.omega - was.omega) / RobotLoop.PERIOD_SECONDS)
-              .toRobotRelative(pose.getRotation()));
-      yielded = true;
+      follower.drive(elapsedSeconds, pose, measuredOnField);
+      tookALoop = true;
       coroutine.yield();
     }
   }
 
-  /** Where the robot got to, as a timed-out move says. */
-  private String where(Pose2d pose) {
-    return turning
-        ? String.format(Locale.ROOT, "heading at %.1f°", pose.getRotation().getDegrees())
-        : "at " + shown(pose).replace(") ", ") facing ");
+  /**
+   * The task's path, planned from where the robot is and how it is moving now, under the top speeds
+   * as tuned and a share of the accelerations the robot's model gives ({@link #PROFILE_SHARE}).
+   *
+   * @throws IllegalArgumentException saying why, if no path can be planned
+   */
+  private Trajectories.Plan planned(DriveTask.AlongAPath path, DrivetrainControl control) {
+    DrivetrainControl.Accelerations most = drive.accelerations();
+    Trajectories.Limits limits =
+        new Trajectories.Limits(
+            control.limits().maxLinearSpeed().in(MetersPerSecond),
+            control.limits().maxAngularSpeed().in(RadiansPerSecond),
+            PROFILE_SHARE * most.linear(),
+            PROFILE_SHARE * most.angular());
+    Pose2d start = drive.getPose();
+    ChassisVelocities movingOnField =
+        drive.getRobotRelativeVelocities().toFieldRelative(start.getRotation());
+    return path.plan(drive, start, movingOnField, limits);
   }
 
-  /** A pose as a move's name shows it: "(2.00, 1.00) 90.0°". */
-  private static String shown(Pose2d pose) {
-    return String.format(
-        Locale.ROOT,
-        "(%.2f, %.2f) %.1f°",
-        pose.getX(),
-        pose.getY(),
-        pose.getRotation().getDegrees());
+  /**
+   * How long a path's move has before it times out, in seconds: what a team gave it, or else the
+   * deadline every move has by its profile's time ({@link Outcome#deadline}). A deadline that isn't
+   * a number is taken as none given.
+   */
+  private double deadlineSecondsFor(double pathSeconds) {
+    boolean teamGaveOne = within.isPresent() && !Double.isNaN(within.getAsDouble());
+    if (teamGaveOne) {
+      return within.getAsDouble();
+    }
+    return Outcome.deadline(pathSeconds);
   }
 
-  private double seconds() {
+  /** Sets this run's deadline to so many seconds after it started, and hands it back. */
+  private long deadlineAfter(double seconds) {
+    long deadline = startNanos + Math.round(seconds * 1e9);
+    deadlineNanos = OptionalLong.of(deadline);
+    return deadline;
+  }
+
+  /**
+   * Opens the gate of each keyframe the path has passed by now. A keyframe is passed by the path's
+   * timing, not by where the robot is.
+   *
+   * @param passingSeconds when the path passes each keyframe, in seconds after the move starts
+   */
+  private void notePassedKeyframes(double elapsedSeconds, double[] passingSeconds) {
+    for (int keyframe = 0; keyframe < passingSeconds.length; keyframe++) {
+      passed[keyframe] |= elapsedSeconds >= passingSeconds[keyframe];
+    }
+  }
+
+  /**
+   * Notes whether the robot is at the path's end as of this loop, and says whether it has been
+   * there long enough to count as arrived. It must stay for {@link Outcome#DWELL_NANOS}, so that a
+   * robot passing through its target is not taken to have arrived.
+   */
+  private boolean hasStayedAtItsEnd(boolean atItsEnd, long now) {
+    if (!atItsEnd) {
+      atEndSince = OptionalLong.empty();
+      return false;
+    }
+    if (atEndSince.isEmpty()) {
+      atEndSince = OptionalLong.of(now);
+      return false;
+    }
+    return now - atEndSince.getAsLong() >= Outcome.DWELL_NANOS;
+  }
+
+  /** Where the robot got to, as a move that timed out says it. */
+  private static String whereItGotTo(DriveTask.Arrival arrival, Pose2d pose) {
+    return switch (arrival) {
+      case FACING_ITS_HEADING ->
+          String.format(Locale.ROOT, "heading at %.1f°", pose.getRotation().getDegrees());
+      case AT_ITS_POSE -> "at " + shown(pose).replace(") ", ") facing ");
+    };
+  }
+
+  /** How long this run has gone on, in seconds. */
+  private double elapsedSeconds() {
     return (RobotController.getTime() - startNanos) / 1e9;
   }
 
-  private void end(Outcome how, @Nullable String why) {
-    end(how, "", why);
+  /** Ends its run with nothing to add to how it ended. */
+  private void end(Outcome how) {
+    end(how, "", Optional.empty());
   }
 
   /**
-   * Ends its run: records how, with what it says of it ({@link Outcome#reason}), stops the
-   * drivetrain, and logs the reason.
+   * Ends its run: records how it ended and the reason it logs ({@link Outcome#reason}), and stops
+   * the drivetrain.
    *
-   * @param details where it got to, for a path timed out; empty otherwise
+   * @param details where the robot got to, for a path that timed out, led by its own ", "; empty
+   *     otherwise
+   * @param why why it ended so, if there is a reason: a gate's terms, or a refusal
    */
-  private void end(Outcome how, String details, @Nullable String why) {
+  private void end(Outcome how, String details, Optional<String> why) {
     running = false;
-    outcome = how;
-    reason = how.reason(name, seconds(), details, why);
+    outcome = Optional.of(how);
+    reason = how.reason(name, elapsedSeconds(), details, why.orElse(null));
     drive.runVelocity(new ChassisVelocities());
     Logger.recordOutput("Drive/Outcome", reason);
   }
