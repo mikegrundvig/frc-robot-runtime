@@ -249,6 +249,75 @@ class GateTest {
     assertThat(ready.getAsBoolean()).isTrue();
   }
 
+  /**
+   * A command that makes its gate on every run makes a gate of the same name each time, and each
+   * one's condition may throw. Every one of them is contained and shown by the one alert of that
+   * name: the command's runs and the scheduler go on. Until 2026-10-11 the second such gate threw
+   * "Alert already allocated" from inside the catch that contains a throwing condition.
+   */
+  @Test
+  void gatesOfOneNameMadeRunAfterRunEachThrowAndAreContained() {
+    String[] thrown = {"no reading yet", "no reading yet", "sensor unplugged", ""};
+    int[] run = {0};
+    List<String> whys = new ArrayList<>();
+    Command seek =
+        Command.noRequirements(
+                co -> {
+                  String says = thrown[run[0]++];
+                  Gate seen =
+                      Gate.of(
+                          scheduler,
+                          "target seen",
+                          () -> {
+                            if (says.isEmpty()) {
+                              return false;
+                            }
+                            throw new IllegalStateException(says);
+                          });
+                  whys.add(seen.why());
+                  co.waitUntil(seen);
+                })
+            .named("Seek");
+    int[] loops = {0};
+    scheduler.schedule(
+        Command.noRequirements(
+                co -> {
+                  while (true) {
+                    loops[0]++;
+                    co.yield();
+                  }
+                })
+            .named("Counting"));
+    loop(); // the robot runs, so each run's gate is made late
+    List<List<String>> raised = new ArrayList<>();
+
+    for (int each = 0; each < thrown.length; each++) {
+      scheduler.schedule(seek);
+      loop();
+      loop();
+      raised.add(raised());
+      scheduler.cancel(seek);
+      loop();
+    }
+
+    String fix =
+        ". It holds false while it throws: fix its condition (the stack is in the Driver Station's"
+            + " log)";
+    assertThat(whys)
+        .containsExactly(
+            "target seen is false: target seen threw: no reading yet",
+            "target seen is false: target seen threw: no reading yet",
+            "target seen is false: target seen threw: sensor unplugged",
+            "target seen is false");
+    assertThat(raised.subList(0, 3))
+        .as("one alert for the name, saying what the newest gate threw")
+        .containsExactly(
+            List.of("target seen threw: no reading yet" + fix),
+            List.of("target seen threw: no reading yet" + fix),
+            List.of("target seen threw: sensor unplugged" + fix));
+    assertThat(loops[0]).as("the scheduler ran every loop").isEqualTo(1 + 3 * thrown.length);
+  }
+
   /** The gates' alerts raised now. */
   private static List<String> raised() {
     return Arrays.stream(AlertSim.getActive())

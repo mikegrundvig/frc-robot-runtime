@@ -35,6 +35,8 @@ import org.wpilib.units.measure.Time;
  * <p><b>A logic that throws.</b> The gate holds false while its logic throws, and its one term says
  * so ({@code aimed threw: ...}). The rest of the robot runs on. The first time, the gate reports a
  * Driver Station error with the stack, and an alert stays raised for as long as the logic throws.
+ * Gates of the same name share that one alert, so a command that makes its gate on every run can
+ * make one that throws every time.
  *
  * <p>What a gate has worked out, and the working out, is its {@link GateState}.
  */

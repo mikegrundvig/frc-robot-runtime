@@ -1,7 +1,9 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import org.littletonrobotics.junction.Logger;
@@ -53,7 +55,18 @@ final class GateState implements BooleanSupplier {
    */
   private String[] shown = NOTHING_BLOCKING;
 
-  /** The alert that is raised while the logic throws. It is made the first time the logic does. */
+  /**
+   * The alert of every gate name whose logic has thrown, by that name. Gates of one name share one
+   * alert, because an alert's name can be taken only once, and a command may make a gate of the
+   * same name on every run. The alert is kept for good, as the gates of a robot's start are: a gate
+   * made by a command has no moment at which it is done, so there is none to close it at.
+   */
+  private static final Map<String, Alert> THREW_ALERTS = new HashMap<>();
+
+  /**
+   * The alert that is raised while the logic throws, which is its name's shared one. This gate
+   * takes it the first time its own logic throws.
+   */
   private Optional<Alert> threwAlert = Optional.empty();
 
   /** What the alert says. */
@@ -138,7 +151,7 @@ final class GateState implements BooleanSupplier {
 
   /**
    * Reports a logic that threw. The first time, that is a Driver Station error with the stack, and
-   * the alert is made. After that only the alert's text follows what was thrown last.
+   * the gate takes its name's alert. After that only the alert's text follows what was thrown last.
    */
   private void report(String term, RuntimeException thrown) {
     String text =
@@ -147,11 +160,26 @@ final class GateState implements BooleanSupplier {
             + " Driver Station's log)";
     if (threwAlert.isEmpty()) {
       DriverStationErrors.reportError(text, thrown.getStackTrace());
-      threwAlert = Optional.of(new Alert("Gates", name, text, Alert.Level.HIGH));
+      threwAlert = Optional.of(sharedAlert(name, text));
     } else if (!text.equals(threwText)) {
       threwAlert.get().setText(text);
     }
     threwText = text;
+  }
+
+  /**
+   * The one alert of the gates with this name, saying this text. It is made for the first gate of
+   * the name that throws, and every later one is handed the same alert.
+   */
+  private static Alert sharedAlert(String name, String text) {
+    Alert made = THREW_ALERTS.get(name);
+    if (made == null) {
+      made = new Alert("Gates", name, text, Alert.Level.HIGH);
+      THREW_ALERTS.put(name, made);
+      return made;
+    }
+    made.setText(text);
+    return made;
   }
 
   /** Raises the alert as the logic starts to throw, and lowers it as the logic stops. */
