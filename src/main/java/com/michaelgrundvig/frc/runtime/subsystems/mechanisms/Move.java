@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Value;
 
@@ -605,6 +606,12 @@ public final class Move implements Command {
     if (plan.onlyWhile().isPresent() && !plan.onlyWhile().get().getAsBoolean()) {
       return ended(Outcome.CANCELED, Optional.of(plan.onlyWhile().get().why()));
     }
+    if (plan.task() instanceof GoTo) {
+      Optional<String> lost = whyPositionLost();
+      if (lost.isPresent()) {
+        return ended(Outcome.REFUSED, lost);
+      }
+    }
     if (plan.task() instanceof GoTo && everyLegHasArrived(now)) {
       return ended(Outcome.ARRIVED, Optional.empty());
     }
@@ -627,6 +634,29 @@ public final class Move implements Command {
       leg.ask();
     }
     return Progress.GOES_ON;
+  }
+
+  /**
+   * Why a move to a place cannot go on, if one of the joints it positions reads a position that is
+   * not a number: a joint cannot be taken along a profile from nowhere. The run ends before it asks
+   * anything more, so the joint does what it does idle, which with nowhere to hold is neutral.
+   */
+  private Optional<String> whyPositionLost() {
+    for (MoveLeg leg : legs) {
+      boolean positionsItsJoint = !leg.runsAtAnOutput();
+      if (positionsItsJoint && Double.isNaN(leg.joint.position())) {
+        return Optional.of(positionLost(leg.joint));
+      }
+    }
+    return Optional.empty();
+  }
+
+  /** What a run says when it ends because a joint's position stopped being a number. */
+  private static String positionLost(JointMechanism joint) {
+    return "can't go on: "
+        + possessive(joint.getName())
+        + " position stopped being a number: check its encoder and its motor controller's"
+        + " settings";
   }
 
   /** One loop of a homing: it ends when the joint knows where it is, or is faulted. */
@@ -658,6 +688,9 @@ public final class Move implements Command {
     JointMechanism joint = leg.joint;
     Optional<Measure<?>> target = Optional.ofNullable(follow.target().get());
     if (target.isPresent() && joint.isPosition(target.get())) {
+      if (Double.isNaN(joint.position())) {
+        return ended(Outcome.REFUSED, Optional.of(positionLost(joint)));
+      }
       double position = joint.reachable(target.get().baseUnitMagnitude());
       joint.ask(new JointAsk.ToPosition(position, JointAsk.FULL_CRUISE), Optional.empty());
       return Progress.GOES_ON;

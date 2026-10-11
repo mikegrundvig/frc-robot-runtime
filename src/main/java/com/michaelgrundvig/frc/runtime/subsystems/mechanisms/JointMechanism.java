@@ -1203,9 +1203,9 @@ public final class JointMechanism implements Mechanism {
    */
   void write() {
     if (mayBeDriven()) {
-      Demand demand = decide();
-      output.drive(demand);
-      applied = demand;
+      // What the joint was told is what was decided, unless that would have sent its motor
+      // controller something that isn't a number: the output then says what it did instead.
+      applied = output.drive(decide());
     } else {
       applied = writeUndriven();
     }
