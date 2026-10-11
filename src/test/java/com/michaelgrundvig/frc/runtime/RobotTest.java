@@ -2,7 +2,6 @@ package com.michaelgrundvig.frc.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -78,10 +77,10 @@ class RobotTest {
 
   @Test
   void aStartIsReadByNameAndAnyOtherStartsAsARealRobot() {
-    assertEquals(Robot.SimStart.DISABLED, Robot.SimStart.named(null));
-    assertEquals(Robot.SimStart.DISABLED, Robot.SimStart.named("sideways"));
-    assertEquals(Robot.SimStart.READY, Robot.SimStart.named("ready"));
-    assertEquals(Robot.SimStart.ENABLED, Robot.SimStart.named("ENABLED"));
+    assertEquals(Robot.SimStart.DISABLED, Robot.SimStart.named(Optional.empty()));
+    assertEquals(Robot.SimStart.DISABLED, Robot.SimStart.named(Optional.of("sideways")));
+    assertEquals(Robot.SimStart.READY, Robot.SimStart.named(Optional.of("ready")));
+    assertEquals(Robot.SimStart.ENABLED, Robot.SimStart.named(Optional.of("ENABLED")));
   }
 
   @Test
@@ -100,9 +99,10 @@ class RobotTest {
    */
   @Test
   void aRobotAndItsReplayCarryOnPastAThrowAndTheSimulatorStops() {
-    assertTrue(Robot.carriesOn(RunMode.REAL), "on a robot");
-    assertTrue(Robot.carriesOn(RunMode.REPLAY), "replaying one");
-    assertFalse(Robot.carriesOn(RunMode.SIM), "in the simulator");
+    assertEquals(Robot.AfterAThrow.CARRIES_ON, Robot.afterAThrow(RunMode.REAL), "on a robot");
+    assertEquals(Robot.AfterAThrow.CARRIES_ON, Robot.afterAThrow(RunMode.REPLAY), "replaying one");
+    assertEquals(
+        Robot.AfterAThrow.ENDS_THE_PROGRAM, Robot.afterAThrow(RunMode.SIM), "in the simulator");
   }
 
   /** Disabled with no station, as a robot starts: not the tests' own default, blue 2. */
@@ -114,21 +114,25 @@ class RobotTest {
 
   @Test
   void theSimulatorStartsInTheScenarioAskedFor() {
-    assertSame(Scenarios.named("collision"), Robot.scenarioAskedFor(RunMode.SIM, "collision"));
-    assertNull(Robot.scenarioAskedFor(RunMode.SIM, null));
+    assertSame(
+        Scenarios.named("collision"),
+        Robot.scenarioAskedFor(RunMode.SIM, Optional.of("collision")).orElseThrow());
+    assertEquals(Optional.empty(), Robot.scenarioAskedFor(RunMode.SIM, Optional.empty()));
   }
 
   @Test
   void aReplayRunsWhatItsLogRecordedNeverAScenario() {
-    assertNull(Robot.scenarioAskedFor(RunMode.REPLAY, "collision"));
-    assertNull(Robot.scenarioAskedFor(RunMode.REAL, "collision"));
+    assertEquals(
+        Optional.empty(), Robot.scenarioAskedFor(RunMode.REPLAY, Optional.of("collision")));
+    assertEquals(Optional.empty(), Robot.scenarioAskedFor(RunMode.REAL, Optional.of("collision")));
   }
 
   @Test
   void aMisspelledScenarioStopsTheProgramWithTheList() {
     IllegalArgumentException refused =
         assertThrows(
-            IllegalArgumentException.class, () -> Robot.scenarioAskedFor(RunMode.SIM, "colision"));
+            IllegalArgumentException.class,
+            () -> Robot.scenarioAskedFor(RunMode.SIM, Optional.of("colision")));
 
     String message = String.valueOf(refused.getMessage());
     assertTrue(message.contains("camera-low, camera-turned"), message);
@@ -145,13 +149,24 @@ class RobotTest {
       List<Setting> collision = Scenarios.named("collision").eventsIn(world);
       Pose2d start = world.truePose();
 
+      Optional<List<Setting>> waiting = Optional.of(collision);
+      Optional<Components> controls = Optional.of(components);
       assertSame(
-          collision, Robot.startWhenEnabled(collision, components, false), "disabled: waits");
+          collision,
+          Robot.startWhenEnabled(waiting, controls, false).orElseThrow(),
+          "disabled: waits");
       assertEquals(start, world.truePose());
-      assertSame(collision, Robot.startWhenEnabled(collision, null, true), "no simulator: waits");
-      assertNull(Robot.startWhenEnabled(collision, components, true), "enabled: started");
+      assertSame(
+          collision,
+          Robot.startWhenEnabled(waiting, Optional.empty(), true).orElseThrow(),
+          "no simulator: waits");
+      assertEquals(
+          Optional.empty(), Robot.startWhenEnabled(waiting, controls, true), "enabled: started");
       assertEquals(0.6, world.truePose().getY() - start.getY(), 1e-9);
-      assertNull(Robot.startWhenEnabled(null, components, true), "nothing more to start");
+      assertEquals(
+          Optional.empty(),
+          Robot.startWhenEnabled(Optional.empty(), controls, true),
+          "nothing more to start");
     }
   }
 
@@ -161,12 +176,17 @@ class RobotTest {
     IllegalStateException refused =
         assertThrows(
             IllegalStateException.class,
-            () -> Robot.startScenario(Scenarios.named("collision"), null, null));
+            () ->
+                Robot.startScenario(
+                    Optional.of(Scenarios.named("collision")), Optional.empty(), Optional.empty()));
 
     assertTrue(
         String.valueOf(refused.getMessage()).contains("needs the simulated world"),
         refused.getMessage());
-    assertNull(Robot.startScenario(null, null, null), "none asked for: nothing to do");
+    assertEquals(
+        Optional.empty(),
+        Robot.startScenario(Optional.empty(), Optional.empty(), Optional.empty()),
+        "none asked for: nothing to do");
   }
 
   /**
@@ -182,7 +202,11 @@ class RobotTest {
       world.addTo(components);
 
       List<Setting> events =
-          Robot.startScenario(Scenarios.named("exact-sensors"), world, components);
+          Robot.startScenario(
+                  Optional.of(Scenarios.named("exact-sensors")),
+                  Optional.of(world),
+                  Optional.of(components))
+              .orElseThrow();
 
       assertEquals(List.of(), events);
       assertTrue(components.on().contains("Gyro: Errors"), components.on().toString());

@@ -15,6 +15,7 @@ import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.experiment.Experiment;
 import com.michaelgrundvig.frc.pitwall.experiment.Profile;
 import com.michaelgrundvig.frc.pitwall.experiment.Profiles;
+import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.runtime.autos.AutoPit;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
@@ -64,6 +65,7 @@ import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
@@ -71,14 +73,21 @@ import org.wpilib.system.RobotController;
 import org.wpilib.tunable.TunableRegistry;
 
 /**
- * The composition root: builds every mechanism on the hardware for the mode the program runs in
- * ({@link Hardware}), runs them each loop, and hands the team's {@code Controls} what behavior
- * reaches: the joints, the drivetrain, the sensors, the driver's and operator's gamepads, and the
- * list its autos are declared in. It runs the auto the pit chose: when autonomous becomes enabled
- * it schedules the auto's command, made fresh, and when autonomous ends it cancels it. The
- * template's, so a team's code goes in {@code Controls} and {@code Robots}, and the template's
- * updates here never collide with it. This is the one file that shows how the whole robot fits
- * together, so keep it readable.
+ * Everything the robot is made of, built and run in one place. This class builds every mechanism on
+ * the hardware for the mode the program runs in ({@link Hardware}), runs them all each loop, and
+ * hands the team's {@code Controls} what behavior reaches: the joints, the drivetrain, the driver's
+ * and the operator's gamepads, and the list its autos are declared in.
+ *
+ * <p>It is the template's file, not a team's. A team's code goes in {@code Controls} and {@code
+ * Robots}, so the template's updates here never collide with it. It is also the one file that shows
+ * how the whole robot fits together, and it is written to be read from the top:
+ *
+ * <ul>
+ *   <li>the constructor builds the robot, in an order that matters and is explained there;
+ *   <li>{@link #periodic()} is one loop of every mechanism before the commands run, as a list of
+ *       steps, and {@link #afterCommands()} is what follows them;
+ *   <li>{@link #addTo(Pitwall)} puts the robot's pit tools on its Pitwall page.
+ * </ul>
  */
 public final class RobotContainer implements AutoCloseable {
   private static final int DRIVER_PORT = 0;
@@ -90,13 +99,25 @@ public final class RobotContainer implements AutoCloseable {
   /** How straight a driver lines the robot up by eye for a heading reset: about 5 degrees. */
   static final double HEADING_BY_EYE_RADIANS = Math.toRadians(5);
 
-  private final Scheduler scheduler;
+  /** The most often a status line that follows the sensors changes on the Pitwall page. */
+  static final Duration STATUS_INTERVAL = Duration.ofSeconds(1);
+
+  /** The drive check's name on the Pitwall page. */
+  static final String DRIVE_CHECK = "Drive forward slowly (2 s)";
+
+  /** The name of the steering's experiment on the Pitwall page. */
+  static final String STEER_STEP = "Steer to 90° and back";
+
+  /** The motion of the steering's experiment. */
+  static final Profile STEER_STEP_PROFILE =
+      Profiles.stepAndBack().from(Degrees.of(0)).to(Degrees.of(90)).hold(Seconds.of(0.8));
 
   /**
    * What the pit can tune on a robot: each mechanism's configuration, with the limits it may be
-   * tuned within. The one list of them: the container publishes these, and the tests check every
-   * one (its committed values within its limits, a meaning for each value, and a row in the values
-   * register, docs/values.md). A mechanism with tuning adds it here.
+   * tuned within. This is the one list of them. The container publishes these, and the tests check
+   * every one: that its committed values are within its limits, that each value has a meaning, and
+   * that each has a row in the values register (docs/values.md). A mechanism that gains tuning adds
+   * it here.
    *
    * @param drivetrain the drivetrain's gains and limits ({@link Drive#tuning})
    * @param vision how far the cameras are trusted ({@link Vision#tuning})
@@ -117,49 +138,65 @@ public final class RobotContainer implements AutoCloseable {
 
   /** Each mechanism's tuning, starting from a robot's committed configuration. */
   static Tunings tunings(RobotConfig robot) {
+    // The joints are kept in the definition's order, which is the order Pitwall's Tune view lists
+    // them in.
     Map<String, LiveConfig<MechanismControl>> joints = new LinkedHashMap<>();
     for (Joint joint : Joints.driven(robot.definition())) {
       joints.put(joint.label(), JointMechanism.tuning(joint, ControllerSettings.control(joint)));
     }
-    // In the definition's order, which is the order Pitwall's Tune lists them in.
     return new Tunings(
         Drive.tuning(robot.drivetrain(), robot.definition().drivetrain().freeSpeed()),
         Vision.tuning(robot.vision()),
         Collections.unmodifiableMap(joints));
   }
 
-  /** What the pit can tune, as published: every one is removed again as the robot closes. */
+  private final Scheduler scheduler;
+
+  /** What the robot is, as configured. */
+  private final RobotDefinition definition;
+
+  /** What the pit can tune, as published. Every one is removed again as the robot closes. */
   private final Tunings tunings;
+
+  /** What the robot reads and drives: its own devices, the simulator's, or none in a replay. */
+  private final Hardware hardware;
+
+  /** The simulator's world, which knows where the robot really is. Only the simulator has one. */
+  private final Optional<SimulatedWorld> world;
+
+  // The field and the match.
 
   /** The field as this match sets it: the alliance, the start, the placement, the zones. */
   private final MatchField matchField;
 
+  /** The venue the pit selected, which takes the official field's place. */
   private final Venues venues;
 
-  /** The autos the team declares, and the one the pit chose: the template runs it. */
+  /** The autos the team declares, and the one the pit chose, which this class runs. */
   private final Autos autos;
 
-  /** The simulator's world, which knows where the robot really is. Null unless simulating. */
-  private final @Nullable SimulatedWorld world;
+  /** Whether autonomous was enabled in the last loop, to notice it starting and ending. */
+  private boolean wasAutonomous;
 
-  private final Localization localization;
-
-  /** What the estimator did with the last loop's camera measurements, for the World view. */
-  private List<FrameVerdict> frames = List.of();
-
-  /** What the robot is, as configured, for the World view. */
-  private final RobotDefinition robotDefinition;
+  // The mechanisms.
 
   private final Drive drive;
 
   /** Every driven joint's mechanism, and the joints without wiring on a robot. */
   private final Joints joints;
 
-  /** Whether a camera rides on a joint, so localization needs the joints' positions. */
+  /** Whether any camera rides on a joint. If one does, localization needs the joints' positions. */
   private final boolean camerasOnJoints;
 
   private final Vision vision;
+  private final Localization localization;
+
+  /** What the estimator did with the last loop's camera frames, for the World view. */
+  private List<FrameVerdict> frames = List.of();
+
   private final Calibration calibration;
+
+  // The drive team's controls.
 
   /** Every command bound to the drive team's gamepads, as the bindings were made. */
   private final Bindings bindings;
@@ -167,32 +204,36 @@ public final class RobotContainer implements AutoCloseable {
   private final RecordingGamepad driver;
   private final RecordingGamepad operator;
 
-  /** What the robot reads and drives: its devices, the simulator's, or none in a replay. */
-  private final Hardware hardware;
+  // The loop's timing.
 
-  /** Every loop's time, section by section: the robot marks its sections, this marks its own. */
+  /** Whether the loop keeps up. The robot starts and finishes each loop on it. */
   private final LoopHealth loopHealth;
 
+  /** Where this class marks the end of each section of a loop, so each section is timed. */
   private final LoopMonitor loop;
 
-  private boolean wasAutonomous;
-
   /**
-   * Built by {@link Robot#assemble}, for the robot and for tests alike.
+   * Builds the robot. {@link Robot#assemble} calls this, for the robot and for tests alike.
+   *
+   * <p>The order of the steps matters in three ways. Each part is handed the parts it reads, so
+   * those come first. Each part raises its alerts and starts its logs as it is made, so the order
+   * here is the order they appear in. And the command scheduler runs its periodic tasks in the
+   * order they were added: the bindings add theirs before any gate that the team's controls make.
    *
    * @param scheduler runs every command: the controls', and the Pitwall page's actions
    * @param robot the robot: its frame, wiring, and cameras
    * @param field the field the robot plays on, with its official layout
    * @param venues the venue the pit selected, which takes the field's place while disabled
-   * @param controls what the robot does and the drive team's buttons for it: the team's own, made
-   *     once the mechanisms are
+   * @param controls what the robot does and the drive team's buttons for it. It is the team's own,
+   *     and is made once the mechanisms are.
    * @param simulatedErrors in the simulator, how the robot's wheels and sensors differ from its
    *     configuration ({@link SensorErrors#TYPICAL} makes its estimated pose drift from the truth
    *     as a real robot's does)
-   * @param loopHealth the loop's timing, which the robot starts and finishes and this marks the
-   *     sections of; closed with this
-   * @param watched the hardware for the mode, handed through a test's own on its way to the
-   *     mechanisms, to record what they're told ({@code RobotSim}); as it is otherwise
+   * @param loopHealth the loop's timing. The robot starts and finishes each loop on it, and this
+   *     class marks the sections. It is closed with this class.
+   * @param watched a test's wrapper around the hardware, through which the hardware passes on its
+   *     way to the mechanisms, so that the test can record what they are told ({@code RobotSim}).
+   *     Outside such a test it hands the hardware on as it is.
    */
   RobotContainer(
       RunMode mode,
@@ -204,58 +245,51 @@ public final class RobotContainer implements AutoCloseable {
       SensorErrors simulatedErrors,
       LoopHealth loopHealth,
       UnaryOperator<Hardware> watched) {
-    // What the pit can tune, published where dashboards and the Pitwall page find it; the
-    // mechanisms read it every loop.
-    Tunings tunings = tunings(robot);
-    this.tunings = tunings;
-    TunableRegistry.publish("Drive/config", tunings.drivetrain());
-    TunableRegistry.publish("Vision/config", tunings.vision());
-    tunings
-        .joints()
-        .forEach((label, tuning) -> TunableRegistry.publish("Joints/" + label + "/config", tuning));
-    RobotDefinition definition = robot.definition();
-    Supplier<DrivetrainControl> drivetrain = tunings.drivetrain()::get;
     this.scheduler = scheduler;
+    this.venues = venues;
     this.loopHealth = loopHealth;
     loop = loopHealth.monitor();
-    List<CameraConfig> cameras = definition.cameras();
-    robotDefinition = definition;
+    definition = robot.definition();
+
+    // What the pit can tune. The mechanisms read these every loop, so a tuned value takes effect
+    // at once.
+    tunings = published(tunings(robot));
+
+    // The match, and the drive team's gamepads.
     autos = new Autos(scheduler);
-    matchField = new MatchField(field, mode == RunMode.SIM, autos);
-    this.venues = venues;
+    matchField = new MatchField(field, mode, autos);
     bindings = new Bindings(scheduler);
     driver = bindings.gamepad("driver", DRIVER_PORT);
     operator = bindings.gamepad("operator", OPERATOR_PORT);
 
-    // What the robot reads and drives: the simulator's, the robot's own devices, or none (a replay
-    // reads the log).
-    world = mode == RunMode.SIM ? new SimulatedWorld(field, definition, simulatedErrors) : null;
+    // What the robot reads and drives.
+    world = simulatedWorld(mode, field, simulatedErrors);
     hardware = watched.apply(hardware(mode, definition, world));
 
-    // Until the robot is placed it could be anywhere: localization starts it in the middle of the
-    // field, as unsure as the field is big, so the first camera measurement wins. The simulated
-    // robot stands there too.
-    Pose2d middle = new Pose2d(field.length() / 2, field.width() / 2, Rotation2d.ZERO);
-    localization =
-        new Localization(
-            new LocalizationService(
-                field,
-                definition,
-                new SwerveKinematicsModel(definition.moduleTranslations()),
-                robot.estimator(),
-                RobotLoop.PERIOD_SECONDS));
+    // Localization comes before the drivetrain, which asks it where the robot is.
+    localization = new Localization(localizationService(field, robot));
     drive =
-        new Drive("Drive", hardware.drive(), definition, drivetrain, scheduler, localization::pose);
-    // The driver's sticks and the field, so the drive's own commands (driven, facing) read them:
-    // the team's Controls builds assisted driving without holding them.
+        new Drive(
+            "Drive",
+            hardware.drive(),
+            definition,
+            tunings.drivetrain()::get,
+            scheduler,
+            localization::pose);
+    // The drivetrain is handed the driver's sticks and the field, so that its own commands (driven,
+    // facing) read them. The team's Controls can then build assisted driving without holding them.
     drive.takeDriver(
         this::leftStick, () -> -driver.getRightX(), matchField::field, matchField::alliance);
-    if (world != null) {
-      world.place(middle);
+    // Until the robot is placed it could be anywhere. Localization starts it in the middle of the
+    // field and as unsure as the field is big, so that the first camera measurement wins. The
+    // simulated robot is stood in the same spot.
+    if (world.isPresent()) {
+      world.get().place(middleOf(field));
     }
 
-    // Every driven joint, a v3 mechanism the template builds from the definition, the joint's block
-    // saying how it's driven and wired, each as the pit tunes it.
+    // Every driven joint. Each is a v3 mechanism that the template builds from the joint's block
+    // in the definition, which says how the joint is driven and wired, and each is driven as the
+    // pit tunes it.
     camerasOnJoints = definition.cameras().stream().anyMatch(camera -> camera.joint().isPresent());
     joints =
         new Joints(
@@ -263,7 +297,9 @@ public final class RobotContainer implements AutoCloseable {
             hardware,
             joint -> Objects.requireNonNull(tunings.joints().get(joint.label()))::get,
             scheduler);
-    // Cameras: PhotonVision on the robot, its simulation in the simulator, the log in a replay.
+
+    // The cameras: PhotonVision on a robot, its simulation in the simulator, the log in a replay.
+    List<CameraConfig> cameras = definition.cameras();
     vision =
         new Vision(
             cameras,
@@ -282,41 +318,82 @@ public final class RobotContainer implements AutoCloseable {
             definition.drivetrain(),
             LocalDate::now);
 
-    // Driver: left stick translates (field-relative, from the driver's end of the field), right
-    // stick turns: the drive's default command, driven(). The team's Controls binds the rest of
-    // driving to the same sticks: drive.facing(...) holds a heading, drive.lockWheels() an X. Back,
-    // with the robot facing straight downfield, resets its heading: the fallback
-    // when the heading has gone wrong. Enabled or not. The template's own, so they're there
-    // whatever the team's Controls binds, and a second command on back is a doubt at startup.
+    // The template's own two bindings, which are there whatever the team's Controls binds. The
+    // sticks drive: this is the drivetrain's default command. And the driver's back button resets
+    // the heading. They are made before the team's, so a second command on back is a doubt that
+    // the robot says at startup.
     drive.setDefaultCommand(drive.driven());
     driver
         .back()
         .onTrue(Command.noRequirements(coroutine -> faceDownfield()).named("Reset heading"));
 
-    // What the robot does, and the drive team's buttons for the rest: the team's own class. Its
-    // constructor builds the commands, binds them and declares its autos, so nothing else needs to
-    // hold it.
+    // What the robot does, and the drive team's buttons for it: the team's own class. Its
+    // constructor builds the commands, binds them and declares its autos, so nothing here needs to
+    // keep it.
     controls.make(scheduler, definition, joints, drive, driver, operator, autos);
 
-    // What it doubts or doesn't know, said once its bindings are made: its definition's, and two
-    // commands bound to one button the same way.
+    // What the robot doubts or does not know is said last, once the team's bindings exist, because
+    // two commands bound to one button in the same way are among the doubts.
     Doubts.say(definition, Doubts.of(definition, bindings), mode);
   }
 
-  /**
-   * The driver says the robot faces straight downfield, away from the driver's own wall: its
-   * heading becomes the alliance's forward, as sure as lining up by eye allows. Its position stays.
-   * If the driver was wrong, the cameras' headings will agree against it and the estimate turns
-   * back to them.
-   */
-  void faceDownfield() {
-    localization.resetHeading(matchField.driverForward(), HEADING_BY_EYE_RADIANS);
+  // ---- Building the robot ----
+
+  /** Publishes what the pit can tune, where dashboards and the Pitwall page find it. */
+  private static Tunings published(Tunings tunings) {
+    TunableRegistry.publish("Drive/config", tunings.drivetrain());
+    TunableRegistry.publish("Vision/config", tunings.vision());
+    tunings
+        .joints()
+        .forEach((label, tuning) -> TunableRegistry.publish("Joints/" + label + "/config", tuning));
+    return tunings;
+  }
+
+  /** The simulated world, which only the simulator has. */
+  private Optional<SimulatedWorld> simulatedWorld(
+      RunMode mode, FieldModel field, SensorErrors simulatedErrors) {
+    if (mode != RunMode.SIM) {
+      return Optional.empty();
+    }
+    return Optional.of(new SimulatedWorld(field, definition, simulatedErrors));
   }
 
   /**
-   * The driver's left stick as a direction on the field. Gamepad Y is negative when pushed forward,
-   * so negate it for forward = away from the driver, then turn it the way the driver faces: a red
-   * driver's forward is the field's -x.
+   * What the robot reads and drives, for the mode the program runs in. In the simulator it is the
+   * simulated world's. On a robot it is the devices that the definition's wiring names. In a replay
+   * it is nothing, because a replay reads the log.
+   *
+   * @param world the simulated world, in the simulator
+   */
+  static Hardware hardware(
+      RunMode mode, RobotDefinition definition, Optional<SimulatedWorld> world) {
+    return switch (mode) {
+      case SIM -> new SimulatedHardware(world.orElseThrow());
+      case REAL -> new RobotHardware(definition);
+      case REPLAY -> Hardware.replay(definition);
+    };
+  }
+
+  private LocalizationService localizationService(FieldModel field, RobotConfig robot) {
+    return new LocalizationService(
+        field,
+        definition,
+        new SwerveKinematicsModel(definition.moduleTranslations()),
+        robot.estimator(),
+        RobotLoop.PERIOD_SECONDS);
+  }
+
+  private static Pose2d middleOf(FieldModel field) {
+    return new Pose2d(field.length() / 2, field.width() / 2, Rotation2d.ZERO);
+  }
+
+  // ---- The driver's sticks ----
+
+  /**
+   * The driver's left stick as a direction on the field. Pushed forward, it points away from the
+   * driver. A gamepad's Y axis is negative when the stick is pushed forward, so it is negated, and
+   * the result is then turned to the way the driver faces: a red driver's forward is the field's
+   * -x.
    */
   private Translation2d leftStick() {
     return new Translation2d(-driver.getLeftY(), -driver.getLeftX())
@@ -324,113 +401,167 @@ public final class RobotContainer implements AutoCloseable {
   }
 
   /**
-   * One loop of every mechanism, before the command scheduler runs: the drivetrain reads its
-   * sensors, localization takes them, the cameras theirs, and the field's checks follow.
+   * Resets the heading. By pressing back, the driver says that the robot faces straight downfield,
+   * away from the driver's own wall. The robot's heading becomes its alliance's forward, as sure as
+   * lining up by eye allows, and its position stays. This is the fallback for a heading that has
+   * gone wrong, and it works whether or not the robot is enabled. If the driver was wrong, the
+   * cameras' headings will agree against the new one, and the estimate turns back to them.
+   */
+  void faceDownfield() {
+    localization.resetHeading(matchField.driverForward(), HEADING_BY_EYE_RADIANS);
+  }
+
+  // ---- Each loop ----
+
+  /**
+   * One loop of every mechanism, before the command scheduler runs. The steps are in the order they
+   * must happen in:
+   *
+   * <ol>
+   *   <li>The pit's choices are taken, and the match is read. Both can move the robot's start, so
+   *       they come before anything reads where the robot is.
+   *   <li>In the simulator, the world moves on, so that the sensors read this loop's world.
+   *   <li>The sensors are read: the drivetrain's, then the joints'.
+   *   <li>Localization works out where the robot is from what the sensors and the cameras read.
+   *   <li>The field's checks judge where that is, and the dashboard shows the result.
+   * </ol>
+   *
+   * <p>The commands run after all of this ({@link Robot#loop}), so they decide on this loop's
+   * readings and this loop's pose.
    */
   public void periodic() {
     boolean enabled = RobotState.isEnabled();
-    // The venue first: a selection the pit made takes effect at the start of a loop, while
-    // disabled.
-    venues.update(!enabled, RobotState.isFMSAttached()).ifPresent(this::venue);
-    // The auto the pit chose likewise, before the start it names is read.
-    autos.update(!enabled);
-    // Where the drive team put the robot, if they did this loop: on the chosen start. With cameras,
-    // the tags will say instead.
+    takeThePitsChoices(enabled);
     Optional<Pose2d> placed = matchField.read(enabled);
-    SimulatedWorld sim = world;
-    if (sim != null) {
-      // In the simulator the drive team really moves it. Then the world moves on and the robot
-      // reads its sensors, as on a robot between loops: its gyro feels the turn this loop.
-      placed.ifPresent(sim::place);
-      sim.step(RobotController.getTime());
-      loop.mark("Simulation", System.nanoTime());
-    }
-    boolean autonomous = RobotState.isAutonomousEnabled();
-    if (autonomous && !wasAutonomous) {
-      vision.autonomousStarted(RobotController.getTime());
-      // The chosen auto, made fresh, runs from here; the command scheduler runs it this loop.
-      autos.autonomousStarted();
-    } else if (!autonomous && wasAutonomous) {
-      autos.autonomousEnded();
-    }
-    wasAutonomous = autonomous;
-
-    drive.periodic(enabled);
-    loop.mark("Drive", System.nanoTime());
-    long read = RobotController.getTime();
-    joints.read(read, enabled);
-    if (camerasOnJoints) {
-      // Where each camera on a joint is, for the images it takes.
-      localization.service().joints(read, joints.positions());
-    }
-    loop.mark("Joints", System.nanoTime());
-    localization.periodic(drive.readings(), enabled);
-    // Told where it is after odometry, so a turn made in placing it isn't counted twice.
-    String placedOn = matchField.placedOn();
-    placed.ifPresent(pose -> localization.place(pose, PLACED, placedOn));
-    vision.periodic(RobotController.getTime());
-    loop.mark("Vision", System.nanoTime());
-    frames = localization.update().frames();
-    vision.record(frames);
-    loop.mark("Localization", System.nanoTime());
-    Pose2d pose = localization.pose();
-    if (sim != null) {
-      sim.log(pose);
-    }
-    matchField.update(
-        pose, drive.getRobotRelativeVelocities(), sim != null ? sim.truePose() : null);
-    loop.mark("Field", System.nanoTime());
+    stepTheSimulatedWorld(placed);
+    startOrEndTheAuto();
+    readTheSensors(enabled);
+    localize(placed, enabled);
+    judgeTheField();
     Dashboard.publish(status());
     loop.mark("Dashboard", System.nanoTime());
   }
 
   /**
    * What happens after the command scheduler, each loop: each joint does what its commands asked of
-   * it this loop, or its idle.
+   * it this loop, or what it does idle. Because this comes after the commands, what a command asks
+   * is applied in the same loop.
    */
   public void afterCommands() {
     joints.write();
   }
 
   /**
-   * What the robot reads and drives, for the mode the program runs in: the simulated world's, the
-   * devices its definition's wiring names on a robot, or nothing in a replay, which reads the log.
-   *
-   * @param world the simulated world, in the simulator
+   * Takes what the pit chose since the last loop: a venue and an auto. Both take effect only at the
+   * start of a loop, and only while the robot is disabled. The auto is taken here, before the match
+   * is read, because the chosen auto names the robot's start.
    */
-  static Hardware hardware(
-      RunMode mode, RobotDefinition definition, @Nullable SimulatedWorld world) {
-    return switch (mode) {
-      case SIM -> new SimulatedHardware(Objects.requireNonNull(world));
-      case REAL -> new RobotHardware(definition);
-      case REPLAY -> Hardware.replay(definition);
-    };
-  }
-
-  /** One line for the pit: how long loops take, and whether they keep up. */
-  String loopStatus() {
-    return loopHealth.describe();
+  private void takeThePitsChoices(boolean enabled) {
+    Optional<FieldModel> newVenue = venues.update(!enabled, RobotState.isFMSAttached());
+    if (newVenue.isPresent()) {
+      playOn(newVenue.get());
+    }
+    autos.update(!enabled);
   }
 
   /**
-   * Plays on a venue from now on: localization solves images against its tags, the cameras' mount
-   * checks judge against them, and places derived from tags move with them.
+   * Plays on a venue from now on. Localization solves camera frames against the venue's tags, the
+   * cameras' mount checks judge against them, and the places derived from tags move with them.
    */
-  private void venue(FieldModel venue) {
+  private void playOn(FieldModel venue) {
     matchField.venue(venue);
     localization.service().venue(venue);
     vision.venue(venue);
   }
 
-  /** The field as this match sets it: the alliance, the start, the placement, the zones. */
-  MatchField matchField() {
-    return matchField;
+  /**
+   * In the simulator, moves the world on by one loop. First the drive team really moves the robot,
+   * if it placed it this loop. Then the world steps, before the robot reads its sensors, as the
+   * real world moves between a robot's loops: the gyro feels in this loop the turn made in this
+   * loop.
+   *
+   * @param placed where the drive team put the robot this loop, if it did
+   */
+  private void stepTheSimulatedWorld(Optional<Pose2d> placed) {
+    if (world.isEmpty()) {
+      return;
+    }
+    SimulatedWorld simulated = world.get();
+    if (placed.isPresent()) {
+      simulated.place(placed.get());
+    }
+    simulated.step(RobotController.getTime());
+    loop.mark("Simulation", System.nanoTime());
   }
 
-  /** The robot's autos: the team's declared in its {@code Controls}, and the one chosen. */
-  Autos autos() {
-    return autos;
+  /**
+   * Starts the chosen auto in the loop autonomous becomes enabled, and ends it in the loop
+   * autonomous stops. The auto's command is made fresh as it starts, and the command scheduler runs
+   * it later in this same loop.
+   */
+  private void startOrEndTheAuto() {
+    boolean autonomous = RobotState.isAutonomousEnabled();
+    if (autonomous && !wasAutonomous) {
+      vision.autonomousStarted(RobotController.getTime());
+      autos.autonomousStarted();
+    } else if (!autonomous && wasAutonomous) {
+      autos.autonomousEnded();
+    }
+    wasAutonomous = autonomous;
   }
+
+  /** Reads the drivetrain's sensors, then the joints'. */
+  private void readTheSensors(boolean enabled) {
+    drive.periodic(enabled);
+    loop.mark("Drive", System.nanoTime());
+
+    long readAt = RobotController.getTime();
+    joints.read(readAt, enabled);
+    if (camerasOnJoints) {
+      // Localization needs to know where each camera on a joint was, for the frames it took.
+      localization.service().joints(readAt, joints.positions());
+    }
+    loop.mark("Joints", System.nanoTime());
+  }
+
+  /**
+   * Works out where the robot is. Odometry goes first. Only then is the robot told where the drive
+   * team placed it, so that a turn made in placing it is not counted a second time as a turn the
+   * wheels made. The cameras' frames are read next, and the estimator then weighs all of it.
+   *
+   * @param placed where the drive team put the robot this loop, if it did. It is on its chosen
+   *     start. On a robot with cameras, the tags will soon say where it is instead.
+   */
+  private void localize(Optional<Pose2d> placed, boolean enabled) {
+    localization.periodic(drive.readings(), enabled);
+    if (placed.isPresent()) {
+      localization.place(placed.get(), PLACED, matchField.placedOn());
+    }
+    vision.periodic(RobotController.getTime());
+    loop.mark("Vision", System.nanoTime());
+
+    frames = localization.update().frames();
+    vision.record(frames);
+    loop.mark("Localization", System.nanoTime());
+  }
+
+  /**
+   * Judges where the robot is on the field: its placement on its start, the zones it is in, and
+   * whether it is on the field at all. In the simulator, the world also logs how far the estimate
+   * is from the truth.
+   */
+  private void judgeTheField() {
+    Pose2d pose = localization.pose();
+    Optional<Pose2d> truth = Optional.empty();
+    if (world.isPresent()) {
+      world.get().log(pose);
+      truth = Optional.of(world.get().truePose());
+    }
+    matchField.update(pose, drive.getRobotRelativeVelocities(), truth);
+    loop.mark("Field", System.nanoTime());
+  }
+
+  // ---- What the pit and the dashboard read ----
 
   /** The robot's state, as the drive team's dashboard shows it, as of this loop. */
   RobotStatus status() {
@@ -446,12 +577,17 @@ public final class RobotContainer implements AutoCloseable {
         .build();
   }
 
+  /** One line for the pit: how long loops take, and whether they keep up. */
+  String loopStatus() {
+    return loopHealth.describe();
+  }
+
   /** One line for the pit: what the pose rests on, and how sure it is. */
   String localizationStatus() {
     return localization.describe();
   }
 
-  /** Whether the estimate is good enough to score from: bind scoring and aiming to it. */
+  /** Whether the estimate is good enough to score from. Scoring and aiming are bound to this. */
   boolean readyToScore() {
     return localization.readyToScore();
   }
@@ -466,91 +602,85 @@ public final class RobotContainer implements AutoCloseable {
     return vision.summary();
   }
 
-  Vision vision() {
-    return vision;
-  }
-
-  Localization localization() {
-    return localization;
-  }
-
-  /**
-   * What became of each camera image this loop, as localization decided it: for tests that check
-   * what it made of them.
-   */
-  List<FrameVerdict> frames() {
-    return frames;
-  }
-
-  /** The localization estimate, as of the last loop. */
-  LocalizationEstimate estimate() {
-    return localization.estimate();
-  }
-
-  /** The calibration procedures, for the Pitwall page. */
-  Calibration calibration() {
-    return calibration;
-  }
-
   /** A pit check for the Pitwall page: drive forward slowly for two seconds. */
   Command driveCheck() {
     return drive.driveForward(0.5, 2.0);
   }
 
-  /** The most often a status line that follows the sensors changes on the Pitwall page. */
-  static final Duration STATUS_INTERVAL = Duration.ofSeconds(1);
-
-  /** The drive check's name on the Pitwall page. */
-  static final String DRIVE_CHECK = "Drive forward slowly (2 s)";
-
-  /** The steering's experiment on the Pitwall page, and its motion. */
-  static final String STEER_STEP = "Steer to 90° and back";
-
-  static final Profile STEER_STEP_PROFILE =
-      Profiles.stepAndBack().from(Degrees.of(0)).to(Degrees.of(90)).hold(Seconds.of(0.8));
+  // ---- The Pitwall page ----
 
   /**
-   * Puts this robot's pit tools on its Pitwall page: the drive check and the calibrations as
-   * actions, experiments for tuning the steering and each joint, and one status line each for the
-   * loop, the alliance, the placement, localization, scoring, the last calibration, and the
-   * cameras. In the simulator, the simulated world's parts that can fail, and the scenarios, for
-   * the page to apply.
+   * Puts this robot's pit tools on its Pitwall page. The order here is the order the page lists
+   * them in.
    */
   void addTo(Pitwall pitwall) {
-    SimulatedWorld sim = world;
-    if (sim != null) {
-      pitwall
-          .simulator()
-          .ifPresent(
-              simulator -> {
-                sim.addTo(simulator.components());
-                Scenarios.addTo(simulator.components(), sim);
-              });
-    }
+    addTheSimulatorsControls(pitwall);
     pitwall.devices().add(AutoPit.device(autos));
     pitwall.actions().add(DRIVE_CHECK, Actions.command(() -> scheduler, this::driveCheck));
     calibration.addTo(pitwall.actions(), scheduler);
+    addTheExperiments(pitwall);
+    addTheWorldView(pitwall);
+    addTheStatusLines(pitwall);
+  }
+
+  /**
+   * In the simulator, gives the page the simulated world's parts that can fail, and the scenarios,
+   * for the page to apply.
+   */
+  private void addTheSimulatorsControls(Pitwall pitwall) {
+    if (world.isEmpty() || pitwall.simulator().isEmpty()) {
+      return;
+    }
+    Components components = pitwall.simulator().get().components();
+    world.get().addTo(components);
+    Scenarios.addTo(components, world.get());
+  }
+
+  /**
+   * The experiments for tuning: one for the steering, and one for each joint. A joint's experiment
+   * is made from its places and speeds, so there is nothing to write for each joint.
+   */
+  private void addTheExperiments(Pitwall pitwall) {
     pitwall
         .experiments()
         .add(
             new Experiment(
                 STEER_STEP, drive.steeringRig(tunings.drivetrain()), STEER_STEP_PROFILE));
-    // Each joint's, from its places and speeds: nothing to write per joint.
     JointExperiments.of(joints, tunings.joints()).forEach(pitwall.experiments()::add);
-    // The World view: the field, the robot where localization believes it is, its cameras' sight
-    // lines with their verdicts, and in the simulator, the truth.
+  }
+
+  /**
+   * The World view: the field, the robot where localization believes it is, its cameras' sight
+   * lines with what became of each frame, and, in the simulator, where the robot really is.
+   */
+  private void addTheWorldView(Pitwall pitwall) {
+    // The view takes null for a robot whose true pose nobody knows, which is every real one.
+    @Nullable Supplier<Pose3d> truth = null;
+    if (world.isPresent()) {
+      SimulatedWorld simulated = world.get();
+      truth = () -> simulated.drivetrain().truePose3d();
+    }
     pitwall
         .scenes()
         .add(
             WorldView.scene(
                 matchField::field,
-                robotDefinition,
+                definition,
                 worldReadings(),
-                sim != null ? () -> sim.drivetrain().truePose3d() : null,
+                truth,
                 camera -> Optional.of(Calibration.cameraMountAction(camera))));
-    // Each change goes to every open page: the lines that follow sensors change at most once a
-    // second, and are written to change only when something worth reading does. Grouped (see
-    // Status's javadoc) so the page shows the robot, the field, and the joints apart.
+  }
+
+  /**
+   * One status line each for the loop, the alliance, the venue, the auto, the placement,
+   * localization, scoring, the last calibration, the cameras, and two checks of the mechanisms.
+   *
+   * <p>Each change of a line goes to every open page. The lines that follow the sensors change at
+   * most once a second, and are worded so that they change only when something worth reading does.
+   * The names are grouped (see {@code Status}'s Javadoc), so that the page shows the robot, the
+   * field and the mechanisms apart.
+   */
+  private void addTheStatusLines(Pitwall pitwall) {
     pitwall
         .status()
         .add("Robot/Loop", this::loopStatus, STATUS_INTERVAL)
@@ -562,41 +692,15 @@ public final class RobotContainer implements AutoCloseable {
         .add("Field/Scoring", this::scoring)
         .add("Field/Calibration", calibration::lastResult)
         .add("Field/Cameras", this::cameras, STATUS_INTERVAL)
-        // Joints already raise these as alerts; the page shows the same two checks.
+        // The joints already raise these two as alerts. The page shows the same two checks.
         .add("Mechanisms/Switches trusted", () -> joints.switchDoubts().isEmpty())
         .add("Mechanisms/Power channels", () -> joints.deadChannels().isEmpty());
   }
 
-  Drive drive() {
-    return drive;
-  }
-
-  /** What the robot is, as configured: the definition its {@code Controls} is given. */
-  RobotDefinition definition() {
-    return robotDefinition;
-  }
-
-  /** Every driven joint's mechanism, for behavior code to look up by its joint. */
-  Joints joints() {
-    return joints;
-  }
-
-  /** Every command bound to the drive team's gamepads, as the bindings were made. */
-  Bindings bindings() {
-    return bindings;
-  }
-
-  /** The driver's gamepad, port 0. */
-  RecordingGamepad driver() {
-    return driver;
-  }
-
-  /** The operator's gamepad, port 1. */
-  RecordingGamepad operator() {
-    return operator;
-  }
-
-  /** What the World view reads each loop while a page shows it: localization's and the wheels'. */
+  /**
+   * What the World view reads each loop while a page shows it: localization's estimate and the
+   * wheels' velocities.
+   */
   private WorldView.Readings worldReadings() {
     return new WorldView.Readings() {
       @Override
@@ -626,23 +730,89 @@ public final class RobotContainer implements AutoCloseable {
     };
   }
 
+  // ---- The parts, for tests and for the robot program ----
+
+  /** The field as this match sets it: the alliance, the start, the placement, the zones. */
+  MatchField matchField() {
+    return matchField;
+  }
+
+  /** The robot's autos: the ones its {@code Controls} declares, and the one chosen. */
+  Autos autos() {
+    return autos;
+  }
+
+  Vision vision() {
+    return vision;
+  }
+
+  Localization localization() {
+    return localization;
+  }
+
+  /**
+   * What became of each camera frame this loop, as localization decided it. Tests check what it
+   * made of them.
+   */
+  List<FrameVerdict> frames() {
+    return frames;
+  }
+
+  /** The localization estimate, as of the last loop. */
+  LocalizationEstimate estimate() {
+    return localization.estimate();
+  }
+
+  /** The calibration procedures, for the Pitwall page. */
+  Calibration calibration() {
+    return calibration;
+  }
+
+  Drive drive() {
+    return drive;
+  }
+
+  /** What the robot is, as configured: the definition its {@code Controls} is given. */
+  RobotDefinition definition() {
+    return definition;
+  }
+
+  /** Every driven joint's mechanism, for behavior code to look up by its joint. */
+  Joints joints() {
+    return joints;
+  }
+
+  /** Every command bound to the drive team's gamepads, as the bindings were made. */
+  Bindings bindings() {
+    return bindings;
+  }
+
+  /** The driver's gamepad, port 0. */
+  RecordingGamepad driver() {
+    return driver;
+  }
+
+  /** The operator's gamepad, port 1. */
+  RecordingGamepad operator() {
+    return operator;
+  }
+
   /** The drivetrain's configuration as the pit tunes it. */
   LiveConfig<DrivetrainControl> drivetrainTuning() {
     return tunings.drivetrain();
   }
 
-  /** The simulator's world, or null outside the simulator. */
-  @Nullable SimulatedWorld world() {
+  /** The simulator's world. Only the simulator has one. */
+  Optional<SimulatedWorld> world() {
     return world;
   }
 
-  /** The simulator's drivetrain physics, or null outside the simulator. */
-  @Nullable DriveSimulation simulation() {
-    SimulatedWorld sim = world;
-    return sim != null ? sim.drivetrain() : null;
+  /** The simulator's drivetrain physics. Only the simulator has any. */
+  Optional<DriveSimulation> simulation() {
+    return world.map(SimulatedWorld::drivetrain);
   }
 
-  /** Releases what holds global resources (alerts), so a test can build another robot. */
+  /** Releases what holds global resources, such as alerts, so that a test can build another. */
   @Override
   public void close() {
     tunings.all().forEach(TunableRegistry::remove);
@@ -654,8 +824,8 @@ public final class RobotContainer implements AutoCloseable {
     venues.close();
     loopHealth.close();
     vision.close();
-    if (world != null) {
-      world.close();
+    if (world.isPresent()) {
+      world.get().close();
     }
     hardware.close();
   }

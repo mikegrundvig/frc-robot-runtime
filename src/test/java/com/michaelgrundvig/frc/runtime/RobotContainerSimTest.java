@@ -392,7 +392,7 @@ class RobotContainerSimTest {
         sim.robot().drive().getPose(),
         "on its start, as the log's Driver Station says; nothing moves");
     assertThat(activeAlerts()).as("replay's hardware is the log").doesNotContain(NO_DRIVETRAIN);
-    assertThat(sim.robot().simulation()).as("no physics in a replay").isNull();
+    assertThat(sim.robot().simulation()).as("no physics in a replay").isEmpty();
   }
 
   /**
@@ -450,8 +450,7 @@ class RobotContainerSimTest {
                     .build())
             .build(),
         SensorErrors.NONE);
-    SensorSimulation sensors =
-        Objects.requireNonNull(Objects.requireNonNull(sim.robot().world()).sensors());
+    SensorSimulation sensors = Objects.requireNonNull(sim.robot().world().orElseThrow().sensors());
     sim.run(0.1);
     assertThat(activeAlerts()).noneMatch(text -> text.contains("lost"));
 
@@ -578,7 +577,7 @@ class RobotContainerSimTest {
     sim.scheduler().schedule(sim.robot().joints().of(arm).run(push));
     sim.run(0.2);
 
-    Objects.requireNonNull(Objects.requireNonNull(sim.robot().world()).pdh()).zero(5, true);
+    Objects.requireNonNull(sim.robot().world().orElseThrow().pdh()).zero(5, true);
     sim.run(0.6);
 
     assertThat(activeAlerts())

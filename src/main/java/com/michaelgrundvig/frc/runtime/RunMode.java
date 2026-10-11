@@ -27,8 +27,10 @@ public enum RunMode {
 
   /** The mode this program is running in. */
   public static RunMode current() {
-    return RobotBase.isReal()
-        ? REAL
-        : valueOf(System.getProperty("frc.simMode", "SIM").toUpperCase(Locale.ROOT));
+    if (RobotBase.isReal()) {
+      return REAL;
+    }
+    String asked = System.getProperty("frc.simMode", "SIM");
+    return valueOf(asked.toUpperCase(Locale.ROOT));
   }
 }

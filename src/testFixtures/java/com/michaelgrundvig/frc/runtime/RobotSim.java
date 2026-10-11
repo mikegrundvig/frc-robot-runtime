@@ -25,6 +25,7 @@ import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
@@ -191,7 +192,16 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
     loopHealth = health;
     container =
         Robot.assemble(
-            mode, scheduler(), robot, season, controls, page, errors, health, null, watched);
+            mode,
+            scheduler(),
+            robot,
+            season,
+            controls,
+            page,
+            errors,
+            health,
+            Optional.empty(),
+            watched);
     return container;
   }
 
@@ -209,12 +219,16 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   /** The simulator's physics: where the robot really is. */
   public DriveSimulation simulation() {
-    return Objects.requireNonNull(robot().simulation(), "only the simulator has physics");
+    return robot()
+        .simulation()
+        .orElseThrow(() -> new IllegalStateException("only the simulator has physics"));
   }
 
   /** The simulated world: the robot's physics and its cameras, which scenarios act on. */
   public SimulatedWorld world() {
-    return Objects.requireNonNull(robot().world(), "only the simulator has a world");
+    return robot()
+        .world()
+        .orElseThrow(() -> new IllegalStateException("only the simulator has a world"));
   }
 
   /**
@@ -318,7 +332,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
    * tunables update. What the robot's commands throw, it throws, so a bug fails its test.
    */
   public void loop() {
-    loop(false);
+    loop(Robot.AfterAThrow.ENDS_THE_PROGRAM);
   }
 
   /**
@@ -326,14 +340,14 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
    * carries on without them ({@link Robot#loop}).
    */
   void loopOnRobot() {
-    loop(true);
+    loop(Robot.AfterAThrow.CARRIES_ON);
   }
 
-  private void loop(boolean carriesOn) {
+  private void loop(Robot.AfterAThrow afterAThrow) {
     RobotContainer robot = robot();
     stepClock();
     DriverStationBackend.refreshData();
-    Robot.loop(pitwall(), robot, scheduler(), Objects.requireNonNull(loopHealth), carriesOn);
+    Robot.loop(pitwall(), robot, scheduler(), Objects.requireNonNull(loopHealth), afterAThrow);
     TunableRegistry.update();
   }
 

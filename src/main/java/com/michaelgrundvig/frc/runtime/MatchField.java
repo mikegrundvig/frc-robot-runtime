@@ -12,7 +12,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.MatchState;
 import org.wpilib.math.geometry.Pose2d;
@@ -24,21 +23,33 @@ import org.wpilib.telemetry.Telemetry;
 import org.wpilib.util.Alert;
 
 /**
- * The field as this match sets it, as of each loop: the robot's alliance and station, from the
- * Driver Station or the field system; the start chosen for the match, and where it is for the
- * alliance; whether the robot stands on it before the match (its placement); the zones it's in or
- * nearing; and, in the simulator, the field view. The field itself is the official layout, or the
- * venue the pit selected.
+ * The field as this match sets it, kept up to date each loop:
+ *
+ * <ul>
+ *   <li>the robot's alliance and station, from the Driver Station or the field system;
+ *   <li>the start chosen for the match, and where that start is for the alliance;
+ *   <li>whether the robot stands on its start before the match (its {@link Placement});
+ *   <li>the zones the robot is in or is nearing;
+ *   <li>in the simulator, the field view.
+ * </ul>
+ *
+ * <p>The field itself is the official layout, or the venue the pit selected.
+ *
+ * <p>A loop uses this in two steps. Before the robot reads its sensors, {@link #read} takes the
+ * alliance, the station and the chosen start. Once localization has the robot's pose, {@link
+ * #update} judges where the robot is.
  */
 final class MatchField implements AutoCloseable {
-  /** How far from a start position, and how far turned from it, still counts as on it. */
+  /** How far from its start the robot may stand and still count as on it. */
   static final double START_TOLERANCE_METERS = 0.10;
 
+  /** How far the robot may be turned from its start's heading and still count as on it. */
   static final double START_TOLERANCE_DEGREES = 5;
 
-  /** Zone triggers look this far ahead along the robot's path, and turn off this far outside. */
+  /** How far ahead along the robot's path a zone's trigger looks. */
   static final double ZONE_LOOKAHEAD_SECONDS = 0.4;
 
+  /** How far outside a zone the robot must be before the zone's trigger turns off. */
   static final double ZONE_EXIT_MARGIN_METERS = 0.1;
 
   /** The field the robot believes it plays on: the official layout, or the venue selected. */
@@ -46,11 +57,14 @@ final class MatchField implements AutoCloseable {
 
   private final Map<Zone, ZoneTrigger> zones = new LinkedHashMap<>();
 
-  /** The autos, whose chosen one names the start. */
+  /** The robot's autos. The chosen one names the start. */
   private final Autos autos;
 
-  /** The simulator's field view: the robot, its start, and the field's places. Null in a robot. */
-  private final @Nullable Field2d view;
+  /**
+   * The simulator's field view, which shows the robot, its start and the field's places. A real
+   * robot has none.
+   */
+  private final Optional<Field2d> view;
 
   private final Alert allianceUnknown =
       new Alert(
@@ -61,69 +75,111 @@ final class MatchField implements AutoCloseable {
   private final Alert offField =
       new Alert("Field", "offField", "Odometry puts the robot off the field", Alert.Level.MEDIUM);
 
-  /** This loop's alliance and station (1, 2, 3), from the Driver Station or the field system. */
+  // As of this loop.
+
+  /** The robot's alliance, once the Driver Station or the field system says. */
   private Optional<Alliance> alliance = Optional.empty();
 
-  private OptionalInt location = OptionalInt.empty();
+  /** The robot's station on its alliance's wall: 1, 2 or 3. */
+  private OptionalInt station = OptionalInt.empty();
 
-  /** The start chosen for the match, and where it is for the alliance, as of this loop. */
+  /** The start chosen for the match. */
   private Optional<Place> start = Optional.empty();
 
+  /** Where the chosen start is on the field for the robot's alliance. */
   private Optional<Pose2d> startPose = Optional.empty();
-  private boolean enabledSinceBoot;
+
+  /** Whether the robot has been enabled since the program started. */
+  private boolean hasBeenEnabled;
+
   private Placement placement = new Placement(Placement.Status.ALLIANCE_UNKNOWN, null, 0, 0);
 
   /**
    * @param field the field the robot plays on, with its official layout
-   * @param simulated whether it's the simulator, which shows the field view
+   * @param mode what the program runs as. Only the simulator shows the field view.
    * @param autos the robot's autos, whose chosen one names the start
    */
-  MatchField(FieldModel field, boolean simulated, Autos autos) {
+  MatchField(FieldModel field, RunMode mode, Autos autos) {
     this.field = field;
     this.autos = autos;
     for (Zone zone : field.zones()) {
       zones.put(zone, new ZoneTrigger(zone, ZONE_LOOKAHEAD_SECONDS, ZONE_EXIT_MARGIN_METERS));
     }
-    view = simulated ? new Field2d() : null;
+    view = mode == RunMode.SIM ? Optional.of(new Field2d()) : Optional.empty();
   }
 
+  // ---- Each loop, before the sensors are read ----
+
   /**
-   * Reads this loop's alliance, station and chosen start, before the robot reads its sensors. The
-   * robot stands where the drive team put it: on the chosen start. It's put there whenever the
-   * choice changes before the match or while disabled (so changing the alliance station in the
-   * simulator moves it), never while it drives.
+   * Reads this loop's alliance, station and chosen start, and says whether the drive team has put
+   * the robot on that start.
+   *
+   * <p>The robot is taken to stand where the drive team put it, which is on the chosen start. So
+   * whenever where the start is changes, the robot is put there, as long as that happens before the
+   * robot is first enabled or while it is disabled. That is what moves the simulated robot when the
+   * alliance station is changed in the simulator. The robot is never moved while it drives.
    *
    * @return where the drive team put the robot this loop, if they did
    */
   Optional<Pose2d> read(boolean enabled) {
     alliance = MatchState.getAlliance().map(MatchField::alliance);
-    location = MatchState.getLocation();
+    station = MatchState.getLocation();
     Optional<Place> chosen = chosenStart();
     Optional<Pose2d> chosenPose = alliance.flatMap(ours -> chosen.map(s -> s.on(field, ours)));
-    Optional<Pose2d> placed =
-        !chosenPose.equals(startPose) && (!enabled || !enabledSinceBoot)
-            ? chosenPose
-            : Optional.empty();
+
+    boolean startMoved = !chosenPose.equals(startPose);
+    boolean mayBePlaced = !enabled || !hasBeenEnabled;
     start = chosen;
     startPose = chosenPose;
-    enabledSinceBoot |= enabled;
-    return placed;
+    hasBeenEnabled |= enabled;
+    if (startMoved && mayBePlaced) {
+      return chosenPose;
+    }
+    return Optional.empty();
   }
 
-  /** What localization is told the robot was placed on: "placed on Center", or "its start". */
+  /**
+   * The start chosen for the match. It is the chosen auto's own start. "Do nothing" has none, and
+   * then the Driver Station's station chooses: stations 1, 2 and 3 are the field's first, second
+   * and third start.
+   */
+  private Optional<Place> chosenStart() {
+    Optional<Place> autosStart = autos.chosen().start();
+    if (autosStart.isPresent()) {
+      return autosStart;
+    }
+    if (station.isEmpty()) {
+      return Optional.empty();
+    }
+    List<Place> starts = field.starts();
+    int number = station.getAsInt();
+    boolean hasAStart = number >= 1 && number <= starts.size();
+    if (!hasAStart) {
+      return Optional.empty();
+    }
+    return Optional.of(starts.get(number - 1));
+  }
+
+  /**
+   * What localization is told the robot was placed on: "placed on Center", or "placed on its
+   * start".
+   */
   String placedOn() {
     return "placed on " + start.map(Place::name).orElse("its start");
   }
 
+  // ---- Each loop, once localization has the pose ----
+
   /**
-   * Judges where the robot is, once localization has it this loop: its placement on its start, the
-   * alerts, the zones, the logs, and the field view.
+   * Judges where the robot is: its placement on its start, the alerts, and the zones. Then logs all
+   * of it, and shows it in the simulator's field view.
    *
    * @param pose where localization puts the robot
-   * @param moving how fast the robot moves, robot-relative, for the zones' look ahead
-   * @param truth where the simulator really has it, for the field view; null on a robot
+   * @param moving how fast the robot moves, relative to itself, for the zones to look ahead with
+   * @param truth where the simulator really has the robot, for the field view. A real robot has no
+   *     such thing.
    */
-  void update(Pose2d pose, ChassisVelocities moving, @Nullable Pose2d truth) {
+  void update(Pose2d pose, ChassisVelocities moving, Optional<Pose2d> truth) {
     placement =
         Placement.check(
             field,
@@ -134,18 +190,29 @@ final class MatchField implements AutoCloseable {
             START_TOLERANCE_DEGREES);
     allianceUnknown.set(alliance.isEmpty());
     offField.set(!field.contains(pose.getTranslation()));
+    updateZones(pose, moving);
+    log();
+    if (view.isPresent()) {
+      show(view.get(), pose, truth);
+    }
+  }
+
+  /** Works out, and logs, whether the robot is in or nearing each zone. */
+  private void updateZones(Pose2d pose, ChassisVelocities moving) {
+    // The zones look ahead along the robot's path on the field, so its velocity is turned from
+    // the robot's axes to the field's.
     Translation2d velocity = new Translation2d(moving.vx, moving.vy).rotateBy(pose.getRotation());
     for (ZoneTrigger trigger : zones.values()) {
+      // A zone is written for one alliance, so it means nothing until the alliance is known.
       boolean active =
           alliance.isPresent()
               && trigger.update(field, alliance.get(), pose.getTranslation(), velocity);
       Logger.recordOutput("Field/Zones/" + trigger.zone().name(), active);
     }
-    show(pose, truth);
   }
 
-  /** Logs the robot's place on the field, and shows it in the simulator's field view. */
-  private void show(Pose2d pose, @Nullable Pose2d truth) {
+  /** Logs the alliance, the start, the placement, and each of the field's places. */
+  private void log() {
     Logger.recordOutput("Field/Alliance", allianceStation());
     Logger.recordOutput("Field/Start", startPose.stream().toArray(Pose2d[]::new));
     Logger.recordOutput("Field/Placement", placement.describe());
@@ -154,42 +221,28 @@ final class MatchField implements AutoCloseable {
           "Field/Places/" + place.name(),
           alliance.stream().map(ours -> place.on(field, ours)).toArray(Pose2d[]::new));
     }
-    Field2d shown = view;
-    if (shown != null) {
-      shown.setRobotPose(pose);
-      if (truth != null) {
-        shown.getObject("Truth").setPose(truth);
-      }
-      shown.getObject("Start").setPoses(startPose.stream().toList());
-      for (Place place : field.places()) {
-        shown
-            .getObject(place.name())
-            .setPoses(alliance.stream().map(ours -> place.on(field, ours)).toList());
-      }
-      Telemetry.log("Field", shown);
-    }
   }
 
-  /**
-   * The start chosen for the match: the chosen auto's own, unless it's "Do nothing", which starts
-   * where the Driver Station's location says: stations 1, 2, and 3 choose the field's first,
-   * second, and third start.
-   */
-  private Optional<Place> chosenStart() {
-    Optional<Place> autoStart = autos.chosen().start();
-    if (autoStart.isPresent()) {
-      return autoStart;
+  /** Shows the robot, the truth, the start and the field's places in the simulator's view. */
+  private void show(Field2d shown, Pose2d pose, Optional<Pose2d> truth) {
+    shown.setRobotPose(pose);
+    if (truth.isPresent()) {
+      shown.getObject("Truth").setPose(truth.get());
     }
-    List<Place> starts = field.starts();
-    if (location.isEmpty() || location.getAsInt() < 1 || location.getAsInt() > starts.size()) {
-      return Optional.empty();
+    shown.getObject("Start").setPoses(startPose.stream().toList());
+    for (Place place : field.places()) {
+      shown
+          .getObject(place.name())
+          .setPoses(alliance.stream().map(ours -> place.on(field, ours)).toList());
     }
-    return Optional.of(starts.get(location.getAsInt() - 1));
+    Telemetry.log("Field", shown);
   }
 
+  // ---- What the rest of the robot asks ----
+
   /**
-   * The Driver Station's alliance, as the field model names it: the model has its own, so that
-   * nothing reading it needs WPILib's Driver Station.
+   * The Driver Station's alliance, as the field model names it. The model has an alliance type of
+   * its own, so that nothing which reads the model needs WPILib's Driver Station.
    */
   static Alliance alliance(org.wpilib.driverstation.Alliance driverStation) {
     return switch (driverStation) {
@@ -198,7 +251,9 @@ final class MatchField implements AutoCloseable {
     };
   }
 
-  /** Plays on a venue from now on: the places derived from tags move with them. */
+  /**
+   * Plays on a venue from now on. The places that are derived from tags move with the venue's tags.
+   */
   void venue(FieldModel venue) {
     field = venue;
   }
@@ -208,13 +263,14 @@ final class MatchField implements AutoCloseable {
     return field;
   }
 
-  /** This loop's alliance, once the Driver Station or the field says. */
+  /** This loop's alliance, once the Driver Station or the field system says. */
   Optional<Alliance> alliance() {
     return alliance;
   }
 
   /**
-   * The way the robot's drivers face: the field's forward for their alliance, blue's until known.
+   * The way the robot's drivers face: the field's forward for their alliance. Until the alliance is
+   * known, it is blue's.
    */
   Rotation2d driverForward() {
     return FieldModel.driverForward(alliance.orElse(Alliance.BLUE));
@@ -226,17 +282,20 @@ final class MatchField implements AutoCloseable {
       return "Unknown";
     }
     String name = alliance.get() == Alliance.RED ? "Red" : "Blue";
-    return location.isPresent() ? name + " " + location.getAsInt() : name;
+    if (station.isEmpty()) {
+      return name;
+    }
+    return name + " " + station.getAsInt();
   }
 
-  /** The pre-match placement check, as of the last loop. */
+  /** The check of the robot's placement before the match, as of the last loop. */
   Placement placement() {
     return placement;
   }
 
   /**
    * Whether a zone's trigger is on: the robot is in the zone, or will be within {@link
-   * #ZONE_LOOKAHEAD_SECONDS}. Bind mechanisms to it, such as stowing before a low bar.
+   * #ZONE_LOOKAHEAD_SECONDS}. Mechanisms are bound to it, for example to stow before a low bar.
    */
   boolean inZone(Zone zone) {
     ZoneTrigger trigger = zones.get(zone);
@@ -247,9 +306,8 @@ final class MatchField implements AutoCloseable {
   public void close() {
     allianceUnknown.close();
     offField.close();
-    Field2d shown = view;
-    if (shown != null) {
-      shown.close();
+    if (view.isPresent()) {
+      view.get().close();
     }
   }
 }

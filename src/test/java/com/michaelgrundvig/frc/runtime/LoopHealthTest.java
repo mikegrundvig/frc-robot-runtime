@@ -112,14 +112,14 @@ class LoopHealthTest {
     File drive = folder.toFile();
     File missing = folder.resolve("U").toFile();
 
-    assertThat(LoopHealth.logDriveProblem(drive, 0)).isNull();
+    assertThat(LoopHealth.logDriveProblem(drive, 0)).isEmpty();
     assertThat(LoopHealth.logDriveProblem(missing, 0))
-        .isEqualTo("No USB drive at " + missing + ": this session isn't being logged");
+        .contains("No USB drive at " + missing + ": this session isn't being logged");
   }
 
   @Test
   void aNearlyFullDriveSaysLoggingWillStop(@TempDir Path folder) {
-    assertThat(LoopHealth.logDriveProblem(folder.toFile(), Long.MAX_VALUE))
+    assertThat(LoopHealth.logDriveProblem(folder.toFile(), Long.MAX_VALUE).orElseThrow())
         .contains("MB free: logging stops when it's full");
   }
 
@@ -132,6 +132,6 @@ class LoopHealthTest {
         readOnly.setWritable(false) && !readOnly.canWrite(),
         "this system can't make a folder read-only");
 
-    assertThat(LoopHealth.logDriveProblem(readOnly, 0)).contains("can't be written");
+    assertThat(LoopHealth.logDriveProblem(readOnly, 0).orElseThrow()).contains("can't be written");
   }
 }

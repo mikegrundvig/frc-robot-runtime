@@ -8,7 +8,7 @@ import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
-import java.util.Objects;
+import java.util.Optional;
 import java.util.function.UnaryOperator;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
@@ -71,14 +71,15 @@ public final class SimulatedRobot implements AutoCloseable {
             pitwall,
             errors,
             loopHealth,
-            null,
+            Optional.empty(),
             UnaryOperator.identity());
   }
 
   /** One robot loop: the clock moves a loop's time, the robot runs its loop, tunables update. */
   public void loop() {
     SimHooks.stepTiming(RobotLoop.PERIOD_SECONDS);
-    Robot.loop(pitwall, container, scheduler, loopHealth, false); // a bug ends a study at once
+    // A bug ends a study at once.
+    Robot.loop(pitwall, container, scheduler, loopHealth, Robot.AfterAThrow.ENDS_THE_PROGRAM);
     TunableRegistry.update();
   }
 
@@ -122,7 +123,9 @@ public final class SimulatedRobot implements AutoCloseable {
   }
 
   private SimulatedWorld world() {
-    return Objects.requireNonNull(container.world(), "only the simulator has a world");
+    return container
+        .world()
+        .orElseThrow(() -> new IllegalStateException("only the simulator has a world"));
   }
 
   /**
@@ -151,7 +154,7 @@ public final class SimulatedRobot implements AutoCloseable {
 
   /** Where the robot really is. */
   public Pose2d truePose() {
-    return Objects.requireNonNull(container.simulation()).truePose();
+    return container.simulation().orElseThrow().truePose();
   }
 
   /** How much less a camera is trusted for its mount, in meters ({@code MountCheck}). */

@@ -44,6 +44,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -132,7 +133,7 @@ class HardwareTest {
   @Test
   void aRobotsHardwareIsTheDevicesItsWiringNames() {
     Map<String, Sensor.Placed> sensors = sensors();
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, null);
+    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, Optional.empty());
         AbsoluteEncoderIOPort encoder = (AbsoluteEncoderIOPort) hardware.absoluteEncoder(PIVOT);
         SensorIOPort lower =
             (SensorIOPort)
@@ -162,7 +163,7 @@ class HardwareTest {
    */
   @Test
   void aRobotsPartWithNoWiringGetsNothingAndAnAlertSaysSo() {
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, null)) {
+    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, Optional.empty())) {
       assertThat(hardware.drive().modules())
           .allMatch(module -> module.getClass().isAnonymousClass());
       assertThat(hardware.joint(ROLLER).getClass().isAnonymousClass()).isTrue();
@@ -186,7 +187,7 @@ class HardwareTest {
   @Test
   void theSimulatorsHardwareIsTheWorlds() {
     try (SimulatedWorld world = new SimulatedWorld(RobotSim.FIELD, ROBOT, SensorErrors.NONE);
-        Hardware hardware = RobotContainer.hardware(RunMode.SIM, ROBOT, world)) {
+        Hardware hardware = RobotContainer.hardware(RunMode.SIM, ROBOT, Optional.of(world))) {
       assertThat(hardware).isInstanceOf(SimulatedHardware.class);
       assertThat(hardware.drive().modules())
           .containsExactlyElementsOf(world.drivetrainHardware().modules());
@@ -208,7 +209,7 @@ class HardwareTest {
   /** In a replay, nothing: every reading comes from the log. */
   @Test
   void aReplaysHardwareIsNothing() {
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REPLAY, ROBOT, null)) {
+    try (Hardware hardware = RobotContainer.hardware(RunMode.REPLAY, ROBOT, Optional.empty())) {
       List<Object> made = new ArrayList<>(hardware.drive().modules());
       made.add(hardware.drive().gyro());
       made.add(hardware.joint(PIVOT));
