@@ -172,12 +172,24 @@ public final class Sensors {
     return lost;
   }
 
+  /**
+   * What one of the robot's sensors read. Conditions ask this several times a loop, and nearly
+   * always with the very object the robot's definition holds, so that is looked for first, among
+   * the few sensors a robot has. Finding a sensor by its value hashes everything the sensor is made
+   * of, its joint and its pose included, which allocates about a kilobyte each time; that is left
+   * for a sensor that is equal to one of the robot's without being the same object.
+   */
   private Reading reading(Sensor sensor) {
-    Reading reading = bySensor.get(sensor);
-    if (reading == null) {
+    for (Reading reading : readings) {
+      if (reading.sensor == sensor) {
+        return reading;
+      }
+    }
+    Reading equal = bySensor.get(sensor);
+    if (equal == null) {
       throw new IllegalArgumentException(notOurs(sensor));
     }
-    return reading;
+    return equal;
   }
 
   private static String notOurs(Sensor sensor) {
