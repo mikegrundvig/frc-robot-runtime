@@ -56,6 +56,37 @@ final class DriveReadings {
    */
   private final Map<Integer, SwerveDriveKinematics> kinematicsOfConnected = new HashMap<>();
 
+  /**
+   * The wheels' distances and angles at one high-rate reading. The two arrays are filled for each
+   * reading in turn, and the {@link OdometrySample} made from them copies them, so these two serve
+   * every reading of every loop.
+   */
+  private final double[] distancesMeters = new double[Module.COUNT];
+
+  private final double[] anglesRadians = new double[Module.COUNT];
+
+  /** The loop's high-rate readings as they are gathered. Localization is handed a copy. */
+  private final List<OdometrySample> wheelReadingsGathered = new ArrayList<>();
+
+  /**
+   * Each module's measured wheel speed and direction as of this loop's read. This array is for the
+   * drivetrain's own reading, by the fit below and by the log. WPILib's module velocities can be
+   * written to, so anyone else is given their own ({@link #moduleVelocities}).
+   */
+  private SwerveModuleVelocity[] moduleVelocitiesAsRead;
+
+  /**
+   * How the robot is measured to move as of this loop's read, relative to itself. It is fitted to
+   * the wheels once, as they are read, because the fit makes a dozen objects and nothing it depends
+   * on changes until the next read. It is kept as plain numbers because WPILib's {@link
+   * ChassisVelocities} can be written to, so each asker is given its own ({@link
+   * #robotRelativeVelocities}).
+   */
+  private double forwardMetersPerSecond;
+
+  private double leftMetersPerSecond;
+  private double turnRateRadiansPerSecond;
+
   /** What was read this loop, as localization takes it. */
   private DrivetrainReadings forLocalization =
       DrivetrainReadings.builder()
@@ -76,6 +107,8 @@ final class DriveReadings {
     this.odometryLock = hardware.odometryLock();
     this.moduleTranslations = moduleTranslations;
     this.kinematics = kinematics;
+    moduleVelocitiesAsRead = moduleVelocities();
+    keepAsMeasured(fittedToTheWheels());
   }
 
   /** Reads the hardware for a new loop, logs what was read, and works out what follows from it. */
@@ -95,12 +128,15 @@ final class DriveReadings {
     for (Module module : modules) {
       module.logInputs();
     }
+    moduleVelocitiesAsRead = moduleVelocities();
+    ChassisVelocities measured = fittedToTheWheels();
+    keepAsMeasured(measured);
     forLocalization =
         DrivetrainReadings.builder()
             .wheels(wheelReadings())
             .gyro(imuReadings(gyroInputs))
             .backupImu(imuReadings(backupInputs))
-            .velocities(robotRelativeVelocities())
+            .velocities(measured)
             .build();
   }
 
@@ -124,10 +160,9 @@ final class DriveReadings {
    */
   private List<OdometrySample> wheelReadings() {
     int readings = readingsEveryModuleHas();
-    List<OdometrySample> wheels = new ArrayList<>(readings);
+    List<OdometrySample> wheels = wheelReadingsGathered;
+    wheels.clear();
     for (int reading = 0; reading < readings; reading++) {
-      double[] distancesMeters = new double[Module.COUNT];
-      double[] anglesRadians = new double[Module.COUNT];
       boolean anyWheelReports = false;
       for (int i = 0; i < Module.COUNT; i++) {
         if (modules[i].isConnected()) {
@@ -186,15 +221,30 @@ final class DriveReadings {
   // ---- How the robot is measured to move ----
 
   /**
-   * The robot's measured velocities, relative to itself, from the modules that are connected.
+   * The robot's measured velocities, relative to itself, as of this loop's read: the caller's own
+   * to keep or to change.
+   */
+  ChassisVelocities robotRelativeVelocities() {
+    return new ChassisVelocities(
+        forwardMetersPerSecond, leftMetersPerSecond, turnRateRadiansPerSecond);
+  }
+
+  private void keepAsMeasured(ChassisVelocities measured) {
+    forwardMetersPerSecond = measured.vx;
+    leftMetersPerSecond = measured.vy;
+    turnRateRadiansPerSecond = measured.omega;
+  }
+
+  /**
+   * The robot's velocities, relative to itself, fitted to what the connected modules measure.
    *
    * <p>A disconnected module reports the speed it last sent, however the robot moves now, so it is
    * left out and the velocities are fitted to the rest. Two modules are the fewest that say how the
    * robot turns. With fewer than two connected there is nothing better to go on than all four as
    * they read, so all four are used.
    */
-  ChassisVelocities robotRelativeVelocities() {
-    SwerveModuleVelocity[] measured = moduleVelocities();
+  private ChassisVelocities fittedToTheWheels() {
+    SwerveModuleVelocity[] measured = moduleVelocitiesAsRead;
     int connected = connectedModules();
     int connectedCount = Integer.bitCount(connected);
     boolean allConnected = connectedCount == Module.COUNT;
@@ -255,7 +305,18 @@ final class DriveReadings {
     return true;
   }
 
-  /** Each module's measured wheel speed and direction, in the order the drivetrain numbers them. */
+  /**
+   * Each module's measured wheel speed and direction as of this loop's read, for the log, which
+   * only reads them.
+   */
+  SwerveModuleVelocity[] moduleVelocitiesAsRead() {
+    return moduleVelocitiesAsRead;
+  }
+
+  /**
+   * Each module's measured wheel speed and direction, in the order the drivetrain numbers them: the
+   * caller's own to keep or to change.
+   */
   SwerveModuleVelocity[] moduleVelocities() {
     SwerveModuleVelocity[] velocities = new SwerveModuleVelocity[Module.COUNT];
     for (int i = 0; i < Module.COUNT; i++) {

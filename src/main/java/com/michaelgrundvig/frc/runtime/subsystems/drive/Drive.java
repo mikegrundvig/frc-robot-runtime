@@ -268,7 +268,7 @@ public class Drive implements Mechanism, AutoCloseable {
     }
     alerts.check(modules, readings);
     Logger.recordOutput("Drive/Pose", getPose());
-    Logger.recordOutput("Drive/ModuleVelocities", moduleVelocities());
+    Logger.recordOutput("Drive/ModuleVelocities", readings.moduleVelocitiesAsRead());
     Logger.recordOutput("Drive/ModulePoses", modulePoses());
   }
 
@@ -575,9 +575,9 @@ public class Drive implements Mechanism, AutoCloseable {
   }
 
   /**
-   * Measured robot-relative velocities, from the modules that are connected: a disconnected one
-   * reads the speed it last sent, however the robot moves now. With fewer than two connected,
-   * nothing better than all four ({@link DriveReadings#robotRelativeVelocities}).
+   * Measured robot-relative velocities as of this loop's read, from the modules that are connected:
+   * a disconnected one reads the speed it last sent, however the robot moves now. With fewer than
+   * two connected, nothing better than all four ({@link DriveReadings#robotRelativeVelocities}).
    */
   public ChassisVelocities getRobotRelativeVelocities() {
     return readings.robotRelativeVelocities();

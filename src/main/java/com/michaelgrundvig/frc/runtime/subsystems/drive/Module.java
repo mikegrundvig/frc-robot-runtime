@@ -38,7 +38,10 @@ public class Module {
 
   private final ModuleIO io;
   private final ModuleIOInputsAutoLogged inputs = new ModuleIOInputsAutoLogged();
-  private final String name;
+
+  /** Where the module's inputs are logged, {@code Drive/ModuleFrontLeft}: worked out once. */
+  private final String inputsKey;
+
   private final double wheelRadiusMeters;
 
   /** The volts the drive motor needs to overcome friction, whichever way the wheel rolls. */
@@ -62,7 +65,7 @@ public class Module {
    */
   Module(ModuleIO io, int index, DrivetrainGeometry.ModuleType type) {
     this.io = io;
-    this.name = NAMES.get(index);
+    this.inputsKey = "Drive/Module" + NAMES.get(index);
     this.wheelRadiusMeters = type.wheelRadius().in(Meters);
     Actuator.Motors motors = type.driveMotors();
     voltsPerNewton =
@@ -91,7 +94,7 @@ public class Module {
 
   /** Logs what was read. In a replay, this is where the inputs are taken from the log instead. */
   void logInputs() {
-    Logger.processInputs("Drive/Module" + name, inputs);
+    Logger.processInputs(inputsKey, inputs);
   }
 
   /**
