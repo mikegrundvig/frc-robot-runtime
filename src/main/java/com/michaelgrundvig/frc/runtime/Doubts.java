@@ -1,6 +1,6 @@
 package com.michaelgrundvig.frc.runtime;
 
-import com.michaelgrundvig.frc.localization.LocalizationService;
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.ControllerSettings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
@@ -24,8 +24,8 @@ import org.wpilib.driverstation.DriverStationErrors;
  * <ul>
  *   <li>The robot's definition ({@code RobotDefinition.findings}): a named speed at its motors'
  *       free speed, a kG nobody tuned, a link that was never weighed.
- *   <li>Localization ({@link LocalizationService#doubts}): treads said to grip so hard that the
- *       slip check cannot tell a slide from a collision.
+ *   <li>Localization ({@link DefaultLocalizer#doubts}): treads said to grip so hard that the slip
+ *       check cannot tell a slide from a collision.
  *   <li>Each driven joint's motor controller settings ({@link ControllerSettings#findings}): a
  *       tuned gain far from what the joint's weight needs, a gravity offset at Phoenix's limit, an
  *       encoder that wraps near the joint's range.
@@ -55,7 +55,7 @@ final class Doubts {
    */
   static List<Finding> of(RobotDefinition definition) {
     List<Finding> found = new ArrayList<>(definition.findings());
-    found.addAll(LocalizationService.doubts(definition));
+    found.addAll(DefaultLocalizer.doubts(definition));
     for (Joint joint : Joints.driven(definition)) {
       found.addAll(ControllerSettings.findings(definition.math(), joint));
     }

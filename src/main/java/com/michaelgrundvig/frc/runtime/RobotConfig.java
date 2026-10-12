@@ -1,11 +1,15 @@
 package com.michaelgrundvig.frc.runtime;
 
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
+import com.michaelgrundvig.frc.localization.Localizer;
+import com.michaelgrundvig.frc.localization.LocalizerMaker;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.config.Checks;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
+import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
@@ -28,11 +32,18 @@ import java.util.Optional;
  *     is mounted, and, in each one's block, how it's driven and wired
  * @param vision how far the cameras' images are trusted, and which are left out: the thresholds and
  *     uncertainties, some tunable live
- * @param estimator how the pose estimator weighs odometry, the gyro, and the cameras
+ * @param estimator how the default localizer's pose estimator weighs odometry, the gyro, and the
+ *     cameras. A robot that chooses another localizer keeps it, unused.
+ * @param localizer what works out where the robot is, for a robot that chooses its own: {@code
+ *     .localizer(WpilibLocalizer::new)} for WPILib's pose estimator, or a maker of the team's own
+ *     (docs/localizers.md). Left out, the robot gets the default localizer.
  */
 @ConfigRecord
 public record RobotConfig(
-    RobotDefinition definition, VisionConfig vision, EstimatorConfig estimator) {
+    RobotDefinition definition,
+    VisionConfig vision,
+    EstimatorConfig estimator,
+    Optional<LocalizerMaker> localizer) {
   public RobotConfig {
     Optional<SwerveWiring> drivetrainWiring = definition.drivetrain().wiring();
     // The definition's own findings come first, then what this program cannot drive: a drivetrain
@@ -65,6 +76,14 @@ public record RobotConfig(
    */
   public Optional<SwerveWiring> drivetrainWiring() {
     return definition.drivetrain().wiring();
+  }
+
+  /**
+   * Makes the robot's localizer for a field: the one the robot chose, or the default localizer
+   * weighing its sources as {@link #estimator} says.
+   */
+  public Localizer localizerOn(FieldModel field) {
+    return localizer.orElse(DefaultLocalizer.with(estimator)).make(definition, field);
   }
 
   /** Which robot this is, as its logs name it: its definition's name. */

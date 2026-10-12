@@ -58,12 +58,24 @@ public record LocalizationGate(
    * @return the first reason found, the most basic first
    */
   public Optional<String> whyNot(LocalizationEstimate estimate) {
-    Optional<String> restsOnTooLittle = whyItsModeIsNotEnough(estimate.mode());
+    return whyNot(estimate.mode(), estimate.health(), estimate.covariance());
+  }
+
+  /**
+   * Why a pose isn't good enough, from what a localizer reports of it ({@link Localizer#mode},
+   * {@link Localizer#health}, {@link Localizer#covariance}). Empty when it is good enough.
+   *
+   * @return the first reason found, the most basic first
+   */
+  public Optional<String> whyNot(
+      LocalizationEstimate.Mode mode,
+      LocalizationEstimate.Health health,
+      PoseCovariance covariance) {
+    Optional<String> restsOnTooLittle = whyItsModeIsNotEnough(mode);
     if (restsOnTooLittle.isPresent()) {
       return restsOnTooLittle;
     }
     // Each limit is written so that a value that isn't a number is past it.
-    LocalizationEstimate.Health health = estimate.health();
     boolean visionIsRecent = health.visionAgeSeconds() <= maxVisionAgeSeconds;
     if (!visionIsRecent) {
       return Optional.of(
@@ -80,7 +92,7 @@ public record LocalizationGate(
       return Optional.of(
           String.format(Locale.ROOT, "the cameras and odometry disagree by %.2f m", disagreement));
     }
-    double spread = estimate.covariance().largestPositionStdDev();
+    double spread = covariance.largestPositionStdDev();
     boolean positionIsSure = spread <= maxPositionStdDevMeters;
     if (!positionIsSure) {
       return Optional.of(String.format(Locale.ROOT, "the position is uncertain by %.2f m", spread));

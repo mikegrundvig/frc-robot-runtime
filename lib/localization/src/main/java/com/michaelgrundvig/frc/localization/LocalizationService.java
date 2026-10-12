@@ -1,6 +1,5 @@
 package com.michaelgrundvig.frc.localization;
 
-import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
@@ -10,9 +9,7 @@ import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -22,13 +19,13 @@ import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
-import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.kinematics.ChassisVelocities;
 
 /**
  * Where the robot is: localization as one service, told what the robot's sensors read and asked
- * what it makes of them. It owns the {@link PoseEstimator} and everything around it: which IMU
- * turns odometry, how far the wheels are trusted, and solving each camera image as the robot was
- * when it was taken.
+ * what it makes of them. It owns the robot's {@link Localizer}, which keeps the pose, and what
+ * stays in front of every localizer: solving each camera image, as the robot was when it was taken,
+ * into the measurement the localizer is given.
  *
  * <p>Each loop, on the robot loop's thread, in this order:
  *
@@ -37,8 +34,8 @@ import org.wpilib.math.geometry.Translation2d;
  *   <li>{@link #place}, if the drive team placed the robot this loop;
  *   <li>{@link #mountDoubt} for each camera, and {@link #camera} for each image that arrived,
  *       stamped when it was taken;
- *   <li>{@link #update}: the one call that applies the loop's measurements, and says what became of
- *       each.
+ *   <li>{@link #update}: the one call that hands the localizer the loop's measurements, and says
+ *       what became of each.
  * </ol>
  *
  * <p>Pure, like the rest of this package: it reads no clock (each loop's time comes in a {@link
@@ -46,23 +43,17 @@ import org.wpilib.math.geometry.Translation2d;
  * Pitwall. Its outputs are a function of its inputs and its configuration, so a replay of a logged
  * match reproduces every one. Use it from one thread.
  *
- * <p>Independent of the drivetrain: its wheels come in as {@link OdometrySample}s, through its
- * {@link DriveKinematicsModel}, so swerve, tank, or any other localizes the same way.
+ * <p>What a localizer does not report ({@link Localizer}'s options) this does not make up: the
+ * answer is empty, and whoever asked says "not reported". Two things an image is solved with have a
+ * measured stand-in instead. Without {@link Localizer#fieldVelocities} the robot's speed is the
+ * wheels' own and its turning the IMU's. Without {@link Localizer#covariance} nothing says the
+ * heading is sure, so no image is solved with it.
  *
  * <p>Each image is solved against the field's tags through one {@link VisionPipeline}, and with its
  * camera's mount from the robot's definition, looked up by name in {@link #solve}: the two places a
  * venue's surveyed tags and a camera that rides a joint would change what an image is solved with.
  */
 public final class LocalizationService {
-  /**
-   * On known raised ground, a tilt up to this much steeper than its slopes is still the ground's:
-   * bumpers, suspension, and the IMU's mount.
-   */
-  private static final double GROUND_SLOPE_MARGIN = Math.toRadians(3);
-
-  /** How far off a surface's footprint the estimate may put the robot and still be on it. */
-  private static final double MAX_GROUND_REACH_METERS = 1.0;
-
   /** How far back "lately" reaches, for how fast the robot has turned: a top team used 0.3 s. */
   private static final double RECENT_TURNING_SECONDS = 0.3;
 
@@ -75,37 +66,26 @@ public final class LocalizationService {
   /** A history of loops is never shorter than this: one loop either side of a moment. */
   private static final int FEWEST_LOOPS_KEPT = 2;
 
-  private final PoseEstimator estimator;
+  private final Localizer localizer;
   private final Terrain ground;
-
-  /** How far the wheels reach from the robot's center, in meters. */
-  private final double wheelReach;
-
-  /** Each loop's wheel readings as the estimator's steps, with the yaw at each. */
-  private final OdometrySteps odometrySteps;
 
   /** The gyro and the backup IMU should turn alike. */
   private final ImuCrossCheck crossCheck = new ImuCrossCheck(ImuCrossCheck.Settings.DEFAULTS);
 
-  /** The wheels against the IMU: whether they slide over the floor together. */
-  private final WheelsAgainstImu wheelsAgainstImu;
-
   /**
-   * Which IMU turns odometry this loop, and so says everything else an IMU says this loop: the
-   * gyro, the backup, or neither ({@link YawSource#WHEELS}).
+   * What the IMU that has readings this loop read: the gyro, the backup IMU while the gyro has
+   * none, or null when neither has. The robot's tilt comes from it.
    */
-  private YawSource imuThisLoop = YawSource.WHEELS;
-
-  /** What that IMU read this loop: null when neither IMU turns odometry. */
   private @Nullable ImuReadings imuReadingsThisLoop;
 
-  /** What the IMU and the robot's state said about trusting the wheels this loop. */
-  private DriveConditions conditions = DriveConditions.NORMAL;
+  /** How the wheels say the robot moves this loop, for a localizer that does not say itself. */
+  private ChassisVelocities wheelVelocities = new ChassisVelocities();
 
-  private LocalizationEstimate estimate;
+  /** The measurements made since the last update, in the order the cameras were read. */
+  private final List<VisionMeasurement> pending = new ArrayList<>();
 
-  /** What the estimator decided about each measurement in the last update. */
-  private List<VisionDecision> decisions = List.of();
+  /** The measurements the last update handed the localizer, in the order it was handed them. */
+  private List<VisionMeasurement> given = List.of();
 
   // The cameras: each one's mount and the field's tags to solve its images with (the venue's, once
   // one is selected), and how far the pit has tuned them to be trusted.
@@ -150,7 +130,8 @@ public final class LocalizationService {
   /**
    * @param speedMetersPerSecond how fast the robot moves over the field
    * @param recentYawRateRadiansPerSecond the fastest it turned lately, either way
-   * @param headingStdDevRadians how sure the estimate is of its heading
+   * @param headingStdDevRadians how sure the localizer is of its heading; infinite when it does not
+   *     say
    */
   private record Motion(
       double speedMetersPerSecond,
@@ -158,8 +139,9 @@ public final class LocalizationService {
       double headingStdDevRadians) {}
 
   /**
-   * Localization for a robot on a field: its estimator starts with the robot not placed yet, so
-   * anywhere on the field, and the first camera measurement (or placing it) wins.
+   * Localization for a robot on a field, with the default localizer: its estimator starts with the
+   * robot not placed yet, so anywhere on the field, and the first camera measurement (or placing
+   * it) wins.
    *
    * @param field the field: its tags, which images are solved against; its terrain, which a tilt
    *     the ground explains and a crest crossed come from; and its edges, past which no measurement
@@ -176,20 +158,14 @@ public final class LocalizationService {
       DriveKinematicsModel kinematics,
       EstimatorConfig config,
       double loopSeconds) {
-    this(
-        new PoseEstimator(config, field::contains, field.tags().keySet(), notPlacedYet(field)),
-        kinematics,
-        field,
-        field.terrain(),
-        robot,
-        loopSeconds);
+    this(field, robot, new DefaultLocalizer(field, robot, kinematics, config), loopSeconds);
   }
 
   /**
-   * Localization from its parts: an estimator already made (in a test, one that starts where the
-   * robot stands), and a terrain other than the field's own.
+   * Localization with the default localizer from its parts: an estimator already made (in a test,
+   * one that starts where the robot stands), and a terrain other than the field's own.
    *
-   * @param estimator the pose estimator, which this owns from now on
+   * @param estimator the pose estimator, which the localizer owns from now on
    * @param kinematics how the drivetrain's wheels move the robot
    * @param field the field whose tags images are solved against
    * @param terrain the ground the robot drives on: a tilt it explains keeps the wheels trusted
@@ -203,23 +179,43 @@ public final class LocalizationService {
       Terrain terrain,
       RobotDefinition robot,
       double loopSeconds) {
+    this(
+        field,
+        terrain,
+        robot,
+        new DefaultLocalizer(estimator, kinematics, terrain, robot),
+        loopSeconds);
+  }
+
+  /**
+   * Localization for a robot on a field, with the localizer the robot chose.
+   *
+   * @param field the field: its tags, which images are solved against, and its terrain
+   * @param robot what the robot is: its cameras' mounts, and the joints a camera rides
+   * @param localizer the localizer, which this owns from now on
+   * @param loopSeconds how long one robot loop is
+   */
+  public LocalizationService(
+      FieldModel field, RobotDefinition robot, Localizer localizer, double loopSeconds) {
+    this(field, field.terrain(), robot, localizer, loopSeconds);
+  }
+
+  /**
+   * The same, on a terrain other than the field's own.
+   *
+   * @param terrain the ground the robot drives on, for how high a pose stands
+   */
+  public LocalizationService(
+      FieldModel field,
+      Terrain terrain,
+      RobotDefinition robot,
+      Localizer localizer,
+      double loopSeconds) {
     if (!(loopSeconds > 0) || Double.isInfinite(loopSeconds)) {
       throw new IllegalArgumentException("a loop takes some time: " + loopSeconds);
     }
-    this.estimator = estimator;
-    odometrySteps = new OdometrySteps(kinematics);
-    double reach = 0;
-    for (Translation2d wheel : robot.moduleTranslations()) {
-      reach = Math.max(reach, wheel.getNorm());
-    }
-    wheelReach = reach;
+    this.localizer = localizer;
     ground = terrain;
-    // The most the tread's grip can change the robot's velocity is its friction times gravity.
-    double gripMetersPerSecSq =
-        robot.drivetrain().wheelCoefficientOfFriction() * ImuReadings.STANDARD_GRAVITY;
-    wheelsAgainstImu =
-        new WheelsAgainstImu(
-            new SlipCheck(SlipCheck.Settings.DEFAULTS, reach, gripMetersPerSecSq), robot.imus());
     pipeline = new VisionPipeline(field);
     tagIds = Set.copyOf(field.tags().keySet());
     for (CameraConfig camera : robot.cameras()) {
@@ -229,35 +225,12 @@ public final class LocalizationService {
     math = robot.math();
     jointPositions = new JointHistory(math.rests(), loops(ATTITUDE_SECONDS, loopSeconds));
     recentYawRates = new double[loops(RECENT_TURNING_SECONDS, loopSeconds)];
-    estimate = estimator.estimate();
-    motion =
-        new Motion(estimate.fieldVelocity().getNorm(), 0, estimate.covariance().headingStdDev());
+    motion = motionNow(0);
   }
 
-  /**
-   * What localization doubts of a robot, said as it starts: treads said to grip at or past the jolt
-   * the slip check calls a whole collision, where it can't tell a slide from a collision.
-   */
-  public static List<Finding> doubts(RobotDefinition robot) {
-    double grip = robot.drivetrain().wheelCoefficientOfFriction();
-    double most = SlipCheck.Settings.DEFAULTS.joltMetersPerSecSq() / ImuReadings.STANDARD_GRAVITY;
-    if (grip < most) {
-      return List.of();
-    }
-    return List.of(
-        Finding.doubt(
-            robot.name(),
-            String.format(
-                Locale.ROOT,
-                "the treads' grip, %.3g, is past %.3g, above which the slip check can't tell a"
-                    + " slide from a collision: a jolt up to %.3g g may be the floor's, so it's"
-                    + " none, and a hit under it is seen only as a slide. Give the tread's own,"
-                    + " about 1.0 worn and 1.3 new, from a pull test (docs/characterization.md,"
-                    + " tread friction); a path planner's friction is a tuning value, not the"
-                    + " tread's",
-                grip,
-                most,
-                grip)));
+  /** The localizer that keeps the pose: what a test or a study asks beyond what this says. */
+  public Localizer localizer() {
+    return localizer;
   }
 
   /**
@@ -276,56 +249,47 @@ public final class LocalizationService {
     pipeline = new VisionPipeline(venue);
   }
 
-  /**
-   * Until the robot is placed it could be anywhere: the middle of the field stands in, with an
-   * uncertainty as big as the field.
-   */
-  private static PoseReset notPlacedYet(FieldModel field) {
-    return new PoseReset(
-        0,
-        new Pose2d(field.length() / 2, field.width() / 2, Rotation2d.ZERO),
-        PoseCovariance.fromStdDevs(field.length(), field.width(), Math.PI),
-        "not placed yet");
-  }
-
   /** How many loops a stretch of time takes, to the nearest loop, and at least two. */
   private static int loops(double seconds, double loopSeconds) {
     return Math.max(FEWEST_LOOPS_KEPT, (int) Math.round(seconds / loopSeconds));
   }
 
   /**
-   * One loop of the drivetrain's readings: after it reads its sensors, and before the cameras.
-   * Picks what turns odometry (the gyro, the backup IMU while the gyro is lost, or the wheels),
-   * weighs the wheels by what the IMU says (a tilt, a jolt, the wheels sliding: {@link SlipCheck}),
-   * and feeds every wheel reading to the estimator.
+   * One loop of the drivetrain's readings: after it reads its sensors, and before the cameras. The
+   * localizer moves the pose along by them.
    */
   public void drivetrain(DrivetrainReadings readings, LoopContext loop) {
     ImuReadings gyro = readings.gyro();
     ImuReadings backup = readings.backupImu();
-    OdometrySteps.Loop steps = odometrySteps.take(readings.wheels(), gyro, backup);
-    // One IMU says everything this loop: the one whose yaw turns odometry.
-    imuThisLoop = steps.yawFrom();
-    imuReadingsThisLoop =
-        switch (imuThisLoop) {
-          case GYRO -> gyro;
-          case BACKUP -> backup;
-          case WHEELS -> null;
-        };
-    wheelsAgainstImu.compare(steps, imuReadingsThisLoop, readings.velocities());
-    conditions = conditions(loop.enabled());
-    estimator.setConditions(conditions);
-    for (OdometrySteps.Step step : steps.steps()) {
-      estimator.addOdometry(
-          step.timestampNanos(), step.motion(), step.yawRadians(), steps.yawFrom());
-    }
+    localizer.odometry(readings, loop);
+    imuReadingsThisLoop = imuWithReadings(gyro, backup);
+    wheelVelocities = readings.velocities();
     checkImus(gyro, backup, loop.nowNanos());
-    estimate = estimator.estimate();
     // The loop's images are solved as the robot is now. Its attitude and its turning are recorded
     // once a loop for that.
-    attitudes.add(estimate.timestampNanos(), pitchRadians(), rollRadians());
+    attitudes.add(localizer.timestampNanos(), pitchRadians(), rollRadians());
     yawRateLoop = (yawRateLoop + 1) % recentYawRates.length;
     inLoop = true;
     takeMotion();
+  }
+
+  /**
+   * The IMU that says how the robot is tilted this loop: the gyro while it has yaw readings, the
+   * backup IMU while only that has, and null with neither. This is the IMU the default localizer
+   * turns odometry by.
+   */
+  private static @Nullable ImuReadings imuWithReadings(ImuReadings gyro, ImuReadings backup) {
+    if (hasYawReadings(gyro)) {
+      return gyro;
+    }
+    if (hasYawReadings(backup)) {
+      return backup;
+    }
+    return null;
+  }
+
+  private static boolean hasYawReadings(ImuReadings imu) {
+    return imu.usable() && imu.yaws().count() > 0;
   }
 
   /**
@@ -333,20 +297,19 @@ public final class LocalizationService {
    * the wall here". After {@link #drivetrain}, so a turn made in placing it isn't counted twice.
    */
   public void place(PoseReset reset) {
-    estimator.reset(reset);
-    estimate = estimator.estimate();
+    localizer.place(reset);
     if (inLoop) {
       takeMotion();
     }
   }
 
   /**
-   * The robot faces this heading, as sure as the given spread; its position stays. If that's wrong,
-   * the cameras' headings will agree against it and the estimate turns back to them.
+   * The robot faces this heading, as sure as the given spread; its position stays. With the default
+   * localizer, if that's wrong, the cameras' headings will agree against it and the estimate turns
+   * back to them.
    */
   public void resetHeading(Rotation2d heading, double stdDevRadians) {
-    estimator.resetHeading(heading, stdDevRadians);
-    estimate = estimator.estimate();
+    localizer.resetHeading(heading, stdDevRadians);
     if (inLoop) {
       takeMotion();
     }
@@ -362,15 +325,14 @@ public final class LocalizationService {
 
   /**
    * How far a camera's mount may have moved since it was calibrated ({@link MountCheck}), as of
-   * now: its images from now on are widened by it, and with {@link
-   * EstimatorConfig.HeadingCorrection#HEADING_MEASUREMENTS_AND_MOUNT_DOUBT} the estimator takes it
-   * as part of the camera's repeated errors. Before the cameras' images, each loop.
+   * now: its images from now on are widened by it, and the localizer is told ({@link
+   * Localizer#mountDoubt}). Before the cameras' images, each loop.
    *
    * @param doubtMeters how far its measurements may be off from where its mount moved
    * @param distanceMeters how far its tags were, on average, when that was judged; NaN until then
    */
   public void mountDoubt(String camera, double doubtMeters, double distanceMeters) {
-    estimator.mountDoubt(camera, doubtMeters, distanceMeters);
+    localizer.mountDoubt(camera, doubtMeters, distanceMeters);
     mountDoubts.put(camera, new MountDoubt(doubtMeters, distanceMeters));
   }
 
@@ -446,7 +408,7 @@ public final class LocalizationService {
    * its capture time on the next {@link #update}.
    */
   public void camera(VisionMeasurement measurement) {
-    estimator.addVision(measurement);
+    pending.add(measurement);
   }
 
   /**
@@ -473,15 +435,15 @@ public final class LocalizationService {
 
   /**
    * The robot when an image was taken, as the vision pipeline solves it: its heading then, if the
-   * estimate reaches back that far and the heading isn't a driver's reset no camera has backed, its
-   * tilt then, and how it moves this loop. Read-only: asking changes nothing, however often or
-   * early in the loop it's asked.
+   * localizer has one to solve with ({@link Localizer#headingAt}), its tilt then, and how it moves
+   * this loop. Read-only: asking changes nothing, however often or early in the loop it's asked.
    */
   public CaptureContext capture(long timestampNanos) {
     Motion now = motion;
     AttitudeHistory.Attitude tilted = attitudes.at(timestampNanos);
     return new CaptureContext(
-        headingToSolveWith(timestampNanos),
+        // The pipeline takes null for "solve it without a heading".
+        localizer.headingAt(timestampNanos).orElse(null),
         now.headingStdDevRadians(),
         tilted.pitchRadians(),
         tilted.rollRadians(),
@@ -490,57 +452,87 @@ public final class LocalizationService {
   }
 
   /**
-   * The heading an image taken at a moment is solved with, or null when it must be solved without
-   * one: the estimate does not reach back that far, or its heading is in doubt. A heading in doubt
-   * solves no image, however sure the driver's reset says it is. Solved with it, an image lands off
-   * by its error, and only an image solved without it can back it.
-   */
-  private @Nullable Rotation2d headingToSolveWith(long timestampNanos) {
-    if (estimator.headingInDoubt()) {
-      return null;
-    }
-    return estimator.poseAt(timestampNanos).map(Pose2d::getRotation).orElse(null);
-  }
-
-  /**
-   * Applies the loop's measurements, each at its capture time, and says what became of each. After
-   * the cameras; once a loop, closing the loop {@link #drivetrain} opened.
+   * Hands the localizer the loop's measurements, and says what became of each. After the cameras;
+   * once a loop, closing the loop {@link #drivetrain} opened.
    */
   public LocalizationOutput update() {
     inLoop = false;
-    decisions = List.copyOf(estimator.update());
-    estimate = estimator.estimate();
-    List<FrameVerdict> frames = new ArrayList<>(refused.size() + decisions.size());
+    given = List.copyOf(pending);
+    pending.clear();
+    localizer.measurements(given);
+    Optional<List<VisionDecision>> decisions = localizer.decisions();
+    List<FrameVerdict> frames = new ArrayList<>(refused.size() + given.size());
     frames.addAll(refused);
     refused.clear();
-    for (VisionDecision decision : decisions) {
-      frames.add(FrameVerdict.of(decision));
+    if (decisions.isPresent()) {
+      for (VisionDecision decision : decisions.get()) {
+        frames.add(FrameVerdict.of(decision));
+      }
+    } else {
+      for (VisionMeasurement measurement : given) {
+        frames.add(FrameVerdict.given(measurement));
+      }
     }
-    return LocalizationOutput.builder().estimate(estimate).trust(trust()).frames(frames).build();
+    return LocalizationOutput.builder()
+        .report(report())
+        .trust(localizer.trust())
+        .frames(frames)
+        .build();
   }
 
   /**
-   * Every measurement the last {@link #update} was given, each whole (its pose, its uncertainty,
-   * its tags) with what the estimator decided about it, in the order they were applied: for a study
-   * that hands another estimator the same measurements.
+   * Every measurement the last {@link #update} handed the localizer, each whole (its pose, its
+   * uncertainty, its tags), in the order it was handed them: for a study that hands another
+   * localizer the same measurements.
    */
-  public List<VisionDecision> decisions() {
-    return decisions;
+  public List<VisionMeasurement> given() {
+    return given;
   }
 
   /** Where the robot is: cheap, for driving every loop. */
   public Pose2d pose() {
-    return estimator.pose();
+    return localizer.pose();
   }
 
-  /** Where the robot was at a moment, if the estimate reaches back that far. */
+  /** Where the robot was at a moment, if the localizer reaches back that far. */
   public Optional<Pose2d> poseAt(long timestampNanos) {
-    return estimator.poseAt(timestampNanos);
+    return localizer.poseAt(timestampNanos);
   }
 
-  /** The estimate, with its uncertainty, mode, and health, as of the last step. */
-  public LocalizationEstimate estimate() {
-    return estimate;
+  /** The pose, with what the localizer reports about it, as of the last step. */
+  public LocalizerReport report() {
+    return LocalizerReport.of(localizer);
+  }
+
+  /** The time of the newest wheel reading the pose includes. */
+  public long timestampNanos() {
+    return localizer.timestampNanos();
+  }
+
+  /**
+   * How fast the robot moves over the field, in meters a second: as the localizer says, or as the
+   * wheels measured it this loop where the localizer does not.
+   */
+  public double speedMetersPerSecond() {
+    Optional<ChassisVelocities> moving = localizer.fieldVelocities();
+    ChassisVelocities velocities = moving.orElse(wheelVelocities);
+    return Math.hypot(velocities.vx, velocities.vy);
+  }
+
+  /**
+   * How fast the robot turns, counterclockwise, in radians a second: as the localizer says. Where
+   * it does not, as the IMU read it this loop, or the wheels with no IMU.
+   */
+  public double yawRateRadiansPerSecond() {
+    Optional<ChassisVelocities> moving = localizer.fieldVelocities();
+    if (moving.isPresent()) {
+      return moving.get().omega;
+    }
+    ImuReadings imu = imuReadingsThisLoop;
+    if (imu != null) {
+      return imu.yawRateRadiansPerSecond();
+    }
+    return wheelVelocities.omega;
   }
 
   /** A pose on the field in 3D: as high as the ground under it, tilted as the IMU says now. */
@@ -564,32 +556,6 @@ public final class LocalizationService {
     return imu == null ? 0 : imu.rollRadians();
   }
 
-  /** What turns odometry now: the gyro, the backup IMU, or the wheels. */
-  public YawSource yawSource() {
-    return odometrySteps.turnsOdometryNow();
-  }
-
-  /** What the IMU said about trusting the wheels this loop. */
-  public DriveConditions conditions() {
-    return conditions;
-  }
-
-  /** How far the wheels are trusted this loop, and why. */
-  public WheelTrust wheels() {
-    SlipCheck slipCheck = wheelsAgainstImu.slipCheck();
-    return WheelTrust.builder()
-        .imu(imuThisLoop)
-        .conditions(conditions)
-        .turnSlipMetersPerSecond(slipCheck.turnSlipMetersPerSecond())
-        .speedSlipMetersPerSecond(slipCheck.speedSlipMetersPerSecond())
-        .turnApartRadians(slipCheck.turnApartRadians())
-        .slideMetersPerSecond(slipCheck.slideMetersPerSecond())
-        .unexplainedMetersPerSecSq(slipCheck.unexplainedMetersPerSecSq())
-        .accelerometerBiasMetersPerSecSq(slipCheck.biasMetersPerSecSq())
-        .accelerometerLeaksGravity(slipCheck.leaksGravity())
-        .build();
-  }
-
   /** How far the gyro and the backup IMU have turned apart lately, while both report. */
   public double imuDisagreementRadians() {
     return crossCheck.disagreementRadians();
@@ -604,102 +570,26 @@ public final class LocalizationService {
   }
 
   /**
-   * This loop's images' motion, as the estimate has it now: how fast the robot moves, the fastest
+   * This loop's images' motion, as the localizer has it now: how fast the robot moves, the fastest
    * it turned lately (this loop's turning in its place among the latest loops'), and how sure its
    * heading is. Taken as the loop's readings come in, and again when a placement moves the estimate
    * before the loop's images.
    */
   private void takeMotion() {
-    recentYawRates[yawRateLoop] = Math.abs(estimate.yawRateRadiansPerSecond());
+    recentYawRates[yawRateLoop] = Math.abs(yawRateRadiansPerSecond());
     double recentYawRate = 0;
     for (double rate : recentYawRates) {
       recentYawRate = Math.max(recentYawRate, rate);
     }
-    motion =
-        new Motion(
-            estimate.fieldVelocity().getNorm(),
-            recentYawRate,
-            estimate.covariance().headingStdDev());
+    motion = motionNow(recentYawRate);
   }
 
-  /**
-   * How far each source is trusted: each camera the estimator has heard from, in the order it first
-   * did, then the robot's others; and the wheels.
-   */
-  private Trust trust() {
-    Map<String, CameraTrust> trust = new LinkedHashMap<>();
-    List<String> beyond = estimator.camerasWithoutPlaces();
-    for (String camera : estimator.cameras()) {
-      trust.put(camera, trust(camera, !beyond.contains(camera)));
-    }
-    for (String camera : cameras.keySet()) {
-      trust.putIfAbsent(camera, trust(camera, true));
-    }
-    for (String camera : mountDoubts.keySet()) {
-      trust.putIfAbsent(camera, trust(camera, true));
-    }
-    return Trust.builder()
-        .cameras(trust)
-        .wheels(wheels())
-        .tagsWithoutPlaces(new LinkedHashSet<>(estimator.tagsWithoutPlaces()))
-        .build();
-  }
-
-  /** One camera's trust: whether its errors are kept apart, and its mount's doubt if it has one. */
-  private CameraTrust trust(String camera, boolean keptApart) {
-    CameraTrustBuilder trust = CameraTrust.builder().keptApart(keptApart);
-    MountDoubt doubt = mountDoubts.get(camera);
-    if (doubt == null) {
-      return trust.build();
-    }
-    return trust
-        .mountDoubtMeters(doubt.meters())
-        .mountDistanceMeters(doubt.tagDistanceMeters())
-        .build();
-  }
-
-  /**
-   * What the IMU says about trusting the wheels: the robot's tilt, a jolt beyond driving, the
-   * wheels sliding over the floor, and whether people might be carrying it. The IMU that turns
-   * odometry says (the gyro, or the backup while the gyro is lost). Without one, nothing can say
-   * the robot is tilted.
-   */
-  private DriveConditions conditions(boolean enabled) {
-    ImuReadings imu = imuReadingsThisLoop;
-    double tilt = 0;
-    double groundSlope = 0;
-    if (imu != null) {
-      tilt = WheelsAgainstImu.tiltFromLevel(imu);
-      groundSlope = groundSlope(tilt);
-    }
-    SlipCheck slipCheck = wheelsAgainstImu.slipCheck();
-    return new DriveConditions(
-        tilt, groundSlope, slipCheck.collisionShare(), slipCheck.slipMetersPerSecond(), !enabled);
-  }
-
-  /**
-   * How much of a tilt the ground explains. On known raised ground it is the tilt itself, up to the
-   * ground's steepest slope and a margin. On flat ground it is none.
-   *
-   * <p>The robot counts as on raised ground when the estimate puts it within reach of a surface's
-   * footprint. That reach is the wheels' own reach from the robot's center plus twice the
-   * estimate's position spread, since the estimate may be off by that much, and never more than
-   * {@link #MAX_GROUND_REACH_METERS}.
-   */
-  private double groundSlope(double tilt) {
-    if (ground.surfaces().isEmpty() || tilt == 0) {
-      return 0;
-    }
-    // The estimate as it was last worked out is still how the estimator stands. Everything that
-    // changes it (odometry, a placement, the update that applies the cameras) works it out again
-    // as it does, and none of those has run since. So the estimate isn't worked out again here,
-    // which would be a second full estimate every loop the robot is tilted.
-    double estimateMayBeOffBy = 2 * estimate.covariance().largestPositionStdDev();
-    double reach = Math.min(MAX_GROUND_REACH_METERS, wheelReach + estimateMayBeOffBy);
-    return ground
-        .under(pose().getTranslation(), reach)
-        .map(surface -> Math.min(tilt, surface.steepestSlopeRadians() + GROUND_SLOPE_MARGIN))
-        .orElse(0.0);
+  /** The robot's motion now, with the fastest it turned lately as given. */
+  private Motion motionNow(double recentYawRate) {
+    // A localizer that does not say how sure its heading is has no image solved with it.
+    double headingStdDev =
+        localizer.covariance().map(PoseCovariance::headingStdDev).orElse(Double.POSITIVE_INFINITY);
+    return new Motion(speedMetersPerSecond(), recentYawRate, headingStdDev);
   }
 
   /**

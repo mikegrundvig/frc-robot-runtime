@@ -322,7 +322,7 @@ class LocalizationServiceTest {
               assertThat(tag.threshold())
                   .isEqualTo(EstimatorConfig.DEFAULTS.gateChiSquaredPosition());
             });
-    assertThat(output.estimate().health().accepted()).isEqualTo(1);
+    assertThat(output.report().health().orElseThrow().accepted()).isEqualTo(1);
   }
 
   /**
@@ -400,7 +400,7 @@ class LocalizationServiceTest {
               assertThat(held.measured()).as("never weighed").isEmpty();
               assertThat(held.tags()).extracting(TagVerdict::verdict).containsOnly(Verdict.HELD);
             });
-    assertThat(output.estimate().health().accepted()).isZero();
+    assertThat(output.report().health().orElseThrow().accepted()).isZero();
     assertThatThrownBy(() -> localization.hold(hubFace(now), null, Verdict.GATED))
         .as("the estimator's verdicts are its own")
         .isInstanceOf(IllegalArgumentException.class);
@@ -512,7 +512,9 @@ class LocalizationServiceTest {
         .containsExactly(
             tuple(25, Verdict.TOO_FAR, result[0].outcome()),
             tuple(26, Verdict.TOO_FAR, result[0].outcome()));
-    assertThat(output.estimate().health().rejected()).as("the estimator never saw it").isZero();
+    assertThat(output.report().health().orElseThrow().rejected())
+        .as("the estimator never saw it")
+        .isZero();
   }
 
   /**
@@ -544,7 +546,7 @@ class LocalizationServiceTest {
               assertThat(tag.accepted()).isFalse();
               assertThat(tag.reason()).as("each tag, as its frame").isEqualTo(gated.reason());
             });
-    assertThat(output.estimate().pose().getTranslation().getDistance(ROBOT.getTranslation()))
+    assertThat(output.report().pose().getTranslation().getDistance(ROBOT.getTranslation()))
         .isLessThan(1e-6);
   }
 
@@ -602,7 +604,7 @@ class LocalizationServiceTest {
               }
             });
 
-    Trust trust = output.trust();
+    Trust trust = output.trust().orElseThrow();
     assertThat(trust.cameras())
         .containsEntry(
             "front", CameraTrust.builder().mountDoubtMeters(0.04).mountDistanceMeters(3.0).build());
@@ -642,7 +644,7 @@ class LocalizationServiceTest {
                         VisionMeasurement.Solver.EXTERNAL)));
 
     assertThat(output.frames().get(0).accepted()).isTrue();
-    assertThat(output.trust().tagsWithoutPlaces()).containsExactly(offTheLayout);
+    assertThat(output.trust().orElseThrow().tagsWithoutPlaces()).containsExactly(offTheLayout);
   }
 
   /** The wheels' trust: what the IMU says of them, and that a disabled robot may be carried. */
@@ -654,13 +656,13 @@ class LocalizationServiceTest {
 
     LoopContext disabled = new LoopContext(now, false);
     localization.drivetrain(still(now, pitch, 0), disabled);
-    WheelTrust wheels = localization.update().trust().wheels();
+    WheelTrust wheels = localization.update().trust().orElseThrow().wheels();
 
     assertThat(wheels.conditions().disabled()).isTrue();
     assertThat(wheels.conditions().tiltRadians()).isCloseTo(Math.abs(pitch), within(1e-9));
     assertThat(wheels.conditions().groundSlopeRadians()).as("no bump explains it").isZero();
     assertThat(wheels.accelerometerLeaksGravity()).isFalse();
-    assertThat(localization.wheels()).isEqualTo(wheels);
+    assertThat(localization.localizer().wheels().orElseThrow()).isEqualTo(wheels);
   }
 
   /** An image is solved with the robot tilted as it was when the image was taken. */
@@ -749,7 +751,7 @@ class LocalizationServiceTest {
     PoseCovariance narrow = Objects.requireNonNull(results[1].measurement()).covariance();
     assertThat(wide.xx()).isCloseTo(narrow.xx() + 0.2 * 0.2, within(1e-12));
     assertThat(wide.yy()).isCloseTo(narrow.yy() + 0.2 * 0.2, within(1e-12));
-    assertThat(output.trust().cameras().get("front"))
+    assertThat(output.trust().orElseThrow().cameras().get("front"))
         .isEqualTo(CameraTrust.builder().mountDoubtMeters(0.2).mountDistanceMeters(3.0).build());
   }
 
@@ -788,13 +790,13 @@ class LocalizationServiceTest {
     ScriptedDrivetrain robot = scripted();
     ChassisVelocities turning = new ChassisVelocities(0.5, 0, 0.5);
     drive(localization, robot, 20, turning, false);
-    assertThat(localization.yawSource()).isEqualTo(YawSource.GYRO);
+    assertThat(localization.localizer().yawSource().orElseThrow()).isEqualTo(YawSource.GYRO);
 
     robot.gyroLost = true;
     LocalizationOutput backup = drive(localization, robot, 20, turning, false).getLast();
 
-    assertThat(localization.yawSource()).isEqualTo(YawSource.BACKUP);
-    assertThat(backup.estimate().mode())
+    assertThat(localization.localizer().yawSource().orElseThrow()).isEqualTo(YawSource.BACKUP);
+    assertThat(backup.report().mode().orElseThrow())
         .as("no camera has placed it, and the backup is no IMU fault")
         .isEqualTo(LocalizationEstimate.Mode.INITIALIZING);
     assertThat(headingError(localization, robot)).as("degrees").isLessThan(0.5);
@@ -802,15 +804,15 @@ class LocalizationServiceTest {
     robot.backupLost = true;
     LocalizationOutput wheels = drive(localization, robot, 10, turning, false).getLast();
 
-    assertThat(localization.yawSource()).isEqualTo(YawSource.WHEELS);
-    assertThat(wheels.estimate().mode()).isEqualTo(LocalizationEstimate.Mode.IMU_FAULT);
+    assertThat(localization.localizer().yawSource().orElseThrow()).isEqualTo(YawSource.WHEELS);
+    assertThat(wheels.report().mode().orElseThrow()).isEqualTo(LocalizationEstimate.Mode.IMU_FAULT);
     assertThat(localization.pitchRadians()).as("no IMU, no tilt").isZero();
 
     robot.gyroLost = false;
     robot.backupLost = false;
     drive(localization, robot, 5, turning, false);
 
-    assertThat(localization.yawSource()).isEqualTo(YawSource.GYRO);
+    assertThat(localization.localizer().yawSource().orElseThrow()).isEqualTo(YawSource.GYRO);
     assertThat(headingError(localization, robot)).as("degrees").isLessThan(1);
   }
 
@@ -835,11 +837,11 @@ class LocalizationServiceTest {
     LocalizationOutput slid = drive(slipping, sliding, 50, turning, false).getLast();
     LocalizationOutput rolled = drive(gripping, rolling, 50, turning, false).getLast();
 
-    assertThat(slipping.wheels().turnSlipMetersPerSecond()).isPositive();
-    assertThat(slid.trust().wheels().conditions().slipMetersPerSecond()).isPositive();
-    assertThat(gripping.wheels().turnSlipMetersPerSecond()).isZero();
-    assertThat(slid.estimate().covariance().largestPositionStdDev())
-        .isGreaterThan(2 * rolled.estimate().covariance().largestPositionStdDev());
+    assertThat(slipping.localizer().wheels().orElseThrow().turnSlipMetersPerSecond()).isPositive();
+    assertThat(slid.trust().orElseThrow().wheels().conditions().slipMetersPerSecond()).isPositive();
+    assertThat(gripping.localizer().wheels().orElseThrow().turnSlipMetersPerSecond()).isZero();
+    assertThat(slid.report().covariance().orElseThrow().largestPositionStdDev())
+        .isGreaterThan(2 * rolled.report().covariance().orElseThrow().largestPositionStdDev());
   }
 
   /**
@@ -853,14 +855,14 @@ class LocalizationServiceTest {
 
     LocalizationOutput seeing =
         drive(localization, robot, 25, new ChassisVelocities(), true).getLast();
-    assertThat(seeing.estimate().mode()).isEqualTo(LocalizationEstimate.Mode.TRACKING);
+    assertThat(seeing.report().mode().orElseThrow()).isEqualTo(LocalizationEstimate.Mode.TRACKING);
     assertThat(seeing.frames()).hasSize(1);
 
     List<LocalizationOutput> silent =
         drive(localization, robot, 60, new ChassisVelocities(), false);
 
     assertThat(silent).allSatisfy(output -> assertThat(output.frames()).isEmpty());
-    LocalizationEstimate estimate = silent.getLast().estimate();
+    LocalizationEstimate estimate = ((DefaultLocalizer) localization.localizer()).estimate();
     assertThat(estimate.mode()).isEqualTo(LocalizationEstimate.Mode.DEAD_RECKONING);
     assertThat(estimate.health().visionAgeSeconds()).isGreaterThan(1);
     assertThat(LocalizationGate.SCORING.whyNot(estimate)).contains("no camera measurement lately");
@@ -896,8 +898,8 @@ class LocalizationServiceTest {
                     Inches.of(2.625)))
             .build();
 
-    assertThat(LocalizationService.doubts(DEFINITION)).isEmpty();
-    assertThat(LocalizationService.doubts(grippy))
+    assertThat(DefaultLocalizer.doubts(DEFINITION)).isEmpty();
+    assertThat(DefaultLocalizer.doubts(grippy))
         .singleElement()
         .satisfies(
             doubt -> {
@@ -1035,13 +1037,13 @@ class LocalizationServiceTest {
                     localization.pose3d(localization.pose()),
                     localization.pitchRadians(),
                     localization.rollRadians(),
-                    localization.yawSource(),
-                    localization.conditions(),
-                    localization.wheels(),
+                    localization.localizer().yawSource().orElseThrow(),
+                    localization.localizer().wheels().orElseThrow().conditions(),
+                    localization.localizer().wheels().orElseThrow(),
                     localization.imuDisagreementRadians(),
                     localization.imusDisagree())));
         said.append('\n');
-        sources.add(localization.yawSource());
+        sources.add(localization.localizer().yawSource().orElseThrow());
       }
     }
     assertThat(sources).as("every IMU, and none").containsExactlyInAnyOrder(YawSource.values());

@@ -6,8 +6,8 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationService;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
-import com.michaelgrundvig.frc.localization.SwerveKinematicsModel;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.pitwall.Actions;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
@@ -386,13 +386,10 @@ public final class RobotContainer implements AutoCloseable {
     };
   }
 
+  /** Localization with the localizer the robot chose, or the default one. */
   private LocalizationService localizationService(FieldModel field, RobotConfig robot) {
     return new LocalizationService(
-        field,
-        definition,
-        new SwerveKinematicsModel(definition.moduleTranslations()),
-        robot.estimator(),
-        RobotLoop.PERIOD_SECONDS);
+        field, definition, robot.localizerOn(field), RobotLoop.PERIOD_SECONDS);
   }
 
   private static Pose2d middleOf(FieldModel field) {
@@ -730,8 +727,8 @@ public final class RobotContainer implements AutoCloseable {
   private WorldView.Readings worldReadings() {
     return new WorldView.Readings() {
       @Override
-      public LocalizationEstimate estimate() {
-        return localization.estimate();
+      public LocalizerReport report() {
+        return localization.report();
       }
 
       @Override
@@ -784,7 +781,11 @@ public final class RobotContainer implements AutoCloseable {
     return frames;
   }
 
-  /** The localization estimate, as of the last loop. */
+  /**
+   * The default localizer's estimate, as of the last loop: for the tests of that localizer.
+   *
+   * @throws IllegalStateException if the robot chose another localizer
+   */
   LocalizationEstimate estimate() {
     return localization.estimate();
   }

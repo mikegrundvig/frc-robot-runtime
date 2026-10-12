@@ -7,11 +7,22 @@
  * <p>Where to start reading:
  *
  * <ul>
+ *   <li><b>The seam:</b> {@link com.michaelgrundvig.frc.localization.Localizer} is what works out
+ *       where the robot is, behind one interface: odometry and camera measurements in, a pose out.
+ *       Its Javadoc is its contract, clause by clause. There are two here, {@link
+ *       com.michaelgrundvig.frc.localization.DefaultLocalizer} (this library's own estimator, which
+ *       a robot gets unless it chooses otherwise) and {@link
+ *       com.michaelgrundvig.frc.localization.WpilibLocalizer} (WPILib's pose estimator), and a team
+ *       may write its own. A {@link com.michaelgrundvig.frc.localization.LocalizerMaker} is how a
+ *       robot's configuration names one. The conformance suite in the test fixtures ({@code
+ *       LocalizerConformance}) checks any localizer against the contract.
  *   <li><b>The service:</b> {@link com.michaelgrundvig.frc.localization.LocalizationService} is
- *       localization as the robot program uses it, one loop at a time: the drivetrain's readings
- *       ({@link com.michaelgrundvig.frc.localization.DrivetrainReadings}), each camera image, and a
+ *       localization as the robot program uses it, one loop at a time, around whichever localizer
+ *       the robot chose: the drivetrain's readings ({@link
+ *       com.michaelgrundvig.frc.localization.DrivetrainReadings}), each camera image, and a
  *       placement in, stamped with their times, and each loop's {@link
- *       com.michaelgrundvig.frc.localization.LocalizationOutput} out. The loop's time comes in a
+ *       com.michaelgrundvig.frc.localization.LocalizationOutput} out. It solves each image into the
+ *       measurement the localizer is given, which no localizer replaces. The loop's time comes in a
  *       {@link com.michaelgrundvig.frc.localization.LoopContext}. The robot program's {@code
  *       Localization} only feeds it, logs it, and raises its alerts.
  *   <li><b>What it says:</b> the estimate; how far each source is trusted ({@link
@@ -22,10 +33,10 @@
  *       com.michaelgrundvig.frc.localization.TagVerdict}). Every refusal is a {@link
  *       com.michaelgrundvig.frc.localization.Verdict}, whose words the log and the page show, so
  *       nothing reads a reason back out of a sentence.
- *   <li><b>The estimator:</b> {@link com.michaelgrundvig.frc.localization.PoseEstimator} takes
- *       every measurement and keeps the estimate, tuned by {@link
- *       com.michaelgrundvig.frc.localization.EstimatorConfig}. What it reports is a {@link
- *       com.michaelgrundvig.frc.localization.LocalizationEstimate}; {@link
+ *   <li><b>The default localizer's estimator:</b> {@link
+ *       com.michaelgrundvig.frc.localization.PoseEstimator} takes every measurement and keeps the
+ *       estimate, tuned by {@link com.michaelgrundvig.frc.localization.EstimatorConfig}. What it
+ *       reports is a {@link com.michaelgrundvig.frc.localization.LocalizationEstimate}; {@link
  *       com.michaelgrundvig.frc.localization.LocalizationGate} says whether that's good enough to
  *       score on. Inside it, {@code OdometryHistory} keeps the steps a late measurement is replayed
  *       through, {@code PoseFilter} does the filter's math (and keeps the errors that repeat,
