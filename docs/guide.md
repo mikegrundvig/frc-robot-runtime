@@ -350,7 +350,7 @@ Fifty times a second the runtime makes one pass. These are the four steps, from 
 ```java fragment
 pitwall.periodic();
 container.periodic();
-runTheCommands(scheduler, loopHealth, afterAThrow);
+runTheCommands(container, scheduler, loopHealth, afterAThrow);
 container.afterCommands();
 ```
 
@@ -377,7 +377,8 @@ is on its starting mark, for one.
 
 Third, the command scheduler runs. The scheduler is the part of WPILib that keeps the list of
 running commands. It checks every button binding and every gate. It starts the commands those
-call for. Then it gives each running command its turn.
+call for. Then it gives each running command its turn. One thing comes first. If the robot was
+disabled since the last pass, every running command is cancelled before the scheduler runs.
 
 Fourth, each joint is told what to do. A joint does what a command asked of it on this pass. If
 no command asked anything, it does what it does when idle, which comes up below.
@@ -390,16 +391,34 @@ pass.
 
 The loop runs in every mode. What changes is what the robot may do.
 
-**Disabled** means the loop still reads sensors and still works out where the robot is, but no
-joint is driven. The pit's choice of auto is taken only while the robot is disabled.
+**Disabled** means disabled. The loop still reads sensors and still works out where the robot
+is. Gates are still worked out, so the pit can read them. But nothing moves. No joint is driven
+and no wheel is driven, whatever asks. That holds in the simulator too. The pit's choice of auto
+is taken only while the robot is disabled.
 
-Disabling does not cancel a command. A command that is running when the robot is disabled keeps
-running. Its joints are not driven, its deadlines keep counting, and letting go of its button
-still cancels it. When the robot is enabled again, a joint with no command holds wherever it is
-at that moment. It does not jump back to an old target. A joint whose command is still running
-picks up where that command left off. So a trigger held through a disable starts its intake again
-the moment the robot is enabled, and a move that was part way there carries on. The one command
-that is ended for you is the auto. `DisablingSimTest` runs each of these cases.
+Disabling cancels every running command. It happens on the pass the robot is disabled, and you
+write nothing for it. Each move says so in its outcome:
+
+```text
+pivot → out: CANCELED after 0.20 s, pivot at 38.49°: the robot was disabled
+```
+
+So nothing is left running to carry on later, and no deadline counts while the robot sits
+disabled.
+
+Buttons start nothing while the robot is disabled. A press made then is spent. It does not
+start its command then, and it does not start it when the robot is enabled with the button still
+down. A button held from before the disable does not start its command again either. Let go and
+press again, and the command starts as usual. One button is different. The driver's back button
+resets the heading whether or not the robot is enabled, because you want it before a match and
+it moves nothing.
+
+When the robot is enabled again, each joint holds wherever it is at that moment. It does not
+jump back to an old target, and no old move carries on. A command starts only when something
+asks for it afresh. The one thing that starts by itself is a default command, because the
+scheduler starts a default command whenever its mechanism is free. So stick driving is back the
+moment you enable, and if the driver is holding a stick over, the robot drives.
+`DisablingSimTest` runs each of these cases.
 
 **Autonomous** is enabled with nobody driving. On the pass it begins, the runtime starts the
 chosen auto's command. On the pass it ends, the runtime cancels that command if it is still

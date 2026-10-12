@@ -279,13 +279,15 @@ in an auto, where a lost sensor would otherwise hold the roller until autonomous
 - **A default command replaces the idle**, as in any v3 code:
   `hood.setDefaultCommand(hood.goTo(HOOD_DOWN))`.
 
-**Disabling cancels no command.** A command lives until it ends, is canceled, or its button is let
-go, whatever the robot's mode: only an auto is ended for you, when autonomous ends. While the robot
-is disabled a running command still takes its turns, its moves' deadlines still count (a move left
-disabled past its deadline ends `TIMED_OUT`), and its joints are not driven. Enabled again, an idle
-joint holds where it is then, and a joint whose command is still running is driven where that
-command asks: a held `whileTrue` binding, a forked child and a move part way there all carry on
-with no new press (`DisablingSimTest` has each case).
+**Disabling cancels every command.** In the loop the robot is disabled, every running command is
+canceled, and each move's outcome says so (`pivot → out: CANCELED after 0.20 s, pivot at 38.49°:
+the robot was disabled`); an auto says it was cut off as autonomous ended. So no move's deadline
+counts through a disable. While the robot is disabled no joint and no wheel is driven, whatever
+asks, and a button starts nothing: a press made while disabled is spent, and so is one held
+through a disable, so the next press made with the robot enabled is the one that starts its
+command. Only the driver's back button, the heading reset, works while disabled. Enabled again,
+each joint holds where it is then, and nothing starts by itself but a default command, the drive's
+stick driving among them (`DisablingSimTest` has each case).
 
 **Interlocks hold beneath every command.** No command, button or auto can skip one. While
 `runsOnlyWhen` doesn't hold, the joint stays where it is, or a roller stops. While `keepsOut` is
