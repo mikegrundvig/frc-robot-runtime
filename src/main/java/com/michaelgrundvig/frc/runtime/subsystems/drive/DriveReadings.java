@@ -155,6 +155,9 @@ final class DriveReadings {
    * wheels that remain. A wheel is left out by giving it NaN for its distance and its angle, which
    * is how an {@link OdometrySample} says a wheel has no reading.
    *
+   * <p>A module whose drive controller restarted since the last loop is left out the same way, for
+   * this one loop ({@link #countsForOdometry}).
+   *
    * <p>A reading that no wheel reports in is dropped, and so is one taken before the robot's clock
    * started. The next good reading covers the motion they would have.
    */
@@ -165,7 +168,7 @@ final class DriveReadings {
     for (int reading = 0; reading < readings; reading++) {
       boolean anyWheelReports = false;
       for (int i = 0; i < Module.COUNT; i++) {
-        if (modules[i].isConnected()) {
+        if (countsForOdometry(modules[i])) {
           distancesMeters[i] = modules[i].odometryDistanceMeters(reading);
           anglesRadians[i] = modules[i].odometryAngleRadians(reading);
         } else {
@@ -182,6 +185,21 @@ final class DriveReadings {
       }
     }
     return wheels;
+  }
+
+  /**
+   * Whether a module's wheel counts for odometry this loop: its motor controllers answer, and its
+   * drive controller did not restart since the last loop.
+   *
+   * <p>A restarted drive controller counts its wheel from zero again, somewhere among this loop's
+   * readings ({@code ModuleIO}'s M16). The step across that would read as the wheel rolling all the
+   * way back to where the robot started. Odometry only ever takes the difference of two readings
+   * that both have the wheel, so leaving the wheel out of this whole loop is enough: no step then
+   * spans the two counts, and the wheel is back, measured from its new count, with the next loop's
+   * readings.
+   */
+  private static boolean countsForOdometry(Module module) {
+    return module.isConnected() && !module.driveRestarted();
   }
 
   /** How many high-rate readings every module has this loop: the fewest that any one has. */

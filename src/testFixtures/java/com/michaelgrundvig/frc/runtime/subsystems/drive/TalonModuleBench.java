@@ -8,6 +8,7 @@ import com.ctre.phoenix6.SignalLogger;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.hardware.CANcoder;
+import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -15,6 +16,7 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 /**
  * The module conformance suite's bench for the CTRE module ({@link ModuleIOTalonFX}), against
@@ -34,6 +36,9 @@ public final class TalonModuleBench implements ModuleBench {
 
   /** How long a step waits for the drive's next frame, in seconds, before going on without it. */
   private static final double FRAME_WAIT_SECONDS = 0.1;
+
+  /** How long the drive is given to confirm that it counts from zero, in seconds. */
+  private static final double SETTINGS_WAIT_SECONDS = 1;
 
   /** How long the odometry thread is given to stop, in milliseconds. */
   private static final long THREAD_STOP_MILLIS = 2000;
@@ -67,8 +72,27 @@ public final class TalonModuleBench implements ModuleBench {
     return Optional.empty();
   }
 
+  /**
+   * Where the driver hears that its drive started again, with the bench's hand on it: Phoenix's
+   * simulated devices never restart, so the bench says when one has.
+   */
+  private static final class BenchFrames extends ModuleIOTalonFX.Frames {
+    private boolean driveStartedAgain;
+
+    @Override
+    BooleanSupplier driveStartFrames(ParentDevice drive) {
+      BooleanSupplier phoenix = super.driveStartFrames(drive);
+      return () -> {
+        boolean benchRestartedIt = driveStartedAgain;
+        driveStartedAgain = false;
+        return phoenix.getAsBoolean() || benchRestartedIt;
+      };
+    }
+  }
+
   /** One CTRE module, powered on. */
   private static final class TalonRig implements Rig {
+    private final BenchFrames frames = new BenchFrames();
     private final CANBus bus = new CANBus("bench-module");
     private final TalonFX drive = new TalonFX(DRIVE_ID, bus);
     private final TalonFX steer = new TalonFX(STEER_ID, bus);
@@ -86,6 +110,11 @@ public final class TalonModuleBench implements ModuleBench {
       drive.setControl(new NeutralOut());
       steer.setControl(new NeutralOut());
       turnTheSensors();
+      // The drive counts from zero where the wheel is now, as one out of its box does. Phoenix's
+      // simulated devices outlive a test, and an earlier one may have left this one counting from
+      // somewhere else (restartTheDrive). It is told once it has read its rotor at zero.
+      drive.getPosition().waitForUpdate(FRAME_WAIT_SECONDS);
+      drive.setPosition(0, SETTINGS_WAIT_SECONDS);
       SwerveWiring.ModuleWiring wiring =
           SwerveWiring.ModuleWiring.builder()
               .driveId(DRIVE_ID)
@@ -97,7 +126,7 @@ public final class TalonModuleBench implements ModuleBench {
               .encoderId(ENCODER_ID)
               .build();
       // No coupling: the wheel's reading is its drive's alone.
-      io = new ModuleIOTalonFX(wiring, bus, MODULE, 0, odometry);
+      io = new ModuleIOTalonFX(wiring, bus, MODULE, 0, odometry, frames);
       io.configure(gains, limits);
       odometry.start();
       driveFrame = drive.getVelocity();
@@ -134,6 +163,16 @@ public final class TalonModuleBench implements ModuleBench {
     public void moduleIs(double radians) {
       moduleRotations = radians / (2 * Math.PI);
       turnTheSensors();
+    }
+
+    /**
+     * Says the drive started again, and has it count its rotor from zero where the wheel is now.
+     * Phoenix keeps a device's settings through a restart.
+     */
+    @Override
+    public void restartTheDrive() {
+      frames.driveStartedAgain = true;
+      drive.setPosition(0, SETTINGS_WAIT_SECONDS);
     }
 
     @Override

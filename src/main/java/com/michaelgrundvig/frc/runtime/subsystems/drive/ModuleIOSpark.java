@@ -95,10 +95,15 @@ final class ModuleIOSpark implements ModuleIO {
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
   /**
-   * Each SPARK is asked whether it restarted once in this many loops, ten times a second. Its
-   * warning stays set until it is cleared, so no restart is missed, and one is acted on within a
-   * tenth of a second. Asking every loop would cost more than it is worth: REV makes about 64 bytes
-   * of objects for each SPARK each time it is asked (measured on REVLib 2027.0.0-alpha-8).
+   * The steering SPARK is asked whether it restarted once in this many loops, ten times a second.
+   * Its warning stays set until it is cleared, so no restart is missed, and one is acted on within
+   * a tenth of a second. Asking it every loop would cost more than it is worth: REV makes about 64
+   * bytes of objects for a SPARK each time it is asked (measured on REVLib 2027.0.0-alpha-8).
+   *
+   * <p>The drive SPARK is asked every loop all the same, as a joint's leading SPARK is. A restarted
+   * drive counts its wheel from zero, and the robot has to be told in the loop that happens, not up
+   * to four loops after, by when odometry would have taken the wheel to have rolled back ({@link
+   * ModuleIOInputs#driveRestarted}).
    */
   static final int RESTART_LOOPS = 5;
 
@@ -145,8 +150,11 @@ final class ModuleIOSpark implements ModuleIO {
 
   private final RevRestarts steerRestarts = new RevRestarts();
 
-  /** How many loops the module has been read in, to ask its SPARKs about restarts every few. */
+  /** How many loops the module has been read in, to ask its steering about restarts every few. */
   private int loops;
+
+  /** Whether the drive SPARK restarted since the last loop, for this loop's inputs. */
+  private boolean driveRestarted;
 
   /** The steering's damping, volts per radian per second of its turning. */
   private double steerKd;
@@ -377,19 +385,18 @@ final class ModuleIOSpark implements ModuleIO {
   /**
    * Sends each SPARK that restarted since the last loop the session's tuning again. A restarted
    * SPARK has fallen back to what was saved on it at startup: the gains and limits of the first
-   * {@link #configure}, without whatever was tuned since. Each is asked once in {@link
+   * {@link #configure}, without whatever was tuned since. The drive is asked every loop, and
+   * whether it restarted is kept for this loop's inputs. The steering is asked once in {@link
    * #RESTART_LOOPS} loops.
    */
   private void sendTuningAgainAfterARestart() {
-    boolean asksThisLoop = loops % RESTART_LOOPS == 0;
-    loops++;
-    if (!asksThisLoop) {
-      return;
-    }
-    if (restarted(drive, driveRestarts)) {
+    driveRestarted = restarted(drive, driveRestarts);
+    if (driveRestarted) {
       sendWhileRunning(drive, driveTuning);
     }
-    if (restarted(steer, steerRestarts)) {
+    boolean asksTheSteeringThisLoop = loops % RESTART_LOOPS == 0;
+    loops++;
+    if (asksTheSteeringThisLoop && restarted(steer, steerRestarts)) {
       sendWhileRunning(steer, steerTuning);
     }
   }
@@ -448,6 +455,7 @@ final class ModuleIOSpark implements ModuleIO {
     double moduleRotations = encoderRotations + encoderOffset;
 
     inputs.driveConnected = driveConnected.calculate(driveFramesCame);
+    inputs.driveRestarted = driveRestarted;
     double wheelRotations =
         ModuleIOTalonFX.wheelRotations(
             motorRotations / driveGearing, moduleRotations, couplingRatio, driveGearing);

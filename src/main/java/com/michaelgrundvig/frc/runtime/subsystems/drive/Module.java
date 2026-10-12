@@ -210,6 +210,14 @@ public class Module {
   }
 
   /**
+   * Whether the drive motor's controller restarted since the last loop, so that the wheel's count
+   * starts again from zero somewhere among this loop's readings.
+   */
+  boolean driveRestarted() {
+    return inputs.driveRestarted;
+  }
+
+  /**
    * How many high-rate readings arrived this loop, for odometry. A reading is a time, a wheel
    * position and a steer angle, so only as many count as all three have.
    */

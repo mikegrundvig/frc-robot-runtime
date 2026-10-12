@@ -134,6 +134,15 @@ final class ModuleIOSim implements ModuleIO {
    */
   private double slippedRadians;
 
+  /**
+   * What the drive's encoder had counted when its motor controller last restarted, in radians: the
+   * controller counts from zero again, so this is taken off what it reads. Zero until a restart.
+   */
+  private double countedBeforeRestartRadians;
+
+  /** Whether the drive's motor controller restarted since the robot last read it. */
+  private boolean driveRestarted;
+
   /** How fast it keeps spinning beyond what rolls the robot along, in radians per second. */
   private double slippingRadPerSec;
 
@@ -254,6 +263,23 @@ final class ModuleIOSim implements ModuleIO {
 
   boolean isStale() {
     return stale.isPresent();
+  }
+
+  /**
+   * Restarts the drive's motor controller, as a breaker that reset does. It goes neutral until it
+   * is asked again, counts its wheel from zero, and says it restarted the next time it is read. It
+   * keeps its gains and limits, as a TalonFX's are saved on it.
+   */
+  void restartDrive() {
+    countedBeforeRestartRadians = wheel.rotationRadians() + slippedRadians;
+    driveRestarted = true;
+    driveAsk = DriveAsk.VOLTAGE;
+    driveVolts = 0.0;
+    // A reading that was stale is of the old count: the restarted controller reads afresh.
+    if (stale.isPresent()) {
+      stale = Optional.empty();
+      setStale(true);
+    }
   }
 
   /**
@@ -395,6 +421,8 @@ final class ModuleIOSim implements ModuleIO {
     samples = 0;
 
     inputs.driveConnected = true;
+    inputs.driveRestarted = driveRestarted;
+    driveRestarted = false;
     inputs.drivePositionRad = drivePositionRadians();
     inputs.driveVelocityRadPerSec = driveVelocityRadPerSec();
     inputs.driveAppliedVolts = wheel.driveVolts();
@@ -440,7 +468,7 @@ final class ModuleIOSim implements ModuleIO {
     if (stale.isPresent()) {
       return stale.get().drivePositionRadians();
     }
-    return wheel.rotationRadians() + slippedRadians;
+    return wheel.rotationRadians() + slippedRadians - countedBeforeRestartRadians;
   }
 
   /** How fast the drive encoder reads the wheel turning, its slipping too, unless it's stale. */

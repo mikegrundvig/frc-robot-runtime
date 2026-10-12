@@ -22,6 +22,7 @@ import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import com.ctre.phoenix6.signals.SensorDirectionValue;
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixRestarts;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
@@ -29,6 +30,7 @@ import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.math.geometry.Rotation2d;
@@ -54,6 +56,11 @@ import org.wpilib.units.measure.Voltage;
  * So that share is taken out of every drive reading ({@link #wheelRotations}), and added to the
  * speed the drive is asked to hold, so the wheel keeps its speed over the floor while the module
  * steers ({@link #setDriveVelocity}).
+ *
+ * <p><b>Restarts.</b> A TalonFX that loses power and comes back keeps its settings, and counts its
+ * rotor from zero. Phoenix says when the drive's has sent the frame it sends as it starts, and the
+ * inputs say so for that one loop ({@link ModuleIOInputs#driveRestarted}), so the drivetrain does
+ * not take the wheel's count starting again for travel.
  */
 final class ModuleIOTalonFX implements ModuleIO {
   private static final double TWO_PI = 2 * Math.PI;
@@ -131,6 +138,12 @@ final class ModuleIOTalonFX implements ModuleIO {
   private final Queue<Double> odometrySteerRotations;
   private final Queue<Double> odometrySteerCurrent;
 
+  /**
+   * Whether the drive's controller restarted since the last loop. A restarted TalonFX counts its
+   * rotor from zero, so the wheel's position starts again there.
+   */
+  private final PhoenixRestarts driveRestarts;
+
   private final Debounce driveConnected = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
   private final Debounce steerConnected = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
 
@@ -141,6 +154,21 @@ final class ModuleIOTalonFX implements ModuleIO {
 
   /** The module's turning speed as last read, in rotations per second, for the coupling. */
   private double steerRotationsPerSecond;
+
+  /**
+   * Where the module hears that its drive's controller started again: the frame a device sends as
+   * it starts. On a robot this is Phoenix, as here.
+   *
+   * <p>CTRE's simulated devices never restart. So the test of what the module does when its drive
+   * restarts puts its own in this one's place, which says the drive started again, as the joints'
+   * tests do ({@code JointIOTalon.Frames}).
+   */
+  static class Frames {
+    /** Whether the drive has sent the frame it sends as it starts, since this was last asked. */
+    BooleanSupplier driveStartFrames(ParentDevice drive) {
+      return drive.getResetOccurredChecker();
+    }
+  }
 
   /**
    * @param wiring the module's devices
@@ -155,6 +183,20 @@ final class ModuleIOTalonFX implements ModuleIO {
       DrivetrainGeometry.ModuleType hardware,
       double couplingRatio,
       PhoenixOdometryThread odometry) {
+    this(wiring, bus, hardware, couplingRatio, odometry, new Frames());
+  }
+
+  /**
+   * The same, with where the drive's start frame is heard. For the tests, which restart the drive
+   * there ({@link Frames}).
+   */
+  ModuleIOTalonFX(
+      SwerveWiring.ModuleWiring wiring,
+      CANBus bus,
+      DrivetrainGeometry.ModuleType hardware,
+      double couplingRatio,
+      PhoenixOdometryThread odometry,
+      Frames frames) {
     drive = new TalonFX(wiring.driveId(), bus);
     steer = new TalonFX(wiring.steerId(), bus);
     int encoderId = wiring.encoderId().orElseThrow();
@@ -191,6 +233,9 @@ final class ModuleIOTalonFX implements ModuleIO {
     odometryDriveRotations = odometry.register(drivePosition.clone());
     odometrySteerRotations = odometry.register(steerPosition.clone());
     odometrySteerCurrent = odometry.register(steerStatorCurrent.clone());
+    // Asked from here, once the devices are configured: the frame the drive sent as it and the
+    // robot started is not a restart.
+    driveRestarts = new PhoenixRestarts(frames.driveStartFrames(drive));
   }
 
   /**
@@ -363,6 +408,7 @@ final class ModuleIOTalonFX implements ModuleIO {
     steerRotationsPerSecond = steerVelocity.getValueAsDouble();
 
     inputs.driveConnected = driveConnected.calculate(driveAnswered);
+    inputs.driveRestarted = driveRestarts.happened();
     inputs.drivePositionRad =
         TWO_PI
             * wheelRotations(

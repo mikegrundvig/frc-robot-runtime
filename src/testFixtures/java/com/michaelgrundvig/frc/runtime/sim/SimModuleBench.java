@@ -108,6 +108,11 @@ public final class SimModuleBench implements ModuleBench {
     }
 
     @Override
+    public void restartTheDrive() {
+      sim.restartDrive();
+    }
+
+    @Override
     public double driveVolts() {
       return drive.volts();
     }

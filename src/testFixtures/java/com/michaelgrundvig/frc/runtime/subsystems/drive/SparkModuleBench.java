@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.revrobotics.spark.SparkBase;
 import com.revrobotics.spark.SparkSim;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -77,6 +78,9 @@ public final class SparkModuleBench implements ModuleBench {
     private double wheelRotationsPerSecond;
     private double moduleRotations;
 
+    /** Where the wheel was, in rotations, when the drive SPARK last started counting from zero. */
+    private double countsFromRotations;
+
     SparkRig(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits, int firstId) {
       RobotSim.setEnabled(true);
       SwerveWiring.ModuleWiring wiring =
@@ -114,7 +118,7 @@ public final class SparkModuleBench implements ModuleBench {
     public void step() {
       double rpm = wheelRotationsPerSecond * driveGearing * SECONDS_PER_MINUTE;
       double turnsThisLoop = rpm / SECONDS_PER_MINUTE * RobotLoop.PERIOD_SECONDS;
-      drive.setPosition(wheelRotations * driveGearing - turnsThisLoop);
+      drive.setPosition((wheelRotations - countsFromRotations) * driveGearing - turnsThisLoop);
       drive.iterate(rpm, BATTERY_VOLTS, RobotLoop.PERIOD_SECONDS);
       double encoderReads = moduleRotations - Math.floor(moduleRotations);
       steer.setPosition(encoderReads);
@@ -132,6 +136,19 @@ public final class SparkModuleBench implements ModuleBench {
     @Override
     public void moduleIs(double radians) {
       moduleRotations = radians / (2 * Math.PI);
+    }
+
+    /**
+     * Raises the drive SPARK's "has reset" warning, as REV's simulation can, and has its motor
+     * count from zero where the wheel is now. REV's simulation keeps a SPARK's settings through it.
+     */
+    @Override
+    public void restartTheDrive() {
+      countsFromRotations = wheelRotations;
+      drive
+          .getFaultManager()
+          .setStickyWarnings(
+              new SparkBase.Warnings(false, false, false, false, false, false, true, false));
     }
 
     @Override

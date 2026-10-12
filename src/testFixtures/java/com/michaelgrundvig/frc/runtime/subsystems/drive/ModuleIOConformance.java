@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleBench.Ability;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
@@ -26,7 +27,8 @@ import org.wpilib.system.RobotController;
  * units, signs and odometry readings, for every driver. It works as the joints' suite does ({@code
  * JointIOConformance}): a driver's test class hands this its bench ({@link ModuleBench}), a
  * scenario asks again every loop as the robot does, and waits for what it expects rather than for a
- * number of loops. The clauses about lost frames, restarts and retuning are not here yet.
+ * number of loops. A restarted drive's count is here (M16). The clauses about lost frames, a
+ * restart's tuning and retuning are not here yet.
  */
 @ExtendWith(RobotSim.class)
 public abstract class ModuleIOConformance {
@@ -40,6 +42,9 @@ public abstract class ModuleIOConformance {
 
   /** How close an angle or a wheel's turn must read, in radians. */
   private static final double NEAR = 0.02;
+
+  /** How close a wheel's turning must read, in radians: far inside a turn. */
+  private static final double WHEEL_NEAR = 0.3;
 
   /** How close a voltage must be to the one expected, in volts. */
   private static final double VOLTS = 0.15;
@@ -124,8 +129,9 @@ public abstract class ModuleIOConformance {
   private String state() {
     return String.format(
         Locale.ROOT,
-        "Now: drive position=%.4f velocity=%.4f volts=%.3f stator=%.2f A; steering angle=%.4f"
-            + " velocity=%.4f volts=%.3f; %d odometry readings",
+        "Now: drive restarted=%b position=%.4f velocity=%.4f volts=%.3f stator=%.2f A; steering"
+            + " angle=%.4f velocity=%.4f volts=%.3f; odometry readings of the wheel %s",
+        inputs.driveRestarted,
         inputs.drivePositionRad,
         inputs.driveVelocityRadPerSec,
         inputs.driveAppliedVolts,
@@ -133,7 +139,7 @@ public abstract class ModuleIOConformance {
         inputs.steerAngle.getRadians(),
         inputs.steerVelocityRadPerSec,
         inputs.steerAppliedVolts,
-        inputs.odometryTimestampsNanos.length);
+        Arrays.toString(inputs.odometryDrivePositionsRad));
   }
 
   /** Checks a clause a driver may be known to differ on: such a driver must still fail it. */
@@ -224,6 +230,61 @@ public abstract class ModuleIOConformance {
     assertThat(times[times.length - 1])
         .as("M12: on the robot's clock, not after now")
         .isLessThanOrEqualTo(RobotController.getTime());
+  }
+
+  /**
+   * A drive controller that restarts counts its wheel from zero, and the driver says so in exactly
+   * one loop. Every reading before that loop is of the old count and every reading after it is of
+   * the new one, the odometry readings too, so a drivetrain that leaves the wheel out for that one
+   * loop never takes the count starting again for travel. From there the count moves as far as the
+   * wheel does.
+   */
+  @Test
+  void m16_aRestartedDriveSaysSoInTheLoopItsCountStartsAgain() {
+    ModuleBench.Rig rig = powerOn();
+    double rolled = 4 * Math.PI;
+    rig.wheelIs(rolled, 0);
+    settles("the wheel reads two turns on", () -> everyReadingOfTheWheelIs(rolled));
+    assertThat(inputs.driveRestarted).as("M16: nothing restarted yet").isFalse();
+
+    rig.restartTheDrive();
+    int saidSo = 0;
+    for (int i = 0; i < 4 * STEADY_LOOPS; i++) {
+      loop();
+      if (inputs.driveRestarted) {
+        // This loop's own readings may be of either count.
+        saidSo++;
+        continue;
+      }
+      double count = saidSo == 0 ? rolled : 0;
+      assertThat(everyReadingOfTheWheelIs(count))
+          .as(
+              "M16: %d loops on, %s the loop that said it restarted, every reading of the wheel is"
+                  + " %.2f rad. %s",
+              i + 1, saidSo == 0 ? "before" : "after", count, state())
+          .isTrue();
+    }
+    assertThat(saidSo).as("M16: said in exactly one loop").isEqualTo(1);
+
+    rig.wheelIs(rolled + 2 * Math.PI, 0);
+    eventually("M16: it counts on from zero, a turn", () -> everyReadingOfTheWheelIs(2 * Math.PI));
+  }
+
+  /**
+   * Whether the wheel reads near an angle, in radians, in the loop's reading and in each of its
+   * odometry readings. An odometry reading that is not a number is one that did not come, which the
+   * drivetrain passes over.
+   */
+  private boolean everyReadingOfTheWheelIs(double radians) {
+    if (Math.abs(inputs.drivePositionRad - radians) > WHEEL_NEAR) {
+      return false;
+    }
+    for (double reading : inputs.odometryDrivePositionsRad) {
+      if (Double.isFinite(reading) && Math.abs(reading - radians) > WHEEL_NEAR) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

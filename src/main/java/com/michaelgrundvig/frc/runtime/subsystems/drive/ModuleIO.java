@@ -14,8 +14,9 @@ import org.wpilib.math.geometry.Rotation2d;
  * <p>What every module driver keeps, clause by clause, as the joints' drivers keep theirs ({@code
  * JointIO}). The conformance suite ({@code ModuleIOConformance}, in the test fixtures) checks the
  * clauses about units, signs and odometry readings against every driver here: M1, M3, M5 to M10,
- * M12 and M17. The rest are written down and not yet checked by it. Where a driver here is known to
- * differ from a clause, the clause says so: those are open questions, not leave to differ.
+ * M12 and M17, and what M16 says of a drive controller's count. The rest are written down and not
+ * yet checked by it. Where a driver here is known to differ from a clause, the clause says so:
+ * those are open questions, not leave to differ.
  *
  * <p><b>Readings</b>
  *
@@ -72,9 +73,12 @@ import org.wpilib.math.geometry.Rotation2d;
  *       CTRE module's odometry reading for a frame that did not come is not a number, and the
  *       drivetrain passes it over.
  *   <li><b>M16.</b> A controller that restarts has the gains and limits of the last {@link
- *       #configure} in force again by the next loop. Open: a restarted drive controller counts its
- *       wheel from zero, which reads as the wheel jumping back, and no driver says that it
- *       restarted. The inputs have nowhere to say it.
+ *       #configure} in force again by the next loop. A restarted drive controller counts its wheel
+ *       from zero again, and {@link ModuleIOInputs#driveRestarted} says so in exactly one loop, on
+ *       every driver. Every reading of the wheel before that loop is of the old count and every
+ *       reading after it is of the new one; that loop's own readings may be of either. The
+ *       drivetrain leaves the wheel out of odometry for that one loop, so a count starting again is
+ *       never taken for the wheel rolling back.
  * </ul>
  */
 public interface ModuleIO {
@@ -97,6 +101,16 @@ public interface ModuleIO {
      * tread's grip prevents.
      */
     public boolean driveTorqueLimited = false;
+
+    /**
+     * Whether the drive motor's controller restarted since the last loop: a breaker that reset, a
+     * power connector that came loose. True in exactly one loop for each restart, as a joint's is
+     * ({@code JointIO.JointIOInputs#restarted}). A restarted controller counts its wheel from zero,
+     * so this loop's readings of the wheel, the odometry readings among them, may be of the old
+     * count or of the new, and the drivetrain leaves the wheel out of odometry for the loop. A
+     * TalonFX says so in the frame it sends as it starts; a SPARK, in its sticky warnings.
+     */
+    public boolean driveRestarted = false;
 
     public boolean steerConnected = false;
 

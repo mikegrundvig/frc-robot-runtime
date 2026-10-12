@@ -18,6 +18,7 @@ import com.ctre.phoenix6.signals.MagnetHealthValue;
 import com.ctre.phoenix6.signals.ReverseLimitValue;
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixRestarts;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.Actuator;
@@ -147,7 +148,7 @@ public final class JointIOTalon implements JointIO {
   private final LimitPin reversePin;
 
   private final Debounce leaderAnswers = silentAfterHalfASecond();
-  private final Restarts leaderRestarts;
+  private final PhoenixRestarts leaderRestarts;
   private final StatusSignal<Integer> leaderFaults;
 
   /** The joint's CANcoder. Empty for a joint without one. */
@@ -230,30 +231,6 @@ public final class JointIOTalon implements JointIO {
   }
 
   /**
-   * Whether a device has restarted since it was last asked.
-   *
-   * <p>Phoenix's checker also reports the frame a device sent when it and the robot first started.
-   * That is not a restart, so the first answer is thrown away.
-   */
-  private static final class Restarts {
-    private final BooleanSupplier startFrameSeen;
-    private boolean askedBefore;
-
-    Restarts(BooleanSupplier startFrameSeen) {
-      this.startFrameSeen = startFrameSeen;
-    }
-
-    boolean happened() {
-      boolean seen = startFrameSeen.getAsBoolean();
-      if (!askedBefore) {
-        askedBefore = true;
-        return false;
-      }
-      return seen;
-    }
-  }
-
-  /**
    * Where the joint's devices are heard from: the status frames each sends, and the frame each
    * sends as it starts. On a robot this is Phoenix, as here.
    *
@@ -294,7 +271,7 @@ public final class JointIOTalon implements JointIO {
   private record FollowingTalon(
       PhoenixTalon talon,
       int number,
-      Restarts restarts,
+      PhoenixRestarts restarts,
       StatusSignal<Integer> faults,
       Debounce answers) {}
 
@@ -316,7 +293,7 @@ public final class JointIOTalon implements JointIO {
       StatusSignal<Angle> absolutePosition,
       StatusSignal<MagnetHealthValue> magnetHealth,
       StatusSignal<Integer> faults,
-      Restarts restarts,
+      PhoenixRestarts restarts,
       AbsoluteReader reader,
       boolean seedsTheRotor) {}
 
@@ -398,7 +375,7 @@ public final class JointIOTalon implements JointIO {
     sendFaultFieldsSlowly(leaderFaults, followerFaults);
     // Each follower's half second of silence is counted from here, once every device has been
     // configured, and not from partway through startup.
-    leaderRestarts = new Restarts(frames.startFrames(LEADER, leader.parent()));
+    leaderRestarts = new PhoenixRestarts(frames.startFrames(LEADER, leader.parent()));
     List<FollowingTalon> watched = new ArrayList<>();
     for (int i = 0; i < following.size(); i++) {
       PhoenixTalon follower = following.get(i);
@@ -406,7 +383,7 @@ public final class JointIOTalon implements JointIO {
           new FollowingTalon(
               follower,
               1 + i,
-              new Restarts(frames.startFrames(1 + i, follower.parent())),
+              new PhoenixRestarts(frames.startFrames(1 + i, follower.parent())),
               followerFaults.get(i),
               silentAfterHalfASecond()));
     }
@@ -496,7 +473,7 @@ public final class JointIOTalon implements JointIO {
         device.getAbsolutePosition(),
         device.getMagnetHealth(),
         device.getFaultField(false),
-        new Restarts(frames.startFrames(number, device)),
+        new PhoenixRestarts(frames.startFrames(number, device)),
         reader,
         seedsTheRotor);
   }

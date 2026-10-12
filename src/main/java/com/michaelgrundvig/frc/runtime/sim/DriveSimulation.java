@@ -171,6 +171,16 @@ public final class DriveSimulation {
     return terrain;
   }
 
+  /**
+   * Restarts one module's drive motor controller, as a breaker that reset does: it counts its wheel
+   * from zero again, and says so the next time it is read.
+   *
+   * @param module front left, front right, back left, back right: 0 to 3
+   */
+  public void restartDrive(int module) {
+    modules[module].restartDrive();
+  }
+
   /** Unplugs the gyro, or plugs it back in. */
   public void disconnectGyro(boolean disconnected) {
     gyro.setConnected(!disconnected);

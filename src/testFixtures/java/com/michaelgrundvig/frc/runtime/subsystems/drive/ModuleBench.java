@@ -53,6 +53,12 @@ public interface ModuleBench {
     /** Points the module at an angle, in radians, counterclockwise from straight ahead. */
     void moduleIs(double radians);
 
+    /**
+     * Restarts the drive motor's controller, as a breaker that reset does: it counts its wheel from
+     * zero, from where the wheel is now.
+     */
+    void restartTheDrive();
+
     /** The voltage across the drive motor now, positive when it rolls the wheel forward. */
     double driveVolts();
 

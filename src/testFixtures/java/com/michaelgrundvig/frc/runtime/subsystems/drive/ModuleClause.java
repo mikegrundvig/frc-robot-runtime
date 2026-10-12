@@ -23,7 +23,7 @@ public enum ModuleClause {
   M13("configure puts gains and limits in force, waiting only at startup"),
   M14("each motor reads as silent after half a second of silence"),
   M15("readings stand in a loop a frame did not come"),
-  M16("a restarted controller has its tuning again, and its count is not travel"),
+  M16("a restarted controller has its tuning again, and a restarted drive says so in one loop"),
   M17("unconfigured is empty when every device took its settings"),
   M18("the drive says when its current limit held it, where the device says");
 
