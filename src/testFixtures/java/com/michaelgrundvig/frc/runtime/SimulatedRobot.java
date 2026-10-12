@@ -1,15 +1,29 @@
 package com.michaelgrundvig.frc.runtime;
 
+import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
+import com.michaelgrundvig.frc.localization.VisionDecision;
 import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
+import com.michaelgrundvig.frc.pitwall.simulator.Setting;
+import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.PdhIO;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIO;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.Sensor;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
-import java.util.function.UnaryOperator;
+import java.util.function.BiFunction;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.hardware.hal.AllianceStationID;
@@ -48,6 +62,16 @@ public final class SimulatedRobot implements AutoCloseable {
    * @param errors how its wheels, sensors, and camera mounts differ from its configuration
    */
   public SimulatedRobot(RobotConfig robot, SensorErrors errors) {
+    this(robot, errors, (name, camera) -> camera);
+  }
+
+  /**
+   * The same, each camera's IO handed through {@code watched} on its way to the robot's code, by
+   * the camera's name: a study reads there what each camera sent, or changes it, as a camera that
+   * misreads a tag does.
+   */
+  public SimulatedRobot(
+      RobotConfig robot, SensorErrors errors, BiFunction<String, CameraIO, CameraIO> watched) {
     if (!HAL.initialize()) {
       throw new IllegalStateException("WPILib's simulation failed to start");
     }
@@ -72,7 +96,53 @@ public final class SimulatedRobot implements AutoCloseable {
             errors,
             loopHealth,
             Optional.empty(),
-            UnaryOperator.identity());
+            hardware -> watchingCameras(hardware, robot, watched));
+  }
+
+  /** The robot's hardware as it is, each camera's IO handed through {@code watched}. */
+  private static Hardware watchingCameras(
+      Hardware hardware, RobotConfig robot, BiFunction<String, CameraIO, CameraIO> watched) {
+    List<CameraIO> cameras = new ArrayList<>();
+    List<CameraIO> real = hardware.cameras();
+    for (int i = 0; i < real.size(); i++) {
+      cameras.add(watched.apply(robot.definition().cameras().get(i).name(), real.get(i)));
+    }
+    return new Hardware() {
+      @Override
+      public DriveHardware drive() {
+        return hardware.drive();
+      }
+
+      @Override
+      public JointIO joint(Joint joint) {
+        return hardware.joint(joint);
+      }
+
+      @Override
+      public AbsoluteEncoderIO absoluteEncoder(Joint joint) {
+        return hardware.absoluteEncoder(joint);
+      }
+
+      @Override
+      public SensorIO sensor(Sensor.Placed sensor) {
+        return hardware.sensor(sensor);
+      }
+
+      @Override
+      public PdhIO pdh() {
+        return hardware.pdh();
+      }
+
+      @Override
+      public List<CameraIO> cameras() {
+        return List.copyOf(cameras);
+      }
+
+      @Override
+      public void close() {
+        hardware.close();
+      }
+    };
   }
 
   /** One robot loop: the clock moves a loop's time, the robot runs its loop, tunables update. */
@@ -120,6 +190,53 @@ public final class SimulatedRobot implements AutoCloseable {
    */
   public void start(Scenario scenario) {
     Robot.apply(scenario.eventsIn(world()), components());
+  }
+
+  /**
+   * Applies faults through the simulator's controls, now: a camera unplugged, the robot shoved.
+   *
+   * @throws IllegalStateException if one of them can't be applied, saying why
+   */
+  public void apply(Setting... faults) {
+    Robot.apply(List.of(faults), components());
+  }
+
+  /**
+   * Undoes a fault that lasts, through the simulator's controls: a camera plugged back in.
+   *
+   * @throws IllegalStateException if it can't be undone, saying why
+   */
+  public void undo(String component, String fault) {
+    String refused = components().undo(component, fault);
+    if (refused != null) {
+      throw new IllegalStateException("Simulator: " + refused);
+    }
+  }
+
+  /** The names of the simulated world's cameras, in the robot's order. */
+  public List<String> cameraNames() {
+    return world().cameraNames();
+  }
+
+  /**
+   * Tells localization the drive team placed the robot here, as sure as a placement on its start
+   * is, wherever the robot really stands: a robot placed wrong believes this.
+   */
+  public void believePlaced(Pose2d pose) {
+    container.localization().place(pose, RobotContainer.PLACED, "placed by the study");
+  }
+
+  /** What the drivetrain's sensors read in the last loop, as localization was given it. */
+  public DrivetrainReadings readings() {
+    return container.drive().readings();
+  }
+
+  /**
+   * Every camera measurement localization was given in the last loop, with what its estimator
+   * decided about each.
+   */
+  public List<VisionDecision> visionDecisions() {
+    return container.localization().service().decisions();
   }
 
   private SimulatedWorld world() {

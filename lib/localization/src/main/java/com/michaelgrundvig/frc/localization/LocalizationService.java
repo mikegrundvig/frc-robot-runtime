@@ -104,6 +104,9 @@ public final class LocalizationService {
 
   private LocalizationEstimate estimate;
 
+  /** What the estimator decided about each measurement in the last update. */
+  private List<VisionDecision> decisions = List.of();
+
   // The cameras: each one's mount and the field's tags to solve its images with (the venue's, once
   // one is selected), and how far the pit has tuned them to be trusted.
   private VisionPipeline pipeline;
@@ -505,7 +508,7 @@ public final class LocalizationService {
    */
   public LocalizationOutput update() {
     inLoop = false;
-    List<VisionDecision> decisions = estimator.update();
+    decisions = List.copyOf(estimator.update());
     estimate = estimator.estimate();
     List<FrameVerdict> frames = new ArrayList<>(refused.size() + decisions.size());
     frames.addAll(refused);
@@ -514,6 +517,15 @@ public final class LocalizationService {
       frames.add(FrameVerdict.of(decision));
     }
     return LocalizationOutput.builder().estimate(estimate).trust(trust()).frames(frames).build();
+  }
+
+  /**
+   * Every measurement the last {@link #update} was given, each whole (its pose, its uncertainty,
+   * its tags) with what the estimator decided about it, in the order they were applied: for a study
+   * that hands another estimator the same measurements.
+   */
+  public List<VisionDecision> decisions() {
+    return decisions;
   }
 
   /** Where the robot is: cheap, for driving every loop. */
