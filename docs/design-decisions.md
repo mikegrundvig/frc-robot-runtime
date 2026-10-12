@@ -5,8 +5,9 @@ This page says why. The [guide](guide.md) shows what a team writes, and
 reasons. This page takes each choice that differs from WPILib's defaults, or from what most teams
 do, and gives the reasoning, the evidence, the cost, and what would make us reverse it.
 
-Every section has the same six parts: what most teams do, what this does, why, the evidence and
-how strong it is, what it costs, and what would change our mind.
+Every section has the same six parts: what most teams do, what this does, why, the evidence and how
+strong it is, what it costs, and what would change our mind. Some end with a line of what is not
+built yet.
 
 ## Read this first
 
@@ -14,9 +15,18 @@ how strong it is, what it costs, and what would change our mind.
 such robot has run it. Every test is in the simulator, or against a vendor's simulated device. A
 section says so again only where it changes what the evidence is worth.
 
+**This is pre-release, and parts of it are unfinished.** "Not built yet" marks work that is
+intended. It is not a cost of the decision it sits under, and it is not an argument against it.
+"What it costs" holds only what a finished design choice trades away.
+
+**The code is open so that you can add to it.** Where the runtime lacks something your robot needs,
+such as a kind of joint or a driver for a device, the usual answer is to add it, and the sections
+say how.
+
 **Each piece of evidence has a grade.** *Measured* means we ran something and have a number.
-*Counted* means a figure from the census below. *Argued* means a design argument with no
-measurement behind it. *Precedent* means several top teams' public code does the same thing.
+*Counted* means a figure from the census below. *Experience* means we did it the other way first and
+changed. *Argued* means a design argument with no measurement behind it. *Precedent* means several
+top teams' public code does the same thing.
 
 **The census.** We read 100 public FRC robot codebases from the 2025 and 2026 seasons, from 74
 strong teams. The reading was automated, and each finding was checked by a second pass whose only
@@ -54,7 +64,7 @@ They run from the most fundamental to the least.
 | 12 | [Whole-robot tests](#12-whole-robot-tests-on-a-stepped-clock) | Run the robot, not mocks |
 | 13 | [Localization](#13-localization-sits-behind-a-seam) | Two estimators behind one seam |
 | 14 | [No SysId routine](#14-no-sysid-routine) | Seeded feedforward plus step tests |
-| 15 | [Paths in code](#15-paths-and-autos-in-code) | Keyframes in Java, no files |
+| 15 | [Paths in code](#15-paths-and-autos-in-code) | In code first, not finished |
 | 16 | [Pitwall](#16-pitwall-instead-of-dashboard-tuning) | Tune live, commit in code |
 | 17 | [Four repositories](#17-four-repositories) | One boundary for each owner |
 | 18 | [The platform](#18-java-25-wpilib-2027-alpha-systemcore-only) | 2027 only, no roboRIO |
@@ -87,15 +97,24 @@ Argued, for the claim that students do better with a generated layer than a hand
 found no evidence either way, and users of the public mechanism libraries we looked at complain that
 they are opaque.
 
-**What it costs.** If the model cannot express your mechanism, the runtime cannot drive it. Today
-that is a joint moved by servos, a differential pair, or an arm moved through a linkage. You write
-your own v3 `Mechanism` for those, and that joint loses its moves, gates, interlocks and simulation.
-Students learn less about configuring a motor controller. Code you did not write is harder to debug
-at an event, and the joint's log is the help you get.
+**What it costs.** Students learn less about configuring a motor controller. Code you did not write
+is harder to debug at an event, and the joint's log is the help you get. Each joint is its own
+`Mechanism`, which is finer than students are used to.
 
-**What would change our mind.** A season's robot that needs the escape hatch for more than one or
-two mechanisms. Or students who cannot work out from a joint's log why it will not move, without
-the mentor who wrote the runtime.
+**Adding a kind of joint.** Today the runtime drives a motor, or several together, turning one
+shaft: a pivot or arm, an elevator or slide, a turret, a roller or flywheel. A joint moved by
+servos, a differential pair, and an arm moved through a linkage are not built yet. You add one the
+way the existing kinds are made. The model's `Joint` and `MechanismControl` say what the joint is
+and how it is driven, a `JointIO` driver in the runtime turns requests into what the hardware takes,
+and `RobotHardware` picks the driver from the block's wiring. A new driver is checked by giving the
+conformance suite a bench for it (section 10), and `JointMechanism` then gives the joint its moves,
+gates and interlocks as it does for any other. For one odd mechanism there is a lighter route. Keep
+the joint in the description, leave out its control, and drive it with a v3 `Mechanism` of your own.
+[mechanisms.md](mechanisms.md#8-when-the-template-cant-drive-it) has a worked hood on linear servos.
+
+**What would change our mind.** A robot whose mechanisms take more work to describe than they would
+take to write as subsystems. Or students who cannot work out from a joint's log why it will not
+move, without the mentor who wrote the runtime.
 
 ## 2. Refuse at startup, and doubt out loud
 
@@ -157,10 +176,11 @@ incidents. So this failure is rare. It is worth stopping because it bends metal.
 keep-out holds has only been checked in the simulator. How far a real joint overshoots its edge
 depends on sensor delay and momentum, and nobody has measured it.
 
-**What it costs.** Behaviour is in two places. The command says go, the description says wait, and
-a student reading the command cannot see why the roller is not spinning. The answer is in the log
-under `HeldBy`. A held joint keeps its command, so a move can time out while it waits. There is no
-bench bypass yet, so you cannot jog a mechanism past its interlock in the pit.
+**What it costs.** Behaviour is in two places. The command says go, the description says wait, and a
+student reading the command cannot see why the roller is not spinning. The answer is in the log
+under `HeldBy`. A held joint keeps its command, so a move can time out while it waits.
+
+**Not built yet.** A bench bypass for interlocks, and moving between configurations by a route.
 
 **What would change our mind.** A robot whose real collision rules cannot be written as
 conditions, so the team writes a state machine anyway and has two sources of truth. Or drive teams
@@ -189,12 +209,14 @@ practice robot. Several top teams' public code runs one code base on several rob
 the program starts. Ours has only been tried on robots described in tests, never on a real pair.
 
 **What it costs.** A literal still works. `goTo(Degrees.of(130))` compiles, so this is a habit and
-not a guarantee. Named places cannot be tuned live yet, so moving one means a redeploy. A practice
-robot that differs in motor count or drivetrain gearing is not supported.
+not a guarantee. A place has to be given a name before it can be used, which is ceremony for a quick
+test.
 
-**What would change our mind.** Teams moving places so often during tuning that the redeploy is
-what slows them down. Or a practice robot whose list of differences grows as long as the
-description.
+**Not built yet.** Tuning a named place live, and a practice robot that differs in motor count or
+drivetrain gearing.
+
+**What would change our mind.** A practice robot whose list of differences grows as long as the
+description. Or teams that write literals anyway because naming a place first gets in their way.
 
 ## 5. Values in code, one owner per fact
 
@@ -409,14 +431,18 @@ Counted, for how common device trouble is. *Devices: wrong setup, or failures no
 148 bugs on 42 robots, 15 serious. The clauses about a silent or restarted controller are aimed at
 that class.
 
-The caveat is large. A vendor's simulated device is not the device. REV's simulation ignores
-several things a real SPARK does, and [stand-ins.md](stand-ins.md) lists them. A driver that
-passes may still break a clause on hardware. The module suite checks only some of its clauses, and
-`ModuleIO`'s Javadoc says which. There is no contract yet for a gyro or a camera.
+The caveat is large. A vendor's simulated device is not the device. REV's simulation ignores several
+things a real SPARK does, and [stand-ins.md](stand-ins.md) lists them. A driver that passes may
+still break a clause on hardware.
 
-**What it costs.** There are 58 clauses to keep true, and a new driver must pass them or write
-down where it differs. The contract is a lowest common denominator. A feature that only one
-vendor's controller has is left unused so the drivers agree.
+**What it costs.** There are 58 clauses to keep true. The contract is a lowest common denominator. A
+feature that only one vendor's controller has is left unused so the drivers agree.
+
+**Adding a driver.** A driver for another motor controller is a new `JointIO`. You give the suite a
+bench for it (`JointBench`), and it must pass each clause or write down where it differs.
+
+**Not built yet.** The module suite checks some of its clauses, and `ModuleIO`'s Javadoc says which.
+A gyro and a camera have no contract.
 
 **What would change our mind.** The first bench session with real devices. If real controllers
 break many clauses that their simulated versions pass, the suite proves little, and running it
@@ -458,9 +484,13 @@ is configured as 6.7. All four wheels slip at once, where a real robot's front w
 number has been compared with a real robot's log.
 
 **What it costs.** An auto that works in the simulator shows the logic is right. It does not show
-the robot will do it. Traction, weight transfer, battery sag and contact with game pieces are
-missing. Gains tuned there are starting points. The sensor error models are guesses, and the
-values register marks them so. A team that likes maple-sim's arena and game pieces loses them.
+the robot will do it. Traction, weight transfer, battery sag and contact with game pieces are left
+out on purpose. Gains tuned there are starting points. The sensor error models are guesses, and the
+values register marks them so. There is no arena of game pieces and other robots, as maple-sim has.
+
+**Not built yet.** Some faults, which
+[simulator.md](simulator.md#what-the-simulator-cant-make-fail-yet) lists, and failing a joint from
+the pit page. A test can already do the second.
 
 **What would change our mind.** The first real logs. If a real joint or drivetrain responds far
 from its simulated one, the fidelity has to go up. If field failures keep tracing back to traction
@@ -620,47 +650,52 @@ mechanism.
 
 ## 15. Paths and autos in code
 
+Autos and pathing are not finished. This section says what exists, why it was built in code first,
+and what is still to come.
+
 **What most teams do.** PathPlanner or Choreo. Paths are drawn in a GUI and deployed as files. An
 auto is a tree in a file. Named commands and event markers tie the file to the code by a string. A
 `SendableChooser` on the dashboard picks the auto.
 
-**What this does.** A path is Java: `drive.goTo(place)`, or `drive.follow(...)` through keyframes,
-planned when the move starts. An auto is a name, a start place and a method that returns a command,
-and it calls the methods your buttons call. The runtime owns the chooser, and "Do nothing" is always
-the default.
+**What this does.** Today a path is Java: `drive.goTo(place)`, or `drive.follow(...)` through
+keyframes, planned when the move starts. A named keyframe gives a gate a command can wait on. An
+auto is a name, a start place and a method that returns a command, declared with `autos.add`, and it
+calls the methods your buttons call. "Do nothing" is always in the list and is the default. Before a
+match the robot compares where it is with the chosen auto's start. `AutoCheck` runs every auto on
+both alliances in the simulator.
 
 **Why.** The join between a file and the code is a class of bug. A name is a string matched at run
 time, so one wrong character means a step that never runs. The robot's mass and gearing are typed
-again into the tool's settings, and the two copies disagree. In Java the compiler checks every
-name and there is no second copy.
+again into the tool's settings, and the two copies disagree. In Java the compiler checks every name
+and there is no second copy. So the part in code came first, and a file's path can be handed to it
+later as one more command.
 
-The path libraries are also v2. As of October 2026, PathPlannerLib's build for 2027 is written
-against Commands v2, and WPILib's build refuses a project with both v2 and v3.
+The path libraries are also Commands v2 for now. As of October 2026, PathPlannerLib's build for 2027
+is written against v2, and WPILib's build refuses a project with both v2 and v3.
 
-**Evidence, and how strong it is.** Counted, with a caution. *Wiring of modes, autos and buttons*
-has 238 bugs on 44 robots, 24 serious. Of the 253 serious bugs, 14 were in how autos and path tool
-files are joined to code, and we had no way to stop those. With no file there is nothing to join,
-so they are impossible to express. So is a chooser with no default.
+**Evidence, and how strong it is.** Counted. *Wiring of modes, autos and buttons* has 238 bugs on 44
+robots, 24 serious. Of the 253 serious bugs, 14 were in how autos and path tool files are joined to
+code, and when we judged them we had no way to stop those. An auto written as Java has no such join,
+so those are impossible to express. So is a chooser with no default. The census counts bugs. It does
+not count what a path tool saves a team, and nobody has measured how long an auto takes to write as
+keyframes against drawing it.
 
-The caution is that this is avoidance. Removing a tool removes its bugs and its value, and the
-census does not count what a path tool saves a team. Nobody has measured how long an auto takes to
-write as keyframes against drawing it. Moves plan at half the model's accelerations until the
-robot's yaw inertia is measured, so these autos are slower than a tuned path tool's.
+**What it costs.** An auto is Java. Someone who does not write Java needs a path tool's files, once
+those are read. A path written as keyframes is not drawn, so you first see it by running it in the
+simulator.
 
-**What it costs.** A lot. There is no GUI, so you cannot see a path before you run it. There is
-no obstacle avoidance, no pathfinding and no time-optimal trajectory. A strategy student who does
-not write Java cannot make an auto. A team's existing paths and know-how do not carry over.
+**Not built yet.**
 
-One cost is an open problem and not a trade. The auto is chosen on the pit page. The page's port
-is not one the field network passes, and the choice is not saved across a restart. So as the code
-stands, the auto has to be chosen before the robot connects to the field, and a robot restarted
-after that runs "Do nothing". A dashboard chooser can be changed from the driver station until the
-match starts.
+- Reading a path tool's files. [stand-ins.md](stand-ins.md#waiting-on) lists it as waited on.
+- Choosing an auto from the driver station over NetworkTables. Today it is chosen on the pit page.
+- Keeping the chosen auto across a restart of the robot program.
+- Steering a path around obstacles.
+- Planning at the robot's full limits. Moves plan at half the model's accelerations until the
+  robot's yaw inertia is measured.
 
-**What would change our mind.** A season whose autos need obstacle avoidance or time-optimal
-paths. Or a first real season that shows keyframes are slower to write than paths are to draw.
-Reading a path tool's files is listed in [stand-ins.md](stand-ins.md#waiting-on) as waited on, and
-a path read from a file could be handed to an auto without undoing the rest.
+**What would change our mind.** Bugs in the join coming back once files are read, which would say
+the join needs its own startup check. Or a season that shows keyframes in Java are slower to get
+right than drawn paths, even for the students who write the code.
 
 ## 16. Pitwall instead of dashboard tuning
 
@@ -685,11 +720,12 @@ several top teams' public code tunes live through logged tunable numbers and sav
 robot. The page has never been used in a real pit, and what its web server costs the loop on a
 Systemcore has not been measured.
 
-**What it costs.** It is one more tool, and no other team uses it. The paste step can be
-forgotten, and the change is then gone when the field connects. That is safe, and it will surprise
-someone who saw it work in the pit. A joint's feedforward, its profile and its named places cannot
-be tuned live yet. The page cannot be reached through the field network. That is on purpose for
-tuning and a problem for choosing an auto, as section 15 says.
+**What it costs.** It is one more tool, and no other team uses it. The paste step can be forgotten,
+and the change is then gone when the field connects. That is safe, and it will surprise someone who
+saw it work in the pit. The page is not reachable through the field network, on purpose: nothing is
+tuned on the field.
+
+**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places.
 
 **What would change our mind.** A pit crew that keeps losing tuned values at the paste step. Or a
 dashboard teams already know that does the same job and shows the change to commit.
@@ -702,39 +738,39 @@ sits inside it, or in a second repository that drifts.
 **What this does.** There are four. The **model** is the vocabulary and the checks. It depends on
 WPILib's math and units and nothing else of a robot program, so a robot, a simulator and a replay
 read the same model. **Pitwall** is the pit page. It knows nothing about robots, and the program
-hands it data. The **runtime** is the program every robot shares, and an architecture test fails
-if it names a class of the team's. A **team's program** is `Main`, the robots' descriptions and
+hands it data. The **runtime** is the program every robot shares, and an architecture test fails if
+it names a class of the team's. A **team's program** is `Main`, the robots' descriptions and
 `Controls`. It takes the other three as git submodules, built from source in one build, with no
-version numbers. Localization is on its way to becoming a fifth, as section 13 says.
+version numbers. Localization is following, as section 13 says.
 
-**Why.** Each boundary keeps one kind of change away from another. The model is the most settled
-part and should not move when the runtime does. Pitwall stays general only if robot code cannot
-leak into it. The runtime stays shareable only if it never names a team's class. A team's
-repository should hold only what the team edits. When all of it was one repository, those
-boundaries were conventions, and they were crossed.
+**Why.** The project began as one repository, for its first stretch of development. With everything
+in one place the boundaries were conventions, and they were crossed. Splitting it made the
+boundaries real. The model cannot see the runtime. Pitwall cannot see a robot. The runtime cannot
+name a team's class. A team's repository holds only what the team edits.
 
-**Evidence, and how strong it is.** Argued, and it is the thinnest argument on this page. There is
-no measurement and no census class. Among top teams' public code we found both one-repository and
-split layouts, and no sign that either one wins.
+**Evidence, and how strong it is.** Experience. We did it the other way first and unwound it. That
+is one project's experience and not a measurement, and no census class bears on it.
 
 **What it costs.** A change that crosses a boundary is two or three commits in order, with a
-submodule pin moved each time. A student who wants to fix the runtime has to learn what a submodule
-is. The team's build checks that its WPILib and vendor versions match the runtime's, and that is one
-more thing that can fail.
+submodule pin moved each time. A student who wants to change the runtime has to learn what a
+submodule is. The team's build checks that its WPILib and vendor versions match the runtime's, and
+that is one more thing that can fail.
 
-**What would change our mind.** Paired commits that slow down fixes in a build season. Or a team
-that changes the runtime so often that it becomes a fork in all but name.
+**What would change our mind.** Paired commits that slow down fixes in a build season more than the
+crossed boundaries did.
 
 ## 18. Java 25, WPILib 2027 alpha, Systemcore only
 
 **What most teams do.** The current season's WPILib release on a roboRIO, with Commands v2 and
 released vendor libraries.
 
-**What this does.** It targets WPILib 2027, currently 2027.0.0-alpha-7, on Systemcore, with a
-Java 25 toolchain that Gradle downloads. The vendor libraries are alphas tied to that WPILib
-alpha, and PhotonLib is pinned to a development build. The swerve drivetrain stands in until
-AdvantageKit publishes its 2027 templates. It is Java and not Kotlin, because Java is what
-students arrive knowing and what nearly every FRC example is written in.
+**What this does.** The target is WPILib 2027, currently 2027.0.0-alpha-7, on Systemcore, with a
+Java 25 toolchain that Gradle downloads. The vendor libraries are alphas tied to that WPILib alpha,
+and PhotonLib is pinned to a development build. It is Java and not Kotlin, because Java is what
+students arrive knowing and what nearly every FRC example is written in. What is supported today is
+a swerve drivetrain, PhotonVision, and the motor controllers and sensors listed in [coming from
+WPILib](coming-from-wpilib.md#supported-today). The drivetrain stands in until AdvantageKit
+publishes its 2027 templates.
 
 **Why.** The stack is meant for the 2027 season, and 2027 is Systemcore. Commands v3 exists only
 there. Code written for the roboRIO would be rewritten at once. Building on the alphas now means
@@ -742,10 +778,9 @@ the work is done before kickoff, when time is shortest.
 
 **Evidence, and how strong it is.** Argued. It is a bet on a schedule, not a finding.
 
-**What it costs.** It cannot run on any robot a team owns today. That is why nothing on this page
-has been checked on hardware, and it is the largest weakness of the whole stack. Each new alpha can
-break the build. Hardware support is a fixed list, and [stand-ins.md](stand-ins.md) lists the parts
-that are throwaway.
+**What it costs.** It cannot run on a roboRIO robot, so it cannot run on any robot a team owns
+today. That is why nothing on this page has been checked on hardware. Each new alpha can break the
+build.
 
 **What would change our mind.** A 2027 release that slips or changes shape so that the alphas were
 a poor guide. Or a first Systemcore robot showing that what we learned in the simulator did not
