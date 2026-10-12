@@ -94,8 +94,9 @@ import org.littletonrobotics.junction.AutoLog;
  *       next request: kP, kI, kD, the feedforward's kS, the limit on the current through the motor
  *       and, where the device has one, the limit on the current from the battery. A value tuned to
  *       zero is in force as zero. It does not wait for the device.
- *   <li><b>J19.</b> A retune changes nothing else: the soft limits and the neutral mode stay as
- *       they were at startup. Known difference: the simulator takes the whole control.
+ *   <li><b>J19.</b> A retune changes nothing else, on every driver and in the simulator: the soft
+ *       limits and the neutral mode are set once, at startup, and stay as they were then whatever a
+ *       retune's control says. They are not tunable live.
  * </ul>
  *
  * <p><b>Readings</b>
@@ -323,7 +324,8 @@ public interface JointIO {
 
   /**
    * Takes the pit's tuned gains and current limits, as the motor controller's own loop runs them:
-   * its kP, kI, kD and kS, and its current limits. Without waiting: the loop goes on.
+   * its kP, kI, kD and kS, and its current limits. Without waiting: the loop goes on. Nothing else
+   * of the control is taken: its soft limits and neutral mode stay as they were at startup.
    *
    * <p>Every one of them is in force from the next request on, wherever it runs. A TalonFX holds
    * them all in its two slots, one for positions and one for speeds. A SPARK holds its kP, its kI

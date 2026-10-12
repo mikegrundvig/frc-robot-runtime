@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
+import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -122,7 +123,16 @@ final class JointIOSim implements JointIO {
   private final JointPlant plant;
   private final ControllerEmulator controller;
 
-  /** How its motor controller drives it: its block's control, or as the pit tunes it. */
+  /**
+   * The joint's control as its motor controller was configured at startup. Its soft limits and its
+   * neutral mode are set then and never again.
+   */
+  private final MechanismControl atStartup;
+
+  /**
+   * How its motor controller drives it: its block's control, or the pit's gains and current limits
+   * with the soft limits and neutral mode it started with.
+   */
   private ControllerPlan plan;
 
   private Asked asked = Asked.NEUTRAL;
@@ -214,7 +224,8 @@ final class JointIOSim implements JointIO {
   JointIOSim(RobotMath math, Joint joint, ControllerPins pins) {
     this.joint = joint;
     this.math = math;
-    plan = ControllerPlan.of(math, joint, ControllerSettings.control(joint));
+    atStartup = ControllerSettings.control(joint);
+    plan = ControllerPlan.of(math, joint, atStartup);
     plant = JointPlant.of(math, joint);
     controller = ControllerEmulator.of(plan);
     lastReadPosition = plant.position();
@@ -315,7 +326,10 @@ final class JointIOSim implements JointIO {
     return plant.appliedVolts();
   }
 
-  /** How its motor controller drives it now: its block's control, or as the pit last tuned it. */
+  /**
+   * How its motor controller drives it now: its block's control, or the pit's last gains and
+   * current limits with the soft limits and neutral mode it started with.
+   */
   ControllerPlan plan() {
     return plan;
   }
@@ -641,10 +655,20 @@ final class JointIOSim implements JointIO {
     countOffset = position - plant.position();
   }
 
-  /** Takes the pit's tuning: its gains and current limits, as its motor controller would. */
+  /**
+   * Takes the pit's tuning: its gains and current limits, as a real motor controller is sent them.
+   * Its soft limits and its neutral mode stay as they were at startup, whatever the tuned control
+   * says: no driver sends those again ({@code JointIO}'s J19), so a test in the simulator must not
+   * see them move either.
+   */
   @Override
   public void retune(MechanismControl control) {
-    plan = ControllerPlan.of(math, joint, control);
+    MechanismControl gainsAndCurrentLimits =
+        MechanismControlBuilder.builder(control)
+            .softLimits(atStartup.softLimits())
+            .neutralMode(atStartup.neutralMode())
+            .build();
+    plan = ControllerPlan.of(math, joint, gainsAndCurrentLimits);
     controller.retune(plan);
   }
 }

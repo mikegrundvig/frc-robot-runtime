@@ -107,10 +107,6 @@ public final class SimJointBench implements JointBench {
   @Override
   public Optional<String> knownDifference(JointClause clause) {
     return switch (clause) {
-      case J19 ->
-          Optional.of(
-              "the simulator takes a retune's whole control, its soft limits and neutral mode too,"
-                  + " where a TalonFX and a SPARK are sent only gains and current limits");
       case J27 ->
           Optional.of(
               "the simulator reads as not connected in the first loop of a silence, where a real"
