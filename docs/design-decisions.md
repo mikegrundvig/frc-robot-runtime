@@ -555,55 +555,81 @@ teams solve each image with the gyro's heading.
 of its own, and a team picks one. The first is the runtime's own estimator. It applies a late
 camera measurement at the time its image was taken, gates each measurement statistically against
 the estimate, recovers when several rejected measurements agree with each other, and lowers its
-trust in the wheels when they slip. It solves nearly every image with the gyro's heading and uses
-the tags for position only. The second is WPILib's estimator, handed the same measurements from
-the same image-solving pipeline. You choose it with one line in the robot's configuration, and
+trust in the wheels when they slip. It solves nearly every image with the gyro's heading, and it
+estimates what the gyro gets wrong: its scale and its steady drift, from the cameras as the robot
+drives and from the gyro itself while the robot stands still. It watches each camera against the
+others, and takes off what a camera knocked on its mount or stamped late puts its measurements
+off by. The second is WPILib's estimator, handed the same measurements from the same
+image-solving pipeline. You choose it with one line in the robot's configuration, and
 [localizers.md](localizers.md) has the contract a localizer of your own is checked against.
 
 **Why.** We built the custom estimator on a design argument. Then we compared it with WPILib's,
-and the result does not justify making ours the only choice. So the decision is the seam, not the
-estimator.
+and the first result did not justify making ours the only choice: ours lost wherever the gyro or a
+camera mount was off. So the decision is the seam, not the estimator. We then changed the
+estimator against that result and measured again. The seam stays, because the new result is still
+a simulation's.
 
-One design choice explains most of the table below. Solving an image with the gyro's heading
+One design choice explained most of the first table. Solving an image with the gyro's heading
 removes the ambiguity of a single tag, which helps against bad camera data. But a heading error
 then becomes a position error, the same in every image, and all the cameras agree on the wrong
-place.
+place. The estimator now uses that: two cameras whose tags lie in different directions disagree
+by the heading's error, and that disagreement corrects the heading and tells the estimator how
+its gyro misreads.
 
 **Evidence, and how strong it is.** Measured, in simulation only. The study ran 41 scenarios with
 20 seeds each, and both estimators saw the same simulated robot in the same loop. WPILib's was the
 2027 alpha's, behind a filter whose rules came from several top teams' public code, tuned once and
 left alone. That is WPILib's estimator as a good team runs it, which is the fair opponent. It is
 not the second localizer as it ships: that one sits behind our pipeline, and a robot running it
-was not what the study measured. The figures are position error, RMS over the run.
+was not what the study measured. The figures are position error, RMS over the run. "Before" is
+ours before it corrected its gyro and watched its cameras.
 
-| Scenario | Ours | WPILib's |
-|---|---|---|
-| Clean driving, short route | 0.6 cm | 0.8 cm |
-| Clean driving, full match | 0.9 cm | 1.4 cm |
-| A camera misreading a tag, repeatedly | 0.6 cm | 2.5 cm |
-| A camera frozen on an old image | 0.6 cm | 14.4 cm |
-| Low grip | 2.0 cm | 5.9 cm |
-| A stale wheel encoder | 1.9 cm | 3.8 cm |
-| Gyro reading 3% high | 9.1 cm | 0.8 cm |
-| A camera knocked on its mount | 2.2 cm | 1.0 cm |
-| A camera's clock 20 ms off | 2.3 cm | 0.8 cm |
-| A match with several faults in a row | 5.9 cm | 4.0 cm |
+| Scenario | Ours before | Ours | WPILib's |
+|---|---|---|---|
+| Clean driving, short route | 0.6 cm | 0.5 cm | 0.8 cm |
+| Clean driving, full match | 0.9 cm | 0.7 cm | 1.4 cm |
+| A camera misreading a tag, repeatedly | 0.6 cm | 0.6 cm | 2.2 cm |
+| A camera frozen on an old image | 0.6 cm | 0.5 cm | 13.7 cm |
+| Low grip | 2.0 cm | 2.0 cm | 6.2 cm |
+| A stale wheel encoder | 1.9 cm | 1.9 cm | 3.9 cm |
+| Gyro reading 3% high | 9.1 cm | 0.6 cm | 0.8 cm |
+| A camera knocked on its mount | 2.2 cm | 1.0 cm | 1.0 cm |
+| A camera's clock 20 ms off | 2.3 cm | 0.8 cm | 0.8 cm |
+| A match with several faults in a row | 5.9 cm | 4.3 cm | 4.0 cm |
 
 In clean driving the two are the same for any practical purpose, since a centimeter is below what
-the simulator can resolve. Ours does better against bad camera data and wheel slip. Ours does
-worse when the gyro or a camera mount is off, and in the combined match, which it loses on the
-knocked camera. With the gyro 3% high its heading error was 2.0° against 0.5°.
+the simulator can resolve. Ours does better against bad camera data and wheel slip. With the gyro
+or a camera mount off, the two are now within a centimeter of each other, where ours lost before.
+With the gyro 3% high its heading error is 0.1° against 0.5°, where it was 2.0°.
+
+A second set of 19 scenarios was written before the estimator was changed and looked at only
+twice, before and after. It varies what the first set tested: other sizes of gyro and mount
+error, two faults at once, fewer cameras. Over its 87 comparisons with WPILib's, ours was behind
+in 25 before the changes and in 1 after. The
+[estimator study](../../docs/estimator-comparison.md#what-it-found) has both tables.
+
+WPILib's is still ahead in two ways. Ours moves the estimate in one step when it decides the
+estimate is wrong, 60 cm after a shove where WPILib's largest step is 11 cm, and an auto-align
+that follows the estimate feels it. And with a camera turned 1.5° on its mount, in the second
+set, ours was 1.7 cm off against 0.8 cm: too small a turn for its watch to act on.
 
 Read these with care.
 
 - The slip and collision models are the simulator author's, and the custom slip handling was
   developed against them. Its wins there are on home ground.
-- The simulated cameras are ideal. Every tag in view is found, with no blur and a perfect lens.
+- The simulated gyro's fault is a constant scale or a constant drift, which is exactly what the
+  estimator now estimates. A real gyro's errors move with temperature. This is the result we trust
+  least.
+- The simulated cameras are ideal. Every tag in view is found, with no blur and a perfect lens,
+  and they scatter far less than a real camera does, which makes a knocked camera easy to see.
 - One family of scenarios, with tags sitting off the field layout, favoured ours by a wide margin.
   The study could not check that size against real data, so we do not quote it.
 - When WPILib's filter was fed the measurements our pipeline produces, it came within a centimeter
-  of ours in all but two scenarios. Most of the difference is in how an image is solved and gated,
-  not in the filter.
+  of ours in 35 of the 41 scenarios. Most of the difference is in how an image is solved and
+  gated, not in the filter.
+- Ours is still surer of itself than it should be in some scenarios. With every camera mount off
+  by twice what the configuration allows, its heading was outside its own 95% bound in a quarter
+  of the loops.
 
 None of this says anything about a real robot.
 
@@ -615,8 +641,10 @@ A team has to choose, and choosing well means understanding this section.
 **What would change our mind.** A test on a real chassis. Log the raw detections, the wheels and
 the gyro, replay the same log through both, and use taped checkpoints as the truth. Add faults
 that cost nothing: a camera loosened and turned a few degrees, the gyro's scale left uncalibrated,
-a shove, a wheel lifted. If the losses hold up and the wins do not, WPILib's becomes the default
-and ours shrinks to a gate in front of it.
+a shove, a wheel lifted. The gyro is the first thing to check: whether the scale and drift the
+estimator finds on a real gyro are steady enough to be worth correcting, and whether its heading
+stays inside its own bound. If the wins do not hold up, WPILib's becomes the default and ours
+shrinks to a gate in front of it.
 
 ## 14. No SysId routine
 
