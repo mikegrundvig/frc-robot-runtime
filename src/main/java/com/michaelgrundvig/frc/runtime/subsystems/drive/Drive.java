@@ -65,7 +65,8 @@ import org.wpilib.units.measure.LinearVelocity;
  * <p><b>Each loop</b>, {@link #periodic(boolean)} runs first, before localization and the command
  * scheduler: it takes any new tuning, reads the hardware, and stops the motors while the robot is
  * disabled. Then the command that owns the drivetrain runs, and tells the wheels what to do through
- * {@link #runVelocity(ChassisVelocities)}, which it must call every loop it drives.
+ * {@link #runVelocity(ChassisVelocities)}, which it must call every loop it drives. While the robot
+ * is disabled the wheels are told only to stop, whatever a command asks ({@link DriveOutput}).
  *
  * <p><b>Inside</b>, each part of that is a class of its own:
  *
@@ -255,17 +256,16 @@ public class Drive implements Mechanism, AutoCloseable {
 
   /**
    * Starts the drivetrain's loop: takes any new tuning, reads the sensors, and stops the motors
-   * while the robot is disabled. Call it once per loop, before localization and the commands, so
-   * that both judge this loop's readings.
+   * while the robot is disabled, for the whole loop: nothing that asks later in it drives them.
+   * Call it once per loop, before localization and the commands, so that both judge this loop's
+   * readings.
    *
    * @param enabled whether the robot is enabled
    */
   public void periodic(boolean enabled) {
     takeTuningFromThePit();
     readings.read();
-    if (!enabled) {
-      output.stop();
-    }
+    output.newLoop(enabled);
     alerts.check(modules, readings);
     Logger.recordOutput("Drive/Pose", getPose());
     Logger.recordOutput("Drive/ModuleVelocities", readings.moduleVelocitiesAsRead());

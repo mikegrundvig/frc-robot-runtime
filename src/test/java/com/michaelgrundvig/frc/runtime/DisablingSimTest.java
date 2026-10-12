@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Move;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
@@ -18,6 +19,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.wpilib.command3.Command;
 import org.wpilib.hardware.hal.RobotMode;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.geometry.Transform2d;
 
 /**
  * What disabling the robot does to a command that is running, and what enabling it again does: the
@@ -67,6 +71,16 @@ class DisablingSimTest {
   private void holdTheDriversTrigger(boolean held) {
     sim.driver().setRightTriggerAxis(held ? 1 : 0);
     sim.driver().notifyNewData();
+  }
+
+  private void pushTheDriversStickForward() {
+    sim.driver().setLeftY(-1.0); // gamepad Y is negative when pushed forward
+    sim.driver().notifyNewData();
+  }
+
+  /** How far the simulated robot really is from a pose, in meters. */
+  private double metersFrom(Pose2d pose) {
+    return sim.world().truePose().getTranslation().getDistance(pose.getTranslation());
   }
 
   /** The names of the commands running now. */
@@ -258,32 +272,53 @@ class DisablingSimTest {
                 + " rpm");
   }
 
-  // ---- The drive's default command ----
+  // ---- The drivetrain ----
 
   /**
-   * The drive's default command, driving with the sticks, runs while the robot is disabled. With
-   * the stick pushed, it asks the wheels to drive every loop.
+   * The drivetrain refuses to be driven while the robot is disabled, as a joint does, whatever
+   * asks. With the stick pushed the drive's default command asks the wheels to drive every loop,
+   * and a move asks them to follow its path: the wheels stay neutral, and the robot stays where it
+   * stands.
    */
   @Test
-  void theDrivesDefaultCommandRunsWhileDisabled() {
+  void theDrivetrainIsNotDrivenWhileDisabledWhateverAsks() {
     enabledInTeleop();
-    sim.driver().setLeftY(-1.0); // gamepad Y is negative when pushed forward
-    sim.driver().notifyNewData();
-    sim.run(1);
-
     disabledFor(0.2);
-    double atDisable = sim.world().truePose().getX();
+    Pose2d stood = sim.world().truePose();
+
+    pushTheDriversStickForward();
+    sim.run(1);
+    double drivenByTheSticks = metersFrom(stood);
+    DriveMove ahead = sim.drive().goTo(stood.plus(new Transform2d(2, 0, Rotation2d.ZERO)));
+    sim.scheduler().schedule(ahead);
     sim.run(1);
     List<String> runningWhileDisabled = running();
-    double drivenWhileDisabled = sim.world().truePose().getX() - atDisable;
 
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
-    // Under review: the simulated robot drives while it is disabled, at full speed. Joints are
-    // refused any drive while disabled (JointMechanism.mayBeDriven), but the drivetrain is only
-    // stopped before the commands run (Drive.periodic), and its command then drives it. On a
-    // robot the motor controllers go neutral by themselves when the Driver Station disables
-    // them; nothing in the runtime or the simulator does. A drive move behaves the same way.
-    assertThat(drivenWhileDisabled).as("meters driven in 1 s disabled").isGreaterThan(3.0);
+    assertThat(runningWhileDisabled).containsExactly(ahead.name());
+    assertThat(drivenByTheSticks).as("meters driven by the sticks, disabled").isLessThan(0.001);
+    assertThat(metersFrom(stood)).as("meters driven by a move, disabled").isLessThan(0.001);
+  }
+
+  /**
+   * A robot that is moving when it is disabled is not driven on: its wheels go neutral, it rolls to
+   * a stop, and it stays there with the stick still pushed.
+   */
+  @Test
+  void aRobotDrivingWhenItIsDisabledRollsToAStop() {
+    enabledInTeleop();
+    pushTheDriversStickForward();
+    sim.run(1);
+
+    Pose2d atDisable = sim.world().truePose();
+    disabledFor(2);
+    double rolled = metersFrom(atDisable);
+    Pose2d stopped = sim.world().truePose();
+    sim.run(1);
+
+    assertThat(rolled)
+        .as("meters it rolled on from 4 m/s, braked by its motors and not driven")
+        .isBetween(1.0, 3.0);
+    assertThat(metersFrom(stopped)).as("stopped").isLessThan(0.001);
   }
 
   // ---- An auto ----

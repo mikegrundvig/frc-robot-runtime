@@ -20,6 +20,10 @@ import org.wpilib.math.util.MathUtil;
  * point every wheel one way with the wheels held still ({@link #pointWheels}), and to stop ({@link
  * #stop}).
  *
+ * <p>While the robot is disabled it tells them only to stop, whatever it is asked ({@link
+ * #mayBeDriven}). This is the one place the wheels are told anything, so no command, pit tool or
+ * simulator control drives a disabled robot.
+ *
  * <p>It logs what it asks of the wheels as {@code Drive/Setpoints}, and what the modules were told
  * in the end as {@code Drive/SetpointsOptimized}.
  */
@@ -53,6 +57,9 @@ final class DriveOutput {
   /** The fastest any wheel is told to roll, in meters a second, as tuned. */
   private double topWheelSpeedMetersPerSecond;
 
+  /** Whether the robot is enabled this loop. It is taken as disabled until the first loop says. */
+  private boolean enabled;
+
   DriveOutput(Module[] modules, RobotDefinition robot, SwerveDriveKinematics kinematics) {
     this.modules = modules;
     this.kinematics = kinematics;
@@ -78,6 +85,31 @@ final class DriveOutput {
   }
 
   /**
+   * Starts a loop: from now until the next loop, the modules are driven only if the robot is
+   * enabled. A disabled robot's motors are stopped here, before anything asks for them.
+   */
+  void newLoop(boolean enabled) {
+    this.enabled = enabled;
+    if (!enabled) {
+      stop();
+    }
+  }
+
+  /**
+   * Whether the wheels may be driven as they are asked this loop. They may not while the robot is
+   * disabled, as a joint may not ({@code JointMechanism.mayBeDriven}). What is asked then is
+   * dropped: the motors were stopped as the loop began ({@link #newLoop}), and stay so.
+   *
+   * <p>On a robot the motor controllers go neutral by themselves when the Driver Station disables
+   * them. Refusing here as well means the robot does not depend on that, the log shows no wheel
+   * told anything, and the simulator, which has no Driver Station to cut its motors' power, does
+   * the same as the robot.
+   */
+  private boolean mayBeDriven() {
+    return enabled;
+  }
+
+  /**
    * Moves the robot at a velocity, relative to itself, for one loop, while it speeds up or turns up
    * at an acceleration.
    *
@@ -91,6 +123,9 @@ final class DriveOutput {
    *     acceleration in radians a second squared
    */
   void drive(ChassisVelocities robotRelative, ChassisAccelerations acceleration) {
+    if (!mayBeDriven()) {
+      return;
+    }
     // Discretization: a robot that turns while it drives would curve off its line during the loop,
     // because the wheels hold one direction for the whole 20 ms while the robot rotates under
     // them. This asks for the velocity that, held for one loop, ends where the velocity asked for
@@ -134,6 +169,9 @@ final class DriveOutput {
    * whichever is nearer.
    */
   void lockWheels() {
+    if (!mayBeDriven()) {
+      return;
+    }
     for (int i = 0; i < Module.COUNT; i++) {
       double pointsNowRadians = modules[i].steerAngle().getRadians();
       double turnRadians = MathUtil.angleModulus(towardCenterRadians[i] - pointsNowRadians);
@@ -147,16 +185,23 @@ final class DriveOutput {
    * still.
    */
   void pointWheels(Rotation2d angle) {
+    if (!mayBeDriven()) {
+      return;
+    }
     for (Module module : modules) {
       module.holdSteer(angle);
     }
   }
 
-  /** Stops every motor: what the drivetrain does each loop the robot is disabled. */
+  /**
+   * Stops every motor, which leaves each to brake or coast as its neutral mode says: what the
+   * drivetrain does each loop the robot is disabled, whatever it is asked.
+   */
   void stop() {
     for (Module module : modules) {
       module.stop();
     }
+    Logger.recordOutput("Drive/Setpoints", NO_SETPOINTS);
     Logger.recordOutput("Drive/SetpointsOptimized", NO_SETPOINTS);
   }
 }

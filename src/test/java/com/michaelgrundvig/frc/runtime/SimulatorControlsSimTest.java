@@ -113,6 +113,35 @@ class SimulatorControlsSimTest {
         .isLessThan(0.01);
   }
 
+  /**
+   * The page's input drives nothing while the robot is disabled: the stick reaches the robot's
+   * program, which asks the wheels to drive, and the drivetrain refuses. Enabled with the stick
+   * still pushed, the robot drives.
+   */
+  @Test
+  void thePagesDrivingMovesNothingWhileTheRobotIsDisabled() throws Exception {
+    Pose2d start = placedAndEnabled();
+    RobotSim.setEnabled(false);
+    sim.run(0.2);
+
+    String forward = "{\"0\": {\"axes\": [0, -0.5, 0, 0, 0, 0]}}";
+    for (int i = 0; i < 10; i++) { // 1 s, repeating every 100 ms as the page does
+      assertThat(send("PUT", "/api/simulator/joysticks", forward).statusCode()).isEqualTo(204);
+      sim.loops(5);
+    }
+    double stickAsRead = sim.robot().driver().getLeftY();
+    double drivenDisabled = travelled(start);
+    RobotSim.setEnabled(true);
+    for (int i = 0; i < 10; i++) {
+      assertThat(send("PUT", "/api/simulator/joysticks", forward).statusCode()).isEqualTo(204);
+      sim.loops(5);
+    }
+
+    assertThat(stickAsRead).as("the robot's program reads the stick").isEqualTo(-0.5);
+    assertThat(drivenDisabled).as("meters driven while disabled").isLessThan(0.001);
+    assertThat(travelled(start)).as("meters driven once enabled").isGreaterThan(0.3);
+  }
+
   /** A fault from the page: the robot's code finds out from its sensors, and back again. */
   @Test
   void aFaultFromThePageIsFoundByTheRobotsCode() throws Exception {
