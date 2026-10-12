@@ -62,10 +62,12 @@ import org.wpilib.units.measure.Time;
  * starts, plus half a second; {@link #within} overrides it. A {@code runUntil} has no natural
  * duration, so it has no deadline of its own: it ends when its condition holds, when the deadline
  * {@link #within} gave it passes, or when it is canceled. One that never ends on its own, {@code
- * run}, {@code follow} or {@code hold}, is for "while held" and for background work. A move on a
- * joint that's homing waits for it, and its deadline starts once it has; one on a joint whose
- * homing was canceled homes it again first, if the robot is enabled, so it waits no longer than the
- * homing may take, and a homing that faults refuses it. Recovery is an {@code if}:
+ * run}, {@code follow} or {@code hold}, is for "while held" and for background work. A move started
+ * while the robot is disabled waits for it to be enabled, and its deadline starts then, so no
+ * deadline counts while the robot is disabled. A move on a joint that's homing waits for it, and
+ * its deadline starts once it has; one on a joint whose homing was canceled homes it again first,
+ * if the robot is enabled, so it waits no longer than the homing may take, and a homing that faults
+ * refuses it. Recovery is an {@code if}:
  *
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=recovery}
  *
@@ -459,8 +461,8 @@ public final class Move implements Command {
   }
 
   /**
-   * One run of the move, from start to end. It waits for its joints to home, begins, and then steps
-   * once a loop until a step ends it.
+   * One run of the move, from start to end. It waits for the robot to be enabled and for its joints
+   * to home, begins, and then steps once a loop until a step ends it.
    */
   @Override
   public void run(Coroutine coroutine) {
@@ -475,7 +477,7 @@ public final class Move implements Command {
     boolean yielded = false;
     boolean homesTheJoint = plan.task() instanceof Home;
     if (!homesTheJoint) {
-      while (waitsForHoming()) {
+      while (waitsToBeEnabled() || waitsForHoming()) {
         coroutine.yield();
         yielded = true;
       }
@@ -521,6 +523,21 @@ public final class Move implements Command {
   @Override
   public String toString() {
     return plan.name();
+  }
+
+  /**
+   * Whether the move must wait because the robot is disabled. A disabled joint is not driven, so a
+   * move that began now would only run down its deadline. It begins once the robot is enabled, and
+   * its time and its deadline start then.
+   *
+   * <p>A move that was refused as it was made does not wait. It has nothing to wait for, and says
+   * why it cannot run at once.
+   */
+  private boolean waitsToBeEnabled() {
+    if (plan.refused().isPresent() || legs.length == 0) {
+      return false;
+    }
+    return !legs[0].joint.isEnabled();
   }
 
   /**

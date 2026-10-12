@@ -129,8 +129,8 @@ public class Drive implements Mechanism, AutoCloseable {
   /** The driver's sticks, the field and the alliance, once the robot has handed them over. */
   private Optional<Driver> driver = Optional.empty();
 
-  /** Whether the robot was enabled in the last loop. */
-  private boolean wasEnabled;
+  /** Whether the robot is enabled, as of this loop. */
+  private boolean enabled;
 
   /** Whether the robot was disabled between the last loop and this one. */
   private boolean disabledThisLoop;
@@ -273,8 +273,8 @@ public class Drive implements Mechanism, AutoCloseable {
     takeTuningFromThePit();
     readings.read();
     output.newLoop(enabled);
-    disabledThisLoop = wasEnabled && !enabled;
-    wasEnabled = enabled;
+    disabledThisLoop = this.enabled && !enabled;
+    this.enabled = enabled;
     alerts.check(modules, readings);
     Logger.recordOutput("Drive/Pose", getPose());
     Logger.recordOutput("Drive/ModuleVelocities", readings.moduleVelocitiesAsRead());
@@ -400,6 +400,11 @@ public class Drive implements Mechanism, AutoCloseable {
    */
   Optional<String> refusedAsBuilt(Optional<String> why) {
     return Refusals.asBuilt(scheduler, why);
+  }
+
+  /** Whether the robot is enabled, as of this loop. A move waits to begin until it is. */
+  boolean isEnabled() {
+    return enabled;
   }
 
   /**

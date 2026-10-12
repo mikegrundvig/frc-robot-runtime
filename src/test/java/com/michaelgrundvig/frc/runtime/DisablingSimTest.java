@@ -167,6 +167,36 @@ class DisablingSimTest {
     assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
   }
 
+  /**
+   * A move asked for while the robot is disabled waits to be enabled, as it waits for a joint to
+   * home, and its time and its deadline start when it is: no deadline counts while the robot is
+   * disabled. The drivetrain's move waits the same way.
+   */
+  @Test
+  void aMoveAskedWhileDisabledWaitsToBeEnabledAndItsDeadlineStartsThen() {
+    JointSimulation truth = enabledInTeleop();
+    Move out = sim.joints().of(PIVOT).goTo(PIVOT_OUT);
+    disabledFor(0.5);
+    Pose2d stood = sim.world().truePose();
+    DriveMove ahead = sim.drive().goTo(stood.plus(new Transform2d(1, 0, Rotation2d.ZERO)));
+
+    sim.scheduler().schedule(out);
+    sim.scheduler().schedule(ahead);
+    sim.run(5);
+    List<String> runningWhileDisabled = running();
+    boolean endedWhileDisabled = out.outcome().isPresent() || ahead.outcome().isPresent();
+    enabledAgainFor(3);
+
+    assertThat(runningWhileDisabled).containsExactlyInAnyOrder(out.name(), ahead.name());
+    assertThat(endedWhileDisabled)
+        .as("disabled far longer than either deadline, twice a profile and half a second")
+        .isFalse();
+    assertThat(out.reason()).isEqualTo("pivot → out: ARRIVED in 0.60 s");
+    assertThat(ahead.reason()).matches("drive → .*: ARRIVED in \\d\\.\\d\\d s");
+    assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
+    assertThat(metersFrom(stood)).isCloseTo(1, within(0.05));
+  }
+
   // ---- A held binding ----
 
   /**
@@ -302,8 +332,8 @@ class DisablingSimTest {
   /**
    * The drivetrain refuses to be driven while the robot is disabled, as a joint does, whatever
    * asks. With the stick pushed the drive's default command asks the wheels to drive every loop,
-   * and a move started while the robot is disabled asks them to follow its path: the wheels stay
-   * neutral, and the robot stays where it stands.
+   * and the pit's drive check, started while the robot is disabled, asks them to roll forward: the
+   * wheels stay neutral, and the robot stays where it stands.
    */
   @Test
   void theDrivetrainIsNotDrivenWhileDisabledWhateverAsks() {
@@ -314,14 +344,15 @@ class DisablingSimTest {
     pushTheDriversStickForward();
     sim.run(1);
     double drivenByTheSticks = metersFrom(stood);
-    DriveMove ahead = sim.drive().goTo(stood.plus(new Transform2d(2, 0, Rotation2d.ZERO)));
-    sim.scheduler().schedule(ahead);
+    sim.scheduler().schedule(sim.robot().driveCheck());
     sim.run(1);
     List<String> runningWhileDisabled = running();
 
-    assertThat(runningWhileDisabled).containsExactly(ahead.name());
+    assertThat(runningWhileDisabled).containsExactly("Drive forward");
     assertThat(drivenByTheSticks).as("meters driven by the sticks, disabled").isLessThan(0.001);
-    assertThat(metersFrom(stood)).as("meters driven by a move, disabled").isLessThan(0.001);
+    assertThat(metersFrom(stood))
+        .as("meters driven by the pit's check, disabled")
+        .isLessThan(0.001);
   }
 
   /**

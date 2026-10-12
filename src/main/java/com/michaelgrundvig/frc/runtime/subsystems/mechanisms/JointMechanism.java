@@ -883,6 +883,11 @@ public final class JointMechanism implements Mechanism {
     }
   }
 
+  /** Whether the robot is enabled, as of this loop. A move waits to begin until it is. */
+  boolean isEnabled() {
+    return enabled;
+  }
+
   /**
    * Why a move on the joint that is canceled now is canceled, where the joint can say. In the loop
    * the robot is disabled every command is canceled for that ({@link Disabling}), and the joint

@@ -57,7 +57,8 @@ import org.wpilib.units.measure.Time;
  * keyframe. Canceled, it's {@link Outcome#CANCELED}, and says so if it was because the robot was
  * disabled, which cancels every command. It stops the drivetrain as it ends; the drive's default
  * command takes over from the next loop. Each run takes a loop at least, one that ends as it starts
- * too, so a command that awaits moves in a loop goes round once a loop.
+ * too, so a command that awaits moves in a loop goes round once a loop. Started while the robot is
+ * disabled, it waits for it to be enabled, and its time and its deadline start then.
  *
  * <p><b>Inside</b>, what a move does is its {@link DriveTask}, one kind for each of the moves
  * above. This class is the command around the task: it starts a run, keeps the run's deadline, and
@@ -407,6 +408,7 @@ public final class DriveMove implements Command {
     if (refused.isPresent()) {
       end(Outcome.REFUSED, "", refused);
     } else {
+      waitToBeEnabled(coroutine);
       switch (task) {
         case DriveTask.RunUntil runUntil -> driveUntil(coroutine, runUntil);
         case DriveTask.AlongAPath path -> follow(coroutine, path);
@@ -430,6 +432,19 @@ public final class DriveMove implements Command {
     startNanos = RobotController.getTime();
     deadlineNanos = OptionalLong.empty();
     tookALoop = false;
+  }
+
+  /**
+   * Waits for the robot to be enabled, if it is not. A disabled drivetrain is not driven, so a move
+   * that began now would only run down its deadline. The run is timed from when the robot is
+   * enabled, and its path is planned from where the robot is then.
+   */
+  private void waitToBeEnabled(Coroutine coroutine) {
+    while (!drive.isEnabled()) {
+      tookALoop = true;
+      coroutine.yield();
+    }
+    startNanos = RobotController.getTime();
   }
 
   @Override
