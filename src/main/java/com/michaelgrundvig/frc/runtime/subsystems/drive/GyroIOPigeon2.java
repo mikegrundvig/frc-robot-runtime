@@ -8,9 +8,10 @@ import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.hardware.Pigeon2;
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import java.util.Queue;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation3d;
@@ -45,6 +46,10 @@ final class GyroIOPigeon2 implements GyroIO {
   /**
    * How long the Pigeon may go without answering before it is called disconnected. One missed frame
    * is a glitch, not a lost device.
+   *
+   * <p>The half second is kept in whole nanoseconds ({@link Debounce}), not by WPILib's debouncer,
+   * whose seconds in a double put the edge a loop early or late depending on what the clock reads.
+   * So every driver, and the simulator, calls a device silent in the same loop.
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
@@ -67,8 +72,7 @@ final class GyroIOPigeon2 implements GyroIO {
   /** The last high-rate yaw that came, in radians. */
   private double lastYawRadians;
 
-  private final Debouncer connected =
-      new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  private final Debounce connected = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
 
   /**
    * @param yawScale the gyro's measured scale: its readings times this are the true rotation

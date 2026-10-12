@@ -66,10 +66,15 @@ class JointFaultsSimTest {
     }
   }
 
+  /** Half a second of loops and one more: long enough for a silent controller to be called so. */
+  private static final int SILENT_LOOPS = RobotLoop.loops(0.5) + 1;
+
   @Test
   void aJointThatIsntAnsweringRefusesItsMoves() {
     simulation.silence(PIVOT, true);
-    loop();
+    for (int i = 0; i < SILENT_LOOPS; i++) {
+      loop();
+    }
     Move out = pivot.goTo(PIVOT_OUT);
 
     scheduler.schedule(out);
@@ -85,6 +90,30 @@ class JointFaultsSimTest {
     loopUntil(() -> again.outcome().isPresent());
 
     assertThat(again.arrived()).as("answering again").isTrue();
+  }
+
+  /**
+   * A move begun while a controller has been silent for less than half a second starts, since the
+   * joint still reads as connected, and goes nowhere, since the controller hears nothing. It ends
+   * when the controller is called silent, saying why.
+   */
+  @Test
+  void aMoveBegunInTheFirstHalfSecondOfASilenceEndsWhenTheJointIsCalledSilent() {
+    simulation.silence(PIVOT, true);
+    loop();
+    Move out = pivot.goTo(PIVOT_OUT);
+
+    scheduler.schedule(out);
+    loopUntil(() -> out.outcome().isPresent());
+
+    assertThat(out.outcome()).contains(Outcome.REFUSED);
+    assertThat(out.reason())
+        .isEqualTo(
+            "pivot → out: REFUSED: can't go on: pivot isn't answering: its motor controllers are"
+                + " silent");
+    assertThat(Math.toDegrees(simulation.position(PIVOT)))
+        .as("it was not driven toward out, at 130°")
+        .isLessThan(5);
   }
 
   /**

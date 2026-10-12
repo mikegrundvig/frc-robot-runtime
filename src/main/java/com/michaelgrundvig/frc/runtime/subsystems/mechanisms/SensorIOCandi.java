@@ -6,10 +6,11 @@ import com.ctre.phoenix6.configs.DigitalInputsConfigs;
 import com.ctre.phoenix6.hardware.CANdi;
 import com.ctre.phoenix6.signals.S1CloseStateValue;
 import com.ctre.phoenix6.signals.S2CloseStateValue;
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 
 /**
  * A switch on one of a CANdi's two inputs. The CANdi is told which state is tripped, so its own
@@ -28,7 +29,12 @@ public final class SensorIOCandi implements SensorIO {
   private static final int TRIES = 5;
 
   private final StatusSignal<Boolean> closed;
-  private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
+
+  /**
+   * Whether it answered within the last half second, kept in whole nanoseconds ({@link Debounce})
+   * so that every driver calls a device silent in the same loop.
+   */
+  private final Debounce connected = new Debounce(0.5, DebounceType.FALLING);
 
   /**
    * @param candi its input

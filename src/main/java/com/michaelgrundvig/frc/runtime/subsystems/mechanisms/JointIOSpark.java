@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevMechanism;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
 import com.michaelgrundvig.frc.runtime.lib.wiring.CanPorts;
@@ -34,7 +35,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.wpilib.hardware.bus.CANPort;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 
 /**
  * A driven joint on REV hardware: one SPARK MAX or SPARK Flex leading the joint's motors, and the
@@ -89,6 +90,10 @@ public final class JointIOSpark implements JointIO {
   /**
    * How long a SPARK may go without answering before it is called silent. One missed frame is a
    * glitch, not a lost device.
+   *
+   * <p>The half second is kept in whole nanoseconds ({@link Debounce}), not by WPILib's debouncer,
+   * whose seconds in a double put the edge a loop early or late depending on what the clock reads.
+   * So every driver, and the simulator, calls a device silent in the same loop.
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
@@ -135,7 +140,7 @@ public final class JointIOSpark implements JointIO {
    *
    * @param answers whether it has sent its faults within the last half second
    */
-  private record FollowingSpark(SparkBase spark, Restarts restarts, Debouncer answers) {}
+  private record FollowingSpark(SparkBase spark, Restarts restarts, Debounce answers) {}
 
   /**
    * The absolute encoder on the leader's data port.
@@ -168,7 +173,7 @@ public final class JointIOSpark implements JointIO {
   /** The SPARKs that never confirmed their settings at startup, such as "motor 32". */
   private final String unconfigured;
 
-  private final Debouncer leaderAnswers = silentAfterHalfASecond();
+  private final Debounce leaderAnswers = silentAfterHalfASecond();
   private final Restarts leaderRestarts;
 
   /** The REV settings for this joint under a given control: its block's, or the pit's. */
@@ -334,8 +339,8 @@ public final class JointIOSpark implements JointIO {
         change, ResetMode.kNoResetSafeParameters, PersistMode.kNoPersistParameters);
   }
 
-  private static Debouncer silentAfterHalfASecond() {
-    return new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  private static Debounce silentAfterHalfASecond() {
+    return new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
   }
 
   /** The leading SPARK. For the tests, which read what it was told through REV's simulation. */

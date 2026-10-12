@@ -456,6 +456,10 @@ class RobotContainerSimTest {
 
     sensors.silence(bumper, true);
     sim.run(0.1);
+    assertThat(activeAlerts())
+        .as("a tenth of a second of silence is a glitch")
+        .noneMatch(text -> text.contains("bumper is lost"));
+    sim.run(0.5);
 
     assertThat(activeAlerts())
         .contains("bumper is lost: nothing waiting on it holds. Check the wiring and the CAN bus.");

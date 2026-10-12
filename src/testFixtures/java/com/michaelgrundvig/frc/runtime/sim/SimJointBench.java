@@ -4,6 +4,7 @@ import static com.michaelgrundvig.frc.world.robot.MechanismWiring.CANCODER;
 import static com.michaelgrundvig.frc.world.robot.MechanismWiring.DATA_PORT;
 import static org.wpilib.units.Units.Rotations;
 
+import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointBench;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointClause;
@@ -106,13 +107,7 @@ public final class SimJointBench implements JointBench {
 
   @Override
   public Optional<String> knownDifference(JointClause clause) {
-    return switch (clause) {
-      case J27 ->
-          Optional.of(
-              "the simulator reads as not connected in the first loop of a silence, where a real"
-                  + " driver waits half a second");
-      default -> Optional.empty();
-    };
+    return Optional.empty();
   }
 
   /** One simulated joint, held where the suite puts it. */
@@ -147,6 +142,7 @@ public final class SimJointBench implements JointBench {
      */
     @Override
     public void step() {
+      RobotSim.stepClock();
       sim.step(RobotLoop.PERIOD_SECONDS, 0);
       steps++;
       if (velocity != 0) {

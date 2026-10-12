@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.sim;
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Meters;
 
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIO;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -12,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 import org.jspecify.annotations.Nullable;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.units.measure.Distance;
 
 /**
@@ -32,6 +34,12 @@ public final class SensorSimulation {
     CUT_READS_CLEAR
   }
 
+  /**
+   * How long a CAN sensor may go without answering before the robot is told it is silent, as its
+   * real driver has it.
+   */
+  private static final double SILENT_AFTER_SECONDS = 0.5;
+
   /** One simulated sensor: its device's reading, as a test leaves it. */
   private static final class Simulated implements SensorIO {
     final Sensor.Placed sensor;
@@ -44,6 +52,15 @@ public final class SensorSimulation {
     double meters;
 
     boolean silent;
+
+    /**
+     * Whether it answered within the last half second, kept in whole nanoseconds on the robot's
+     * clock as the real CAN sensors' drivers keep theirs ({@code SensorIOCandi}, {@code
+     * SensorIOCanRange}): a silent sensor reads as connected, its last reading standing, until
+     * then.
+     */
+    final Debounce answers = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
+
     Wire wire = Wire.WHOLE;
 
     Simulated(Sensor.Placed sensor, JointSimulation joints) {
@@ -76,8 +93,9 @@ public final class SensorSimulation {
 
     @Override
     public void updateInputs(SensorIOInputs inputs) {
-      inputs.connected = !silent;
+      inputs.connected = answers.calculate(!silent);
       if (silent) {
+        // Off the bus, nothing new arrives: its last reading stands, as a robot's does.
         return;
       }
       inputs.tripped = tripped();

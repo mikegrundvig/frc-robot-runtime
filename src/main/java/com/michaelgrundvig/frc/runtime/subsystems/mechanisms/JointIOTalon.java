@@ -16,6 +16,7 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.signals.ForwardLimitValue;
 import com.ctre.phoenix6.signals.MagnetHealthValue;
 import com.ctre.phoenix6.signals.ReverseLimitValue;
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
@@ -37,7 +38,7 @@ import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.units.measure.Angle;
 
 /**
@@ -101,6 +102,10 @@ public final class JointIOTalon implements JointIO {
   /**
    * How long a device may go without answering before it is called silent. One missed frame is a
    * glitch, not a lost device.
+   *
+   * <p>The half second is kept in whole nanoseconds ({@link Debounce}), not by WPILib's debouncer,
+   * whose seconds in a double put the edge a loop early or late depending on what the clock reads.
+   * So every driver, and the simulator, calls a device silent in the same loop.
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
@@ -141,7 +146,7 @@ public final class JointIOTalon implements JointIO {
 
   private final LimitPin reversePin;
 
-  private final Debouncer leaderAnswers = silentAfterHalfASecond();
+  private final Debounce leaderAnswers = silentAfterHalfASecond();
   private final Restarts leaderRestarts;
   private final StatusSignal<Integer> leaderFaults;
 
@@ -291,7 +296,7 @@ public final class JointIOTalon implements JointIO {
       int number,
       Restarts restarts,
       StatusSignal<Integer> faults,
-      Debouncer answers) {}
+      Debounce answers) {}
 
   /**
    * The joint's CANcoder, as the robot reads it.
@@ -542,8 +547,8 @@ public final class JointIOTalon implements JointIO {
     return false;
   }
 
-  private static Debouncer silentAfterHalfASecond() {
-    return new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  private static Debounce silentAfterHalfASecond() {
+    return new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
   }
 
   /** The leading motor controller. For the tests, which read what it was last told. */

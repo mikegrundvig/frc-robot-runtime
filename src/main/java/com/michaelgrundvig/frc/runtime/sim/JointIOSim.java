@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.sim;
 
 import static org.wpilib.units.Units.Amps;
 
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.ControllerSettings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
 import com.michaelgrundvig.frc.simulation.JointPlant;
@@ -15,10 +16,10 @@ import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 
 /**
  * A simulated joint, as the robot's code reads and drives it: the joint's motor controller,
@@ -59,7 +60,8 @@ import java.util.function.BooleanSupplier;
  *
  * <ul>
  *   <li><b>Silent</b>, as a controller off the CAN bus is: it answers nothing and hears nothing, so
- *       it goes neutral.
+ *       it goes neutral. The robot reads it as connected, its last readings standing, for half a
+ *       second, and then as silent, as a real driver reports one.
  *   <li><b>Restarted</b>, as one whose breaker reset is: it says so once, goes neutral until it is
  *       asked again, and counts from 0, or from the absolute encoder it reads. It keeps its tuning:
  *       a TalonFX's is saved on it, and a SPARK's IO tells it again.
@@ -209,6 +211,24 @@ final class JointIOSim implements JointIO {
   private final boolean[] followerSilent;
 
   /**
+   * How long a controller may go without answering before the robot is told it is silent, as the
+   * real drivers have it: one missed frame is a glitch, not a lost device.
+   */
+  private static final double SILENT_AFTER_SECONDS = 0.5;
+
+  /**
+   * Whether the leader, and each follower, answered within the last half second. They are kept in
+   * whole nanoseconds on the robot's clock, as the real drivers keep theirs, so the simulator calls
+   * a controller silent in the same loop a robot would.
+   */
+  private final Debounce leaderAnswers = silentAfterHalfASecond();
+
+  private final Debounce[] followerAnswers;
+
+  /** How many loops it has been read in, to read its followers' health every few. */
+  private int loops;
+
+  /**
    * @param math what the robot's definition derives: its joint's block sets the gravity on it
    * @param joint the joint as its motor controller runs it: its block's control and wiring
    */
@@ -249,8 +269,16 @@ final class JointIOSim implements JointIO {
         joint.driven().motors().map(motors -> motors.controllers().size()).orElse(0);
     followerCount = Math.max(0, controllerCount - 1);
     followerSilent = new boolean[followerCount];
+    followerAnswers = new Debounce[followerCount];
+    for (int i = 0; i < followerCount; i++) {
+      followerAnswers[i] = silentAfterHalfASecond();
+    }
     boolean hasCancoder = wired.flatMap(Driven.AbsoluteEncoder::cancoder).isPresent();
     deviceCount = hasCancoder ? controllerCount + 1 : controllerCount;
+  }
+
+  private static Debounce silentAfterHalfASecond() {
+    return new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
   }
 
   /**
@@ -512,23 +540,24 @@ final class JointIOSim implements JointIO {
 
   @Override
   public void updateInputs(JointIOInputs inputs) {
-    if (silent) {
-      // Off the bus, nothing new arrives: its last readings stand, as a robot's do.
-      inputs.connected = false;
-      Arrays.fill(inputs.followersConnected, false);
-      return;
-    }
-    inputs.restarted = restarted;
-    restarted = false;
-    inputs.connected = true;
     if (inputs.faults.length != deviceCount) {
       inputs.faults = new int[deviceCount];
       inputs.followersConnected = new boolean[followerCount];
       inputs.followersRestarted = new boolean[followerCount];
     }
-    for (int i = 0; i < followerCount; i++) {
-      inputs.followersConnected[i] = !followerSilent[i];
+    // A controller off the bus is called silent only after half a second, as a real driver calls
+    // it: until then it reads as connected, with its last readings standing.
+    inputs.connected = leaderAnswers.calculate(!silent);
+    // Its readings are this loop's only while it answers, so what reads the joint through an
+    // interlock holds at once, without waiting out the half second.
+    inputs.fresh = !silent;
+    readWhetherFollowersAnswer(inputs);
+    if (silent) {
+      // Off the bus, nothing new arrives: its last readings stand, as a robot's do.
+      return;
     }
+    inputs.restarted = restarted;
+    restarted = false;
     inputs.position = controllerReads();
     inputs.motorPosition = motorPositionBesideEncoder();
     inputs.velocity = plant.velocity();
@@ -541,6 +570,23 @@ final class JointIOSim implements JointIO {
     inputs.unconfigured = "";
     lastReadPosition = inputs.position;
     lastReadVelocity = inputs.velocity;
+  }
+
+  /**
+   * Reads whether each follower answers, once every {@link JointIO#HEALTH_LOOPS} loops as a real
+   * driver reads its followers' health, and calls one silent after half a second of not answering.
+   * A joint whose leader is off the bus has its followers off it too.
+   */
+  private void readWhetherFollowersAnswer(JointIOInputs inputs) {
+    boolean readsHealthThisLoop = loops % HEALTH_LOOPS == 0;
+    loops++;
+    if (!readsHealthThisLoop) {
+      return;
+    }
+    for (int i = 0; i < followerCount; i++) {
+      boolean answers = !silent && !followerSilent[i];
+      inputs.followersConnected[i] = followerAnswers[i].calculate(answers);
+    }
   }
 
   /**

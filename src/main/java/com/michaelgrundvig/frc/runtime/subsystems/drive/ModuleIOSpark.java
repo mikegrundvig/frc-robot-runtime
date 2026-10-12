@@ -4,6 +4,7 @@ import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Rotations;
 
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
@@ -30,7 +31,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
 import org.wpilib.hardware.bus.CANPort;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.system.RobotController;
 
@@ -86,6 +87,10 @@ final class ModuleIOSpark implements ModuleIO {
   /**
    * How long a SPARK may go without answering before it is called disconnected. One missed frame is
    * a glitch, not a lost device.
+   *
+   * <p>The half second is kept in whole nanoseconds ({@link Debounce}), not by WPILib's debouncer,
+   * whose seconds in a double put the edge a loop early or late depending on what the clock reads.
+   * So every driver, and the simulator, calls a device silent in the same loop.
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
@@ -155,10 +160,8 @@ final class ModuleIOSpark implements ModuleIO {
    */
   private String unconfiguredNames = "";
 
-  private final Debouncer driveConnected =
-      new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
-  private final Debouncer steerConnected =
-      new Debouncer(SILENT_AFTER_SECONDS, Debouncer.DebounceType.FALLING);
+  private final Debounce driveConnected = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
+  private final Debounce steerConnected = new Debounce(SILENT_AFTER_SECONDS, DebounceType.FALLING);
 
   /**
    * The last reading of each frame that came: the drive motor's turns and its turns a second, the

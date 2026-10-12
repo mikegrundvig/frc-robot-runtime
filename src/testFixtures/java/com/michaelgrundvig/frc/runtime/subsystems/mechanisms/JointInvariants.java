@@ -432,7 +432,7 @@ public final class JointInvariants {
         lastOutside = Optional.of(keeps.sideKeptTo(at));
       }
       WatchedJoint io = io(keeps.joint());
-      if (!io.connected() || !io.followersConnected() || io.restarted()) {
+      if (!io.answeredThisLoop() || !io.followersConnected() || io.restarted()) {
         letBeUntil = now + SETTLE_NANOS;
       }
       boolean judged = enabled && knows && now >= letBeUntil && closed();
@@ -605,7 +605,7 @@ public final class JointInvariants {
       for (JointMechanism mechanism : joints.all()) {
         Joint joint = mechanism.joint();
         WatchedJoint io = io(joint);
-        boolean run = ran.getOrDefault(joint, false) && enabled && io.connected();
+        boolean run = ran.getOrDefault(joint, false) && enabled && io.answeredThisLoop();
         boolean jammedAndRun = run && jammed.test(joint);
         if (jammedAndRun) {
           judging(this);

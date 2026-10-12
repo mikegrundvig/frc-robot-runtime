@@ -73,8 +73,11 @@ public abstract class JointIOConformance {
   /** How many loops something must stay true to be called steady. */
   private static final int STEADY_LOOPS = 5;
 
+  /** Half a second of loops: the loop of a silence in which a device is first called silent. */
+  private static final int SILENT_AFTER_LOOPS = 25;
+
   /** Half a second of loops and a few more: long enough for a silent device to be called silent. */
-  private static final int SILENT_LOOPS = 30;
+  private static final int SILENT_LOOPS = SILENT_AFTER_LOOPS + 5;
 
   /** How close a voltage asked for outright must be to the one expected, in volts. */
   private static final double VOLTS = 0.08;
@@ -1053,9 +1056,9 @@ public abstract class JointIOConformance {
   }
 
   /**
-   * A leading controller that goes silent keeps its last readings and counts as connected for a
-   * little while, then as silent. When it answers again it counts as connected at once, reads where
-   * the joint has got to, and does what it is asked next.
+   * A leading controller that goes silent keeps its last readings and counts as connected for half
+   * a second, to the loop, then as silent. When it answers again it counts as connected at once,
+   * reads where the joint has got to, and does what it is asked next.
    */
   @Test
   void j26j27j28j30_aSilentLeaderIsCalledSilentAfterHalfASecondAndComesBack() {
@@ -1067,16 +1070,18 @@ public abstract class JointIOConformance {
 
     rig().silence(LEADER, true);
     rig().jointIs(1.0);
-    clause(
-        JointClause.J27,
-        () -> {
-          for (int i = 0; i < 10; i++) {
-            loop();
-            assertThat(inputs.connected).as("J27: connected, %d loops silent", i + 1).isTrue();
-          }
-        });
     io.setVoltage(-1);
-    eventually("J26: called silent", () -> !inputs.connected);
+    int loopsReadConnected = 0;
+    for (int i = 0; i < SILENT_LOOPS; i++) {
+      loop();
+      loopsReadConnected += inputs.connected ? 1 : 0;
+    }
+    assertThat(loopsReadConnected)
+        .as(
+            "J26, J27: the loops of a silence it reads connected in. Half a second is 25 loops, so"
+                + " the twenty-fifth is the first to read silent, on every driver")
+        .isEqualTo(SILENT_AFTER_LOOPS - 1);
+    assertThat(inputs.connected).as("J26: called silent").isFalse();
     assertThat(inputs.position).as("J28: its last reading stands").isEqualTo(position);
 
     rig().silence(LEADER, false);

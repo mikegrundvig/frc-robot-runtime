@@ -124,8 +124,10 @@ import org.littletonrobotics.junction.AutoLog;
  * <ul>
  *   <li><b>J26.</b> {@link JointIOInputs#connected} is false once the leading controller has been
  *       silent for half a second, and true again with the first frame that comes.
- *   <li><b>J27.</b> It stays true through a shorter silence: one lost frame is a glitch. Known
- *       difference: the simulator reads as not connected in the first loop of a silence.
+ *   <li><b>J27.</b> It stays true through a shorter silence, on every driver and in the simulator:
+ *       one lost frame is a glitch. The half second is kept in whole nanoseconds of the robot's
+ *       clock, so with a 20 ms loop the twenty-fifth loop of a silence is the first that reads
+ *       false, whatever the clock reads.
  *   <li><b>J28.</b> While frames do not come, every reading stands as it was last read. A lost
  *       frame never reads as zero, or as something that is not a number.
  *   <li><b>J29.</b> {@link JointIOInputs#fresh} is false in a loop the leading controller's
@@ -196,8 +198,9 @@ public interface JointIO {
      * Whether its position and speed are this loop's: false the loop a status frame of the leading
      * motor controller's doesn't come, when they're the last it read. The interlocks reading the
      * joint hold at once on a reading that isn't fresh, where {@link #connected} waits half a
-     * second of them to call the controller silent. A SPARK says so; a TalonFX, whose last reading
-     * Phoenix keeps, and the simulator, read fresh.
+     * second of them to call the controller silent. A SPARK says so, and so does the simulator
+     * while its controller is off the bus; a TalonFX, whose last reading Phoenix keeps, reads
+     * fresh.
      */
     public boolean fresh = true;
 

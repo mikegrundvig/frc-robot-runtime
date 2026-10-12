@@ -8,11 +8,12 @@ import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CANrangeConfiguration;
 import com.ctre.phoenix6.hardware.CANrange;
 import com.ctre.phoenix6.signals.UpdateModeValue;
+import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
-import org.wpilib.math.filter.Debouncer;
+import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.units.measure.Distance;
 
 /**
@@ -36,7 +37,12 @@ public final class SensorIOCanRange implements SensorIO {
   private static final int TRIES = 5;
 
   private final StatusSignal<Distance> distance;
-  private final Debouncer connected = new Debouncer(0.5, Debouncer.DebounceType.FALLING);
+
+  /**
+   * Whether it answered within the last half second, kept in whole nanoseconds ({@link Debounce})
+   * so that every driver calls a device silent in the same loop.
+   */
+  private final Debounce connected = new Debounce(0.5, DebounceType.FALLING);
 
   /**
    * @param rangefinder what the definition says it is: its range and cone

@@ -21,6 +21,7 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.ControllerSettings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
@@ -43,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.system.DCMotor;
 
@@ -51,6 +53,7 @@ import org.wpilib.math.system.DCMotor;
  * the model works it out, against the feedforward the model seeds; its hard stops; neutral. And
  * joints without mass, whose gravity is what the kG tuned in their blocks holds.
  */
+@ExtendWith(RobotSim.class)
 class JointIOSimTest {
   private static final double STEP = 0.02;
 
@@ -94,6 +97,7 @@ class JointIOSimTest {
   /** Runs one joint alone for a time, gravity worked out where it is at each step. */
   private static void run(JointIOSim sim, double seconds) {
     for (int i = 0; i < Math.round(seconds / STEP); i++) {
+      RobotSim.stepClock();
       double gravity =
           -ROBOT.math().gravityTorque(sim.joint(), Map.of(sim.joint(), sim.position()));
       sim.step(STEP, gravity);
@@ -447,7 +451,9 @@ class JointIOSimTest {
 
   /**
    * Silent, off the bus, its motor controller answers nothing, its last readings standing, and
-   * hears nothing, so it goes neutral; brought back, it answers again.
+   * hears nothing, so it goes neutral. The robot reads it as connected, with readings that are not
+   * fresh, until it has been silent half a second: the twenty-fifth loop is the first that reads
+   * silent, as a real driver's is. Brought back, it answers again at once.
    */
   @Test
   void aSilentControllerAnswersNothingAndHearsNothing() {
@@ -458,17 +464,24 @@ class JointIOSimTest {
 
     sim.silence(true);
     sim.setVoltage(4);
-    run(sim, 0.2);
-    sim.updateInputs(inputs);
-    boolean answered = inputs.connected;
+    int loopsReadConnected = 0;
+    boolean readFresh = false;
+    for (int loop = 1; loop <= 30; loop++) {
+      run(sim, STEP);
+      sim.updateInputs(inputs);
+      loopsReadConnected += inputs.connected ? 1 : 0;
+      readFresh |= inputs.fresh;
+    }
     double read = inputs.position;
     sim.silence(false);
     sim.updateInputs(inputs);
 
-    assertThat(answered).isFalse();
+    assertThat(loopsReadConnected).as("loops of the silence it read connected in").isEqualTo(24);
+    assertThat(readFresh).as("no reading of the silence was that loop's").isFalse();
     assertThat(Math.toDegrees(read)).as("its last reading").isCloseTo(60, within(1e-9));
     assertThat(Math.toDegrees(sim.position())).as("not pushed at 4 V").isLessThan(60.01);
     assertThat(inputs.connected).as("back").isTrue();
+    assertThat(inputs.fresh).isTrue();
   }
 
   /**
@@ -538,9 +551,8 @@ class JointIOSimTest {
   }
 
   /**
-   * A follower off the CAN bus answers nothing and goes neutral: it reads disconnected, its PDH
-   * channel reads nothing, and its leader lifts the joint alone, slower, drawing what it draws on
-   * its own channel. Back on the bus, it reads connected.
+   * A follower off the CAN bus answers nothing and goes neutral: its PDH channel reads nothing, and
+   * its leader lifts the joint alone, slower, drawing what it draws on its own channel.
    */
   @Test
   void aFollowerOffTheBusDrawsNothingAndItsLeaderDrivesAlone() {
@@ -553,7 +565,6 @@ class JointIOSimTest {
     double together = raised(false, both, bothRead);
 
     assertThat(read.connected).isTrue();
-    assertThat(read.followersConnected).containsExactly(false);
     assertThat(bothRead.followersConnected).containsExactly(true);
     assertThat(pdh.channelCurrentAmps[1]).as("the follower's channel").isZero();
     assertThat(pdh.channelCurrentAmps[0])
@@ -564,5 +575,41 @@ class JointIOSimTest {
     assertThat(alone).as("lifted by one motor").isGreaterThan(0).isLessThan(together);
     assertThatIllegalArgumentException()
         .isThrownBy(() -> new JointSimulation(WIRED).silenceFollower(WIRED_LIFT, 1, true));
+  }
+
+  /**
+   * A follower off the bus reads as connected until it has been silent half a second, as read every
+   * few loops with its health, while its leader reads connected throughout. Back on the bus, it
+   * reads connected at the next of those reads.
+   */
+  @Test
+  void aFollowerOffTheBusReadsSilentAfterHalfASecond() {
+    JointSimulation simulation = new JointSimulation(WIRED);
+    JointIO io = simulation.io(WIRED_LIFT);
+    JointIOInputs read = new JointIOInputs();
+    io.updateInputs(read);
+
+    simulation.silenceFollower(WIRED_LIFT, 0, true);
+    int loopsReadConnected = 0;
+    for (int loop = 1; loop <= 40; loop++) {
+      RobotSim.stepClock();
+      simulation.step(STEP);
+      io.updateInputs(read);
+      loopsReadConnected += read.followersConnected[0] ? 1 : 0;
+      assertThat(read.connected).as("its leader, loop %d", loop).isTrue();
+    }
+    boolean readSilent = !read.followersConnected[0];
+    simulation.silenceFollower(WIRED_LIFT, 0, false);
+    for (int loop = 0; loop < JointIO.HEALTH_LOOPS; loop++) {
+      RobotSim.stepClock();
+      simulation.step(STEP);
+      io.updateInputs(read);
+    }
+
+    assertThat(loopsReadConnected)
+        .as("loops it read connected in: half a second, to the next read of its health")
+        .isBetween(24, 24 + JointIO.HEALTH_LOOPS);
+    assertThat(readSilent).isTrue();
+    assertThat(read.followersConnected).as("back").containsExactly(true);
   }
 }

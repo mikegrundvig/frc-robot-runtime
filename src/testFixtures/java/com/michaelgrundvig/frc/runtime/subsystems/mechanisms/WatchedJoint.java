@@ -45,6 +45,7 @@ public final class WatchedJoint implements JointIO {
   private double velocity;
   private double supplyAmps;
   private boolean connected;
+  private boolean fresh;
   private boolean followersConnected;
   private boolean restarted;
 
@@ -88,6 +89,15 @@ public final class WatchedJoint implements JointIO {
     return connected;
   }
 
+  /**
+   * Whether its motor controllers answered with a reading in the loop last read: connected, and its
+   * reading that loop's. A controller that has just gone off the bus still reads as connected for
+   * half a second, with readings that are not fresh, and drives nothing meanwhile.
+   */
+  boolean answeredThisLoop() {
+    return connected && fresh;
+  }
+
   /** Whether each of its followers answered, as last read: true for a joint with none. */
   boolean followersConnected() {
     return followersConnected;
@@ -106,6 +116,7 @@ public final class WatchedJoint implements JointIO {
     velocity = inputs.velocity;
     supplyAmps = inputs.supplyCurrentAmps;
     connected = inputs.connected;
+    fresh = inputs.fresh;
     followersConnected = true;
     for (boolean follower : inputs.followersConnected) {
       followersConnected &= follower;
