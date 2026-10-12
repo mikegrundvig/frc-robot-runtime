@@ -23,7 +23,8 @@ The description is validated when the program starts. A value that cannot work s
 with a message. It is not logged as a warning.
 
 Localization, the simulator, autos, live tuning and the pit page are the runtime's, not yours.
-You give up writing them, and you also give up the freedom to write them your own way.
+You give up writing them, and you also give up the freedom to write them your own way. The one
+exception is the pose estimator, which you can swap for WPILib's or for your own.
 
 It targets WPILib 2027 alpha on Systemcore. It has not driven a real robot yet.
 
@@ -38,7 +39,7 @@ It targets WPILib 2027 alpha on Systemcore. It has not driven a real robot yet.
 | Requirements, default commands | Joint ownership, a joint's idle |
 | `Trigger` | `Gate`, a trigger with a name and a logged reason |
 | "if arm < x, don't run" inside commands | Interlocks and keep-outs in the description |
-| `SwerveDrivePoseEstimator` plus vision | The runtime's localization |
+| `SwerveDrivePoseEstimator` plus vision | The runtime's localization, or WPILib's estimator behind it |
 | PathPlanner or Choreo, `SendableChooser` | `Place`, `Keyframe`, `drive.follow`, `autos.add` |
 | Dashboard tuning | Pitwall's Tune and Changes views |
 | SysId | Model feedforward and step experiments |
@@ -218,13 +219,13 @@ controller.
 
 ### Pose estimation and vision
 
-The runtime does not use `SwerveDrivePoseEstimator`. It has its own estimator, in the
+By default the runtime does not use `SwerveDrivePoseEstimator`. It has its own estimator, in the
 localization library.
 
 What is the same: odometry predicts, vision corrects, and measurements are applied at their
 capture time with latency compensation.
 
-What differs:
+What differs in the default estimator:
 
 - The state is a position and a heading offset. The gyro owns short-term heading, and cameras
   only correct its slow drift.
@@ -243,6 +244,25 @@ What differs:
 You do not call `addVisionMeasurement`, and there are no standard deviations to hand-tune per
 tag count. The tuning is in `EstimatorConfig` and `VisionConfig`, and
 [values.md](values.md) says what each number means. Cameras are PhotonVision only.
+
+**You can have `SwerveDrivePoseEstimator` back.** The estimator sits behind an interface,
+`Localizer`, and WPILib's is the second implementation. One line in the robot's block chooses it:
+
+```java fragment
+.localizer(WpilibLocalizer::new)
+```
+
+It gets the same wheel readings and the same camera measurements the default one gets, with
+their standard deviations. The solving and filtering of images stays the runtime's either way.
+WPILib's estimator keeps no uncertainty and does not say what it did with a measurement, so the
+pit page says "not reported" where it would show those, the scoring gate does not judge the
+pose, and camera mounts are not checked.
+
+A study in the template compares the two in simulation. In clean driving they are roughly equal.
+The default one is better against bad camera data and wheel slip. WPILib's, behind a strong
+team's vision filter, is better when the gyro reads wrong or a camera has been knocked.
+[localizers.md](localizers.md) has the contract, both estimators, and how to write and test your
+own.
 
 ### Paths and autos
 
@@ -460,8 +480,9 @@ for interlocks, a string potentiometer on an elevator, live tuning of feedforwar
 failing a joint from the Pitwall page, and a practice robot that differs in motor count or
 drivetrain gearing.
 
-**You are inside someone else's loop.** The order of a loop, the estimator, the drive's control
-law and the log keys are the runtime's. You can read all of it, and it is your code to change in
+**You are inside someone else's loop.** The order of a loop, the solving of camera images, the
+drive's control law and the log keys are the runtime's. The pose estimator is too unless you
+choose another ([localizers.md](localizers.md)). You can read all of it, and it is your code to change in
 your fork. Changing it means maintaining a fork of the runtime.
 
 ## Reading the code to check a claim
@@ -474,7 +495,9 @@ Open these first.
 - `Move` and `Outcome` are how a move ends and what it reports.
 - `Gate` is the trigger with a name and a reason.
 - `Drive`, `DriveMove` and `PathFollower` are the drivetrain's moves and the control law.
-- `LocalizationService` and `PoseEstimator`, in `lib/localization`, are the estimator.
+- `Localizer`, in `lib/localization`, is the estimator's contract. `DefaultLocalizer` and
+  `PoseEstimator` are the default estimator, `WpilibLocalizer` is WPILib's, and
+  `LocalizationService` runs the loop around whichever the robot chose.
 - `ExampleRobot` is a whole description. `Joint` and `MechanismControl`, in the model, are what a
   block can say.
 

@@ -126,6 +126,7 @@ template does: a path such as `runtime/src/main/java/...` is from that program's
 - [Values](docs/values.md): every configuration value, what it means, and how to find yours
 - [Calibration](docs/calibration.md) and [characterization](docs/characterization.md): measuring the real robot
 - [Camera placement](docs/camera-placement.md): where to mount the cameras
+- [Localizers](docs/localizers.md): choosing WPILib's pose estimator or your own, and the contract one keeps
 - [Venues](docs/venues.md): where a match is played, and what the robot knows of it
 - [Stand-ins](docs/stand-ins.md): what waits on a library's release
 - [Rule requests](docs/rule-requests.md): architecture rules that blocked a natural solution

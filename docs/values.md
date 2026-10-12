@@ -170,6 +170,10 @@ sensors and control), and how this program drives the drivetrain and judges what
 Each joint's block says how it's driven and wired, and each sensor carries its wiring ([a sensor's
 wiring](#a-sensors-wiring)): the program reads them from the definition, never written twice.
 
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `localizer` | chosen | simulation (the estimator study; left out, the default localizer) | What works out where the robot is: left out for the default localizer, `WpilibLocalizer::new` for WPILib's pose estimator, or a maker of your own. [localizers.md](localizers.md) says what each reports and what the robot does without it. The estimator study (`./gradlew estimatorStudy`) compares them in simulation, and a real robot's logs would show the same: how far the pose is from a taped checkpoint, under each. |
+
 ### `RobotDefinition`
 
 `com.michaelgrundvig.frc.world.robot.RobotDefinition`: what the robot is, read by localization, the
