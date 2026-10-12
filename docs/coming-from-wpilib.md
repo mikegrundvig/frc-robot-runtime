@@ -3,7 +3,7 @@
 This page is for someone who has shipped a few seasons of command-based robot code. You know
 subsystems with IO layers, AdvantageKit, a swerve template, a path tool, PhotonVision and SysId.
 Nothing here explains FRC. It says what maps to what, what is gone, what is new, where your
-habits will mislead you, and what you give up.
+habits will mislead you, what the trade-offs are, and what is not built yet.
 
 If you want the gentle version first, read [the guide](guide.md). Every block of code below is
 copied from compiled source, and a test fails when it drifts.
