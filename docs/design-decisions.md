@@ -546,8 +546,6 @@ meant to catch. Or recordings made again so often that nobody reads the diffs.
 
 ## 13. Localization sits behind a seam
 
-<!-- CHECK: seam landing -->
-
 **What most teams do.** WPILib's `SwerveDrivePoseEstimator`, fed by PhotonVision or a Limelight.
 In front of it sits a filter of threshold rules: ambiguity, height off the floor, inside the
 field, distance, turn rate. Standard deviations are scaled by distance and tag count. Several top
@@ -558,7 +556,9 @@ of its own, and a team picks one. The first is the runtime's own estimator. It a
 camera measurement at the time its image was taken, gates each measurement statistically against
 the estimate, recovers when several rejected measurements agree with each other, and lowers its
 trust in the wheels when they slip. It solves nearly every image with the gyro's heading and uses
-the tags for position only. The second is WPILib's estimator behind a conventional filter.
+the tags for position only. The second is WPILib's estimator, handed the same measurements from
+the same image-solving pipeline. You choose it with one line in the robot's configuration, and
+[localizers.md](localizers.md) has the contract a localizer of your own is checked against.
 
 **Why.** We built the custom estimator on a design argument. Then we compared it with WPILib's,
 and the result does not justify making ours the only choice. So the decision is the seam, not the
@@ -572,7 +572,9 @@ place.
 **Evidence, and how strong it is.** Measured, in simulation only. The study ran 41 scenarios with
 20 seeds each, and both estimators saw the same simulated robot in the same loop. WPILib's was the
 2027 alpha's, behind a filter whose rules came from several top teams' public code, tuned once and
-left alone. The figures are position error, RMS over the run.
+left alone. That is WPILib's estimator as a good team runs it, which is the fair opponent. It is
+not the second localizer as it ships: that one sits behind our pipeline, and a robot running it
+was not what the study measured. The figures are position error, RMS over the run.
 
 | Scenario | Ours | WPILib's |
 |---|---|---|
@@ -741,7 +743,7 @@ read the same model. **Pitwall** is the pit page. It knows nothing about robots,
 hands it data. The **runtime** is the program every robot shares, and an architecture test fails if
 it names a class of the team's. A **team's program** is `Main`, the robots' descriptions and
 `Controls`. It takes the other three as git submodules, built from source in one build, with no
-version numbers. Localization is following, as section 13 says.
+version numbers. Localization is a fifth, a library the runtime reads, as section 13 says.
 
 **Why.** The project began as one repository, for its first stretch of development. With everything
 in one place the boundaries were conventions, and they were crossed. Splitting it made the
