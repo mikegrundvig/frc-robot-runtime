@@ -137,7 +137,7 @@ tasks.named("test") {
 }
 
 // --tests names tests by class or pattern, wherever they are: `./gradlew test --tests '*Arm*'` runs
-// them in whichever project has them (the runtime or a library in lib/). A project
+// them in whichever project has them (the runtime or the simulation in lib/). A project
 // with none of them passes, rather than failing the build as Gradle would; but if no project ran a
 // test at all, the build fails, so a misspelled name can't pass quietly (testsMatched, below).
 if (testsNamed) {
@@ -326,10 +326,12 @@ tasks.register("ci") {
     dependsOn "spotlessCheck", "build", "javadoc"
     // From the top of the build, every project's checks.
     dependsOn project.subprojects.collect { it.path + ":ci" }
-    // And, when this is the build that runs (settings.gradle), the robot model's and Pitwall's own,
-    // and the plugins' (build-logic/); a robot program that includes this build runs them itself.
+    // And, when this is the build that runs (settings.gradle), the robot model's, localization's and
+    // Pitwall's own, and the plugins' (build-logic/); a robot program that includes this build runs
+    // them itself.
     if (project == rootProject && gradle.parent == null) {
         dependsOn gradle.includedBuild("model").task(":ci")
+        dependsOn gradle.includedBuild("localization").task(":ci")
         dependsOn gradle.includedBuild("pitwall").task(":ci")
         dependsOn gradle.includedBuild("build-logic").task(":ci")
     }

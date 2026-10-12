@@ -31,11 +31,11 @@ import org.wpilib.system.RobotController;
 import org.wpilib.util.Alert;
 
 /**
- * Where the robot is, for the robot program. The {@link LocalizationService} in {@code
- * lib/localization} is the one owner of the estimate: the robot's localizer, with the solving of
- * camera images in front of it. This feeds it on the robot loop, and does what the robot does with
- * what it says: the log, the alerts, and the lines for the pit and the drive team. Everything that
- * asks where the robot is asks here, and nothing else changes the estimate.
+ * Where the robot is, for the robot program. The {@link LocalizationService}, in the localization
+ * library, is the one owner of the estimate: the robot's localizer, with the solving of camera
+ * images in front of it. This feeds it on the robot loop, and does what the robot does with what it
+ * says: the log, the alerts, and the lines for the pit and the drive team. Everything that asks
+ * where the robot is asks here, and nothing else changes the estimate.
  *
  * <p>A robot chooses its localizer ({@code RobotConfig}'s {@code localizer}), and a localizer
  * reports only the options it has ({@link Localizer}). Where one is not reported, nothing here

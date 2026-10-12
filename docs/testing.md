@@ -18,18 +18,19 @@ they are the build's own, and `:runtime:` goes away.
 | One of your test classes | `./gradlew test --tests frc.robot.ArchitectureTest` |
 | One of the runtime's, whatever its kind | `./gradlew :runtime:test --tests com.michaelgrundvig.frc.runtime.RobotContainerSimTest` |
 | A package's tests | `./gradlew :runtime:test --tests 'com.michaelgrundvig.frc.runtime.subsystems.drive.*'` |
-| One project's tests: your robot program's, the runtime's, localization's, the simulation's | `./gradlew :test`, `:runtime:test`, `:runtime:localization:test`, `:runtime:simulation:test` |
-| The model's and Pitwall's tests | `./gradlew :model:test`, `:pitwall:test` |
+| One project's tests: your robot program's, the runtime's, the simulation's | `./gradlew :test`, `:runtime:test`, `:runtime:simulation:test` |
+| The model's, localization's and Pitwall's tests | `./gradlew :model:test`, `:localization:test`, `:pitwall:test` |
 | Your robot program's tests, with the coverage report | `./gradlew test` |
 | Every check CI runs, in every project | `./gradlew ci` |
 
 `--tests` finds what it names in the build it is run in: your robot program (`frc.robot`) from the
 program's root, and in front of `:runtime:test`, the runtime (`com.michaelgrundvig.frc.runtime`),
-and its libraries' (`:runtime:localization:test`, `com.michaelgrundvig.frc.localization`).
+and its simulation's (`:runtime:simulation:test`, `com.michaelgrundvig.frc.simulation`).
 `frc.robot.ArchitectureTest` is yours, `com.michaelgrundvig.frc.runtime.ArchitectureTest` the
 runtime's. A project with none of it passes; if no project has any, the build fails, naming what
 you asked for, so a misspelled name can't pass unnoticed. A project's name in front
-(`:runtime:localization:test`) runs only its tests.
+(`:runtime:simulation:test`) runs only its tests. Localization is a build of its own, like the
+model: `:localization:test --tests ...` runs its tests (`com.michaelgrundvig.frc.localization`).
 
 `-Pquick` leaves out the slow tests (below) unless `--tests` names what to run, and skips the static
 analysis and coverage that `ci` runs. Each project has its own coverage report, your robot
@@ -72,7 +73,7 @@ running on it, so a quiet computer may do better and a laptop worse:
 |---|---|---|
 | A word in a comment, in a robot class, its lines unmoved, with uncommitted changes already | The robot program's compile; no test, since its classes come out the same | 1.5 s |
 | Code in a robot class | The compile, then the tests | 1.8 s |
-| Code in a library (`lib/localization`) | The library's compile, then the tests; the robot program compiles again only when the library's public API changed | 1.1 s |
+| Code in a library (`localization/`) | The library's compile, then the tests; the robot program compiles again only when the library's public API changed | 1.1 s |
 | Anything, with a one-off `./gradlew test -Pquick --tests ...` instead | Gradle starting and finding its cached configuration, then the above | about 7 s |
 
 About 0.9 s of a robot edit is compiling the whole robot program again. Gradle compiles only the
@@ -114,7 +115,7 @@ what broke.
 
 | Level | What it runs | Example to copy |
 |---|---|---|
-| A component | Plain JUnit on a class in a library (the model in `model/`, `lib/localization`) or the robot's own `com.michaelgrundvig.frc.runtime.lib`. No simulator, no hardware, no clock: these run in milliseconds, and most tests belong here. | `ZoneTest`, in `model/`; `LocalizationServiceTest`, in `lib/localization`, for localization fed by hand a loop at a time |
+| A component | Plain JUnit on a class in a library (the model in `model/`, localization in `localization/`) or the robot's own `com.michaelgrundvig.frc.runtime.lib`. No simulator, no hardware, no clock: these run in milliseconds, and most tests belong here. | `ZoneTest`, in `model/`; `LocalizationServiceTest`, in `localization/`, for localization fed by hand a loop at a time |
 | A mechanism | A subsystem on simulated hardware, stepped loop by loop. The class carries `@ExtendWith(RobotSim.class)`. | `subsystems/drive/DriveBasicsTest`, with `sim/DriveSimHarness` |
 | The whole robot | The robot program as `Robot` builds and runs it, Pitwall and all, driven from a simulated Driver Station and gamepad. | `RobotContainerSimTest` |
 | The program itself | The robot program started as a program, in its own process: a session recorded, then replayed. | `ReplayEndToEndTest` |

@@ -38,10 +38,13 @@ class DocExamplesTest {
       Path.of(System.getProperty("frc.projectDir", ".")).toAbsolutePath().normalize();
 
   /**
-   * Where the model's and Pitwall's sources are: this project's own submodules, or, when a robot
-   * program's build includes this one, the folders of its own (build.gradle says which).
+   * Where the model's, localization's and Pitwall's sources are: this project's own submodules, or,
+   * when a robot program's build includes this one, the folders of its own (build.gradle says
+   * which).
    */
   private static final Path MODEL = located("frc.modelDir", "model");
+
+  private static final Path LOCALIZATION = located("frc.localizationDir", "localization");
 
   private static final Path PITWALL = located("frc.pitwallDir", "pitwall");
 
@@ -56,9 +59,9 @@ class DocExamplesTest {
           "src/testFixtures/java",
           "model/src/main/java",
           "model/src/test/java",
-          "lib/localization/src/main/java",
-          "lib/localization/src/test/java",
-          "lib/localization/src/testFixtures/java",
+          "localization/src/main/java",
+          "localization/src/test/java",
+          "localization/src/testFixtures/java",
           "lib/simulation/src/main/java",
           "lib/simulation/src/test/java",
           "pitwall/src/main/java",
@@ -347,10 +350,16 @@ class DocExamplesTest {
     return snippets;
   }
 
-  /** A folder named from the project's root, "model/..." and "pitwall/..." where those are. */
+  /**
+   * A folder named from the project's root, "model/...", "localization/..." and "pitwall/..." where
+   * those are.
+   */
   private static Path locate(String directory) {
     if (directory.startsWith("model/")) {
       return MODEL.resolve(directory.substring("model/".length()));
+    }
+    if (directory.startsWith("localization/")) {
+      return LOCALIZATION.resolve(directory.substring("localization/".length()));
     }
     if (directory.startsWith("pitwall/")) {
       return PITWALL.resolve(directory.substring("pitwall/".length()));

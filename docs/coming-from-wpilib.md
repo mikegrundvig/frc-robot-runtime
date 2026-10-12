@@ -252,8 +252,10 @@ tag count. The tuning is in `EstimatorConfig` and `VisionConfig`, and
 .localizer(WpilibLocalizer::new)
 ```
 
-It gets the same wheel readings and the same camera measurements the default one gets, with
-their standard deviations. The solving and filtering of images stays the runtime's either way.
+It gets the same wheel readings the default one gets, and camera measurements from the same
+pipeline, with their standard deviations. The solving and filtering of images stays the runtime's
+either way. Its images are solved from their tags alone, never with the gyro's heading, because
+WPILib's estimator does not say how sure its heading is.
 WPILib's estimator keeps no uncertainty and does not say what it did with a measurement, so the
 pit page says "not reported" where it would show those, the scoring gate does not judge the
 pose, and camera mounts are not checked.
@@ -495,7 +497,7 @@ Open these first.
 - `Move` and `Outcome` are how a move ends and what it reports.
 - `Gate` is the trigger with a name and a reason.
 - `Drive`, `DriveMove` and `PathFollower` are the drivetrain's moves and the control law.
-- `Localizer`, in `lib/localization`, is the estimator's contract. `DefaultLocalizer` and
+- `Localizer`, in the localization library (`localization/`), is the estimator's contract. `DefaultLocalizer` and
   `PoseEstimator` are the default estimator, `WpilibLocalizer` is WPILib's, and
   `LocalizationService` runs the loop around whichever the robot chose.
 - `ExampleRobot` is a whole description. `Joint` and `MechanismControl`, in the model, are what a

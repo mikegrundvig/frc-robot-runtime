@@ -1,7 +1,6 @@
-// The runtime: the robot program every robot shares, which no team writes, with the libraries it is
-// made of (localization, the simulation) and the harness a team tests its own robot with. A robot
-// program's build includes this one (includeBuild) and asks for
-// com.michaelgrundvig.frc:frc-robot-runtime.
+// The runtime: the robot program every robot shares, which no team writes, with the simulation it
+// runs and the harness a team tests its own robot with. A robot program's build includes this one
+// (includeBuild) and asks for com.michaelgrundvig.frc:frc-robot-runtime.
 
 pluginManagement {
     repositories {
@@ -16,30 +15,31 @@ plugins {
 
 rootProject.name = "frc-robot-runtime"
 
-// The libraries, each a project of its own where that blocks a dependency: localization reads the
-// model, and nothing of the runtime, the simulator, or Pitwall; the simulation reads the model, and
-// nothing of the runtime, localization, or Pitwall.
-include "localization"
-project(":localization").projectDir = file("lib/localization")
+// The simulation, a project of its own, which blocks a dependency: it reads the model, and nothing
+// of the runtime, localization, or Pitwall.
 include "simulation"
 project(":simulation").projectDir = file("lib/simulation")
 
 // What this build is made of, each a repository of its own and a git submodule here: the robot
-// model (model/), Pitwall (pitwall/), and the build's Gradle plugin for AdvantageScope's robot
-// assets (build-logic/, which stays in this repository).
+// model (model/), localization (localization/), Pitwall (pitwall/), and the build's Gradle plugin
+// for AdvantageScope's robot assets (build-logic/, which stays in this repository).
 //
 // They are included only when this is the build that runs. A robot program that includes this one
-// has its own model/ and Pitwall, and Gradle refuses two builds that provide the same module, so
-// it provides them (and applies the plugin from runtime/build-logic) and this build asks for what
-// it finds.
+// has its own model/, localization/ and Pitwall, and Gradle refuses two builds that provide the
+// same module, so it provides them (and applies the plugin from runtime/build-logic) and this build
+// asks for what it finds. Localization reads the model too, and uses this build's.
 if (gradle.parent == null) {
     if (!file("model/settings.gradle").exists()) {
         throw new GradleException("The robot model isn't checked out (model/ is empty). Run: git submodule update --init")
+    }
+    if (!file("localization/settings.gradle").exists()) {
+        throw new GradleException("Localization isn't checked out (localization/ is empty). Run: git submodule update --init")
     }
     if (!file("pitwall/settings.gradle").exists()) {
         throw new GradleException("Pitwall isn't checked out (pitwall/ is empty). Run: git submodule update --init")
     }
     includeBuild("model")
+    includeBuild("localization")
     includeBuild("pitwall")
     includeBuild("build-logic")
 }

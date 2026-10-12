@@ -18,10 +18,9 @@ build (below).
 | `src/main/java/` | The runtime (`com.michaelgrundvig.frc.runtime`, `com.michaelgrundvig.frc:frc-robot-runtime`). At its top: `RobotProgram` (the entry point), `Robot` (logging, Pitwall, and the loop), `RobotContainer` (builds every mechanism on the hardware for the mode: real, simulated, or replayed from a log), `RobotConfig`, `RunMode`, and `ExampleRobot`, the guide's robot, which the runtime is tested on, with `ExampleControls`, its buttons and autos. Its packages: `subsystems` (`drive`, `localization`, `vision`, `mechanisms`), `hardware`, `behavior`, `autos`, `commands`, `dashboard`, `views`, `venues`, `sim` (the simulated world's adapters), and `lib` (loop timing, Systemcore's CAN ports, the Phoenix and REV helpers). |
 | `src/testFixtures/java/` | What a team tests its own robot with: `RobotSim`, `Monkey`, `AutoCheck`, the invariants, `GoldenFile`, and the architecture rules a robot program shares (`ProductionRules`). A robot program asks for them as `testFixtures("com.michaelgrundvig.frc:frc-robot-runtime")`. |
 | `src/test/java/` | The runtime's own tests, in the packages of what they test, from single classes to the whole robot in the simulator, on the guide's robot, with its architecture rules (`ArchitectureTest`), the values register's test (`ValuesRegisterTest`) and the guides' examples' test (`DocExamplesTest`). |
-| `lib/localization/` | Localization, a project of its own (`com.michaelgrundvig.frc.localization`): the service the robot runs each loop, the pose estimator and everything that feeds it, and the calibration math. Reads the world model and nothing else of the robot's. |
 | `lib/simulation/` | The simulation, a project of its own (`com.michaelgrundvig.frc.simulation`): the physics, the IMUs' models, how the simulated sensors err, the catalog of what can fail, the seeds, and the truth suite that checks them against physics. Reads the world model and nothing else of the robot's. |
 | `build-logic/` | The Gradle plugin that writes AdvantageScope's robot assets from a robot program's `Robots.java` (`frc.advantagescope-assets`), an included build of its own. |
-| `model/`, `pitwall/` | The robot model (`com.michaelgrundvig.frc:frc-robot-model`, with the documentation processor) and Pitwall (`com.michaelgrundvig.frc:frc-pitwall`), each a repository of its own, here as git submodules. |
+| `model/`, `localization/`, `pitwall/` | The robot model (`com.michaelgrundvig.frc:frc-robot-model`, with the documentation processor), localization (`com.michaelgrundvig.frc:frc-localization`: the contract a localizer keeps, the default localizer and WPILib's, the solving of camera images, and the calibration math) and Pitwall (`com.michaelgrundvig.frc:frc-pitwall`), each a repository of its own, here as git submodules. |
 | `docs/` | The guides, below. |
 | `vendordeps/` | The vendor libraries the runtime is built and tested with, as in any WPILib project. A robot program that uses the runtime has the same files at the same versions. |
 | `gradle/` | The build's supporting rules: `quality.gradle` (checks, for every project), `wpilib-repositories.gradle` (where the libraries find WPILib), the version catalog, and every downloaded library's checksum. |
@@ -64,8 +63,9 @@ dependencies {
 }
 ```
 
-The program also includes the robot model and Pitwall, its own `includeBuild("model")` and
-`includeBuild("pitwall")`: the runtime includes them only when it is the build that runs
+The program also includes the robot model, localization and Pitwall, its own
+`includeBuild("model")`, `includeBuild("localization")` and `includeBuild("pitwall")`: the runtime
+includes them only when it is the build that runs
 (`settings.gradle`), because Gradle refuses two builds that provide one module. A program that
 checks out the runtime does not need to initialize its submodules (`git submodule update --init`
 without `--recursive`).

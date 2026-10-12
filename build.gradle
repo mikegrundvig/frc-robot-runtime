@@ -33,7 +33,7 @@ java {
 dependencies {
     // The libraries the runtime is made of appear in its signatures.
     api "com.michaelgrundvig.frc:frc-robot-model"
-    api project(":localization")
+    api "com.michaelgrundvig.frc:frc-localization"
     api project(":simulation")
     api "com.michaelgrundvig.frc:frc-pitwall"
     api libs.jspecify
@@ -90,6 +90,8 @@ dependencies {
     testFixturesImplementation "org.junit.platform:junit-platform-launcher"
     // The truth suite's known gaps, which the simulator's tests share with its library's.
     testFixturesApi testFixtures(project(":simulation"))
+    // The localizer contract's conformance suite, for a team that writes a localizer of its own.
+    testFixturesApi testFixtures("com.michaelgrundvig.frc:frc-localization")
 
     testImplementation platform(libs.junit.bom)
     testImplementation "org.junit.jupiter:junit-jupiter"
@@ -115,9 +117,9 @@ tasks.withType(Test).configureEach { jvmArgs "-Xmn32m" }
 // GradleRIO extracts, and the JVM options it sets for its tests.
 wpi.java.configureTestTasks(test)
 
-// The folders of the robot model and of Pitwall that this build compiles against: its own
-// submodules when it is the build that runs, and those of the build that includes it otherwise
-// (settings.gradle includes them only in the first case).
+// The folders of the robot model, of localization and of Pitwall that this build compiles against:
+// its own submodules when it is the build that runs, and those of the build that includes it
+// otherwise (settings.gradle includes them only in the first case).
 def includedBuildDir = { String name ->
     for (def g = gradle; g != null; g = g.parent) {
         def found = g.includedBuilds.find { it.name == name }
@@ -125,9 +127,10 @@ def includedBuildDir = { String name ->
             return found.projectDir
         }
     }
-    throw new GradleException("No build named ${name} is included: the runtime needs the robot model and Pitwall")
+    throw new GradleException("No build named ${name} is included: the runtime needs the robot model, localization and Pitwall")
 }
 def modelDir = includedBuildDir("model")
+def localizationDir = includedBuildDir("localization")
 def pitwallDir = includedBuildDir("pitwall")
 
 tasks.named("test") {
@@ -151,9 +154,10 @@ tasks.named("test") {
     // on them: the values register (docs/values.md, ValuesRegisterTest) and the guides' examples of
     // code (DocExamplesTest), read as text with the sources they're found in. A quick build
     // (-Pquick) skips tests whose inputs haven't changed, so an undeclared file would let a change
-    // to it pass untested. The model's and Pitwall's are the submodules of this build, or, when a
-    // robot program includes this build, the program's own (settings.gradle).
+    // to it pass untested. The model's, localization's and Pitwall's are the submodules of this
+    // build, or, when a robot program includes this build, the program's own (settings.gradle).
     systemProperty "frc.modelDir", modelDir.absolutePath
+    systemProperty "frc.localizationDir", localizationDir.absolutePath
     systemProperty "frc.pitwallDir", pitwallDir.absolutePath
     inputs.files(fileTree("docs") { include "**/*.md" }, "README.md", new File(pitwallDir, "README.md"))
     .withPropertyName("guides").withPathSensitivity(PathSensitivity.NAME_ONLY)
@@ -161,6 +165,7 @@ tasks.named("test") {
             fileTree("src") { include "*/java/**/*.java" },
             fileTree("lib") { include "*/src/*/java/**/*.java" },
             fileTree(modelDir) { include "src/*/java/**/*.java" },
+            fileTree(localizationDir) { include "src/*/java/**/*.java" },
             fileTree(pitwallDir) { include "src/*/java/**/*.java" })
             .withPropertyName("documentedSources").withPathSensitivity(PathSensitivity.NAME_ONLY)
     // GOLDEN_UPDATE=1 has the recorded tests record their recordings again, in src/test/resources,

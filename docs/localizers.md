@@ -14,8 +14,8 @@ library. Anything that implements it can drive the robot.
 One part stays in front of every localizer. The runtime reads each camera's tag detections and
 solves them into measurements: a pose, the time the image was taken, and how uncertain the pose
 is. That solving and filtering is the library's `VisionPipeline`, and it is not replaceable. Your
-localizer is handed the same measurements, with the same uncertainties, that the default one is.
-It never sees an image.
+localizer is handed that pipeline's measurements, with their uncertainties, as the default one
+is. It never sees an image.
 
 So the seam is: odometry and measurements in, a pose out.
 
@@ -92,10 +92,11 @@ wheels' trust when they slip, and keeps an honest uncertainty. It reports every 
 [coming-from-wpilib.md](coming-from-wpilib.md#pose-estimation-and-vision) says how it differs
 from what you know.
 
-**WPILib's pose estimator** (`WpilibLocalizer`) is `SwerveDrivePoseEstimator`, fed what the
-default one is fed: every wheel reading, and the pipeline's measurements with their standard
-deviations. It keeps the required contract and reports none of the options, because WPILib's
-estimator keeps no uncertainty, no mode and no record of what it did with a measurement.
+**WPILib's pose estimator** (`WpilibLocalizer`) is `SwerveDrivePoseEstimator`, fed as the default
+one is: every wheel reading, and the pipeline's measurements with their standard deviations. It
+keeps the required contract and reports none of the options, because WPILib's estimator keeps no
+uncertainty, no mode and no record of what it did with a measurement. Since it reports no
+covariance, its images are solved from their tags alone, never with the gyro's heading.
 
 WPILib's estimator leaves some things to the code that calls it. `WpilibLocalizer` does them, and
 its Javadoc says how. The ones worth knowing:
@@ -222,6 +223,8 @@ What it found, in simulation only:
   the gyro reads wrong or a camera has been knocked on its mount. The default localizer leans on
   the gyro for heading, and that costs it there.
 - Most of each difference comes from how images are solved and filtered, not from the estimator.
-  Fed the same measurements, as `WpilibLocalizer` is, the two are close.
+  Fed the very same measurements, the two estimators are close.
+- The study did not measure a robot that chose `WpilibLocalizer`. Such a robot's images are solved
+  without the gyro's heading, which none of the study's contenders did with this pipeline.
 
 No real robot was involved. Do not quote a number from it as a fact about your robot.
