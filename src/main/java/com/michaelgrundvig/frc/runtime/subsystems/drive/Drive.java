@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.pitwall.Limits;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.pitwall.experiment.Rig;
+import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Alliance;
@@ -127,6 +128,12 @@ public class Drive implements Mechanism, AutoCloseable {
 
   /** The driver's sticks, the field and the alliance, once the robot has handed them over. */
   private Optional<Driver> driver = Optional.empty();
+
+  /** Whether the robot was enabled in the last loop. */
+  private boolean wasEnabled;
+
+  /** Whether the robot was disabled between the last loop and this one. */
+  private boolean disabledThisLoop;
 
   // What the drivetrain is tuned to now.
 
@@ -266,6 +273,8 @@ public class Drive implements Mechanism, AutoCloseable {
     takeTuningFromThePit();
     readings.read();
     output.newLoop(enabled);
+    disabledThisLoop = wasEnabled && !enabled;
+    wasEnabled = enabled;
     alerts.check(modules, readings);
     Logger.recordOutput("Drive/Pose", getPose());
     Logger.recordOutput("Drive/ModuleVelocities", readings.moduleVelocitiesAsRead());
@@ -391,6 +400,18 @@ public class Drive implements Mechanism, AutoCloseable {
    */
   Optional<String> refusedAsBuilt(Optional<String> why) {
     return Refusals.asBuilt(scheduler, why);
+  }
+
+  /**
+   * Why a move on the drivetrain that is canceled now is canceled, where the drivetrain can say. In
+   * the loop the robot is disabled every command is canceled for that ({@link Disabling}), and the
+   * drivetrain knows which loop that is. Any other cancel has no reason it knows of.
+   */
+  Optional<String> whyCanceledNow() {
+    if (disabledThisLoop) {
+      return Optional.of(Disabling.WHY);
+    }
+    return Optional.empty();
   }
 
   // ---- Driving at a velocity ----

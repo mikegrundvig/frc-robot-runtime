@@ -423,18 +423,21 @@ public class Robot extends LoggedRobot {
    *       whole loop.
    *   <li>Every mechanism reads its sensors, and the robot works out where it is ({@link
    *       RobotContainer#periodic}).
-   *   <li>The command scheduler runs. Its bindings and commands decide on this loop's readings.
+   *   <li>The command scheduler runs. Its bindings and commands decide on this loop's readings. In
+   *       the loop the robot is disabled, every running command is canceled first ({@link
+   *       RobotContainer#cancelTheCommandsIfDisabled}), so the scheduler runs nothing left over
+   *       from before.
    *   <li>The joints are told what the commands asked ({@link RobotContainer#afterCommands}), so a
    *       goal set in this loop is applied in this loop.
    * </ol>
    *
-   * <p><b>When the commands throw.</b> A command, a binding's condition, or anything else the
-   * scheduler runs may throw. In the simulator, and in a test, that ends the program at once, so a
-   * bug fails there. On a robot, and in a replay of one, the loop carries on. By then v3's
-   * scheduler has already ended the command that threw and the command that started it, and the
-   * joints still do what the other commands asked. The throw is reported ({@link
-   * LoopHealth#threw}). Only when the commands throw in {@value LoopHealth#FAILING_LOOPS} loops in
-   * a row does the program end.
+   * <p><b>When the commands throw.</b> A command, a binding's condition, anything else the
+   * scheduler runs, or what a command does as it is canceled may throw. In the simulator, and in a
+   * test, that ends the program at once, so a bug fails there. On a robot, and in a replay of one,
+   * the loop carries on. By then v3's scheduler has already ended the command that threw and the
+   * command that started it, and the joints still do what the other commands asked. The throw is
+   * reported ({@link LoopHealth#threw}). Only when the commands throw in {@value
+   * LoopHealth#FAILING_LOOPS} loops in a row does the program end.
    *
    * @param afterAThrow what to do when the commands throw ({@link #afterAThrow})
    */
@@ -448,16 +451,25 @@ public class Robot extends LoggedRobot {
     pitwall.periodic();
     loopHealth.monitor().mark("Pitwall", System.nanoTime());
     container.periodic();
-    runTheCommands(scheduler, loopHealth, afterAThrow);
+    runTheCommands(container, scheduler, loopHealth, afterAThrow);
     loopHealth.monitor().mark("Commands", System.nanoTime());
     container.afterCommands();
     loopHealth.monitor().mark("Outputs", System.nanoTime());
     loopHealth.finish(System.nanoTime(), Logger.getReceiverQueueFault());
   }
 
+  /**
+   * Runs the command scheduler, after canceling every command if the robot was disabled since the
+   * last loop. Canceling a command runs the team's own code for it, which may throw as any command
+   * may, so it is under the same guard as the scheduler.
+   */
   private static void runTheCommands(
-      Scheduler scheduler, LoopHealth loopHealth, AfterAThrow afterAThrow) {
+      RobotContainer container,
+      Scheduler scheduler,
+      LoopHealth loopHealth,
+      AfterAThrow afterAThrow) {
     try {
+      container.cancelTheCommandsIfDisabled();
       scheduler.run();
     } catch (RuntimeException e) {
       if (afterAThrow == AfterAThrow.ENDS_THE_PROGRAM) {

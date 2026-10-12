@@ -14,7 +14,10 @@ public enum Outcome {
   ARRIVED,
   /** Its deadline passed first: its own, by its profile, or the one its team gave it. */
   TIMED_OUT,
-  /** Another command took what it requires, its binding released, or its gate fell. */
+  /**
+   * Another command took what it requires, its binding released, its gate fell, or the robot was
+   * disabled ({@link Disabling}).
+   */
   CANCELED,
   /** It would not start, or could not go on. */
   REFUSED;

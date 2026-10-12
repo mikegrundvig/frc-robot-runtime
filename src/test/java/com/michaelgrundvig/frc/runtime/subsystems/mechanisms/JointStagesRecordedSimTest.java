@@ -288,7 +288,8 @@ class JointStagesRecordedSimTest {
    * until the pivot's out; the pivot overshooting into the band as the reef comes near, held there,
    * then held at its edge coming back, the reef lost meanwhile; the pivot's motor controllers going
    * silent under the roller's rule; the beam tripping; the elevator leaving its region by its top
-   * edge from its bottom stop, then held above it; and a disable and enable while held.
+   * edge from its bottom stop, then held above it; and a disable while held, which cancels its
+   * move, and an enable with the move asked again, held again.
    */
   @Test
   void interlocks() throws IOException {
@@ -326,6 +327,8 @@ class JointStagesRecordedSimTest {
     scene.sim.setEnabled(false);
     scene.run(0.3);
     scene.sim.setEnabled(true);
+    scene.schedule(scene.of(ROLLER).run(ROLLER_INTAKING));
+    scene.schedule(scene.of(ELEVATOR).goTo(ELEVATOR_DOWN));
     scene.run(0.5);
     record("stages-interlocks.csv");
   }
@@ -392,7 +395,8 @@ class JointStagesRecordedSimTest {
 
   /**
    * The elevator homes into its bottom stop, the pivot to its switch, starting on it, so it backs
-   * off first; their moves wait. Disabled before, neither homes. Then, with too little time for the
+   * off first; their moves wait. Disabled before, neither homes. Disabled again as they start to,
+   * their moves are canceled, and asked again once enabled. Then, with too little time for the
    * elevator and the pivot's switch lost, both are faulted, refuse their moves, and home again.
    */
   @Test
@@ -418,6 +422,8 @@ class JointStagesRecordedSimTest {
     scene.sim.setEnabled(false);
     scene.run(0.1);
     scene.sim.setEnabled(true);
+    scene.schedule(scene.of(ELEVATOR).goTo(ELEVATOR_CLEAR));
+    scene.schedule(scene.of(PIVOT).goTo(PIVOT_RUN));
     scene.run(2.6);
 
     RobotDefinition quick =

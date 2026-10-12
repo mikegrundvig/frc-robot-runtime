@@ -10,6 +10,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.wpilib.command3.Command;
+import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Trigger;
 import org.wpilib.util.AlertDataJNI;
 
@@ -80,6 +81,49 @@ class RobotLoopSimTest {
             "Commands threw, and the robot carried on without them: IllegalStateException: broken"
                 + " on purpose, at com.michaelgrundvig.frc.runtime.RobotLoopSimTest.lambda$")
         .containsOnlyOnce("broken on purpose");
+  }
+
+  /**
+   * On a robot, a command that throws as it is canceled, in the loop the robot is disabled, does
+   * not end the program, and leaves nothing running: the commands the scheduler had not reached
+   * when it threw are canceled in the next loop. The throw is reported.
+   */
+  @Test
+  void onARobotACommandThatThrowsAsItIsCanceledAtDisableLeavesNothingOfItsOwnRunning() {
+    sim.build(RobotSim.WITHOUT_CAMERAS, SensorErrors.NONE);
+    RobotSim.setEnabled(true);
+    Command broken =
+        Command.noRequirements(RobotLoopSimTest::runUntilCanceled)
+            .whenCanceled(
+                () -> {
+                  throw new IllegalStateException("broken on purpose");
+                })
+            .named("Broken");
+    Command after = Command.noRequirements(RobotLoopSimTest::runUntilCanceled).named("After it");
+    sim.scheduler().schedule(broken);
+    sim.scheduler().schedule(after);
+    sim.loopOnRobot();
+
+    RobotSim.setEnabled(false);
+    sim.loopOnRobot(); // the loop of the disable: canceling throws part way through
+    sim.loopOnRobot();
+
+    assertThat(sim.scheduler().getRunningCommands())
+        .extracting(Command::name)
+        .containsExactly("Drive with the sticks");
+    assertThat(raised())
+        .singleElement()
+        .asString()
+        .startsWith(
+            "Commands threw, and the robot carried on without them: IllegalStateException: broken"
+                + " on purpose");
+  }
+
+  /** A command's body that runs until it is canceled. */
+  private static void runUntilCanceled(Coroutine coroutine) {
+    while (true) {
+      coroutine.yield();
+    }
   }
 
   /**

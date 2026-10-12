@@ -54,9 +54,10 @@ import org.wpilib.units.measure.Time;
  * </ul>
  *
  * <p>{@link #within} sets a path's move another deadline, and {@link #passed} waits for a named
- * keyframe. Canceled, it's {@link Outcome#CANCELED}. It stops the drivetrain as it ends; the
- * drive's default command takes over from the next loop. Each run takes a loop at least, one that
- * ends as it starts too, so a command that awaits moves in a loop goes round once a loop.
+ * keyframe. Canceled, it's {@link Outcome#CANCELED}, and says so if it was because the robot was
+ * disabled, which cancels every command. It stops the drivetrain as it ends; the drive's default
+ * command takes over from the next loop. Each run takes a loop at least, one that ends as it starts
+ * too, so a command that awaits moves in a loop goes round once a loop.
  *
  * <p><b>Inside</b>, what a move does is its {@link DriveTask}, one kind for each of the moves
  * above. This class is the command around the task: it starts a run, keeps the run's deadline, and
@@ -434,7 +435,7 @@ public final class DriveMove implements Command {
   @Override
   public void onCancel() {
     if (running) {
-      end(Outcome.CANCELED);
+      end(Outcome.CANCELED, "", drive.whyCanceledNow());
     }
   }
 

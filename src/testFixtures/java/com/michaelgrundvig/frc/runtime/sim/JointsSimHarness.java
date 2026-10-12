@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
@@ -23,10 +24,10 @@ import org.wpilib.system.RobotController;
 
 /**
  * Runs a robot's driven joints in simulation the way the robot runs them, without the rest of the
- * robot: the joints' physics, then each joint reads its sensors, then the command scheduler, then
- * each joint applies what it was asked. The class using it carries
- * {@code @ExtendWith(RobotSim.class)}, for the stopped clock, which closes every harness after its
- * test, so no joint's alert outlives it.
+ * robot: the joints' physics, then each joint reads its sensors, then every command is canceled if
+ * the joints were just disabled, then the command scheduler, then each joint applies what it was
+ * asked. The class using it carries {@code @ExtendWith(RobotSim.class)}, for the stopped clock,
+ * which closes every harness after its test, so no joint's alert outlives it.
  */
 public final class JointsSimHarness implements AutoCloseable {
   /** The harnesses made since the last test ended: RobotSim closes them after each. */
@@ -38,6 +39,9 @@ public final class JointsSimHarness implements AutoCloseable {
   public final PdhIOSim pdh;
   public final Joints joints;
   private boolean enabled = true;
+
+  /** Cancels every command in the loop the joints are disabled, as the robot's loop does. */
+  private final Disabling disabling = new Disabling(scheduler);
 
   /**
    * The definition's joints, each driven as its block says, enabled, each where its definition says
@@ -119,6 +123,7 @@ public final class JointsSimHarness implements AutoCloseable {
     RobotSim.stepClock();
     simulation.step(RobotLoop.PERIOD_SECONDS);
     joints.read(RobotController.getTime(), enabled);
+    disabling.cancelCommandsIfDisabled(enabled);
     scheduler.run();
     joints.write();
   }

@@ -200,8 +200,8 @@ class HomingSimTest {
   }
 
   /**
-   * Disabled mid-homing, the elevator is unhomed and a move on it waits, its deadline not yet
-   * started; enabled again, it homes from where it is, and the move arrives.
+   * Disabled mid-homing, the elevator is unhomed and a move asked of it while it is disabled waits,
+   * its deadline not yet started; enabled again, it homes from where it is, and the move arrives.
    */
   @Test
   void disabledMidHomingItHomesOnTheNextEnable() {
@@ -213,6 +213,7 @@ class HomingSimTest {
     sim.run(0.1);
     JointMechanism.State homing = elevator.state();
     sim.setEnabled(false);
+    sim.loop(); // the loop of the disable, which cancels whatever was asked before it
     Move clear = elevator.goTo(ELEVATOR_CLEAR);
     sim.run(clear, 2);
     JointMechanism.State disabled = elevator.state();

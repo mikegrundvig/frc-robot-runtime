@@ -8,6 +8,7 @@ import static org.wpilib.units.Units.Radians;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.pitwall.Limits;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
+import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
@@ -258,6 +259,9 @@ public final class JointMechanism implements Mechanism {
   private long nowNanos;
 
   private boolean enabled;
+
+  /** Whether the robot was disabled between the last loop and this one. */
+  private boolean disabledThisLoop;
 
   /** What its commands ask of it, loop by loop. */
   private final JointRequests requests;
@@ -879,6 +883,18 @@ public final class JointMechanism implements Mechanism {
     }
   }
 
+  /**
+   * Why a move on the joint that is canceled now is canceled, where the joint can say. In the loop
+   * the robot is disabled every command is canceled for that ({@link Disabling}), and the joint
+   * knows which loop that is. Any other cancel has no reason the joint knows of.
+   */
+  Optional<String> whyCanceledNow() {
+    if (disabledThisLoop) {
+      return Optional.of(Disabling.WHY);
+    }
+    return Optional.empty();
+  }
+
   /** Logs how the last move on it ended, from now on. */
   void recordOutcome(String outcome) {
     this.outcome = outcome;
@@ -1037,6 +1053,7 @@ public final class JointMechanism implements Mechanism {
     readings.read();
 
     boolean enabling = enabled && !this.enabled;
+    disabledThisLoop = this.enabled && !enabled;
     if (readings.isFirstLoop()) {
       homing.robotStarted(nowNanos);
     }

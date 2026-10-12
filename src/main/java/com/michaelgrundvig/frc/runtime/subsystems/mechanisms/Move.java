@@ -50,8 +50,9 @@ import org.wpilib.units.measure.Time;
  *       configuration; for {@code runUntil}, its condition held; for {@code home}, it's homed.
  *   <li>{@link Outcome#TIMED_OUT}: its deadline passed. The reason says where it was, and what
  *       interlock held it.
- *   <li>{@link Outcome#CANCELED}: another command took the joint, its binding released, or its
- *       {@link #onlyWhile} gate fell.
+ *   <li>{@link Outcome#CANCELED}: another command took the joint, its binding released, its {@link
+ *       #onlyWhile} gate fell, or the robot was disabled, which cancels every command. The reason
+ *       says which of the last two.
  *   <li>{@link Outcome#REFUSED}: it wouldn't start or can't go on: a target outside the joint's
  *       limits, a place not the joint's own or an option that can't be, a joint not answering or
  *       faulted, or its {@link #onlyIf} gate false.
@@ -503,7 +504,18 @@ public final class Move implements Command {
     if (plan.task() instanceof Home) {
       legs[0].joint.stopHoming();
     }
-    end(Outcome.CANCELED, Optional.empty());
+    end(Outcome.CANCELED, whyCanceledNow());
+  }
+
+  /**
+   * Why the move is canceled now, where its joints can say: the robot was disabled this loop. A
+   * move of no joints has none to ask.
+   */
+  private Optional<String> whyCanceledNow() {
+    if (legs.length == 0) {
+      return Optional.empty();
+    }
+    return legs[0].joint.whyCanceledNow();
   }
 
   @Override

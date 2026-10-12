@@ -19,6 +19,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.runtime.autos.AutoPit;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
+import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
 import com.michaelgrundvig.frc.runtime.commands.Calibration;
 import com.michaelgrundvig.frc.runtime.dashboard.Dashboard;
@@ -178,6 +179,9 @@ public final class RobotContainer implements AutoCloseable {
   /** Whether autonomous was enabled in the last loop, to notice it starting and ending. */
   private boolean wasAutonomous;
 
+  /** Cancels every command in the loop the robot is disabled. */
+  private final Disabling disabling;
+
   // The mechanisms.
 
   private final Drive drive;
@@ -257,6 +261,7 @@ public final class RobotContainer implements AutoCloseable {
 
     // The match, and the drive team's gamepads.
     autos = new Autos(scheduler);
+    disabling = new Disabling(scheduler);
     matchField = new MatchField(field, mode, autos);
     bindings = new Bindings(scheduler);
     driver = bindings.gamepad("driver", DRIVER_PORT);
@@ -440,6 +445,20 @@ public final class RobotContainer implements AutoCloseable {
     judgeTheField();
     Dashboard.publish(status());
     loop.mark("Dashboard", System.nanoTime());
+  }
+
+  /**
+   * Cancels every running command in the loop the robot goes from enabled to disabled ({@link
+   * Disabling}). Disabled means disabled: nothing a command was doing is left to carry on when the
+   * robot is enabled again. This is the one place it happens, so a team's commands need nothing.
+   *
+   * <p>The robot's loop calls this between {@link #periodic()} and the command scheduler. That is
+   * after the auto is ended, so that an auto cut off by a disable is still recorded as cut off as
+   * autonomous ended. And it is after the sensors are read, because that is when the drivetrain and
+   * the joints are told the robot is disabled, and a move they cancel says so.
+   */
+  public void cancelTheCommandsIfDisabled() {
+    disabling.cancelCommandsIfDisabled(RobotState.isEnabled());
   }
 
   /**

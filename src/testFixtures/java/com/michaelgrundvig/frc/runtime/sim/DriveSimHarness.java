@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.localization.VisionResult;
 import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
@@ -41,6 +42,10 @@ import org.wpilib.system.RobotController;
  */
 public final class DriveSimHarness implements AutoCloseable {
   public final Scheduler scheduler = Scheduler.createIndependentScheduler();
+
+  /** Cancels every command in the loop the robot is disabled, as the robot's loop does. */
+  private final Disabling disabling = new Disabling(scheduler);
+
   public final DriveSimulation simulation;
   public final PoseEstimator estimator;
   public final Localization localization;
@@ -225,8 +230,9 @@ public final class DriveSimHarness implements AutoCloseable {
   }
 
   /**
-   * One robot loop: the physics moves, the drivetrain reads its sensors, localization takes them,
-   * the camera's results arrive, the estimate takes those, then commands run.
+   * One robot loop: the physics moves, the drivetrain reads its sensors, every command is canceled
+   * if the robot was just disabled, localization takes the readings, the camera's results arrive,
+   * the estimate takes those, then commands run.
    */
   public void loop() {
     RobotSim.stepClock();
@@ -234,6 +240,7 @@ public final class DriveSimHarness implements AutoCloseable {
     simulation.step(RobotLoop.PERIOD_SECONDS, now);
     boolean enabled = RobotState.isEnabled();
     drive.periodic(enabled);
+    disabling.cancelCommandsIfDisabled(enabled);
     localization.periodic(drive.readings(), enabled);
     FakeCamera watching = camera;
     if (watching != null) {

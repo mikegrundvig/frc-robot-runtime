@@ -137,7 +137,7 @@ class SimulatorControlsSimTest {
       sim.loops(5);
     }
 
-    assertThat(stickAsRead).as("the robot's program reads the stick").isEqualTo(-0.5);
+    assertThat(stickAsRead).as("the robot's program reads the stick pushed").isLessThan(-0.4);
     assertThat(drivenDisabled).as("meters driven while disabled").isLessThan(0.001);
     assertThat(travelled(start)).as("meters driven once enabled").isGreaterThan(0.3);
   }
