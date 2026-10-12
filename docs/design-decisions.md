@@ -66,7 +66,7 @@ They run from the most fundamental to the least.
 | 14 | [No SysId routine](#14-no-sysid-routine) | Seeded feedforward plus step tests |
 | 15 | [Paths in code](#15-paths-and-autos-in-code) | In code first, not finished |
 | 16 | [Pitwall](#16-pitwall-instead-of-dashboard-tuning) | Tune live, commit in code |
-| 17 | [Four repositories](#17-four-repositories) | One boundary for each owner |
+| 17 | [Separate repositories](#17-separate-repositories) | One boundary for each owner |
 | 18 | [The platform](#18-java-25-wpilib-2027-alpha-systemcore-only) | 2027 only, no roboRIO |
 
 ## 1. Describe the robot, do not write subsystems
@@ -732,12 +732,12 @@ tuned on the field.
 **What would change our mind.** A pit crew that keeps losing tuned values at the paste step. Or a
 dashboard teams already know that does the same job and shows the change to commit.
 
-## 17. Four repositories
+## 17. Separate repositories
 
 **What most teams do.** One repository for a season, often copied from last year's. A team library
 sits inside it, or in a second repository that drifts.
 
-**What this does.** There are four. The **model** is the vocabulary and the checks. It depends on
+**What this does.** There are five. The **model** is the vocabulary and the checks. It depends on
 WPILib's math and units and nothing else of a robot program, so a robot, a simulator and a replay
 read the same model. **Pitwall** is the pit page. It knows nothing about robots, and the program
 hands it data. The **runtime** is the program every robot shares, and an architecture test fails if
