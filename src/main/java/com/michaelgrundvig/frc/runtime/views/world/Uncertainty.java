@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.views.world;
 
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.pitwall.scene.Inspection;
 import com.michaelgrundvig.frc.pitwall.scene.Layer;
@@ -8,6 +9,7 @@ import com.michaelgrundvig.frc.pitwall.scene.SceneBuilder;
 import com.michaelgrundvig.frc.pitwall.scene.SceneState;
 import com.michaelgrundvig.frc.pitwall.scene.Style;
 import java.util.Locale;
+import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -37,7 +39,10 @@ final class Uncertainty implements Layer {
    * plain reference because the loop sets it every loop, where an {@code Optional} would be made
    * again each time.
    */
-  private volatile @Nullable LocalizationEstimate drawn;
+  private volatile @Nullable LocalizerReport drawn;
+
+  /** What a click says in place of something the localizer does not report. */
+  private static final String NOT_REPORTED = "not reported by this localizer";
 
   Uncertainty(WorldView.Readings readings) {
     this.readings = readings;
@@ -85,18 +90,29 @@ final class Uncertainty implements Layer {
    */
   @Override
   public void update(SceneState state) {
-    LocalizationEstimate estimate = readings.estimate();
-    drawn = estimate;
-    PoseCovariance covariance = estimate.covariance();
+    LocalizerReport report = readings.report();
+    drawn = report;
+    if (report.covariance().isEmpty()) {
+      // A localizer that doesn't say how sure it is has no ellipse: none is drawn, of any size.
+      state.pose(FRAME, report.pose().getX(), report.pose().getY(), 0);
+      state.value("uncertainty.major", 0);
+      state.value("uncertainty.minor", 0);
+      return;
+    }
+    PoseCovariance covariance = report.covariance().get();
     double mean = (covariance.xx() + covariance.yy()) / 2;
     double spread = Math.hypot((covariance.xx() - covariance.yy()) / 2, covariance.xy());
     double angle = 0.5 * Math.atan2(2 * covariance.xy(), covariance.xx() - covariance.yy());
-    state.pose(FRAME, estimate.pose().getX(), estimate.pose().getY(), angle);
+    state.pose(FRAME, report.pose().getX(), report.pose().getY(), angle);
     state.value("uncertainty.major", radius(mean + spread));
     state.value("uncertainty.minor", radius(mean - spread));
+    // A localizer that doesn't say what its pose rests on is drawn as described: nothing here knows
+    // of anything wrong.
+    Optional<LocalizationEstimate.Mode> mode = report.mode();
     boolean somethingIsWrong =
-        estimate.mode() == LocalizationEstimate.Mode.LOST
-            || estimate.mode() == LocalizationEstimate.Mode.IMU_FAULT;
+        mode.isPresent()
+            && (mode.get() == LocalizationEstimate.Mode.LOST
+                || mode.get() == LocalizationEstimate.Mode.IMU_FAULT);
     if (somethingIsWrong) {
       state.style("uncertainty.ellipse", Style.BAD.dashed());
     } else {
@@ -116,15 +132,22 @@ final class Uncertainty implements Layer {
 
   /** What a click on the ellipse says: how sure, along which way, and what it rests on. */
   private Inspection inspection() {
-    LocalizationEstimate estimate = drawn;
-    if (estimate == null) {
+    LocalizerReport report = drawn;
+    if (report == null) {
       return Inspection.of("Uncertainty").detail("Estimate", "not drawn yet");
     }
-    PoseCovariance covariance = estimate.covariance();
-    LocalizationEstimate.Health health = estimate.health();
-    return Inspection.of("Uncertainty of the estimate")
-        .detail("Based on", estimate.mode().name().toLowerCase(Locale.ROOT).replace('_', ' '))
-        .detail(
+    Inspection said =
+        Inspection.of("Uncertainty of the estimate")
+            .detail("Based on", report.mode().map(Uncertainty::words).orElse(NOT_REPORTED));
+    if (report.covariance().isEmpty()) {
+      said =
+          said.detail("Position, 1σ", NOT_REPORTED)
+              .detail("Heading, 1σ", NOT_REPORTED)
+              .detail("Cameras", report.health().map(Uncertainty::cameras).orElse(NOT_REPORTED));
+      return said.detail("Drawn", "nothing: the localizer reports no uncertainty");
+    }
+    PoseCovariance covariance = report.covariance().get();
+    return said.detail(
             "Position, 1σ",
             String.format(
                 Locale.ROOT,
@@ -133,15 +156,23 @@ final class Uncertainty implements Layer {
                 100 * covariance.yStdDev(),
                 100 * covariance.largestPositionStdDev()))
         .detail("Heading, 1σ", headingSpread(covariance))
-        .detail(
-            "Cameras",
-            String.format(
-                Locale.ROOT,
-                "%d accepted, %d rejected; last accepted %s",
-                health.accepted(),
-                health.rejected(),
-                lastAccepted(health)))
+        .detail("Cameras", report.health().map(Uncertainty::cameras).orElse(NOT_REPORTED))
         .detail("Drawn", "two standard deviations across, about the estimate");
+  }
+
+  /** A mode in the page's words: "dead reckoning". */
+  private static String words(LocalizationEstimate.Mode mode) {
+    return mode.name().toLowerCase(Locale.ROOT).replace('_', ' ');
+  }
+
+  /** How the cameras' measurements have fared, from the estimate's health. */
+  private static String cameras(LocalizationEstimate.Health health) {
+    return String.format(
+        Locale.ROOT,
+        "%d accepted, %d rejected; last accepted %s",
+        health.accepted(),
+        health.rejected(),
+        lastAccepted(health));
   }
 
   private static String headingSpread(PoseCovariance covariance) {

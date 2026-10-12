@@ -6,7 +6,9 @@ import com.michaelgrundvig.frc.localization.CaptureContext;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationService;
+import com.michaelgrundvig.frc.localization.Localizer;
 import com.michaelgrundvig.frc.localization.MountCheck;
+import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.TagAllowlist;
 import com.michaelgrundvig.frc.localization.TagDetections;
 import com.michaelgrundvig.frc.localization.Timestamps;
@@ -445,24 +447,23 @@ public final class Vision implements AutoCloseable {
    * @param nowNanos the robot's clock this loop, which how late each image arrived is measured to
    */
   public void periodic(long nowNanos) {
-    LocalizationEstimate estimate = localization.estimate();
-    noteWhetherMoving(estimate);
+    noteWhetherMoving();
     current = settings.get();
     localization.vision(current);
     showWhichTagsAreTrusted();
-    PoseKnowledge known = howWellThePoseIsKnown(estimate);
+    PoseKnowledge known = howWellThePoseIsKnown(localization.localizer());
     for (Camera camera : cameras) {
       takeItsImages(camera, known, nowNanos);
     }
     previousLoopNanos = OptionalLong.of(nowNanos);
   }
 
-  private void noteWhetherMoving(LocalizationEstimate estimate) {
+  private void noteWhetherMoving() {
     boolean moving =
-        estimate.fieldVelocity().getNorm() > STILL_METERS_PER_SECOND
-            || Math.abs(estimate.yawRateRadiansPerSecond()) > STILL_RADIANS_PER_SECOND;
+        localization.speedMetersPerSecond() > STILL_METERS_PER_SECOND
+            || Math.abs(localization.yawRateRadiansPerSecond()) > STILL_RADIANS_PER_SECOND;
     if (moving) {
-      lastMovedNanos = OptionalLong.of(estimate.timestampNanos());
+      lastMovedNanos = OptionalLong.of(localization.timestampNanos());
     }
   }
 
@@ -492,16 +493,42 @@ public final class Vision implements AutoCloseable {
       double positionStdDevMeters,
       double headingStdDevRadians,
       boolean tracking,
-      boolean goodEnoughToCalibrateBy) {}
+      boolean goodEnoughToCalibrateBy) {
+    /**
+     * A pose whose localizer does not say what it rests on or how sure it is. Nothing is judged or
+     * calibrated against it: its spread is infinite, and it is not known to track.
+     */
+    static final PoseKnowledge NOT_REPORTED =
+        new PoseKnowledge(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, false, false);
+  }
 
-  private static PoseKnowledge howWellThePoseIsKnown(LocalizationEstimate estimate) {
-    boolean tracking = estimate.mode() == LocalizationEstimate.Mode.TRACKING;
-    double positionStdDevMeters = estimate.covariance().largestPositionStdDev();
+  private static PoseKnowledge howWellThePoseIsKnown(Localizer localizer) {
+    Optional<LocalizationEstimate.Mode> mode = localizer.mode();
+    Optional<PoseCovariance> covariance = localizer.covariance();
+    if (mode.isEmpty() || covariance.isEmpty()) {
+      return PoseKnowledge.NOT_REPORTED;
+    }
+    boolean tracking = mode.get() == LocalizationEstimate.Mode.TRACKING;
+    double positionStdDevMeters = covariance.get().largestPositionStdDev();
     return new PoseKnowledge(
         positionStdDevMeters,
-        estimate.covariance().headingStdDev(),
+        covariance.get().headingStdDev(),
         tracking,
         tracking && positionStdDevMeters <= CALIBRATION_POSE_STD_DEV_METERS);
+  }
+
+  /**
+   * Why no camera's mount can be calibrated against the pose, or empty when one can. A calibration
+   * counts an image only while the pose is known to rest on the tags and to be sure enough. A
+   * localizer that reports neither leaves nothing to calibrate against.
+   */
+  public Optional<String> whyNoMountIsCalibrated() {
+    Localizer localizer = localization.localizer();
+    if (localizer.mode().isPresent() && localizer.covariance().isPresent()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        "what the pose rests on, or how sure it is, is not reported by this localizer");
   }
 
   /**
@@ -732,8 +759,12 @@ public final class Vision implements AutoCloseable {
 
   /** Counts and logs what localization's update made of each camera's measurements. */
   public void record(List<FrameVerdict> frames) {
+    Camera.Fates fates = Camera.Fates.NOT_REPORTED;
+    if (localization.localizer().decisions().isPresent()) {
+      fates = Camera.Fates.REPORTED;
+    }
     for (Camera camera : cameras) {
-      camera.record(frames, current.mountToleranceMeters(), field::tag);
+      camera.record(frames, current.mountToleranceMeters(), field::tag, fates);
     }
   }
 
@@ -759,6 +790,7 @@ public final class Vision implements AutoCloseable {
     int accepts = 0;
     int rejects = 0;
     int outOfStep = 0;
+    int given = 0;
     for (Camera camera : cameras) {
       if (camera.isConnected()) {
         connected++;
@@ -766,9 +798,15 @@ public final class Vision implements AutoCloseable {
       accepts += camera.accepted();
       rejects += camera.rejected();
       outOfStep += camera.leftOutOfStep();
+      given += camera.given();
     }
-    String line =
-        connected + " of " + cameras.size() + " cameras connected, " + accepted(accepts, rejects);
+    String measurements = accepted(accepts, rejects);
+    boolean fatesReported = localization.localizer().decisions().isPresent();
+    if (!fatesReported) {
+      // The localizer doesn't say what it did with them, so no share accepted can be shown.
+      measurements = given + " measurements given, how many were accepted is not reported";
+    }
+    String line = connected + " of " + cameras.size() + " cameras connected, " + measurements;
     if (outOfStep > 0) {
       line += ", " + outOfStep + " images left out of step";
     }

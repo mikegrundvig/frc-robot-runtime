@@ -74,7 +74,7 @@ class LocalizationTest {
       localization.update();
 
       assertThat(localization.isGyroDisconnectedAlertActive()).isTrue();
-      assertThat(localization.yawSource()).isEqualTo(YawSource.WHEELS);
+      assertThat(localization.yawSource()).contains(YawSource.WHEELS);
       assertThat(localization.pitchRadians()).as("no IMU, no tilt").isZero();
       assertThat(localization.pose().getX()).isFinite();
 

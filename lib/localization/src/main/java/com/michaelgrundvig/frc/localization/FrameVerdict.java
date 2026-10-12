@@ -121,6 +121,26 @@ public record FrameVerdict(
         .build();
   }
 
+  /**
+   * A measurement given to a localizer that does not report what became of it: every tag it rested
+   * on, given, and nothing compared.
+   */
+  static FrameVerdict given(VisionMeasurement measurement) {
+    List<TagVerdict> tags = new ArrayList<>(measurement.tagIds().size());
+    for (int id : measurement.tagIds()) {
+      tags.add(TagVerdict.builder().tag(id).verdict(Verdict.GIVEN).build());
+    }
+    return builder()
+        .camera(measurement.camera())
+        .captureNanos(measurement.timestampNanos())
+        .verdict(Verdict.GIVEN)
+        .tags(tags)
+        .measured(
+            Optional.of(
+                Measured.builder().pose(measurement.pose()).solver(measurement.solver()).build()))
+        .build();
+  }
+
   /** An image the robot held back, solved: every tag it saw, held. */
   static FrameVerdict held(TagDetections image, Verdict why) {
     List<TagVerdict> tags = new ArrayList<>(image.tags().size());

@@ -389,6 +389,11 @@ public final class Calibration {
   }
 
   private void measureCameraMount(Coroutine coroutine, CameraConfig camera) {
+    Optional<String> cannot = vision.whyNoMountIsCalibrated();
+    if (cannot.isPresent()) {
+      report(camera.name() + ": not calibrated: " + cannot.get());
+      return;
+    }
     CameraMountCalibration mount = new CameraMountCalibration(camera.robotToCamera());
     vision.calibrateMount(camera.name(), mount);
     // Watches until the time is up, or until there are sightings enough, whichever comes first.

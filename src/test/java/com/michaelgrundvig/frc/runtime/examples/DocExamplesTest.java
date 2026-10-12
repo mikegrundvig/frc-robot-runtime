@@ -58,6 +58,7 @@ class DocExamplesTest {
           "model/src/test/java",
           "lib/localization/src/main/java",
           "lib/localization/src/test/java",
+          "lib/localization/src/testFixtures/java",
           "lib/simulation/src/main/java",
           "lib/simulation/src/test/java",
           "pitwall/src/main/java",

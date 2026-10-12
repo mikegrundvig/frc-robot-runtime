@@ -1,15 +1,19 @@
 package com.michaelgrundvig.frc.runtime.subsystems.localization;
 
 import com.michaelgrundvig.frc.localization.CameraTrust;
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.DriveConditions;
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationGate;
 import com.michaelgrundvig.frc.localization.LocalizationOutput;
 import com.michaelgrundvig.frc.localization.LocalizationService;
+import com.michaelgrundvig.frc.localization.Localizer;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.LoopContext;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.PoseReset;
+import com.michaelgrundvig.frc.localization.Trust;
 import com.michaelgrundvig.frc.localization.WheelTrust;
 import com.michaelgrundvig.frc.localization.YawSource;
 import java.util.ArrayList;
@@ -28,10 +32,16 @@ import org.wpilib.util.Alert;
 
 /**
  * Where the robot is, for the robot program. The {@link LocalizationService} in {@code
- * lib/localization} is the one owner of the estimate. This feeds it on the robot loop, and does
- * what the robot does with what it says: the log, the alerts, and the lines for the pit and the
- * drive team. Everything that asks where the robot is asks here, and nothing else changes the
- * estimate.
+ * lib/localization} is the one owner of the estimate: the robot's localizer, with the solving of
+ * camera images in front of it. This feeds it on the robot loop, and does what the robot does with
+ * what it says: the log, the alerts, and the lines for the pit and the drive team. Everything that
+ * asks where the robot is asks here, and nothing else changes the estimate.
+ *
+ * <p>A robot chooses its localizer ({@code RobotConfig}'s {@code localizer}), and a localizer
+ * reports only the options it has ({@link Localizer}). Where one is not reported, nothing here
+ * shows a number in its place: a line for the pit says "not reported by this localizer", an alert
+ * that needs it stays off, and its keys are left out of the log, which instead names what is
+ * missing ({@code Localization/NotReported}).
  *
  * <p>Each loop goes in this order:
  *
@@ -100,8 +110,24 @@ public final class Localization implements AutoCloseable {
 
   private final LocalizationService service;
 
-  /** Why the estimate isn't good enough to score from, or empty when it is. */
-  private Optional<String> notReadyToScore = Optional.of("not started");
+  /** What the pit reads in place of something the localizer does not report. */
+  static final String NOT_REPORTED = "not reported by this localizer";
+
+  /** What the scoring gate made of the estimate. */
+  private enum Scoring {
+    READY,
+    NOT_READY,
+    /** The localizer does not report what the gate judges by, so the gate holds nothing back. */
+    NOT_JUDGED
+  }
+
+  private Scoring scoring = Scoring.NOT_READY;
+
+  /** Why the estimate isn't good enough to score from, while it isn't. */
+  private String notReadyBecause = "not started";
+
+  /** The options the localizer did not report in the last update, by name, for the log. */
+  private final List<String> notReported = new ArrayList<>();
 
   /** The uncertainty as {@link #describe()} last showed it. Each is empty before it has. */
   private OptionalDouble shownCentimeters = OptionalDouble.empty();
@@ -170,11 +196,16 @@ public final class Localization implements AutoCloseable {
    */
   public void periodic(DrivetrainReadings readings, boolean enabled) {
     service.drivetrain(readings, new LoopContext(RobotController.getTime(), enabled));
-    WheelTrust wheels = service.wheels();
-    checkOrientation(wheels);
+    Optional<WheelTrust> wheels = service.localizer().wheels();
+    if (wheels.isPresent()) {
+      checkOrientation(wheels.get());
+    } else {
+      // Nothing compared the accelerometer with the wheels, so nothing can say it is mounted wrong.
+      imuOrientation.set(false);
+    }
     checkImus();
     showWhatTurnsOdometry(readings);
-    logWheelTrust(wheels);
+    wheels.ifPresent(Localization::logWheelTrust);
   }
 
   /**
@@ -189,7 +220,7 @@ public final class Localization implements AutoCloseable {
   }
 
   /** Logs how far the wheels are trusted this loop, and what the IMU said that decided it. */
-  private void logWheelTrust(WheelTrust wheels) {
+  private static void logWheelTrust(WheelTrust wheels) {
     DriveConditions conditions = wheels.conditions();
     Logger.recordOutput("Localization/TiltDegrees", Math.toDegrees(conditions.tiltRadians()));
     Logger.recordOutput(
@@ -210,16 +241,48 @@ public final class Localization implements AutoCloseable {
    * Applies the loop's measurements, logs what became of them, and says whether the estimate is
    * good enough to score from. Call it after the cameras.
    *
-   * @return what the service made of the loop: the estimate, how far each source is trusted, and
-   *     what became of each camera measurement, for the cameras' records and the World view
+   * @return what the service made of the loop: the pose with what the localizer reports of it, how
+   *     far each source is trusted, and what became of each camera measurement, for the cameras'
+   *     records and the World view
    */
   public LocalizationOutput update() {
     LocalizationOutput output = service.update();
-    notReadyToScore = LocalizationGate.SCORING.whyNot(output.estimate());
-    warnOfCamerasNotKeptApart(output.trust().cameras());
-    warnOfTagsOffTheLayout(output.trust().tagsWithoutPlaces());
-    log(output.estimate());
+    judgeScoring(output.report());
+    Optional<Trust> trust = output.trust();
+    if (trust.isPresent()) {
+      warnOfCamerasNotKeptApart(trust.get().cameras());
+      warnOfTagsOffTheLayout(trust.get().tagsWithoutPlaces());
+    } else {
+      // These two warn of the default localizer's own limits. Another localizer has none to say.
+      camerasWithoutPlaces.set(false);
+      tagsWithoutPlaces.set(false);
+    }
+    log(output.report());
     return output;
+  }
+
+  /**
+   * Holds the estimate to the scoring gate. The gate judges by what the pose rests on, the numbers
+   * behind that, and how sure the pose is. A localizer that does not report all three cannot be
+   * judged, and the gate then holds nothing back: a team that chose such a localizer scores as
+   * teams without a gate do, and the pit's line says the pose was not judged.
+   */
+  private void judgeScoring(LocalizerReport report) {
+    boolean canJudge =
+        report.mode().isPresent() && report.health().isPresent() && report.covariance().isPresent();
+    if (!canJudge) {
+      scoring = Scoring.NOT_JUDGED;
+      return;
+    }
+    Optional<String> whyNot =
+        LocalizationGate.SCORING.whyNot(
+            report.mode().get(), report.health().get(), report.covariance().get());
+    if (whyNot.isEmpty()) {
+      scoring = Scoring.READY;
+      return;
+    }
+    scoring = Scoring.NOT_READY;
+    notReadyBecause = whyNot.get();
   }
 
   /**
@@ -267,9 +330,27 @@ public final class Localization implements AutoCloseable {
     return service.pose();
   }
 
-  /** The estimate, with its uncertainty, mode, and health, as of the last step. */
+  /** The pose, with what the localizer reports about it, as of the last step. */
+  public LocalizerReport report() {
+    return service.report();
+  }
+
+  /** Whether the robot runs the default localizer, and not one it chose in its configuration. */
+  public boolean runsTheDefaultLocalizer() {
+    return service.localizer() instanceof DefaultLocalizer;
+  }
+
+  /**
+   * The default localizer's estimate, whole: for a test or a study of that localizer.
+   *
+   * @throws IllegalStateException if the robot chose another localizer
+   */
   public LocalizationEstimate estimate() {
-    return service.estimate();
+    if (service.localizer() instanceof DefaultLocalizer ours) {
+      return ours.estimate();
+    }
+    throw new IllegalStateException(
+        "only the default localizer has a whole estimate; ask report() of any localizer");
   }
 
   /**
@@ -298,18 +379,20 @@ public final class Localization implements AutoCloseable {
 
   /**
    * Whether the estimate is good enough to score from, by {@link LocalizationGate#SCORING}. Bind
-   * scoring and aiming commands to it.
+   * scoring and aiming commands to it. With a localizer that reports too little to judge by, the
+   * gate holds nothing back, and this is true ({@link #scoring} says it was not judged).
    */
   public boolean readyToScore() {
-    return notReadyToScore.isEmpty();
+    return scoring != Scoring.NOT_READY;
   }
 
   /** One line for the pit and the drive team: ready to score, or why not. */
   public String scoring() {
-    if (notReadyToScore.isEmpty()) {
-      return "Ready to score";
-    }
-    return "Not ready: " + notReadyToScore.get();
+    return switch (scoring) {
+      case READY -> "Ready to score";
+      case NOT_READY -> "Not ready: " + notReadyBecause;
+      case NOT_JUDGED -> "Not judged: what the pose rests on is " + NOT_REPORTED;
+    };
   }
 
   /**
@@ -318,17 +401,27 @@ public final class Localization implements AutoCloseable {
    * the line doesn't flicker as the uncertainty wanders within a step.
    */
   public String describe() {
-    LocalizationEstimate estimate = service.estimate();
-    PoseCovariance uncertainty = estimate.covariance();
-    double centimeters = 100 * uncertainty.largestPositionStdDev();
-    double degrees = Math.toDegrees(uncertainty.headingStdDev());
+    Optional<LocalizationEstimate.Mode> mode = service.localizer().mode();
+    Optional<PoseCovariance> uncertainty = service.localizer().covariance();
+    if (mode.isEmpty() && uncertainty.isEmpty()) {
+      return "What the pose rests on and how sure it is: " + NOT_REPORTED;
+    }
+    if (uncertainty.isEmpty()) {
+      return restsOn(mode.get()) + ": how sure is " + NOT_REPORTED;
+    }
+    double centimeters = 100 * uncertainty.get().largestPositionStdDev();
+    double degrees = Math.toDegrees(uncertainty.get().headingStdDev());
     shownCentimeters =
         OptionalDouble.of(shown(shownCentimeters, centimeters, SHOWN_STEP_CENTIMETERS));
     shownDegrees = OptionalDouble.of(shown(shownDegrees, degrees, SHOWN_STEP_DEGREES));
+    String restsOn = "What the pose rests on is " + NOT_REPORTED;
+    if (mode.isPresent()) {
+      restsOn = restsOn(mode.get());
+    }
     return String.format(
         Locale.ROOT,
         "%s: within %.0f cm, %.1f°",
-        restsOn(estimate.mode()),
+        restsOn,
         shownCentimeters.getAsDouble(),
         shownDegrees.getAsDouble());
   }
@@ -368,14 +461,26 @@ public final class Localization implements AutoCloseable {
     return service.rollRadians();
   }
 
-  /** What turns odometry now: the gyro, the backup IMU, or the wheels. */
-  public YawSource yawSource() {
-    return service.yawSource();
+  /**
+   * What the default localizer's IMU said about trusting the wheels this loop: for a test of that
+   * localizer.
+   *
+   * @throws IllegalStateException if the robot chose another localizer
+   */
+  public DriveConditions conditions() {
+    if (service.localizer() instanceof DefaultLocalizer ours) {
+      return ours.conditions();
+    }
+    throw new IllegalStateException(
+        "only the default localizer has drive conditions; ask the localizer's wheels() of any");
   }
 
-  /** What the IMU said about trusting the wheels this loop. */
-  public DriveConditions conditions() {
-    return service.conditions();
+  /**
+   * What turns odometry now: the gyro, the backup IMU, or the wheels. Empty when the localizer does
+   * not report it.
+   */
+  public Optional<YawSource> yawSource() {
+    return service.localizer().yawSource();
   }
 
   /**
@@ -421,31 +526,77 @@ public final class Localization implements AutoCloseable {
     }
     imusDisagree.set(disagree);
     Logger.recordOutput("Localization/ImuDisagreementDegrees", disagreementDegrees);
-    Logger.recordOutput("Localization/YawSource", service.yawSource().name());
+    Optional<YawSource> turnsOdometry = service.localizer().yawSource();
+    if (turnsOdometry.isPresent()) {
+      Logger.recordOutput("Localization/YawSource", turnsOdometry.get().name());
+    }
   }
 
   /**
    * Logs the estimate and what it rests on. Two of the values are for AdvantageScope
    * (layouts/advantagescope.json): the estimate in 3D, raised to the ground under it and tilted as
    * the IMU says, and its 99.9% ellipse as a closed outline on the field.
+   *
+   * <p>What the localizer does not report is left out of the log, never logged as a number that
+   * nothing measured. {@code Localization/NotReported} names what was left out.
    */
-  private void log(LocalizationEstimate estimate) {
-    PoseCovariance uncertainty = estimate.covariance();
-    LocalizationEstimate.Health health = estimate.health();
-    Pose2d pose = estimate.pose();
+  private void log(LocalizerReport report) {
+    Pose2d pose = report.pose();
     Logger.recordOutput("Localization/Pose", pose);
     Logger.recordOutput("Localization/Pose3d", service.pose3d(pose));
-    Logger.recordOutput("Localization/Ellipse", ellipse(pose, uncertainty));
-    Logger.recordOutput("Localization/Mode", estimate.mode().name());
-    Logger.recordOutput("Localization/PositionStdDevMeters", uncertainty.largestPositionStdDev());
-    Logger.recordOutput(
-        "Localization/HeadingStdDevDegrees", Math.toDegrees(uncertainty.headingStdDev()));
-    Logger.recordOutput("Localization/ResidualMeters", health.residualMeters());
-    Logger.recordOutput("Localization/SuspectTravelMeters", health.suspectTravelMeters());
-    Logger.recordOutput("Localization/RecentDisagreementMeters", health.recentDisagreementMeters());
-    Logger.recordOutput("Localization/Recoveries", health.recoveries());
-    Logger.recordOutput("Localization/ReadyToScore", notReadyToScore.isEmpty());
-    Logger.recordOutput("Localization/NotReadyBecause", notReadyToScore.orElse(""));
+    Optional<PoseCovariance> uncertainty = report.covariance();
+    if (uncertainty.isPresent()) {
+      Logger.recordOutput("Localization/Ellipse", ellipse(pose, uncertainty.get()));
+    }
+    if (report.mode().isPresent()) {
+      Logger.recordOutput("Localization/Mode", report.mode().get().name());
+    }
+    if (uncertainty.isPresent()) {
+      Logger.recordOutput(
+          "Localization/PositionStdDevMeters", uncertainty.get().largestPositionStdDev());
+      Logger.recordOutput(
+          "Localization/HeadingStdDevDegrees", Math.toDegrees(uncertainty.get().headingStdDev()));
+    }
+    if (report.health().isPresent()) {
+      LocalizationEstimate.Health health = report.health().get();
+      Logger.recordOutput("Localization/ResidualMeters", health.residualMeters());
+      Logger.recordOutput("Localization/SuspectTravelMeters", health.suspectTravelMeters());
+      Logger.recordOutput(
+          "Localization/RecentDisagreementMeters", health.recentDisagreementMeters());
+      Logger.recordOutput("Localization/Recoveries", health.recoveries());
+    }
+    if (scoring != Scoring.NOT_JUDGED) {
+      boolean ready = scoring == Scoring.READY;
+      Logger.recordOutput("Localization/ReadyToScore", ready);
+      Logger.recordOutput("Localization/NotReadyBecause", ready ? "" : notReadyBecause);
+    }
+    logWhatIsNotReported(report);
+  }
+
+  /**
+   * Names the options the localizer does not report, so a log that lacks their keys says why. The
+   * default localizer reports them all, and then nothing is logged here.
+   */
+  private void logWhatIsNotReported(LocalizerReport report) {
+    Localizer localizer = service.localizer();
+    notReported.clear();
+    noteIfMissing("covariance", report.covariance());
+    noteIfMissing("mode", report.mode());
+    noteIfMissing("health", report.health());
+    noteIfMissing("decisions", localizer.decisions());
+    noteIfMissing("wheels", localizer.wheels());
+    noteIfMissing("trust", localizer.trust());
+    noteIfMissing("yawSource", localizer.yawSource());
+    if (notReported.isEmpty()) {
+      return;
+    }
+    Logger.recordOutput("Localization/NotReported", String.join(", ", notReported));
+  }
+
+  private void noteIfMissing(String option, Optional<?> reported) {
+    if (reported.isEmpty()) {
+      notReported.add(option);
+    }
   }
 
   /**

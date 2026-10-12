@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.views.world;
 
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.TagVerdict;
+import com.michaelgrundvig.frc.localization.Verdict;
 import com.michaelgrundvig.frc.pitwall.scene.Inspection;
 import com.michaelgrundvig.frc.pitwall.scene.Layer;
 import com.michaelgrundvig.frc.pitwall.scene.SceneBuilder;
@@ -40,11 +41,16 @@ final class SightLines implements Layer {
   /** How long a line stays after its camera's last measurement of its tag. */
   private static final long HOLD_NANOS = 300_000_000L;
 
-  /** Which of a sight's two lines is drawn. */
+  /** Which of a sight's lines is drawn. */
   private enum Drawn {
-    NEITHER,
+    NONE,
     ACCEPTED,
-    REJECTED
+    REJECTED,
+    /**
+     * The measurement was given to a localizer that does not report what became of it: drawn muted,
+     * as neither accepted nor rejected.
+     */
+    GIVEN
   }
 
   /**
@@ -76,44 +82,51 @@ final class SightLines implements Layer {
     volatile @Nullable FrameVerdict frame;
 
     Line(CameraConfig camera, int tag, Drawn verdict) {
-      boolean accepted = verdict == Drawn.ACCEPTED;
-      String ending = ".bad";
-      if (accepted) {
-        ending = ".ok";
-      }
-      id = "ray." + camera.id() + "." + tag + ending;
+      id = "ray." + camera.id() + "." + tag + ending(verdict);
       this.camera = camera.name();
       cameraFrame = WorldView.cameraFrame(camera.id());
       this.tag = tag;
       tagFrame = WorldView.tagFrame(tag);
-      if (accepted) {
-        style = Style.OK;
-      } else {
-        style = Style.BAD.dashed();
-      }
+      style =
+          switch (verdict) {
+            case ACCEPTED -> Style.OK;
+            case GIVEN -> Style.MUTED;
+            case REJECTED, NONE -> Style.BAD.dashed();
+          };
+    }
+
+    private static String ending(Drawn verdict) {
+      return switch (verdict) {
+        case ACCEPTED -> ".ok";
+        case GIVEN -> ".given";
+        case REJECTED, NONE -> ".bad";
+      };
     }
   }
 
-  /** One camera's sight to one tag: its two lines, which of them is drawn, and since when. */
+  /** One camera's sight to one tag: its lines, which of them is drawn, and since when. */
   private static final class Sight {
     final Line accepted;
     final Line rejected;
-    Drawn drawn = Drawn.NEITHER;
+    final Line given;
+    Drawn drawn = Drawn.NONE;
 
     /** When the camera's latest measurement of the tag was decided. */
     long decidedNanos;
 
-    Sight(Line accepted, Line rejected) {
+    Sight(Line accepted, Line rejected, Line given) {
       this.accepted = accepted;
       this.rejected = rejected;
+      this.given = given;
     }
 
-    /** The line for a verdict. Ask only for one of the two that are drawn. */
+    /** The line for a verdict. Ask only for one that is drawn. */
     Line line(Drawn verdict) {
-      if (verdict == Drawn.ACCEPTED) {
-        return accepted;
-      }
-      return rejected;
+      return switch (verdict) {
+        case ACCEPTED -> accepted;
+        case GIVEN -> given;
+        case REJECTED, NONE -> rejected;
+      };
     }
   }
 
@@ -222,6 +235,8 @@ final class SightLines implements Layer {
     Drawn as = Drawn.REJECTED;
     if (verdict.accepted()) {
       as = Drawn.ACCEPTED;
+    } else if (verdict.verdict() == Verdict.GIVEN) {
+      as = Drawn.GIVEN;
     }
     sight.line(as).frame = frame;
     boolean changed = sight.drawn != as;
@@ -239,8 +254,8 @@ final class SightLines implements Layer {
     boolean dropped = false;
     for (int i = 0; i < seen.size(); i++) {
       Sight sight = seen.get(i);
-      if (sight.drawn != Drawn.NEITHER && now - sight.decidedNanos > HOLD_NANOS) {
-        sight.drawn = Drawn.NEITHER;
+      if (sight.drawn != Drawn.NONE && now - sight.decidedNanos > HOLD_NANOS) {
+        sight.drawn = Drawn.NONE;
         dropped = true;
       }
     }
@@ -249,7 +264,7 @@ final class SightLines implements Layer {
 
   private void draw(Shapes shapes) {
     for (Sight sight : seen) {
-      if (sight.drawn == Drawn.NEITHER) {
+      if (sight.drawn == Drawn.NONE) {
         continue;
       }
       Line line = sight.line(sight.drawn);
@@ -275,7 +290,10 @@ final class SightLines implements Layer {
     Optional<Sight> made = Optional.empty();
     if (field.get().tag(tag).isPresent()) {
       Sight sight =
-          new Sight(new Line(camera, tag, Drawn.ACCEPTED), new Line(camera, tag, Drawn.REJECTED));
+          new Sight(
+              new Line(camera, tag, Drawn.ACCEPTED),
+              new Line(camera, tag, Drawn.REJECTED),
+              new Line(camera, tag, Drawn.GIVEN));
       seen.add(sight);
       made = Optional.of(sight);
     }
@@ -300,6 +318,9 @@ final class SightLines implements Layer {
       return notMeasured(line);
     }
     TagVerdict verdict = found.get();
+    if (verdict.verdict() == Verdict.GIVEN) {
+      return given(line, frame, measurement.get());
+    }
     Pose2d measured = measurement.get().pose();
     // Pitwall's own Javadoc shows the first lines and the last line of this as its example of an
     // inspection (Inspection), and the build checks that they are here as it shows them.
@@ -320,6 +341,26 @@ final class SightLines implements Layer {
             .detail("Solved", howItWasSolved(frame, measurement.get()));
     Optional<String> calibrate = cameraAction.apply(line.camera);
     return calibrate.isPresent() ? said.action(calibrate.get()) : said;
+  }
+
+  /**
+   * What a click says on a line whose measurement went to a localizer that does not report what
+   * became of it: nothing was compared, so no innovation and no χ² are shown.
+   */
+  private Inspection given(Line line, FrameVerdict frame, FrameVerdict.Measured measurement) {
+    Pose2d measured = measurement.pose();
+    return Inspection.of(line.camera + " → tag " + line.tag)
+        .detail("Verdict", "not reported by this localizer: the measurement was given to it")
+        .detail("Distance", distanceToTheTag(measured, line.tag))
+        .detail(
+            "Measured pose",
+            String.format(
+                Locale.ROOT,
+                "x %.2f m, y %.2f m, heading %.1f°",
+                measured.getX(),
+                measured.getY(),
+                measured.getRotation().getDegrees()))
+        .detail("Solved", howItWasSolved(frame, measurement));
   }
 
   private static Inspection notMeasured(Line line) {

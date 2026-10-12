@@ -1,11 +1,13 @@
 package com.michaelgrundvig.frc.runtime.views.world;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.localization.Verdict;
@@ -51,14 +53,35 @@ class WorldViewTest {
 
   private LocalizationEstimate estimate =
       estimate(new Pose2d(3, 4, Rotation2d.fromDegrees(30)), LocalizationEstimate.Mode.TRACKING);
+
+  /** Whether the robot's localizer reports its options, as the default one does, or none. */
+  private enum Options {
+    ALL_REPORTED,
+    NONE_REPORTED
+  }
+
+  private Options options = Options.ALL_REPORTED;
   private SwerveModuleVelocity[] modules = still();
   private List<FrameVerdict> frames = List.of();
 
   private final WorldView.Readings readings =
       new WorldView.Readings() {
         @Override
-        public LocalizationEstimate estimate() {
-          return estimate;
+        public LocalizerReport report() {
+          if (options == Options.NONE_REPORTED) {
+            return new LocalizerReport(
+                estimate.timestampNanos(),
+                estimate.pose(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
+          }
+          return new LocalizerReport(
+              estimate.timestampNanos(),
+              estimate.pose(),
+              Optional.of(estimate.covariance()),
+              Optional.of(estimate.mode()),
+              Optional.of(estimate.health()));
         }
 
         @Override
@@ -250,6 +273,36 @@ class WorldViewTest {
 
     estimate = estimate(estimate.pose(), LocalizationEstimate.Mode.LOST);
     assertThat(loop(feed)).contains("\"styles\":{\"uncertainty.ellipse\":\"bad dashed\"}");
+  }
+
+  @Test
+  void whatALocalizerDoesNotReportIsSaidSoAndNeverDrawn() {
+    options = Options.NONE_REPORTED;
+    Feed feed = world(false);
+    String first = loop(feed);
+
+    assertThat(first)
+        .as("no ellipse of any size")
+        .contains("\"uncertainty.major\":0")
+        .contains("\"uncertainty.minor\":0");
+    assertThat(scenes.inspect(WorldView.ID, "uncertainty.ellipse").orElseThrow().details())
+        .extracting(Inspection.Detail::label, Inspection.Detail::value)
+        .contains(
+            tuple("Based on", "not reported by this localizer"),
+            tuple("Position, 1σ", "not reported by this localizer"),
+            tuple("Heading, 1σ", "not reported by this localizer"),
+            tuple("Cameras", "not reported by this localizer"),
+            tuple("Drawn", "nothing: the localizer reports no uncertainty"));
+
+    // A measurement given to it is drawn as neither accepted nor rejected, and says why.
+    frames = List.of(frontLeftSawTag7(Verdict.GIVEN, Double.NaN, Double.NaN));
+    assertThat(loop(feed))
+        .contains("\"id\":\"ray.front-left.7.given\"")
+        .contains("\"style\":\"muted\"");
+    assertThat(scenes.inspect(WorldView.ID, "ray.front-left.7.given").orElseThrow().details())
+        .extracting(Inspection.Detail::value)
+        .contains("not reported by this localizer: the measurement was given to it");
+    assertThat(said).isEmpty();
   }
 
   /**

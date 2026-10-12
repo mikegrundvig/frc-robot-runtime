@@ -321,7 +321,7 @@ class LocalizationSimTest {
 
     assertThat(backup).as("heading error on the backup IMU, degrees").isLessThan(1.5);
     assertThat(wheels).as("on the wheels alone").isGreaterThan(3 * backup);
-    assertThat(robot.localization.yawSource()).isEqualTo(YawSource.BACKUP);
+    assertThat(robot.localization.yawSource()).contains(YawSource.BACKUP);
     assertThat(robot.localization.isUsingBackupAlertActive()).isTrue();
     assertThat(robot.localization.isGyroDisconnectedAlertActive()).isFalse();
     assertThat(robot.estimator.estimate().mode())
@@ -344,7 +344,7 @@ class LocalizationSimTest {
 
     assertThat(onBackup).isCloseTo(before, within(0.2));
     assertThat(robot.headingErrorDegrees()).isCloseTo(before, within(0.2));
-    assertThat(robot.localization.yawSource()).isEqualTo(YawSource.GYRO);
+    assertThat(robot.localization.yawSource()).contains(YawSource.GYRO);
     assertThat(robot.localization.isUsingBackupAlertActive()).isFalse();
   }
 

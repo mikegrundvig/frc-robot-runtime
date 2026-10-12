@@ -50,6 +50,10 @@ import org.wpilib.math.util.MathUtil;
  * <p>Each judges what the robot reports, not where the simulator really has it: off the field, or
  * fooled by a fault, the estimate may be wrong, and what's checked is that it moves and says as
  * promised.
+ *
+ * <p>They are the default localizer's promises: its recoveries, its gate, its failover. A robot
+ * that chose another localizer is not held to them here. That localizer's own contract is checked
+ * by its conformance suite ({@code LocalizerConformance}).
  */
 public final class LocalizationInvariants {
   /** Room for the arithmetic: a centimeter. */
@@ -117,6 +121,9 @@ public final class LocalizationInvariants {
    * @param enabled whether the robot was enabled this loop
    */
   public @Nullable String broken(boolean enabled) {
+    if (!localization.runsTheDefaultLocalizer()) {
+      return null;
+    }
     LocalizationEstimate estimate = localization.estimate();
     DrivetrainReadings readings = drive.readings();
     String found = failover(readings, estimate);
@@ -143,7 +150,7 @@ public final class LocalizationInvariants {
     boolean gyro = turns(readings.gyro());
     boolean backup = turns(readings.backupImu());
     YawSource expected = gyro ? YawSource.GYRO : backup ? YawSource.BACKUP : YawSource.WHEELS;
-    YawSource source = localization.yawSource();
+    YawSource source = localization.yawSource().orElseThrow();
     String state =
         String.format(
             Locale.ROOT,
@@ -253,7 +260,7 @@ public final class LocalizationInvariants {
    * loops.
    */
   private double turnedBeyondImu(DrivetrainReadings readings, Pose2d pose, @Nullable Pose2d last) {
-    YawSource source = localization.yawSource();
+    YawSource source = localization.yawSource().orElseThrow();
     ImuReadings imu =
         switch (source) {
           case GYRO -> readings.gyro();

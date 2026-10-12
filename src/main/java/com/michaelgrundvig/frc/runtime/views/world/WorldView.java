@@ -4,7 +4,7 @@ import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.localization.FrameVerdict;
-import com.michaelgrundvig.frc.localization.LocalizationEstimate;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.pitwall.scene.Inspection;
 import com.michaelgrundvig.frc.pitwall.scene.Scene;
 import com.michaelgrundvig.frc.world.field.FieldModel;
@@ -63,8 +63,8 @@ public final class WorldView {
 
   /** What the view reads in the robot loop, while a page shows it. */
   public interface Readings {
-    /** The localization estimate, as of the last loop. */
-    LocalizationEstimate estimate();
+    /** The pose, with what the localizer reports about it, as of the last loop. */
+    LocalizerReport report();
 
     /** The robot's pitch from the IMU. Positive is nose down. */
     double pitchRadians();

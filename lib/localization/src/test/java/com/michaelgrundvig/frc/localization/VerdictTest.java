@@ -83,6 +83,13 @@ class VerdictTest {
         Verdict.CALIBRATING,
         new Before(Double.NaN, Double.NaN, "withheld while calibrating this camera"));
     BEFORE.put(Verdict.HELD, new Before(Double.NaN, Double.NaN, "held, autonomous just started"));
+    // Added with the localizer seam, on purpose: a localizer that doesn't report its decisions.
+    BEFORE.put(
+        Verdict.GIVEN,
+        new Before(
+            Double.NaN,
+            Double.NaN,
+            "given to the localizer, which doesn't report what became of it"));
     BEFORE.put(
         Verdict.OFF_THE_FLOOR,
         new Before(

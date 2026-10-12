@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime;
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.VisionDecision;
+import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
@@ -232,11 +233,24 @@ public final class SimulatedRobot implements AutoCloseable {
   }
 
   /**
-   * Every camera measurement localization was given in the last loop, with what its estimator
-   * decided about each.
+   * What the robot's localizer decided about each camera measurement it was given in the last loop.
+   * Empty for a localizer that does not report its decisions.
    */
   public List<VisionDecision> visionDecisions() {
-    return container.localization().service().decisions();
+    return container.localization().service().localizer().decisions().orElse(List.of());
+  }
+
+  /**
+   * Every camera measurement the robot's localizer was given in the last loop, in the order it was
+   * given them: for a study that gives another localizer the same.
+   */
+  public List<VisionMeasurement> visionMeasurements() {
+    return container.localization().service().given();
+  }
+
+  /** Where the robot's localizer has the robot, as of the last loop. */
+  public Pose2d pose() {
+    return container.localization().pose();
   }
 
   private SimulatedWorld world() {
@@ -284,7 +298,11 @@ public final class SimulatedRobot implements AutoCloseable {
     return container.vision().mountOffsetMeters(camera);
   }
 
-  /** What localization believes, as of the last loop. */
+  /**
+   * What the default localizer believes, as of the last loop.
+   *
+   * @throws IllegalStateException if the robot chose another localizer
+   */
   public LocalizationEstimate estimate() {
     return container.estimate();
   }

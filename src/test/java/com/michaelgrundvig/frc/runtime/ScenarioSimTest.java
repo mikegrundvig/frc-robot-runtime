@@ -68,7 +68,7 @@ class ScenarioSimTest {
     sim.start(enabledIn("gyro-unplugged"));
     sim.run(0.5);
 
-    assertThat(sim.robot().localization().yawSource()).isEqualTo(YawSource.BACKUP);
+    assertThat(sim.robot().localization().yawSource()).contains(YawSource.BACKUP);
   }
 
   /** Both IMUs unplugged: the heading rests on the wheels. */
@@ -77,7 +77,7 @@ class ScenarioSimTest {
     sim.start(enabledIn("imus-unplugged"));
     sim.run(0.5);
 
-    assertThat(sim.robot().localization().yawSource()).isEqualTo(YawSource.WHEELS);
+    assertThat(sim.robot().localization().yawSource()).contains(YawSource.WHEELS);
   }
 
   /** Carried to a bump: the cameras find it there, and forward drives it over. */

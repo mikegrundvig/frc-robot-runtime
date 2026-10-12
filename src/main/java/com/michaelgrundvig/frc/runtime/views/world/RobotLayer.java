@@ -394,7 +394,7 @@ final class RobotLayer implements Layer {
 
   @Override
   public void update(SceneState state) {
-    Pose2d pose = readings.estimate().pose();
+    Pose2d pose = readings.report().pose();
     // On a bump the robot stands as high as the ground under it, and it is tilted as its IMU says.
     state.pose(
         FRAME,

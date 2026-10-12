@@ -157,7 +157,7 @@ class SimulatorControlsSimTest {
                 + FaultCatalog.UNPLUGGED
                 + "\"}");
     sim.run(0.5);
-    YawSource without = sim.robot().localization().yawSource();
+    YawSource without = sim.robot().localization().yawSource().orElseThrow();
     var pluggedIn =
         send(
             "POST",
@@ -168,7 +168,7 @@ class SimulatorControlsSimTest {
     assertThat(unplugged.statusCode()).isEqualTo(200);
     assertThat(without).isEqualTo(YawSource.BACKUP);
     assertThat(pluggedIn.statusCode()).isEqualTo(200);
-    assertThat(sim.robot().localization().yawSource()).isEqualTo(YawSource.GYRO);
+    assertThat(sim.robot().localization().yawSource()).contains(YawSource.GYRO);
   }
 
   /** A scenario from the page happens now, to the running robot. */

@@ -7,6 +7,7 @@ import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.MountCheck;
 import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.localization.Timestamps;
+import com.michaelgrundvig.frc.localization.Verdict;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -87,6 +88,7 @@ final class Camera implements AutoCloseable {
   private final String decisionsKey;
   private final String acceptedKey;
   private final String rejectedKey;
+  private final String givenKey;
   private final String acceptedTagsKey;
   private final String rejectedTagsKey;
   private final String rejectedReasonsKey;
@@ -140,6 +142,19 @@ final class Camera implements AutoCloseable {
 
   private int accepted;
   private int rejected;
+
+  /** Whether the robot's localizer says what became of each measurement it was given. */
+  enum Fates {
+    REPORTED,
+    NOT_REPORTED
+  }
+
+  /**
+   * How many of this camera's measurements went to a localizer that does not report what it does
+   * with them ({@code Verdict.GIVEN}): neither accepted nor rejected, as far as anything here
+   * knows.
+   */
+  private int given;
 
   /** The distances from each tag seen to where the tag really is, added up, and how many. */
   private double residualSumMeters;
@@ -195,6 +210,7 @@ final class Camera implements AutoCloseable {
     decisionsKey = key + "/Decisions";
     acceptedKey = key + "/Accepted";
     rejectedKey = key + "/Rejected";
+    givenKey = key + "/Given";
     acceptedTagsKey = key + "/AcceptedTags";
     rejectedTagsKey = key + "/RejectedTags";
     rejectedReasonsKey = key + "/RejectedReasons";
@@ -569,8 +585,13 @@ final class Camera implements AutoCloseable {
    *
    * @param agreeMeters an accepted measurement this close to the estimate agrees with it
    * @param field where the field's layout has each tag, by its ID
+   * @param fates whether the localizer says what became of each measurement
    */
-  void record(List<FrameVerdict> frames, double agreeMeters, IntFunction<Optional<Pose3d>> field) {
+  void record(
+      List<FrameVerdict> frames,
+      double agreeMeters,
+      IntFunction<Optional<Pose3d>> field,
+      Fates fates) {
     List<String> decisions = new ArrayList<>();
     for (FrameVerdict frame : frames) {
       boolean mine = frame.camera().equals(name());
@@ -583,8 +604,13 @@ final class Camera implements AutoCloseable {
       tally(frame, measured.get(), agreeMeters);
     }
     Logger.recordOutput(decisionsKey, decisions.toArray(String[]::new));
-    Logger.recordOutput(acceptedKey, accepted);
-    Logger.recordOutput(rejectedKey, rejected);
+    if (fates == Fates.NOT_REPORTED) {
+      // No count of accepted or rejected is known, so neither is logged as if it were.
+      Logger.recordOutput(givenKey, given);
+    } else {
+      Logger.recordOutput(acceptedKey, accepted);
+      Logger.recordOutput(rejectedKey, rejected);
+    }
     acceptedArray = acceptedTags.toArray(sized(acceptedArray, acceptedTags.size()));
     rejectedArray = rejectedTags.toArray(sized(rejectedArray, rejectedTags.size()));
     reasonsArray = rejectedReasons.toArray(sized(reasonsArray, rejectedReasons.size()));
@@ -603,6 +629,10 @@ final class Camera implements AutoCloseable {
       if (onTheField.isEmpty()) {
         continue;
       }
+      if (seen.verdict() == Verdict.GIVEN) {
+        // Nothing says whether it moved the estimate, so it is drawn as neither.
+        continue;
+      }
       if (seen.accepted()) {
         acceptedTags.add(onTheField.get());
       } else {
@@ -617,6 +647,10 @@ final class Camera implements AutoCloseable {
    * also marks this camera as agreeing with it, as of when its image was taken.
    */
   private void tally(FrameVerdict frame, FrameVerdict.Measured measured, double agreeMeters) {
+    if (frame.verdict() == Verdict.GIVEN) {
+      given++;
+      return;
+    }
     if (!frame.accepted()) {
       rejected++;
       return;
@@ -689,6 +723,11 @@ final class Camera implements AutoCloseable {
 
   int rejected() {
     return rejected;
+  }
+
+  /** How many of its measurements went to a localizer that doesn't report what became of them. */
+  int given() {
+    return given;
   }
 
   /** How many of the camera's images were left out for arriving out of step. */

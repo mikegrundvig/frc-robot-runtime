@@ -81,7 +81,13 @@ public enum Verdict {
   CALIBRATING("withheld while calibrating this camera", "withheld while calibrating this camera"),
 
   /** Held back by the robot: autonomous just started, and the placed start is trusted. */
-  HELD("held, autonomous just started", "held, autonomous just started");
+  HELD("held, autonomous just started", "held, autonomous just started"),
+
+  /**
+   * It was given to a localizer that does not report what it does with its measurements ({@link
+   * Localizer#decisions}): whether it moved the estimate is not known here.
+   */
+  GIVEN("given to the localizer", "given to the localizer, which doesn't report what became of it");
 
   /**
    * A number a verdict doesn't have, or a measurement that wasn't compared: what an output record's
