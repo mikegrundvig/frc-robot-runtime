@@ -154,10 +154,6 @@ public final class TalonJointBench implements JointBench {
           Optional.of(
               "Phoenix keeps a TalonFX's last reading and the driver does not say when a frame"
                   + " did not come: it always reads fresh");
-      case J40 ->
-          Optional.of(
-              "a TalonFX on a joint that turns freely is set to wrap continuously, so it goes the"
-                  + " short way round to a position");
       default -> Optional.empty();
     };
   }

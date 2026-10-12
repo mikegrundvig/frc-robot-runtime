@@ -21,7 +21,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,0.00336875624085924
@@ -54,7 +53,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0
@@ -89,7 +87,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kS,0.1
 roller,leader,Slot0,kV,0.18849555921538758
@@ -127,7 +124,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kS,0.3
@@ -166,7 +162,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,0.00336875624085924
@@ -200,7 +195,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0
@@ -302,7 +296,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0
@@ -405,7 +398,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0
@@ -441,7 +433,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,ExternalFeedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Commutation,MotorArrangement,NEO550_JST
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.1963636363636364
@@ -478,7 +469,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,0.00336875624085924
@@ -511,7 +501,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0
@@ -547,7 +536,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,0.00336875624085924
@@ -580,7 +568,6 @@ turret,leader,MotorOutput,NeutralMode,Brake
 turret,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
-turret,leader,ClosedLoopGeneral,ContinuousWrap,true
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kV,6.0

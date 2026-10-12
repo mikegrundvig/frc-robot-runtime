@@ -175,10 +175,10 @@ import org.littletonrobotics.junction.AutoLog;
  *
  * <ul>
  *   <li><b>J39.</b> A joint with no range reads on past a whole turn either way, without wrapping.
- *   <li><b>J40.</b> A position is taken as its number says: the controller drives toward it the way
- *       the number lies from where the joint reads, even when the other way round is shorter. The
- *       joint's profile chooses the turn. Known difference: a TalonFX on such a joint is set to
- *       wrap, and goes the short way round.
+ *   <li><b>J40.</b> A position is taken as its number says, on every driver: the controller drives
+ *       toward it the way the number lies from where the joint reads, even when the other way round
+ *       is shorter, and no controller's loop is set to wrap. The joint's profile chooses the turn
+ *       ({@code Travel#goalNear}), and the driver is told points along the way it chose.
  * </ul>
  *
  * <p>Two inputs are a CANcoder's alone, and are checked with the CTRE driver ({@code

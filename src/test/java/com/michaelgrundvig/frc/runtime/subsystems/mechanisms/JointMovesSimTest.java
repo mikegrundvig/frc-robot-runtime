@@ -497,6 +497,44 @@ class JointMovesSimTest {
   }
 
   /**
+   * At 350°, 10° is 20° on, at 370°. The turret's profile picks that turn before its driver hears
+   * of it: every point the driver is told lies on those 20°, each no further back than the last. So
+   * a motor controller that takes a position as its number says ({@code JointIO}'s J40) turns 20°,
+   * and none needs its loop set to wrap to keep it from turning 340° back.
+   */
+  @Test
+  void aJointThatTurnsFreelyTellsItsDriverPointsTheShortWayRound() {
+    List<WatchedJoint> watched = new ArrayList<>();
+    JointsSimHarness watching =
+        new JointsSimHarness(
+            ROBOT,
+            (joint, io) -> {
+              if (!joint.equals(TURRET)) {
+                return io;
+              }
+              watched.add(new WatchedJoint(io));
+              return watched.getLast();
+            });
+    watching.simulation.place(TURRET, Math.toRadians(350));
+    Move on = watching.joints.of(TURRET).goTo(Degrees.of(10));
+
+    watching.scheduler.schedule(on);
+    double took = watching.runUntil(() -> on.outcome().isPresent(), 4);
+
+    double[] toldDegrees =
+        watched.getFirst().told().stream()
+            .filter(told -> told.kind().equals("position"))
+            .mapToDouble(told -> Math.toDegrees(told.values()[0]))
+            .toArray();
+    assertThat(on.arrived()).isTrue();
+    assertThat(took).as("20° at its 3 rad/s cruise, not 340°").isLessThan(0.6);
+    assertThat(Math.toDegrees(watching.simulation.position(TURRET))).isCloseTo(370, within(2.0));
+    assertThat(toldDegrees).as("the points its driver was told").isNotEmpty().isSorted();
+    assertThat(toldDegrees[0]).isCloseTo(350, within(1.0));
+    assertThat(toldDegrees[toldDegrees.length - 1]).isCloseTo(370, within(1e-9));
+  }
+
+  /**
    * A configuration requires exactly the joints it names, and arrives when every one is there: the
    * pivot out, the elevator clear, the roller within its band of its speed.
    */

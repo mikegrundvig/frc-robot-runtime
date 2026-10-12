@@ -350,9 +350,10 @@ public final class PhoenixMechanism {
     SlotConfigs gains = slot(plan, notes);
     leader.Slot0 = Slot0Configs.from(gains);
     leader.Slot1 = speedSlot(gains);
-    // A joint that turns freely, with no stops, takes the short way round to a position: for it,
-    // one turn on is the same place.
-    leader.ClosedLoopGeneral.ContinuousWrap = plan.turnsFreely();
+    // The loop never wraps, on a joint that turns freely either: a position is taken as its
+    // number says. Which way round such a joint goes is its profile's choice (Travel.goalNear),
+    // made before a position gets here, so that every controller turns the same way.
+    leader.ClosedLoopGeneral.ContinuousWrap = false;
     plan.softLimits().ifPresent(limits -> setSoftLimits(leader.SoftwareLimitSwitch, plan, limits));
 
     return new Settings(plan, leader, followers(plan, leading), cancoder, notes);

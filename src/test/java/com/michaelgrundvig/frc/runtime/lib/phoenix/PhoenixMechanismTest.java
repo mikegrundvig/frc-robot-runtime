@@ -249,12 +249,16 @@ class PhoenixMechanismTest {
     assertThat(leader.SoftwareLimitSwitch.ReverseSoftLimitEnable).isFalse();
   }
 
+  /**
+   * A joint that turns freely is not set to wrap: its profile picks the turn, and the controller
+   * goes where the number says, as a SPARK does ({@code JointIO}'s J40).
+   */
   @Test
-  void aJointThatTurnsFreelyTakesTheShortWayRound() {
+  void aJointThatTurnsFreelyTakesAPositionAsItsNumberSays() {
     TalonFXConfiguration leader =
         configure(math, FLYWHEEL, FLYWHEEL_MOTOR, wiring(20), control()).leader();
 
-    assertThat(leader.ClosedLoopGeneral.ContinuousWrap).isTrue();
+    assertThat(leader.ClosedLoopGeneral.ContinuousWrap).isFalse();
     assertThat(leader.Feedback.SensorToMechanismRatio).isEqualTo(1);
   }
 

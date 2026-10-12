@@ -17,7 +17,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
@@ -85,7 +84,6 @@ feeder,leader,MotorOutput,NeutralMode,Brake
 feeder,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 feeder,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 feeder,leader,Feedback,SensorToMechanismRatio,4.0,scalar
-feeder,leader,ClosedLoopGeneral,ContinuousWrap,true
 feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
@@ -98,7 +96,6 @@ indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 indexer,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-indexer,leader,ClosedLoopGeneral,ContinuousWrap,true
 indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
@@ -109,7 +106,6 @@ indexer,leader,Slot1,kA,4.147434025049431E-4
 indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
-shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
@@ -142,7 +138,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
@@ -210,7 +205,6 @@ feeder,leader,MotorOutput,NeutralMode,Brake
 feeder,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 feeder,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 feeder,leader,Feedback,SensorToMechanismRatio,4.0,scalar
-feeder,leader,ClosedLoopGeneral,ContinuousWrap,true
 feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
@@ -223,7 +217,6 @@ indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 indexer,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-indexer,leader,ClosedLoopGeneral,ContinuousWrap,true
 indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
@@ -234,7 +227,6 @@ indexer,leader,Slot1,kA,4.147434025049431E-4
 indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
-shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
@@ -267,7 +259,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
@@ -340,7 +331,6 @@ feeder,leader,MotorOutput,NeutralMode,Brake
 feeder,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 feeder,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 feeder,leader,Feedback,SensorToMechanismRatio,4.0,scalar
-feeder,leader,ClosedLoopGeneral,ContinuousWrap,true
 feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
@@ -353,7 +343,6 @@ indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 indexer,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-indexer,leader,ClosedLoopGeneral,ContinuousWrap,true
 indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
@@ -364,7 +353,6 @@ indexer,leader,Slot1,kA,4.147434025049431E-4
 indexer,leader,Slot1,GravityType,Arm_Cosine
 shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
-shooter,leader,ClosedLoopGeneral,ContinuousWrap,true
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
 shooter,leader,Slot0,kA,1.3824780083498102E-4
@@ -409,7 +397,6 @@ roller,leader,MotorOutput,NeutralMode,Brake
 roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-roller,leader,ClosedLoopGeneral,ContinuousWrap,true
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kV,0.36
 roller,leader,Slot0,kA,4.147434025049431E-4
@@ -497,7 +484,6 @@ feeder,leader,MotorOutput,NeutralMode,Brake
 feeder,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 feeder,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 feeder,leader,Feedback,SensorToMechanismRatio,4.0,scalar
-feeder,leader,ClosedLoopGeneral,ContinuousWrap,true
 feeder,leader,Slot0,kP,0.12566370614359174
 feeder,leader,Slot0,kV,0.48
 feeder,leader,Slot0,kA,5.529912033399241E-4
@@ -510,7 +496,6 @@ indexer,leader,MotorOutput,NeutralMode,Brake
 indexer,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 indexer,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 indexer,leader,Feedback,SensorToMechanismRatio,3.0,scalar
-indexer,leader,ClosedLoopGeneral,ContinuousWrap,true
 indexer,leader,Slot0,kP,0.12566370614359174
 indexer,leader,Slot0,kV,0.36
 indexer,leader,Slot0,kA,4.147434025049431E-4
