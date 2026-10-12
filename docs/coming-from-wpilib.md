@@ -432,60 +432,89 @@ checks invariants after every loop. [testing.md](testing.md) covers all of it.
 - **Do not bind inside a running command with `whileTrue` on a gate that is already true.** It
   never starts. Loop on `waitUntil`, as the shot above does.
 
-## What you give up
+## Trade-offs, what is not built yet, and adding what it lacks
 
-**You do not write the mechanism.** If the model cannot express yours, the runtime cannot drive
-it. Today it drives a motor, or several motors together, turning one shaft. That covers a pivot
-or arm, an elevator or slide through a drum, a turret, and a roller or flywheel. The loops are
-position with a trapezoid profile, velocity, and open-loop voltage or duty cycle.
-
-It does not drive a servo-moved joint, a differential pair, or an arm moved through a linkage.
-For those you keep the joint in the description, leave out its control, and write a v3
-`Mechanism` of your own. You then lose that joint's moves, gates, interlocks and simulation.
-[mechanisms.md](mechanisms.md#8-when-the-template-cant-drive-it) has a worked hood on linear
-servos.
-
-**It is WPILib 2027 alpha, Commands v3, Systemcore, Java 25.** It cannot run on a roboRIO robot.
-The vendor libraries are alphas tied to one WPILib alpha, and PhotonLib is pinned to a
-development build.
-
-**It has not run on a real robot.** The Phoenix drivetrain and joint code is tested against
-CTRE's simulated devices. Several REV behaviours are marked in [stand-ins.md](stand-ins.md) as
-measured only in REV's simulation and not confirmed on hardware. The Systemcore IMU's axes and
+**Status.** It has not driven a real robot yet. The Phoenix drivetrain and joint code is tested
+against CTRE's simulated devices. Several REV behaviours are marked in [stand-ins.md](stand-ins.md)
+as measured only in REV's simulation and not confirmed on hardware. The Systemcore IMU's axes and
 signs are also unconfirmed.
 
-**Hardware support is a fixed list.**
+This is pre-release. The three parts below are different things. A trade-off is what a finished
+choice costs. "Not built yet" is intended work. The last part is what you add yourself, because the
+code is open.
+
+### Trade-offs
+
+**You work inside the runtime's loop.** The order of a loop, the drive's control law and the log
+keys are the runtime's. You can read all of it, and it is your code to change. A change you keep to
+yourself is a fork to maintain.
+
+**You describe a mechanism, and the runtime drives it.** You do not write its subsystem, its
+controller settings or its simulated plant. The price is that you learn the description's vocabulary
+and debug from the joint's log.
+
+**It is Commands v3 on WPILib 2027 alpha, on Systemcore, in Java 25.** It cannot run on a roboRIO
+robot. The vendor libraries are alphas tied to one WPILib alpha, and PhotonLib is pinned to a
+development build. v2 libraries cannot be added the usual way.
+
+**Values and paths are code.** A number changes with a rebuild and a deploy, unless the pit page
+tunes it live. An auto is a Java method.
+
+**There is no SysId routine.** That is covered above, with what is used and when it would be built.
+
+### Not built yet
+
+- A joint moved by servos, a differential pair, and an arm moved through a linkage.
+- Reading a path tool's files ([stand-ins.md](stand-ins.md#waiting-on)), and steering a path around
+  obstacles.
+- Choosing an auto from the driver station, and keeping the choice across a restart.
+- Moving between configurations by a route.
+- A bench bypass for interlocks.
+- A string potentiometer on an elevator.
+- Live tuning of a joint's feedforward, profile and named places.
+- Failing a joint from the Pitwall page. A test can do it today.
+- A practice robot that differs in motor count or drivetrain gearing.
+- AdvantageKit's swerve templates for 2027. The drivetrain here stands in until they ship
+  ([stand-ins.md](stand-ins.md)).
+
+### Adding what it lacks
+
+**A new kind of joint.** Today the runtime drives a motor, or several together, turning one shaft.
+That covers a pivot or arm, an elevator or slide through a drum, a turret, and a roller or flywheel,
+with position, velocity, voltage and duty-cycle control. A new kind is made the way those are. The
+model's `Joint` and `MechanismControl` say what it is and how it is driven. A `JointIO` driver in
+the runtime turns requests into what the hardware takes, and `RobotHardware` picks the driver from
+the block's wiring. `JointMechanism` then gives it moves, gates and interlocks as it does for any
+joint.
+
+**A new driver.** A driver for another motor controller is a new `JointIO`. `JointIO`'s Javadoc
+numbers what a driver must keep, J1 to J40, and the conformance suite checks each clause. You give
+the suite a bench for your driver (`JointBench`), and it passes or writes down where it differs. A
+swerve module's driver has the same in `ModuleIO`.
+
+**One odd mechanism.** There is a lighter route for a single joint. Keep it in the description,
+leave out its control, and drive it with a v3 `Mechanism` of your own, using WPILib's API or the
+vendor's. [mechanisms.md](mechanisms.md#8-when-the-template-cant-drive-it) has a worked hood on
+linear servos.
+
+**A device not on the list below.** A sensor, an encoder or a gyro comes in the same way: its IO
+interface is in the runtime, beside the drivers that exist.
+
+### Supported today
 
 - Motor controllers for joints: TalonFX, TalonFXS, SPARK MAX, SPARK Flex.
 - Motors with presets: Kraken X60 and X44, Falcon 500, Minion, NEO, NEO Vortex, NEO 550.
 - Absolute encoders: a CANcoder, an encoder on a SPARK's data port, or a duty-cycle or analog
-  encoder on a Systemcore port. A SPARK cannot use a CANcoder.
+  encoder on a Systemcore port. A SPARK does not read a CANcoder.
 - Sensors: a switch on a Systemcore port, a CANdi input or a controller's limit input, and a
   CANrange.
-- Power: REV's Power Distribution Hub. CTRE's PDP is not supported.
+- Power: REV's Power Distribution Hub.
 - Gyro: a Pigeon 2, with Systemcore's own IMU as a backup.
-- Drivetrain: swerve only, on TalonFX modules with CANcoders or on SPARK modules.
+- Drivetrain: swerve, on TalonFX modules with CANcoders or on SPARK modules.
 - Vision: PhotonVision.
 
 A Phoenix Pro license is not assumed. The guide's drivetrain runs without FOC, and its steering
 reads the CANcoder as a remote sensor.
-
-**The drivetrain is a stand-in.** [stand-ins.md](stand-ins.md) says it stands in for
-AdvantageKit's swerve templates until they ship for 2027.
-
-**No path tool.** Covered above.
-
-**No SysId routine.** Covered above.
-
-**Things the docs mark as not done.** Moving between configurations by a route, a bench bypass
-for interlocks, a string potentiometer on an elevator, live tuning of feedforward and profiles,
-failing a joint from the Pitwall page, and a practice robot that differs in motor count or
-drivetrain gearing.
-
-**You are inside someone else's loop.** The order of a loop, the solving of camera images, the
-drive's control law and the log keys are the runtime's. The pose estimator is too unless you
-choose another ([localizers.md](localizers.md)). You can read all of it, and it is your code to change in
-your fork. Changing it means maintaining a fork of the runtime.
 
 ## Reading the code to check a claim
 
