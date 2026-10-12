@@ -293,21 +293,25 @@ class VisionSimTest {
   /**
    * The promises each way of correcting the heading keeps for a camera turned 4°, as measured. Each
    * keeps the first two: the camera is out of calibration and counts for less, and the back cameras
-   * are never doubted; and each breaks the other two. The full update doubts it by 6.5 cm, and the
-   * last lap is 3.7 cm off, against 4.5 cm with it trusted as before: closer, not a fifth closer.
-   * Leaving the heading to measurements with a heading of their own, a turned camera's headings
-   * pull the estimate's heading its way, and its neighbour's tags land off too: it's doubted by 3.0
-   * cm, and the last lap is 4.1 cm off, against 4.2 trusted as before; adding the doubt to what
-   * each camera repeats, 3.1 cm and 4.3. Whether those two call the camera out at all hangs on the
-   * noise the seed draws: drawn as offsets from the seed, they never did. This test shows which; it
-   * changes when one does, either way.
+   * are never doubted. The full update keeps the other two as well: it doubts the camera by 15 cm,
+   * and the last lap is 0.5 cm off, against 1.3 cm with it trusted as before. Both are far closer
+   * than before the estimator watched its cameras itself (3.7 cm and 4.5), since its watch takes
+   * off the turned camera's miss whatever the mount check is told to allow. Leaving the heading to
+   * measurements with a heading of their own breaks the other two: a turned camera's headings pull
+   * the estimate's heading its way, and its neighbour's tags land off too. It's doubted by 5.7 cm,
+   * and the last lap is 4.8 cm off, against 4.9 trusted as before; adding the doubt to what each
+   * camera repeats, 5.7 cm and 4.9. This test shows which; it changes when one does, either way.
    */
   @ParameterizedTest
   @EnumSource(EstimatorConfig.HeadingCorrection.class)
   void aCameraTurnedOnItsMountCountsForLess(EstimatorConfig.HeadingCorrection heading) {
     List<String> broken = turnedFourDegrees(heading).stream().map(VisionSimTest::promise).toList();
 
-    assertThat(broken).as("the promises broken").containsExactly("doubted", "last lap");
+    if (heading == EstimatorConfig.HeadingCorrection.EVERY_FIX) {
+      assertThat(broken).as("the promises broken").isEmpty();
+    } else {
+      assertThat(broken).as("the promises broken").containsExactly("doubted", "last lap");
+    }
   }
 
   /** Which promise a broken one was: the words before its numbers. */

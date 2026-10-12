@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
+import com.michaelgrundvig.frc.localization.EstimatorConfigBuilder;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
@@ -107,14 +108,35 @@ class DriveSimulationTest {
     assertThat(robot.drive.getPose().getX() / traveled).isCloseTo(1 / 0.98, within(1e-3));
   }
 
+  /**
+   * A gyro drifting 10° a minute turns an estimate that only considers the gyro's errors by a
+   * degree in a tenth of a minute.
+   */
   @Test
   void aDriftingGyroTurnsTheEstimateWhileTheRobotSitsStill() {
+    EstimatorConfig considering =
+        EstimatorConfigBuilder.builder(EstimatorConfig.DEFAULTS)
+            .gyroErrors(EstimatorConfig.GyroErrors.CONSIDERED)
+            .build();
+    harness = new DriveSimHarness(ExampleRobot.SIM, gyro(1.0, 10.0), considering);
+
+    harness.idle(6); // a tenth of a minute
+
+    assertThat(harness.headingErrorDegrees()).isCloseTo(1.0, within(0.01));
+    assertThat(harness.positionError()).as("its wheels never turned").isLessThan(1e-9);
+  }
+
+  /**
+   * The estimator as it ships reads that drift off the gyro while the robot stands, a second at a
+   * time, and is left with a tenth of a degree: what the first seconds turned it.
+   */
+  @Test
+  void theEstimatorReadsADriftingGyroOffWhileTheRobotSitsStill() {
     DriveSimHarness robot = robot(gyro(1.0, 10.0));
 
-    robot.idle(6); // a tenth of a minute
+    robot.idle(6);
 
-    assertThat(robot.headingErrorDegrees()).isCloseTo(1.0, within(0.01));
-    assertThat(robot.positionError()).as("its wheels never turned").isLessThan(1e-9);
+    assertThat(robot.headingErrorDegrees()).isLessThan(0.15);
   }
 
   @Test
