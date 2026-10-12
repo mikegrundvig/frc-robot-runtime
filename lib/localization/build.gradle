@@ -5,6 +5,7 @@
 
 plugins {
     id "java-library"
+    id "java-test-fixtures"
     id "jacoco"
     id "com.diffplug.spotless"
     id "net.ltgt.errorprone"
@@ -35,6 +36,7 @@ dependencies {
     // Configuration records are built by name, through builders generated as they compile.
     compileOnly libs.recordbuilder.core
     testCompileOnly libs.recordbuilder.core
+    testFixturesCompileOnly libs.recordbuilder.core
     annotationProcessor libs.recordbuilder.processor
     // Writes the configuration records' Javadoc into the jar, so Pitwall's page can say what each
     // value means. It runs in the compiler only: localization never sees Pitwall.
@@ -42,6 +44,12 @@ dependencies {
 
     errorprone libs.errorprone.core
     errorprone libs.nullaway
+
+    // What a team checks a localizer of its own with: the contract's conformance suite
+    // (LocalizerConformance) and its bench. JUnit's API and AssertJ appear in them.
+    testFixturesApi platform(libs.junit.bom)
+    testFixturesApi "org.junit.jupiter:junit-jupiter-api"
+    testFixturesApi libs.assertj.core
 
     testImplementation platform(libs.junit.bom)
     testImplementation "org.junit.jupiter:junit-jupiter"
