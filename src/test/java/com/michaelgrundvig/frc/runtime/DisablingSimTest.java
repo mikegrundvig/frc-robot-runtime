@@ -9,11 +9,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 import com.michaelgrundvig.frc.pitwall.Actions;
+import com.michaelgrundvig.frc.runtime.behavior.Gate;
+import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Move;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
@@ -82,6 +85,16 @@ class DisablingSimTest {
   /** How far the simulated robot really is from a pose, in meters. */
   private double metersFrom(Pose2d pose) {
     return sim.world().truePose().getTranslation().getDistance(pose.getTranslation());
+  }
+
+  /** Runs the robot for a time, and lists every binding the record says fired meanwhile. */
+  private List<String> firedDuring(double seconds) {
+    List<String> fired = new ArrayList<>();
+    for (int i = 0; i < RobotLoop.loops(seconds); i++) {
+      sim.loop();
+      sim.bindings().fired().forEach(binding -> fired.add(binding.toString()));
+    }
+    return fired;
   }
 
   /** The names of the commands running now. */
@@ -172,7 +185,8 @@ class DisablingSimTest {
     List<String> runningWhileDisabled = running();
     double whileDisabled = truth.velocity(ROLLER);
     String outcomeWhileDisabled = sim.joints().of(ROLLER).lastOutcome();
-    enabledAgainFor(1);
+    RobotSim.setEnabled(true);
+    List<String> firedOnceEnabled = firedDuring(1);
     List<String> runningStillHeld = running();
     double stillHeld = truth.velocity(ROLLER);
     holdTheOperatorsTrigger(false);
@@ -186,10 +200,67 @@ class DisablingSimTest {
     assertThat(outcomeWhileDisabled)
         .isEqualTo(
             "roller: intaking until piece in: CANCELED after 1.50 s: the robot was disabled");
-    assertThat(runningStillHeld).as("held through the disable").doesNotContain("Intake");
+    assertThat(firedOnceEnabled).as("held through the disable").isEmpty();
+    assertThat(runningStillHeld).doesNotContain("Intake");
     assertThat(stillHeld).as("idle, it stays stopped").isCloseTo(0, within(1.0));
     assertThat(running()).as("pressed again").contains("Intake");
     assertThat(truth.velocity(ROLLER)).isCloseTo(2000 * RPM, within(20.0));
+  }
+
+  // ---- A binding while the robot is disabled ----
+
+  /**
+   * A trigger pressed while the robot is disabled starts nothing: not then, and not as the robot is
+   * enabled with the trigger still held, because a press made while disabled is spent. The binding
+   * record shows nothing fired. Let go and pressed again, enabled, the trigger starts its command
+   * as usual.
+   */
+  @Test
+  void aBindingPressedWhileDisabledStartsNothingThenOrAsTheRobotIsEnabled() {
+    JointSimulation truth = enabledInTeleop();
+
+    disabledFor(0.5);
+    holdTheOperatorsTrigger(true);
+    List<String> firedWhileDisabled = firedDuring(0.3);
+    List<String> runningWhileDisabled = running();
+    RobotSim.setEnabled(true);
+    List<String> firedOnceEnabled = firedDuring(1);
+    List<String> runningStillHeld = running();
+    double pivotStillHeld = degrees(truth.position(PIVOT));
+    holdTheOperatorsTrigger(false);
+    sim.run(0.1);
+    holdTheOperatorsTrigger(true);
+    List<String> firedOnTheNewPress = firedDuring(1.5);
+
+    assertThat(firedWhileDisabled).isEmpty();
+    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(firedOnceEnabled).as("the press made while disabled is spent").isEmpty();
+    assertThat(runningStillHeld).containsExactly("Drive with the sticks");
+    assertThat(pivotStillHeld).as("it holds in").isCloseTo(1.5, within(1.0));
+    assertThat(firedOnTheNewPress).containsExactly("operator right trigger: while held: Intake");
+    assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
+    assertThat(truth.velocity(ROLLER)).isCloseTo(2000 * RPM, within(20.0));
+  }
+
+  /**
+   * A gate is still worked out while the robot is disabled, though nothing bound to it or to a
+   * button starts: the pit reads the gates to check the robot before it is enabled.
+   */
+  @Test
+  void aGateIsStillWorkedOutWhileTheRobotIsDisabled() {
+    sim.build(ExampleRobot.COMPETITION, SensorErrors.NONE);
+    sim.controls(ExampleControls::new);
+    Gate pieceIn = sim.joints().gate("a piece is in", ExampleRobot.CLAW_BEAM.tripped());
+    RobotSim.setEnabled(true);
+    sim.run(0.1);
+
+    disabledFor(0.5);
+    boolean empty = pieceIn.getAsBoolean();
+    sim.world().sensors().trip(ExampleRobot.CLAW_BEAM, true);
+    sim.run(0.1);
+
+    assertThat(empty).isFalse();
+    assertThat(pieceIn.getAsBoolean()).as("worked out while disabled").isTrue();
   }
 
   // ---- A forked child ----

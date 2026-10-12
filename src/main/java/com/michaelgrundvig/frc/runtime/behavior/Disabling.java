@@ -14,9 +14,10 @@ import org.wpilib.command3.Scheduler;
  *
  * <p>Only the change from enabled to disabled cancels. What starts while the robot is disabled is
  * left to run: a default command, which the scheduler starts again at once, a pit action that runs
- * only while disabled, or a command a test schedules. It moves nothing, because no joint and no
- * wheel is driven while the robot is disabled, and Commands v3 has no way for a command to say that
- * it runs while disabled, so none is asked for.
+ * only while disabled, the heading reset, or a command that code schedules itself. It moves
+ * nothing, because no joint and no wheel is driven while the robot is disabled. Commands v3 has no
+ * way for a command to say that it runs while disabled, and none is needed here: nothing has to
+ * survive the cancel.
  *
  * <p>What the scheduler runs that is not a command is not canceled: its periodic tasks, which work
  * out each gate and clear the binding record, go on in every mode.
@@ -24,7 +25,7 @@ import org.wpilib.command3.Scheduler;
 public final class Disabling {
   /**
    * What a move that is canceled this way says, after how it ended: "pivot → out: CANCELED after
-   * 0.20 s, pivot at 48°: the robot was disabled".
+   * 0.20 s, pivot at 38.49°: the robot was disabled".
    */
   public static final String WHY = "the robot was disabled";
 

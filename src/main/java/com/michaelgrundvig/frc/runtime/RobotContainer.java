@@ -64,6 +64,7 @@ import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.driverstation.Gamepad;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
@@ -263,7 +264,7 @@ public final class RobotContainer implements AutoCloseable {
     autos = new Autos(scheduler);
     disabling = new Disabling(scheduler);
     matchField = new MatchField(field, mode, autos);
-    bindings = new Bindings(scheduler);
+    bindings = new Bindings(scheduler, RobotState::isEnabled);
     driver = bindings.gamepad("driver", DRIVER_PORT);
     operator = bindings.gamepad("operator", OPERATOR_PORT);
 
@@ -327,10 +328,16 @@ public final class RobotContainer implements AutoCloseable {
     // sticks drive: this is the drivetrain's default command. And the driver's back button resets
     // the heading. They are made before the team's, so a second command on back is a doubt that
     // the robot says at startup.
+    //
+    // The heading reset is the one binding that starts while the robot is disabled too. A drive
+    // team lines the robot up and presses back before the match, and the reset moves nothing. The
+    // back button is asked for by its index because that hands back the gamepad's own kind of
+    // trigger, which has that way to bind. It is the same trigger driver.back() is.
     drive.setDefaultCommand(drive.driven());
     driver
-        .back()
-        .onTrue(Command.noRequirements(coroutine -> faceDownfield()).named("Reset heading"));
+        .button(Gamepad.Button.BACK.value)
+        .onTrueAlsoWhileDisabled(
+            Command.noRequirements(coroutine -> faceDownfield()).named("Reset heading"));
 
     // What the robot does, and the drive team's buttons for it: the team's own class. Its
     // constructor builds the commands, binds them and declares its autos, so nothing here needs to

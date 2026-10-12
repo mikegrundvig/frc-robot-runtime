@@ -7,10 +7,13 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.config.Finding;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.driverstation.Gamepad;
+import org.wpilib.driverstation.RobotState;
 import org.wpilib.driverstation.internal.DriverStationBackend;
 import org.wpilib.math.filter.Debouncer;
 import org.wpilib.simulation.GamepadSim;
@@ -24,7 +27,7 @@ import org.wpilib.simulation.SimHooks;
 @ExtendWith(RobotSim.class)
 class BindingsTest {
   private final Scheduler scheduler = Scheduler.createIndependentScheduler();
-  private final Bindings bindings = new Bindings(scheduler);
+  private final Bindings bindings = new Bindings(scheduler, RobotState::isEnabled);
   private final RecordingGamepad driver = bindings.gamepad("driver", 0);
   private final RecordingGamepad operator = bindings.gamepad("operator", 1);
 
@@ -37,6 +40,12 @@ class BindingsTest {
               }
             })
         .named(name);
+  }
+
+  /** The bindings start their commands only while the robot is enabled, so each test enables it. */
+  @BeforeEach
+  void enabled() {
+    RobotSim.setEnabled(true);
   }
 
   /** One robot loop: the Driver Station's newest data, then the scheduler. */
@@ -248,5 +257,145 @@ class BindingsTest {
         .containsExactly(
             "operator face up starts A, B and C on release: one release runs them together. If"
                 + " that's meant, make them one command; if not, bind one to another button");
+  }
+
+  // ---- While the robot is disabled ----
+
+  /** One loop, listing the commands the record says a press or a release started in it. */
+  private List<String> firedInALoop() {
+    loop();
+    return bindings.fired().stream().map(Binding::command).toList();
+  }
+
+  private void press(GamepadSim pad, boolean pressed) {
+    pad.setFaceDownButton(pressed);
+    pad.notifyNewData();
+  }
+
+  /**
+   * Nothing bound to a button starts while the robot is disabled, whichever way it is bound: not on
+   * a press, not on a release, and not for as long as the button is held or left alone. The record
+   * says nothing fired.
+   */
+  @Test
+  void nothingBoundStartsWhileTheRobotIsDisabled() {
+    GamepadSim pad = new GamepadSim(1);
+    operator.faceDown().onTrue(named("On press"));
+    operator.faceDown().whileTrue(named("While held"));
+    operator.faceDown().toggleOnTrue(named("Toggled on press"));
+    operator.faceDown().retryWhileTrue(named("Retried while held"));
+    operator.faceDown().onFalse(named("On release"));
+    operator.faceDown().whileFalse(named("While released"));
+    operator.faceDown().toggleOnFalse(named("Toggled on release"));
+    operator.faceDown().retryWhileFalse(named("Retried while released"));
+    RobotSim.setEnabled(false);
+    List<String> fired = new ArrayList<>();
+
+    fired.addAll(firedInALoop());
+    press(pad, true);
+    fired.addAll(firedInALoop());
+    fired.addAll(firedInALoop());
+    press(pad, false);
+    fired.addAll(firedInALoop());
+    fired.addAll(firedInALoop());
+
+    assertThat(fired).isEmpty();
+    assertThat(scheduler.getRunningCommands()).isEmpty();
+  }
+
+  /**
+   * A press made while the robot is disabled is spent: held as the robot is enabled, it starts
+   * nothing. So is a press held from before the robot was disabled. The next press, made while the
+   * robot is enabled, starts what is bound to it as usual.
+   */
+  @Test
+  void aPressMadeOrHeldWhileDisabledIsSpentAndTheNextOneStartsItsCommand() {
+    GamepadSim pad = new GamepadSim(1);
+    Command intake = named("Intake");
+    Command again = named("Again");
+    operator.faceDown().whileTrue(intake);
+    operator.faceDown().retryWhileTrue(again);
+    RobotSim.setEnabled(false);
+    loop();
+
+    press(pad, true);
+    loop();
+    RobotSim.setEnabled(true);
+    List<String> enabledWithItHeld = new ArrayList<>(firedInALoop());
+    enabledWithItHeld.addAll(firedInALoop());
+    press(pad, false);
+    loop();
+    press(pad, true);
+    List<String> pressedAgain = firedInALoop();
+    RobotSim.setEnabled(false);
+    loop();
+    RobotSim.setEnabled(true);
+    List<String> heldThroughADisable = new ArrayList<>(firedInALoop());
+    heldThroughADisable.addAll(firedInALoop());
+
+    assertThat(enabledWithItHeld).as("pressed while disabled").isEmpty();
+    assertThat(pressedAgain).containsExactly("Intake", "Again");
+    assertThat(heldThroughADisable).isEmpty();
+  }
+
+  /**
+   * A release is spent the same way. A button let go while the robot is disabled starts nothing
+   * bound to its release, then or as the robot is enabled, and neither does a button that was never
+   * touched. Pressed and let go once the robot is enabled, it starts what is bound.
+   */
+  @Test
+  void aReleaseMadeWhileDisabledIsSpentToo() {
+    GamepadSim pad = new GamepadSim(1);
+    operator.faceDown().onFalse(named("Hold"));
+    operator.faceDown().whileFalse(named("Idle"));
+    RobotSim.setEnabled(false);
+    press(pad, true);
+    loop();
+
+    press(pad, false);
+    loop();
+    RobotSim.setEnabled(true);
+    List<String> enabledWithItUp = new ArrayList<>(firedInALoop());
+    enabledWithItUp.addAll(firedInALoop());
+    press(pad, true);
+    loop();
+    press(pad, false);
+    List<String> letGoAgain = firedInALoop();
+
+    assertThat(enabledWithItUp).as("let go while disabled").isEmpty();
+    assertThat(letGoAgain).containsExactly("Hold", "Idle");
+  }
+
+  /**
+   * A binding made to start while the robot is disabled too does, on each press, and the record
+   * says it fired: the template's heading reset is bound this way. A binding beside it on the same
+   * button still starts nothing while disabled.
+   */
+  @Test
+  void aBindingMadeToStartWhileDisabledTooDoes() {
+    GamepadSim pad = new GamepadSim(1);
+    int[] resets = {0};
+    operator
+        .button(Gamepad.Button.FACE_DOWN.value)
+        .onTrueAlsoWhileDisabled(Command.noRequirements(co -> resets[0]++).named("Reset"));
+    operator.faceDown().onTrue(named("Deploy"));
+    RobotSim.setEnabled(false);
+    loop();
+
+    press(pad, true);
+    List<String> pressedWhileDisabled = firedInALoop();
+    press(pad, false);
+    loop();
+    RobotSim.setEnabled(true);
+    loop();
+    press(pad, true);
+    List<String> pressedWhileEnabled = firedInALoop();
+
+    assertThat(pressedWhileDisabled).containsExactly("Reset");
+    assertThat(pressedWhileEnabled).containsExactly("Deploy", "Reset");
+    assertThat(resets[0]).isEqualTo(2);
+    assertThat(recorded())
+        .containsExactly(
+            "operator face down: on press: Reset", "operator face down: on press: Deploy");
   }
 }

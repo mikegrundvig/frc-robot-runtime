@@ -128,6 +128,10 @@ class RobotContainerSimTest {
         .doesNotContain(NO_DRIVETRAIN);
   }
 
+  /**
+   * Pressed while the robot is disabled, as a drive team presses it before a match: the heading
+   * reset is the one binding that starts while the robot is disabled.
+   */
   @Test
   void theBackButtonSaysTheRobotFacesDownfieldForTheDriversAlliance() {
     sim.build(RobotSim.WITHOUT_CAMERAS, SensorErrors.NONE);

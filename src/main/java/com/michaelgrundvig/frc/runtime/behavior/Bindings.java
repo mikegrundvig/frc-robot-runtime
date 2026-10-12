@@ -7,6 +7,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Scheduler;
 
@@ -22,9 +23,10 @@ import org.wpilib.command3.Scheduler;
  * Intake".
  *
  * <p>The record is logged as it grows ({@code Controls/Bindings}). Each loop, the bindings that a
- * press or a release started are logged too ({@code Controls/Fired}). Two commands bound to one
- * button in the same way start together, so each such button is a doubt the robot says at startup
- * ({@link #doubts}).
+ * press or a release started are logged too ({@code Controls/Fired}). While the robot is disabled a
+ * binding starts nothing, and none is logged as fired ({@link RecordingTrigger}). Two commands
+ * bound to one button in the same way start together, so each such button is a doubt the robot says
+ * at startup ({@link #doubts}).
  *
  * <p>A binding made inside a running command lives only while that command runs, as v3's bindings
  * do, and is not recorded. The record is of the robot's standing bindings.
@@ -45,6 +47,10 @@ public final class Bindings {
   private record Start(String button, Binding.How how) {}
 
   private final Scheduler scheduler;
+
+  /** Whether the robot is enabled, as of this loop. */
+  private final BooleanSupplier robotIsEnabled;
+
   private final List<Binding> all = new ArrayList<>();
 
   /** The bindings a press or a release started this loop. */
@@ -52,9 +58,12 @@ public final class Bindings {
 
   /**
    * @param scheduler the command scheduler its gamepads bind commands on
+   * @param robotIsEnabled whether the robot is enabled, asked as the scheduler polls the gamepads:
+   *     {@code RobotState::isEnabled}. While it is not, the bindings start nothing.
    */
-  public Bindings(Scheduler scheduler) {
+  public Bindings(Scheduler scheduler, BooleanSupplier robotIsEnabled) {
     this.scheduler = scheduler;
+    this.robotIsEnabled = robotIsEnabled;
     Logger.recordOutput(BINDINGS_KEY, NONE);
     Logger.recordOutput(FIRED_KEY, NONE);
     // The scheduler runs this before it polls its triggers. So each loop the last loop's firings
@@ -143,6 +152,11 @@ public final class Bindings {
   private static String listed(List<String> names) {
     int last = names.size() - 1;
     return String.join(", ", names.subList(0, last)) + " and " + names.get(last);
+  }
+
+  /** Whether the robot is enabled now. While it is not, a binding starts nothing. */
+  boolean robotIsEnabled() {
+    return robotIsEnabled.getAsBoolean();
   }
 
   /** Records a binding as it is made. */
