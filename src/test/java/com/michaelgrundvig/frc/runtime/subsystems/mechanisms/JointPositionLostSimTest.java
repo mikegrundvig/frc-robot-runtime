@@ -17,6 +17,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
@@ -99,8 +100,19 @@ class JointPositionLostSimTest {
     }
   }
 
-  /** What the joint did over some loops: what held it each loop, and each doubt said of it. */
-  private record Did(List<String> heldBy, List<String> doubts) {}
+  /**
+   * What the joint did over some loops: each different thing that held it, in the order they first
+   * held it (an empty list is a loop in which nothing held it), and each doubt said of it.
+   */
+  private record Did(List<List<Holder>> heldBy, List<String> doubts) {}
+
+  /** A loop in which nothing holds the joint. */
+  private static final List<Holder> NOT_HELD = List.of();
+
+  /** What holds a joint whose position is not a number: nowhere to hold, so it is neutral. */
+  private static List<Holder> heldWithNowhereToHold(RobotDefinition robot, Joint lost) {
+    return List.of(Holder.noPosition(robot.joints().indexOf(lost)));
+  }
 
   /** One robot of the scenario: its joints on the simulator, with the one joint's readings. */
   private static final class Scene implements AutoCloseable {
@@ -147,7 +159,7 @@ class JointPositionLostSimTest {
     }
 
     Did run(int loops) {
-      Set<String> heldBy = new LinkedHashSet<>();
+      Set<List<Holder>> heldBy = new LinkedHashSet<>();
       Set<String> doubts = new LinkedHashSet<>();
       for (int i = 0; i < loops; i++) {
         RobotSim.stepClock();
@@ -155,7 +167,7 @@ class JointPositionLostSimTest {
         joints.read(RobotController.getTime(), true);
         scheduler.run();
         joints.write();
-        heldBy.add(joint.heldBy());
+        heldBy.add(List.copyOf(joint.holders()));
         doubts.addAll(joints.switchDoubts());
       }
       return new Did(List.copyOf(heldBy), List.copyOf(doubts));
@@ -200,14 +212,13 @@ class JointPositionLostSimTest {
       assertThat(Math.abs(partWay - started))
           .as("it was part of the way there")
           .isGreaterThan(0.01);
-      assertThat(moving).isEqualTo(new Did(List.of(""), List.of()));
+      assertThat(moving).isEqualTo(new Did(List.of(NOT_HELD), List.of()));
       assertThat(there.outcome()).contains(Outcome.REFUSED);
       ended(there).refused().partWay().because(MoveReason.POSITION_LOST).about(label);
       assertThat(lostFor)
           .as("neutral with nowhere to hold")
-          .isEqualTo(new Did(List.of(label + "'s position isn't a number"), List.of(doubt)));
-      assertThat(found.heldBy()).as("it holds again").endsWith("");
-      assertThat(found.doubts()).isEmpty();
+          .isEqualTo(new Did(List.of(heldWithNowhereToHold(robot, lost)), List.of(doubt)));
+      assertThat(found).as("it holds again").isEqualTo(new Did(List.of(NOT_HELD), List.of()));
       assertThat(again.arrived()).as("a new move gets there").isTrue();
       assertThat(scene.simulation.position(lost))
           .isCloseTo(place.value(), within(Math.toRadians(3)));
@@ -243,15 +254,14 @@ class JointPositionLostSimTest {
       scene.readsNoNumber(false);
       Did found = scene.run(25);
 
-      String heldBy =
+      List<Holder> heldBy =
           switch (leftHolding) {
-            case HOLDS_ON -> "";
-            case GOES_NEUTRAL -> label + "'s position isn't a number";
+            case HOLDS_ON -> NOT_HELD;
+            case GOES_NEUTRAL -> heldWithNowhereToHold(robot, lost);
           };
-      assertThat(holding).isEqualTo(new Did(List.of(""), List.of()));
+      assertThat(holding).isEqualTo(new Did(List.of(NOT_HELD), List.of()));
       assertThat(lostFor).isEqualTo(new Did(List.of(heldBy), List.of(doubtOf(label))));
-      assertThat(found.heldBy()).as("it holds again").endsWith("");
-      assertThat(found.doubts()).isEmpty();
+      assertThat(found).as("it holds again").isEqualTo(new Did(List.of(NOT_HELD), List.of()));
       assertThat(scene.joint.goal())
           .as("it holds where it is")
           .isCloseTo(scene.simulation.position(lost), within(Math.toRadians(1)));
