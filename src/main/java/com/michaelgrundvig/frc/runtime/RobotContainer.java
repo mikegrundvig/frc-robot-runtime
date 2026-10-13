@@ -724,7 +724,7 @@ public final class RobotContainer implements AutoCloseable {
    * What the World view reads each loop while a page shows it: localization's estimate and the
    * wheels' velocities.
    */
-  private WorldView.Readings worldReadings() {
+  WorldView.Readings worldReadings() {
     return new WorldView.Readings() {
       @Override
       public LocalizerReport report() {

@@ -83,6 +83,25 @@ public final class SessionRecording {
   }
 
   /**
+   * Records a session of the guide's robot driven about the field and then shoved ({@link
+   * WorldSessionRobot}): its cameras' measurements accepted and then refused, and the estimate
+   * recovering. Beside every loop's record it logs what the robot's own objects said of that loop.
+   *
+   * @param dir the folder it runs in, which gets its {@code logs/}
+   * @return the session's log, as the robot recorded it
+   */
+  public static Path recordTheWorld(Path dir) throws IOException, InterruptedException {
+    run(
+        WorldSessionRobot.class,
+        dir,
+        "record",
+        Map.of("frc.simMode", "SIM", "pitwall.port", "0"),
+        Map.of(),
+        program -> {});
+    return onlyLog(dir);
+  }
+
+  /**
    * Starts a session robot as WPILib starts a robot program, with NetworkTables kept to this
    * program. WPILib's robot constructor starts a NetworkTables server on port 5810, announced on
    * the network as "robot", unless NetworkTables has been told to stay local; this tells it before
