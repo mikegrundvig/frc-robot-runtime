@@ -171,8 +171,9 @@ public final class DriveSimulation {
 
   /**
    * What the robot runs into from now on: the field's walls and its elements. Its bumpers stop at
-   * them or slide along them while its wheels keep turning. Until this is called the robot drives
-   * in open space, and a robot standing inside something is moved out of it at once.
+   * them or slide along them, and its wheels stall or spin against the carpet's grip. Until this is
+   * called the robot drives in open space, and a robot standing inside something is moved out of it
+   * at once.
    */
   public void standOn(FieldModel field) {
     physics.apply(new Disturbance.Standing(field.outline(), field.elements()));

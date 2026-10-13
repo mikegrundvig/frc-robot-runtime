@@ -39,7 +39,10 @@ import org.wpilib.math.system.DCMotor;
  *       outside ({@link Disturbance.Pushed}) adds a velocity of its own.
  *   <li><b>The robot stops at what it runs into</b> ({@link Contact}). Where its bumpers would be
  *       inside a wall or a field element it is moved straight back out, and loses the part of its
- *       velocity that went in, so it stops or slides along. Its wheels keep turning.
+ *       velocity that went in, so it stops or slides along. From then on each wheel turns against
+ *       the carpet's grip for the part of its rolling that goes into the surface: it stalls at its
+ *       current limit if its motor pushes less than the grip, and breaks loose and spins under that
+ *       load if it pushes more.
  *   <li><b>The robot settles on the ground</b> ({@link GroundPlane}). It sits on the plane that
  *       best fits the ground under its wheels, which gives its height and its attitude, unless it
  *       is tilted by hand.
@@ -49,8 +52,9 @@ import org.wpilib.math.system.DCMotor;
  * robot's yaw inertia (it spins as if its mass sat at its wheels); weight transfer, and each
  * wheel's own load and slip; scrub between wheels that disagree (the fit splits the difference); a
  * wheel leaving the ground; gravity along a slope; and, against a wall, the wall's own friction,
- * the bumpers' give, and the load a stopped robot puts on its drive motors (they spin as if
- * slipping).
+ * the bumpers' give, and a sliding tread's lower friction (one coefficient serves for holding and
+ * for sliding). Away from a wall the wheels still never feel the floor: past the grip limit they
+ * spin up as if they carried the robot, and a push from outside neither turns nor loads them.
  */
 public final class KinematicPhysics implements Physics {
   /**
@@ -78,6 +82,25 @@ public final class KinematicPhysics implements Physics {
 
   /** Each wheel's load: an equal share of the robot's weight. */
   private final double wheelLoadNewtons;
+
+  /**
+   * The wheels' coefficient of friction on the carpet, as the drivetrain's definition gives it. It
+   * is used for a tread that holds and for one that slides alike: the definition has the one
+   * number, and a sliding tread's lower friction is left out.
+   */
+  private final double frictionCoefficient;
+
+  /**
+   * A wheel rolling this nearly along a surface (the cosine of the angle between its rolling and
+   * the way into the surface) isn't held back by it at all.
+   */
+  private static final double ALONG_THE_SURFACE = 1e-6;
+
+  /**
+   * The least a wheel's own moving parts count for, as inertia at the wheel, in kg m²: a drive
+   * given none still has some, and a blocked wheel turns nothing else.
+   */
+  private static final double LEAST_OWN_INERTIA_KG_M2 = 1e-5;
 
   /**
    * The most the floor's grip can accelerate the robot, in m/s²: its wheels' coefficient of
@@ -110,6 +133,20 @@ public final class KinematicPhysics implements Physics {
 
   /** What the robot's bumpers run into: nothing, until it is given a field's walls and elements. */
   private Contact contact = Contact.openSpace();
+
+  /**
+   * How near a surface the robot counts as still against it, in meters: far less than a wheel rolls
+   * in a step, and far more than rounding.
+   */
+  private static final double STILL_TOUCHING_METERS = 1e-6;
+
+  /**
+   * The way straight out of the surface the robot is against, as a unit vector on the field: both
+   * zero while it touches nothing.
+   */
+  private double outOfSurfaceX;
+
+  private double outOfSurfaceY;
 
   /**
    * Whether the robot's attitude is held by hand, whatever the ground says. Otherwise it follows
@@ -178,22 +215,22 @@ public final class KinematicPhysics implements Physics {
     for (int i = 0; i < wheelCount; i++) {
       DrivetrainGeometry.ModuleType module = drivetrain.module(i);
       configuredRadiusMeters[i] = module.wheelRadius().in(Meters);
-      double inertiaKgM2 =
-          driveInertiaKgM2(
-              carriedKilograms,
-              configuredRadiusMeters[i],
-              module.driveInertiaOrDefault().in(KilogramSquareMeters));
+      double ownKgM2 = module.driveInertiaOrDefault().in(KilogramSquareMeters);
+      double inertiaKgM2 = driveInertiaKgM2(carriedKilograms, configuredRadiusMeters[i], ownKgM2);
       DCMotor motor = module.driveMotors().model(module.driveGearing().efficiency());
       double trueRadiusMeters = configuredRadiusMeters[i] * wheelRadiusScale.get(i);
       wheels[i] =
           new Wheel(
               i,
               new WheelMotor(motor, inertiaKgM2, module.driveGearing().ratio()),
-              trueRadiusMeters);
+              trueRadiusMeters,
+              inertiaKgM2 - ownKgM2,
+              ownKgM2);
       drives[i] = new WheelDrive();
     }
     wheelLoadNewtons = body.mass().in(Kilograms) * STANDARD_GRAVITY / wheelCount;
-    gripLimitMetersPerSecondSquared = drivetrain.wheelCoefficientOfFriction() * STANDARD_GRAVITY;
+    frictionCoefficient = drivetrain.wheelCoefficientOfFriction();
+    gripLimitMetersPerSecondSquared = frictionCoefficient * STANDARD_GRAVITY;
     travelBefore = new WheelTravel(wheelCount);
     travelNow = new WheelTravel(wheelCount);
     countTravelFromHere();
@@ -221,7 +258,11 @@ public final class KinematicPhysics implements Physics {
     }
     actuators.actuate(seconds, this, drives);
     for (int i = 0; i < wheels.length; i++) {
-      wheels[i].turn(drives[i], seconds);
+      if (isAgainstSomething()) {
+        wheels[i].turnAgainstTheSurface(drives[i], seconds);
+      } else {
+        wheels[i].turn(drives[i], seconds);
+      }
     }
     travelNow.read(wheels);
     fit.motion(
@@ -248,6 +289,7 @@ public final class KinematicPhysics implements Physics {
     Translation2d placeAfter =
         placeBefore.plus(wheelDrivenVelocity.times(seconds)).plus(pushVelocity.times(seconds));
     truePose = clearOfEverything(new Pose2d(placeAfter, asked.getRotation()));
+    noteWhatItIsAgainst();
     settleOnTheGround();
 
     double turnedRadians = grip * rolled.turnRadians;
@@ -291,8 +333,9 @@ public final class KinematicPhysics implements Physics {
   /**
    * A pose moved out of whatever its bumpers would be in there: the walls and the elements ({@link
    * Contact}). The robot keeps its heading, and loses the part of its velocity that went into the
-   * surface, so it stops against it or slides along it. Its wheels know nothing of this and keep
-   * turning, as wheels do that spin against a wall.
+   * surface, so it stops against it or slides along it. Its wheels feel it in their next step
+   * ({@link #noteWhatItIsAgainst}): the part of their rolling the robot can't follow slides on the
+   * carpet, against its grip.
    */
   private Pose2d clearOfEverything(Pose2d pose) {
     boolean pushed = contact.pushOut(pose.getX(), pose.getY(), pose.getRotation().getRadians());
@@ -305,6 +348,38 @@ public final class KinematicPhysics implements Physics {
         pose.getX() + contact.pushedXMeters(),
         pose.getY() + contact.pushedYMeters(),
         pose.getRotation());
+  }
+
+  private boolean isAgainstSomething() {
+    return outOfSurfaceX != 0 || outOfSurfaceY != 0;
+  }
+
+  /**
+   * Takes note of the surface the robot is against as the step ends, for the wheels' next step: the
+   * way straight out of it. A robot that was just pushed back is against what pushed it. A robot
+   * that was against something and was not pushed may only have stopped pushing, as stalled wheels
+   * do, so it is asked whether a hair's breadth toward the surface would still be inside it.
+   */
+  private void noteWhatItIsAgainst() {
+    double outX = contact.pushedXMeters();
+    double outY = contact.pushedYMeters();
+    boolean pushedBack = outX != 0 || outY != 0;
+    if (!pushedBack && isAgainstSomething()) {
+      contact.pushOut(
+          truePose.getX() - STILL_TOUCHING_METERS * outOfSurfaceX,
+          truePose.getY() - STILL_TOUCHING_METERS * outOfSurfaceY,
+          truePose.getRotation().getRadians());
+      outX = contact.pushedXMeters();
+      outY = contact.pushedYMeters();
+    }
+    double pushedMeters = Math.hypot(outX, outY);
+    if (pushedMeters == 0) {
+      outOfSurfaceX = 0;
+      outOfSurfaceY = 0;
+      return;
+    }
+    outOfSurfaceX = outX / pushedMeters;
+    outOfSurfaceY = outY / pushedMeters;
   }
 
   @Override
@@ -474,18 +549,62 @@ public final class KinematicPhysics implements Physics {
   private final class Wheel implements WheelTruth {
     private final int index;
     private final WheelMotor motor;
+    private final double carriedInertiaKgM2;
+    private final double ownInertiaKgM2;
     private double radiusMeters;
     private double steerRadians;
 
-    Wheel(int index, WheelMotor motor, double radiusMeters) {
+    /**
+     * @param carriedInertiaKgM2 its share of the robot's mass, as inertia at the wheel
+     * @param ownInertiaKgM2 its own moving parts, as inertia at the wheel
+     */
+    Wheel(
+        int index,
+        WheelMotor motor,
+        double radiusMeters,
+        double carriedInertiaKgM2,
+        double ownInertiaKgM2) {
       this.index = index;
       this.motor = motor;
       this.radiusMeters = radiusMeters;
+      this.carriedInertiaKgM2 = carriedInertiaKgM2;
+      this.ownInertiaKgM2 = Math.max(ownInertiaKgM2, LEAST_OWN_INERTIA_KG_M2);
     }
 
     /** Turns the wheel through a step as its actuators say, and points it where they steered it. */
     void turn(WheelDrive drive, double seconds) {
       motor.turn(drive.volts(), drive.currentLimitAmps(), drive.batteryVolts(), seconds);
+      steerRadians = drive.steerRadians();
+    }
+
+    /**
+     * Turns the wheel through a step while the robot is against a surface. The share of the wheel's
+     * rolling that goes into the surface slides on the carpet, against the carpet's grip on this
+     * wheel: its coefficient of friction times the weight it carries, less on a slick floor. The
+     * rest the robot still follows, so the wheel still turns that share of the robot's mass.
+     */
+    void turnAgainstTheSurface(WheelDrive drive, double seconds) {
+      // Which way the wheel rolls across the field, as it is steered for this step.
+      double rollsTowardRadians = truePose.getRotation().getRadians() + drive.steerRadians();
+      double rollsIntoSurface =
+          -(Math.cos(rollsTowardRadians) * outOfSurfaceX
+              + Math.sin(rollsTowardRadians) * outOfSurfaceY);
+      boolean rollsAlongIt = Math.abs(rollsIntoSurface) < ALONG_THE_SURFACE;
+      if (rollsAlongIt) {
+        turn(drive, seconds);
+        return;
+      }
+      double shareTheRobotFollows = 1 - rollsIntoSurface * rollsIntoSurface;
+      double blockedInertiaKgM2 = ownInertiaKgM2 + shareTheRobotFollows * carriedInertiaKgM2;
+      motor.turnAgainst(
+          drive.volts(),
+          drive.currentLimitAmps(),
+          drive.batteryVolts(),
+          seconds,
+          rollsIntoSurface,
+          grip * frictionCoefficient * wheelLoadNewtons,
+          radiusMeters,
+          blockedInertiaKgM2);
       steerRadians = drive.steerRadians();
     }
 

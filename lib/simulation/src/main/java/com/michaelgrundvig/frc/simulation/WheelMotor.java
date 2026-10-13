@@ -40,6 +40,10 @@ import org.wpilib.math.util.Nat;
  * speeds up the current falls below the limit, so the robot accelerates a little less than F = m·a
  * at the limit would give. The truth suite keeps that as a known gap.
  *
+ * <p><b>Against a wall.</b> A robot held against something can't follow its wheels, and the wheel
+ * is then turned against the carpet's friction instead ({@link #turnAgainst}): it stalls at its
+ * current limit, or breaks loose and spins under load.
+ *
  * <p><b>What is left out.</b> The velocity loop's gain within a step is not used, because the
  * voltage is held: the actuators give the loop's voltage as each step starts ({@link
  * WheelDrive#volts}), and nothing more of the loop. Friction in the gearbox and the tread's rolling
@@ -114,6 +118,85 @@ final class WheelMotor {
    * @param seconds the step's length
    */
   void turn(double askedVolts, double currentLimitAmps, double batteryVolts, double seconds) {
+    hold(askedVolts, currentLimitAmps, batteryVolts);
+    rollFreely(seconds);
+  }
+
+  /**
+   * Turns the wheel through one step while the robot is against something and can't follow all of
+   * the wheel's rolling. The part of the tread's travel that goes into the surface has to slide on
+   * the carpet, and the carpet's friction resists that slide, with as much force as it takes to
+   * stop it and never more than its grip.
+   *
+   * <p>So there are two outcomes, and the motor's own push decides between them. If the motor
+   * pushes the tread with less than the grip, friction holds the wheel still: the motor is stalled
+   * at its current limit and the encoder counts nothing. If it pushes harder, the tread breaks
+   * loose and spins against the grip as a steady drag, slower than it would spin free and drawing
+   * the current that drag takes.
+   *
+   * <p>With ω the wheel's speed, V the held voltage, τ the friction's torque on the wheel and J
+   * what the wheel turns, the motor's two equations give one for the speed,
+   *
+   * <pre>
+   *   dω/dt = −α·ω + β·V − τ / J,    α = G²·Kt / (Kv·R·J),    β = G·Kt / (R·J)
+   * </pre>
+   *
+   * <p>which, with V and τ held through the step, has the exact answer ω' = E·ω + (1 − E)·ω∞, where
+   * E = e^(−α·step) and ω∞ = (β·V − τ / J) / α is the speed it settles at. The torque that would
+   * stop the wheel by the step's end is the τ that makes ω' zero. Friction gives that, through the
+   * share of the wheel's rolling that goes into the surface, up to its grip.
+   *
+   * @param rollsIntoSurface how much of the wheel's forward rolling goes into the surface, from −1
+   *     (rolling forward drives straight away from it) to 1 (straight into it)
+   * @param gripNewtons the most force the carpet passes to the tread
+   * @param radiusMeters the wheel's radius, which turns that force into a torque
+   * @param blockedInertiaKgM2 what the wheel turns while the robot can't follow it: its own moving
+   *     parts, and its share of the robot for the part of its rolling the robot still follows
+   */
+  void turnAgainst(
+      double askedVolts,
+      double currentLimitAmps,
+      double batteryVolts,
+      double seconds,
+      double rollsIntoSurface,
+      double gripNewtons,
+      double radiusMeters,
+      double blockedInertiaKgM2) {
+    hold(askedVolts, currentLimitAmps, batteryVolts);
+    double volts = heldVolts.get(0, 0);
+    double speed = state.get(1, 0);
+    double torquePerVolt = configuredGearing * motor.Kt / motor.R;
+    double beta = torquePerVolt / blockedInertiaKgM2;
+    double alpha = configuredGearing * beta / motor.Kv;
+    double carriedOver = Math.exp(-alpha * seconds);
+    double settled = 1 - carriedOver;
+
+    // The friction torque that stops the wheel by the step's end, and the force at the tread, along
+    // the way into the surface, that it takes.
+    double stoppingTorque =
+        blockedInertiaKgM2 * (beta * volts + alpha * carriedOver * speed / settled);
+    double stoppingNewtons = stoppingTorque / (rollsIntoSurface * radiusMeters);
+    // Friction only resists a slide into the surface: a wheel rolling away from it rolls freely.
+    double frictionNewtons = Math.clamp(stoppingNewtons, 0, gripNewtons);
+    if (frictionNewtons == 0) {
+      rollFreely(seconds);
+      return;
+    }
+    double frictionTorque = frictionNewtons * rollsIntoSurface * radiusMeters;
+    double settlesAt = (beta * volts - frictionTorque / blockedInertiaKgM2) / alpha;
+    double speedAfter = carriedOver * speed + settled * settlesAt;
+    // The angle is the speed's integral over the step: the settled speed for the whole step, and
+    // the difference from it dying away.
+    double turned = settlesAt * seconds + (speed - settlesAt) * settled / alpha;
+    state = VecBuilder.fill(state.get(0, 0) + turned, speedAfter);
+    output = model.calculateY(state, heldVolts);
+  }
+
+  /**
+   * Works out the voltage held across the motor through a step: what its controller asks, within
+   * its current limit and the battery's voltage.
+   */
+  private void hold(double askedVolts, double currentLimitAmps, double batteryVolts) {
     // At a current I the voltage across the motor is the back EMF plus I·R, so holding the current
     // within the limit means holding the voltage within the limit's I·R of the back EMF.
     double backEmfVolts = speedRadPerSec() * configuredGearing / motor.Kv;
@@ -124,7 +207,10 @@ final class WheelMotor {
     // The battery caps the voltage too: scaled down to the battery's, never up.
     double batteryShare = Math.min(1.0, batteryVolts / Math.abs(withinCurrentLimit));
     heldVolts = VecBuilder.fill(withinCurrentLimit * batteryShare);
+  }
 
+  /** Turns the wheel and its whole load through a step at the held voltage, nothing resisting. */
+  private void rollFreely(double seconds) {
     Discretized step = discretizedFor(seconds);
     // The same arithmetic as WPILib's LinearSystem.calculateX, to the bit, with the discrete form
     // worked out once and not every step.
