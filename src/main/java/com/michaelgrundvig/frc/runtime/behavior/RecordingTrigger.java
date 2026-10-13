@@ -2,6 +2,9 @@ package com.michaelgrundvig.frc.runtime.behavior;
 
 import static org.wpilib.units.Units.Seconds;
 
+import com.michaelgrundvig.frc.world.record.BindingFired;
+import com.michaelgrundvig.frc.world.record.BindingStart;
+import com.michaelgrundvig.frc.world.record.Identity;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
@@ -73,7 +76,7 @@ public final class RecordingTrigger extends Trigger {
     private final Bindings bindings;
 
     /** What is bound to this change, as recorded. */
-    private final List<Binding> bound = new ArrayList<>();
+    private final List<Bindings.Recorded> bound = new ArrayList<>();
 
     private Change change = Change.FRESH;
 
@@ -141,10 +144,26 @@ public final class RecordingTrigger extends Trigger {
     SEVERAL
   }
 
+  /**
+   * What a trigger reads on a gamepad, as the log's facts say it.
+   *
+   * @param port the Driver Station port of the gamepad
+   * @param kind what kind of control it is
+   * @param button the button's index as WPILib's gamepad numbers its buttons, for one button; none
+   *     for any other control
+   */
+  record Control(int port, BindingFired.Control kind, int button) {
+    /** A trigger made from this one: something combined, on the same gamepad. */
+    Control combined() {
+      return new Control(port, BindingFired.Control.COMBINED, Identity.NONE);
+    }
+  }
+
   private final Scheduler scheduler;
   private final EventLoop loop;
   private final String gamepad;
   private final String button;
+  private final Control control;
   private final Terms terms;
   private final Bindings bindings;
 
@@ -167,6 +186,7 @@ public final class RecordingTrigger extends Trigger {
   /**
    * @param gamepad the gamepad's name: "driver"
    * @param button what it reads on that gamepad: "right trigger"
+   * @param control what it reads, as the log's facts say it
    * @param condition whether it is pressed
    */
   RecordingTrigger(
@@ -174,6 +194,7 @@ public final class RecordingTrigger extends Trigger {
       EventLoop loop,
       String gamepad,
       String button,
+      Control control,
       BooleanSupplier condition,
       Bindings bindings) {
     this(
@@ -181,6 +202,7 @@ public final class RecordingTrigger extends Trigger {
         loop,
         gamepad,
         button,
+        control,
         Terms.ONE,
         new Starts(condition, WhileDisabled.STARTS_NOTHING, bindings),
         bindings);
@@ -191,6 +213,7 @@ public final class RecordingTrigger extends Trigger {
       EventLoop loop,
       String gamepad,
       String button,
+      Control control,
       Terms terms,
       Starts presses,
       Bindings bindings) {
@@ -199,6 +222,7 @@ public final class RecordingTrigger extends Trigger {
     this.loop = loop;
     this.gamepad = gamepad;
     this.button = button;
+    this.control = control;
     this.terms = terms;
     this.presses = presses;
     this.bindings = bindings;
@@ -247,7 +271,7 @@ public final class RecordingTrigger extends Trigger {
 
   @Override
   public RecordingTrigger onTrue(Command command) {
-    record(presses, Binding.How.ON_PRESS, command);
+    record(presses, BindingStart.ON_PRESS, command);
     super.onTrue(command);
     return this;
   }
@@ -263,7 +287,7 @@ public final class RecordingTrigger extends Trigger {
    * template's own, and it is the only one.
    */
   public RecordingTrigger onTrueAlsoWhileDisabled(Command command) {
-    record(pressesAlsoWhileDisabled, Binding.How.ON_PRESS, command);
+    record(pressesAlsoWhileDisabled, BindingStart.ON_PRESS, command);
     onPressAlsoWhileDisabled().onTrue(command);
     return this;
   }
@@ -273,49 +297,49 @@ public final class RecordingTrigger extends Trigger {
 
   @Override
   public RecordingTrigger onFalse(Command command) {
-    record(releases, Binding.How.ON_RELEASE, command);
+    record(releases, BindingStart.ON_RELEASE, command);
     onRelease().onTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger whileTrue(Command command) {
-    record(presses, Binding.How.WHILE_HELD, command);
+    record(presses, BindingStart.WHILE_HELD, command);
     super.whileTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger whileFalse(Command command) {
-    record(releases, Binding.How.WHILE_RELEASED, command);
+    record(releases, BindingStart.WHILE_RELEASED, command);
     onRelease().whileTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger toggleOnTrue(Command command) {
-    record(presses, Binding.How.TOGGLE_ON_PRESS, command);
+    record(presses, BindingStart.TOGGLE_ON_PRESS, command);
     super.toggleOnTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger toggleOnFalse(Command command) {
-    record(releases, Binding.How.TOGGLE_ON_RELEASE, command);
+    record(releases, BindingStart.TOGGLE_ON_RELEASE, command);
     onRelease().toggleOnTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger retryWhileTrue(Command command) {
-    record(presses, Binding.How.RETRY_WHILE_HELD, command);
+    record(presses, BindingStart.RETRY_WHILE_HELD, command);
     super.retryWhileTrue(command);
     return this;
   }
 
   @Override
   public RecordingTrigger retryWhileFalse(Command command) {
-    record(releases, Binding.How.RETRY_WHILE_RELEASED, command);
+    record(releases, BindingStart.RETRY_WHILE_RELEASED, command);
     onRelease().retryWhileTrue(command);
     return this;
   }
@@ -383,7 +407,7 @@ public final class RecordingTrigger extends Trigger {
   private RecordingTrigger made(Trigger made, String name) {
     Starts madePresses = new Starts(made, WhileDisabled.STARTS_NOTHING, bindings);
     return new RecordingTrigger(
-        scheduler, loop, gamepad, name, Terms.SEVERAL, madePresses, bindings);
+        scheduler, loop, gamepad, name, control.combined(), Terms.SEVERAL, madePresses, bindings);
   }
 
   /** Its name as a term of another trigger's name. */
@@ -417,13 +441,12 @@ public final class RecordingTrigger extends Trigger {
    *
    * @param starts the change of this trigger that starts the command, which logs it as it fires
    */
-  private void record(Starts starts, Binding.How how, Command command) {
+  private void record(Starts starts, BindingStart how, Command command) {
     boolean isMadeInsideACommand = scheduler.currentCommand() != null;
     if (isMadeInsideACommand) {
       return;
     }
     Binding binding = new Binding(gamepad, button, how, command.name());
-    starts.bound.add(binding);
-    bindings.add(binding);
+    starts.bound.add(bindings.add(binding, control.port(), control.kind(), control.button()));
   }
 }

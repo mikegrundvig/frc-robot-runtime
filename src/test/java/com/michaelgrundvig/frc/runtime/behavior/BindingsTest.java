@@ -5,6 +5,7 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.record.BindingStart;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -77,7 +78,7 @@ class BindingsTest {
             "driver dpad up: while held, again if it ends: Climb",
             "driver button 30: while released: Idle");
     assertThat(bindings.all().get(0))
-        .isEqualTo(new Binding("operator", "right trigger", Binding.How.WHILE_HELD, "Intake"));
+        .isEqualTo(new Binding("operator", "right trigger", BindingStart.WHILE_HELD, "Intake"));
     assertThat(operator.faceRight()).as("one trigger a button").isSameAs(operator.faceRight());
   }
 

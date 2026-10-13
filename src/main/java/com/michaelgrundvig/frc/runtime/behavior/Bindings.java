@@ -1,6 +1,8 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.record.BindingFired;
+import com.michaelgrundvig.frc.world.record.BindingStart;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -22,11 +24,14 @@ import org.wpilib.command3.Scheduler;
  * operator.rightTrigger().whileTrue(intake())} is recorded as "operator right trigger: while held:
  * Intake".
  *
- * <p>The record is logged as it grows ({@code Controls/Bindings}). Each loop, the bindings that a
- * press or a release started are logged too ({@code Controls/Fired}). While the robot is disabled a
- * binding starts nothing, and none is logged as fired ({@link RecordingTrigger}). Two commands
- * bound to one button in the same way start together, so each such button is a doubt the robot says
- * at startup ({@link #doubts}).
+ * <p>The record is logged as it grows ({@code Controls/Bindings}), each binding in its own words,
+ * which are a team's: its gamepad's name, its button's and its command's. Each loop, the bindings
+ * that a press or a release started are logged as facts ({@code Controls/Fired}): which binding of
+ * that list, on which gamepad's port, on what kind of control, and how it starts ({@link
+ * BindingFired}), with the name of the command each started beside them ({@code
+ * Controls/FiredCommands}). While the robot is disabled a binding starts nothing, and none is
+ * logged as fired ({@link RecordingTrigger}). Two commands bound to one button in the same way
+ * start together, so each such button is a doubt the robot says at startup ({@link #doubts}).
  *
  * <p>A binding made inside a running command lives only while that command runs, as v3's bindings
  * do, and is not recorded. The record is of the robot's standing bindings.
@@ -34,9 +39,23 @@ import org.wpilib.command3.Scheduler;
 public final class Bindings {
   private static final String BINDINGS_KEY = "Controls/Bindings";
   private static final String FIRED_KEY = "Controls/Fired";
+  private static final String FIRED_COMMANDS_KEY = "Controls/FiredCommands";
 
   /** What is logged while there is nothing to list. */
   private static final String[] NONE = new String[0];
+
+  /** What is logged in a loop in which no binding fired. */
+  private static final BindingFired[] NONE_FIRED = new BindingFired[0];
+
+  /**
+   * One of the robot's standing bindings, with what the log says of it each time it fires.
+   *
+   * @param binding the binding, in its own words
+   * @param fired the facts of it: where it is in the list of bindings, its gamepad's port, the
+   *     control it is on, and how it starts. It is made once, as the binding is, so a firing makes
+   *     none.
+   */
+  record Recorded(Binding binding, BindingFired fired) {}
 
   /**
    * A button and a way of binding a command to it. Two bindings that share both start together.
@@ -44,7 +63,7 @@ public final class Bindings {
    * @param button the button with its gamepad's name: "operator right trigger"
    * @param how when a command bound this way starts
    */
-  private record Start(String button, Binding.How how) {}
+  private record Start(String button, BindingStart how) {}
 
   private final Scheduler scheduler;
 
@@ -54,7 +73,7 @@ public final class Bindings {
   private final List<Binding> all = new ArrayList<>();
 
   /** The bindings a press or a release started this loop. */
-  private final List<Binding> fired = new ArrayList<>();
+  private final List<Recorded> fired = new ArrayList<>();
 
   /**
    * @param scheduler the command scheduler its gamepads bind commands on
@@ -65,7 +84,7 @@ public final class Bindings {
     this.scheduler = scheduler;
     this.robotIsEnabled = robotIsEnabled;
     Logger.recordOutput(BINDINGS_KEY, NONE);
-    Logger.recordOutput(FIRED_KEY, NONE);
+    logFired();
     // The scheduler runs this before it polls its triggers. So each loop the last loop's firings
     // are cleared first, and then this loop's are added as the triggers are polled.
     scheduler.addPeriodic(this::forgetLastLoopsFirings);
@@ -91,7 +110,11 @@ public final class Bindings {
    * Empty in a loop that started none.
    */
   public List<Binding> fired() {
-    return List.copyOf(fired);
+    List<Binding> bindings = new ArrayList<>();
+    for (Recorded each : fired) {
+      bindings.add(each.binding());
+    }
+    return List.copyOf(bindings);
   }
 
   /**
@@ -132,7 +155,12 @@ public final class Bindings {
     if (isOneCommandBoundTwice) {
       return Finding.doubt(
           button,
-          button + " starts " + first.command() + " " + first.how() + " twice: bind it once");
+          button
+              + " starts "
+              + first.command()
+              + " "
+              + first.how().words()
+              + " twice: bind it once");
     }
     String edge = first.how().startsOnPress() ? "press" : "release";
     return Finding.doubt(
@@ -141,7 +169,7 @@ public final class Bindings {
             + " starts "
             + listed(List.copyOf(commands))
             + " "
-            + first.how()
+            + first.how().words()
             + ": one "
             + edge
             + " runs them together. If that's meant, make them one command; if not,"
@@ -159,16 +187,26 @@ public final class Bindings {
     return robotIsEnabled.getAsBoolean();
   }
 
-  /** Records a binding as it is made. */
-  void add(Binding binding) {
+  /**
+   * Records a binding as it is made.
+   *
+   * @param port the Driver Station port of the gamepad it is on
+   * @param control what kind of control on the gamepad it is made on
+   * @param button the button's index on the gamepad, for a binding on one button; none otherwise
+   * @return the binding as recorded, for the trigger it is on to say when it fires
+   */
+  Recorded add(Binding binding, int port, BindingFired.Control control, int button) {
+    int placeInTheList = all.size();
     all.add(binding);
     Logger.recordOutput(BINDINGS_KEY, shown(all));
+    return new Recorded(
+        binding, new BindingFired(placeInTheList, port, control, button, binding.how()));
   }
 
   /** Notes, and logs, a binding that a press or a release started this loop. */
-  void fired(Binding binding) {
+  void fired(Recorded binding) {
     fired.add(binding);
-    Logger.recordOutput(FIRED_KEY, shown(fired));
+    logFired();
   }
 
   private void forgetLastLoopsFirings() {
@@ -176,7 +214,27 @@ public final class Bindings {
       return;
     }
     fired.clear();
-    Logger.recordOutput(FIRED_KEY, NONE);
+    logFired();
+  }
+
+  /**
+   * Logs the bindings that fired this loop as facts, with the name of the command each started
+   * beside them, in the same order.
+   */
+  private void logFired() {
+    if (fired.isEmpty()) {
+      Logger.recordOutput(FIRED_KEY, NONE_FIRED);
+      Logger.recordOutput(FIRED_COMMANDS_KEY, NONE);
+      return;
+    }
+    BindingFired[] facts = new BindingFired[fired.size()];
+    String[] commands = new String[fired.size()];
+    for (int i = 0; i < facts.length; i++) {
+      facts[i] = fired.get(i).fired();
+      commands[i] = fired.get(i).binding().command();
+    }
+    Logger.recordOutput(FIRED_KEY, facts);
+    Logger.recordOutput(FIRED_COMMANDS_KEY, commands);
   }
 
   /** Bindings as the log lists them, each in its own words. */
