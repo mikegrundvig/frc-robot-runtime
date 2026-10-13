@@ -125,40 +125,53 @@ class ReplayEndToEndTest {
     }
   }
 
-  /** Every output under a log's output table, by name without the table. */
+  /**
+   * Every output under a log's output table, by name without the table.
+   *
+   * <p>The log is read with the reader's own {@code forEach}. Its iterator, which a for-each loop
+   * uses, stops 16 bytes short of the end of the file, and a number or a flag written last in the
+   * log is shorter than that: the last value of whichever output was written last went unread.
+   */
   private static Map<String, List<Sample>> outputs(Path log, String table) throws IOException {
     DataLogReader reader = new DataLogReader(ByteBuffer.wrap(Files.readAllBytes(log)));
     assertThat(reader.isValid()).as("a valid log: " + log).isTrue();
     Map<Integer, Entry> entries = new LinkedHashMap<>();
     Map<String, List<Sample>> samples = new LinkedHashMap<>();
-    for (DataLogRecord record : reader) {
-      if (record.isStart()) {
-        var start = record.getStartData();
-        String name = start.name.startsWith("/") ? start.name.substring(1) : start.name;
-        if (name.startsWith(table)) {
-          entries.put(start.entry, new Entry(name.substring(table.length()), start.type));
-        }
-        continue;
-      }
-      if (record.isControl()) {
-        continue;
-      }
-      Entry entry = entries.get(record.getEntry());
-      if (entry == null) {
-        continue;
-      }
-      Object value =
-          switch (entry.type()) {
-            case "double" -> record.getDouble();
-            case "string" -> record.getString();
-            case "boolean" -> record.getBoolean();
-            default -> HexFormat.of().formatHex(record.getRaw());
-          };
-      samples
-          .computeIfAbsent(entry.name(), n -> new ArrayList<>())
-          .add(new Sample(record.getTimestamp(), value));
-    }
+    reader.forEach(record -> take(record, table, entries, samples));
     return samples;
+  }
+
+  /** Takes one record of a log: a new output under the table, or a value of one already found. */
+  private static void take(
+      DataLogRecord record,
+      String table,
+      Map<Integer, Entry> entries,
+      Map<String, List<Sample>> samples) {
+    if (record.isStart()) {
+      var start = record.getStartData();
+      String name = start.name.startsWith("/") ? start.name.substring(1) : start.name;
+      if (name.startsWith(table)) {
+        entries.put(start.entry, new Entry(name.substring(table.length()), start.type));
+      }
+      return;
+    }
+    if (record.isControl()) {
+      return;
+    }
+    Entry entry = entries.get(record.getEntry());
+    if (entry == null) {
+      return;
+    }
+    Object value =
+        switch (entry.type()) {
+          case "double" -> record.getDouble();
+          case "string" -> record.getString();
+          case "boolean" -> record.getBoolean();
+          default -> HexFormat.of().formatHex(record.getRaw());
+        };
+    samples
+        .computeIfAbsent(entry.name(), n -> new ArrayList<>())
+        .add(new Sample(record.getTimestamp(), value));
   }
 
   private static String firstDifference(List<Sample> expected, List<Sample> actual) {

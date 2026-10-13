@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -47,6 +48,19 @@ public final class SessionRecording {
         Map.of("frc.simMode", "SIM", "pitwall.port", "0"),
         Map.of());
     return onlyLog(dir);
+  }
+
+  /**
+   * The clock a session robot runs on, for the program this is called in, which must be a session
+   * robot's as WPILib starts it. A recording runs on a clock of its own, stopped here before the
+   * robot program is made, so that the session is the same on any computer ({@link SessionClock}).
+   * A replay runs on no clock but its log's.
+   */
+  static Optional<SessionClock> clock() {
+    if (RunMode.current() != RunMode.SIM) {
+      return Optional.empty();
+    }
+    return Optional.of(SessionClock.stopped());
   }
 
   /** Runs the session robot in its own process, in the test's temporary directory. */

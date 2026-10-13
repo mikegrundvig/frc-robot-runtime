@@ -5,6 +5,8 @@ import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.Gamepad;
 import org.wpilib.framework.RobotBase;
@@ -23,6 +25,8 @@ import org.wpilib.hardware.hal.RobotMode;
  *
  * <p>This is a second session beside {@link ReplaySessionRobot}'s, which the replay test and a
  * team's layout checks share and which has no controls, so that neither depends on this script.
+ * Like that one it runs on a clock of its own ({@link SessionClock}), a loop at a time, so it is
+ * the same session on any computer, however busy.
  */
 final class ControlsSessionRobot extends Robot {
   /** How many loops the recorded session runs, about ten seconds. */
@@ -31,20 +35,31 @@ final class ControlsSessionRobot extends Robot {
   private static final int DRIVER = 0;
   private static final int OPERATOR = 1;
 
+  /** The clock the recorded session runs on. A replay has none: its log says the time. */
+  private final Optional<SessionClock> clock;
+
   private int loop;
 
-  ControlsSessionRobot() {
+  /**
+   * @param clock the session's clock, stopped before this program was made; none in a replay
+   */
+  ControlsSessionRobot(Optional<SessionClock> clock) {
     super(
         new RobotProgram(
             () -> ExampleRobot.COMPETITION,
             Rebuilt::game,
             ExampleControls::new,
             BuildInfo.UNKNOWN));
+    this.clock = clock;
+    if (clock.isPresent()) {
+      // A loop follows the last at once: the session's clock says the time, not the computer's.
+      setUseTiming(false);
+    }
   }
 
   /** Runs the session robot: {@code java com.michaelgrundvig.frc.runtime.ControlsSessionRobot}. */
   public static void main(String... args) {
-    RobotBase.startRobot(ControlsSessionRobot::new);
+    RobotBase.startRobot(() -> new ControlsSessionRobot(SessionRecording.clock()));
   }
 
   @Override
@@ -54,6 +69,19 @@ final class ControlsSessionRobot extends Robot {
       script(++loop);
     }
     super.robotPeriodic();
+  }
+
+  /**
+   * How many loops the session has run, which AdvantageKit logs after every loop, and with it the
+   * moment the session's clock moves ({@link SessionClock#loopIsOver}). AdvantageKit reads an
+   * output like this one when a loop is over and before it gives the next loop its time, and no
+   * other code of a robot program's runs between two loops. Inside a loop the clock must stand
+   * still: moved there, WPILib's watchdog would take every loop for a late one, and say so.
+   */
+  @AutoLogOutput(key = "Session/Loops")
+  int loopsRunAndTheClockMoves() {
+    clock.ifPresent(SessionClock::loopIsOver);
+    return loop;
   }
 
   private Simulator simulator() {
@@ -104,7 +132,7 @@ final class ControlsSessionRobot extends Robot {
       case 300 -> simulator().joystick(DRIVER, pullingTheRightTrigger(0), null);
       case 460 -> simulator().joystick(DRIVER, null, null);
       case LOOPS -> {
-        Logger.end(); // closes the log
+        Logger.end(); // closes the log, once it has written every loop it was handed
         System.exit(0);
       }
       default -> {
