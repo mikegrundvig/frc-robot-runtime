@@ -22,6 +22,7 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
@@ -183,9 +184,13 @@ class EncoderSlipSimTest {
 
     assertThat(took).isLessThan(0.5);
     assertThat(run.outcome()).contains(Outcome.REFUSED);
-    ended(run).refused().partWay().because(MoveReason.JOINT_FAULTED);
-    assertThat(ended(run).facts().why())
-        .startsWith("pivot's absolute encoder and its motor's count");
+    ended(run)
+        .refused()
+        .partWay()
+        .because(MoveReason.JOINT_FAULTED)
+        .saying(pivot.fault().orElseThrow());
+    assertThat(pivot.stateRecorded())
+        .isEqualTo(JointState.faulted(JointState.Fault.ENCODER_SLIPPED));
     assertThat(degrees(sim.simulation.position(PIVOT))).as("held").isCloseTo(held, within(0.5));
   }
 
