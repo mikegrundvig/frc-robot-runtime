@@ -4,11 +4,9 @@ import static com.michaelgrundvig.frc.runtime.ExampleRobot.FEEDER;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.FEEDER_FEEDING;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.SHOOTER;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.wpilib.units.Units.Amps;
 
 import com.michaelgrundvig.frc.runtime.ExampleControls;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
-import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
@@ -30,30 +28,18 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 
 /**
- * The order of the guide's aimed shot, on a robot whose shooter takes time to spin up: nothing is
- * fed before the shooter is at its speed.
+ * The order of the guide's aimed shot, on the guide's own robot: nothing is fed before the shooter
+ * is at its speed.
  *
- * <p>The guide's own robot cannot show this. Its shooter has no flywheel to turn, so the simulator
- * has it at 3000 rpm one loop after it is asked, and a feed that started a loop early would look
- * the same as one that waited. The robot here is the guide's with a shooter that is slow to spin
- * up.
+ * <p>The shooter's flywheel is what lets this show. It takes the shooter about half a second to
+ * reach 3000 rpm, so a feed that started even one loop early would start with the shooter far below
+ * its speed.
  */
 class AimedShotOrderSimTest {
   private static final double RPM = 2 * Math.PI / 60;
 
   /** How near its speed the shooter stays once there: the band its "at goal" may stray within. */
   private static final double STAYS_WITHIN = 0.06 * 3000 * RPM;
-
-  /**
-   * The guide's robot with its shooter's motors held to one amp each, which takes the shooter well
-   * over a second to bring to speed. A flywheel would do the same and be truer to a real shooter,
-   * but a joint's link is part of what makes it the same joint on a robot derived from another
-   * ({@code RobotDefinition.with}), and the guide's controls ask for the guide's shooter.
-   */
-  private static final RobotConfig SLOW_TO_SPIN_UP =
-      ExampleRobot.COMPETITION
-          .named("slow to spin up")
-          .with(SHOOTER.retuned(control -> control.withStatorLimit(Amps.of(1))));
 
   @RegisterExtension final RobotSim sim = new RobotSim();
 
@@ -68,7 +54,7 @@ class AimedShotOrderSimTest {
    */
   @Test
   void pressedWhileAimedWithTheShooterStoppedNothingIsFedUntilTheShooterIsAtSpeed() {
-    sim.build(SLOW_TO_SPIN_UP, SensorErrors.NONE);
+    sim.build(ExampleRobot.COMPETITION, SensorErrors.NONE);
     sim.controls(ExampleControls::new);
     RobotSim.setEnabled(true);
     Translation2d hub = Rebuilt.HUB.on(RobotSim.FIELD, Alliance.BLUE).getTranslation();
@@ -122,7 +108,7 @@ class AimedShotOrderSimTest {
         .isEmpty();
     assertThat(fedIn).as("the feed did start, once the shooter was up").isNotEmpty();
     assertThat(fedIn.getFirst())
-        .as("the shooter takes some loops to spin up, or this robot shows nothing")
+        .as("the shooter takes some loops to spin up, or the shot shows nothing")
         .isGreaterThan(5);
     assertThat(feedsThatEnded)
         .as("no feed ended while the trigger was held: none was cut short by its gate")
