@@ -212,15 +212,20 @@ final class GateState implements BooleanSupplier {
   }
 
   /**
-   * Logs the terms that keep the gate false: each as a fact, and beside them the text of those that
-   * are text. A term in a team's own words, and the term of a logic that threw, each point at their
-   * text by where it is in that list.
+   * What the log holds of the terms that keep a gate false.
+   *
+   * @param terms each term as a fact, in the order the gate's logic named them
+   * @param text the text of the terms that have some, in the same order. A term in a team's own
+   *     words, and the term of a logic that threw, each point at their text by where it is here.
    */
-  private void logTerms() {
+  record Recorded(GateTerm[] terms, String[] text) {
+    static final Recorded NOTHING = new Recorded(NOTHING_BLOCKING, NO_TEXT);
+  }
+
+  /** The terms that kept the gate false the last time it was worked out, as the log holds them. */
+  Recorded recorded() {
     if (blocking.size() == 0) {
-      Logger.recordOutput(blockingKey, NOTHING_BLOCKING);
-      Logger.recordOutput(blockingTextKey, NO_TEXT);
-      return;
+      return Recorded.NOTHING;
     }
     GateTerm[] terms = new GateTerm[blocking.size()];
     List<String> text = new ArrayList<>();
@@ -230,8 +235,14 @@ final class GateState implements BooleanSupplier {
         text.add(blocking.text(index));
       }
     }
-    Logger.recordOutput(blockingKey, terms);
-    Logger.recordOutput(blockingTextKey, text.toArray(NO_TEXT));
+    return new Recorded(terms, text.toArray(NO_TEXT));
+  }
+
+  /** Logs the terms that keep the gate false: each as a fact, and beside them their text. */
+  private void logTerms() {
+    Recorded recorded = recorded();
+    Logger.recordOutput(blockingKey, recorded.terms());
+    Logger.recordOutput(blockingTextKey, recorded.text());
   }
 
   /** What an exception says, or its kind when it says nothing. */

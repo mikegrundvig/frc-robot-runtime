@@ -118,6 +118,19 @@ public final class Bindings {
   }
 
   /**
+   * The bindings a press or a release started this loop, as {@code Controls/Fired} logs them: each
+   * by its place in the list of bindings, its gamepad's port, the control it is on and how it
+   * starts. They are in the order of {@link #fired}.
+   */
+  public List<BindingFired> firedRecorded() {
+    List<BindingFired> facts = new ArrayList<>();
+    for (Recorded each : fired) {
+      facts.add(each.fired());
+    }
+    return List.copyOf(facts);
+  }
+
+  /**
    * A doubt for each button that has two commands bound to it in the same way, which therefore
    * start together. It is a doubt and not a refusal because it is sometimes meant: "operator right
    * trigger starts Intake and Outtake while held: one press runs them together. If that's meant,

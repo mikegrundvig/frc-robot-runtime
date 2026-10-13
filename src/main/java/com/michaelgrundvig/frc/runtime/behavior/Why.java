@@ -2,7 +2,6 @@ package com.michaelgrundvig.frc.runtime.behavior;
 
 import com.michaelgrundvig.frc.world.record.Identity;
 import com.michaelgrundvig.frc.world.record.MoveReason;
-import com.michaelgrundvig.frc.world.record.MoveSentences;
 import java.util.Optional;
 
 /**
@@ -24,17 +23,5 @@ public record Why(MoveReason reason, int joint, String text) {
   /** A reason about no joint, said in text. */
   public static Why saying(MoveReason reason, String text) {
     return new Why(reason, Identity.NONE, text);
-  }
-
-  /**
-   * What a reason reads as, where a message needs it apart from a move's sentence: the reason's own
-   * words for the ones the facts say whole, and its text for the rest.
-   */
-  public String said() {
-    return switch (reason) {
-      case ROBOT_DISABLED -> MoveSentences.ROBOT_WAS_DISABLED;
-      case NO_DRIVER -> MoveSentences.NO_DRIVER;
-      default -> text;
-    };
   }
 }

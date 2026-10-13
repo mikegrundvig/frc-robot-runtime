@@ -365,6 +365,26 @@ public final class Gate extends Trigger {
   }
 
   /**
+   * The terms that keep it false this loop, as {@code Gates/<name>/Blocking} logs them: a fact for
+   * each term the robot's model can name, and for each term in a team's own words, where its text
+   * is in {@link #blockingText}.
+   */
+  public List<GateTerm> blockingRecorded() {
+    state.bringUpToDate();
+    return List.of(state.recorded().terms());
+  }
+
+  /**
+   * The text of the terms that keep it false this loop and have text, as {@code
+   * Gates/<name>/BlockingText} logs it: a team's own words, such as the name of a gate that is one
+   * of its terms.
+   */
+  public List<String> blockingText() {
+    state.bringUpToDate();
+    return List.of(state.recorded().text());
+  }
+
+  /**
    * Why it is false, as a reason reads: "ready to shoot is false: aimed", or just "ready to shoot
    * is false" for a gate without terms.
    */
