@@ -2,8 +2,9 @@ package com.michaelgrundvig.frc.runtime.autos;
 
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.record.AutoOutcome;
+import com.michaelgrundvig.frc.world.record.MoveSentences;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
@@ -72,20 +73,23 @@ public final class Autos implements AutoCloseable {
    * @param why what threw, for {@link Ending#FAILED}; empty otherwise
    */
   public record Run(String auto, Ending ending, double seconds, String why) {
-    /** As the log and the pit say it: "Left Double: COMPLETED in 9.80 s". */
-    public String describe() {
-      String how =
+    /**
+     * The facts of the run, as {@code Auto/Outcome} logs them: how it ended, and how long it ran.
+     */
+    public AutoOutcome recorded() {
+      AutoOutcome.Result result =
           switch (ending) {
-            case COMPLETED -> String.format(Locale.ROOT, "COMPLETED in %.2f s", seconds);
-            case CUT_OFF ->
-                String.format(Locale.ROOT, "CUT OFF after %.2f s, as autonomous ended", seconds);
-            case CANCELED -> String.format(Locale.ROOT, "CANCELED after %.2f s", seconds);
-            case FAILED -> String.format(Locale.ROOT, "FAILED after %.2f s", seconds);
+            case COMPLETED -> AutoOutcome.Result.COMPLETED;
+            case CUT_OFF -> AutoOutcome.Result.CUT_OFF;
+            case CANCELED -> AutoOutcome.Result.CANCELED;
+            case FAILED -> AutoOutcome.Result.FAILED;
           };
-      if (why.isEmpty()) {
-        return auto + ": " + how;
-      }
-      return auto + ": " + how + ": " + why;
+      return new AutoOutcome(result, seconds);
+    }
+
+    /** As the pit says it: "Left Double: COMPLETED in 9.80 s". */
+    public String describe() {
+      return MoveSentences.autoOutcome(auto, recorded(), why);
     }
   }
 
@@ -111,6 +115,9 @@ public final class Autos implements AutoCloseable {
    * @param startedNanos when it was scheduled, on the robot's clock
    */
   private record Running(Command command, long startedNanos) {}
+
+  /** What {@code Auto/Outcome} logs from when an auto is scheduled until its run ends. */
+  private static final AutoOutcome STILL_RUNNING = new AutoOutcome(AutoOutcome.Result.RUNNING, 0);
 
   private final Scheduler scheduler;
 
@@ -290,7 +297,7 @@ public final class Autos implements AutoCloseable {
     failed.set(false);
     Auto auto = chosen;
     long startedNanos = RobotController.getTime();
-    Logger.recordOutput("Auto/Outcome", auto.name() + ": running");
+    recordOutcome(auto.name(), STILL_RUNNING, "");
     try {
       Command command = auto.command().get();
       running = Optional.of(new Running(command, startedNanos));
@@ -356,11 +363,22 @@ public final class Autos implements AutoCloseable {
     running = Optional.empty();
     Run run = new Run(auto, ending, seconds, why);
     lastRun = Optional.of(run);
-    Logger.recordOutput("Auto/Outcome", run.describe());
+    recordOutcome(auto, run.recorded(), why);
     if (ending == Ending.FAILED) {
       failed.setText("Autonomous \"" + auto + "\" failed: " + why);
       failed.set(true);
     }
+  }
+
+  /**
+   * Logs how the latest run of an auto went ({@code Auto/Outcome}): the facts of the run, and
+   * beside them the auto's name and what its command threw, each a text of its own. A sentence is
+   * made from them wherever a person reads one ({@link MoveSentences#autoOutcome}).
+   */
+  private static void recordOutcome(String auto, AutoOutcome outcome, String why) {
+    Logger.recordOutput("Auto/Outcome", outcome);
+    Logger.recordOutput("Auto/OutcomeName", auto);
+    Logger.recordOutput("Auto/OutcomeWhy", why);
   }
 
   /** What was thrown, by its kind and what it says: "IllegalStateException: no path". */
