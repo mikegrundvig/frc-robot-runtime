@@ -655,8 +655,10 @@ nothing asking it for anything, and that counted as at its goal. Now `Shoot` has
 the answer to the last command's question.
 
 For the next passes nothing is fed. The shooter is still spinning up and the robot is still
-turning. The log says which half is missing under `Gates/ready to feed/Blocking`, and names it
-in `Gates/ready to feed/BlockingText`.
+turning. The shooter's part takes about half a second, which is 25 passes: its description gives
+its flywheel a mass, and two motors need that long to bring it to 3000 rpm. The log says which
+half is missing under `Gates/ready to feed/Blocking`, and names it in
+`Gates/ready to feed/BlockingText`.
 
 On the pass both are true, the wait ends. `joints.run(FEEDING)` runs the feeder and the indexer
 together at their feeding speeds. `FEEDING` is a configuration from the description.
@@ -764,7 +766,8 @@ You can read the match from them. Each line starts with what moved. The roller r
 first leg and was cancelled when the drive arrived. The shooter chased its target for all 3
 seconds, and the line says how fast it was turning at the end. The last line says the feeder and
 the indexer ran for 2.38 of the 3 seconds. The first 0.62 seconds were the wait for `ready`, while
-the shooter spun up and the robot turned to the hub.
+the shooter spun up and the robot turned to the hub. The turn was the slower of the two: the
+shooter was at its speed after half a second.
 
 The runtime adds an auto called "Do nothing" by itself. It is first in the list and it is the
 default, so there is always a safe choice. The pit chooses an auto on Pitwall before the match.

@@ -1482,11 +1482,13 @@ beyond that it only seeds its joint's kG and kA until they're tuned. What nobody
 `MassProperties.NONE`: zero mass at the joint, turning freely, never a guess. Its joint's gravity
 is then its kG's alone, and its kA seeds from its motors' rotors alone; the simulator's notes list
 it (`Robot/SimulatorNotes`), never the robot's console. The guide's robot the template runs gives
-its intake arm a shape, not a measured mass.
+its intake arm a shape, not a measured mass. Its shooter's flywheel is its one link with a mass, an
+estimate, so that the simulator's shooter takes the half second a real one does to reach 3000 rpm.
+Without it the shooter would be there within one loop.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `mass` | calibrated | none | CAD's mass-properties report, checked on a scale where the part comes off. Zero until then. The links' masses together are part of the robot's, and must leave some for the chassis. |
+| `mass` | calibrated | guess (the guide's shooter's flywheel, 1.8 kg: four 4 in wheels of 0.25 kg and two 4 in steel disks a quarter of an inch thick, 0.4 kg each; none weighed) | CAD's mass-properties report, checked on a scale where the part comes off. Zero until then. The links' masses together are part of the robot's, and must leave some for the chassis. |
 | `cg` | calibrated | none | CAD's mass-properties report, in the joint's frame. With the mass, it seeds what the joint's motors hold against gravity (`RobotMath.gravityTorque`), and where an arm's weight pulls hardest, until its kG is tuned. At the joint's origin until then. |
 
 ### `Inertia`
@@ -1496,13 +1498,14 @@ along its frame's axes, in kg m², as the tensor's own entries (a product of ine
 integral). A link's is zero until CAD gives it (`Inertia.ZERO`), and the robot's body's, a
 whole tensor from CAD (`Body.Turning.tensor`). `Inertia.box` is the model's stand-in for what
 isn't given: a solid box of the part's size, its mass spread evenly, which a robot isn't, so it's
-a guess, flagged in the missing-data report. The template's robot gives none: its yaw alone.
+a guess, flagged in the missing-data report. The template's robot gives none: its yaw alone. The
+guide's robot gives one, its shooter's flywheel's (`ExampleRobot`).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `ixx` | calibrated | none | CAD's mass-properties report, about the center of mass in the part's frame. A whole robot's roll: what a tip resists. |
-| `iyy` | calibrated | none | As `ixx`, about y: a whole robot's pitch. |
-| `izz` | calibrated | none | As `ixx`, about z: a whole robot's yaw, which it may give alone (`Body.Turning.Yaw`). |
+| `ixx` | calibrated | math (the guide's shooter's flywheel, across its shaft, as a solid cylinder 0.5 m long: a twelfth of its mass times three times its radius squared plus its length squared, which nothing reads) | CAD's mass-properties report, about the center of mass in the part's frame. A whole robot's roll: what a tip resists. |
+| `iyy` | calibrated | math (the guide's shooter's flywheel, about its shaft, as a solid cylinder of its mass 4 in across: half its mass times its radius squared, 0.00232 kg m²) | As `ixx`, about y: a whole robot's pitch. A flywheel's about its shaft, on a roller's own axis, is what its motors spin up. |
+| `izz` | calibrated | math (as `ixx`) | As `ixx`, about z: a whole robot's yaw, which it may give alone (`Body.Turning.Yaw`). |
 | `ixy` | as built | none | As `ixx`: the tensor's entry for x and y. Check the CAD program's sign: some report the integral, which this is minus. Zero for a part symmetric across either axis. |
 | `ixz` | as built | none | As `ixy`, for x and z. |
 | `iyz` | as built | none | As `ixy`, for y and z. |

@@ -762,6 +762,13 @@ with 0.35 V, `withKg(0.35)`, and its arm with 0.35 V where its weight pulls hard
   weight. Its inertia comes from its links' mass, and from its motors' rotors alone without one.
   What the simulator does without a mass it says when it starts (`Robot/SimulatorNotes`), and
   never on the robot.
+- **A flywheel's mass is what makes it take time.** A roller or a flywheel whose link has no mass
+  is only its motors' rotors to the simulator, which has it at any speed within one loop. A real
+  shooter takes a few tenths of a second, and a shot that feeds too early looks fine on the one and
+  fails on the other. So the guide's shooter carries its flywheel (`ExampleRobot`), 1.8 kg of
+  4 in wheels and steel disks, 0.00232 kg m² about its shaft. Its two Kraken X60s, each held to
+  40 A, push with 1.55 N m, so 3000 rpm takes inertia × speed / torque, 0.00235 kg m² × 314 rad/s
+  / 1.55 N m, about half a second, and the simulator's takes that.
 
 ### Homing
 
