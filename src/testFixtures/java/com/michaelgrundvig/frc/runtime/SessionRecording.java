@@ -11,9 +11,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 /**
- * The robot program recording a scripted session in the simulator ({@link ReplaySessionRobot}), and
- * replaying its log, each run its own process. The log is what the robot logs, by name and type:
- * the runtime's replay test reads it, and so does a team's check of its dashboards' layouts.
+ * The robot program recording a scripted session in the simulator ({@link ReplaySessionRobot}, or
+ * {@link ControlsSessionRobot} with the guide's controls), and replaying its log, each run its own
+ * process. The log is what the robot logs, by name and type: the runtime's replay test reads it,
+ * and so does a team's check of its dashboards' layouts.
  */
 public final class SessionRecording {
   private SessionRecording() {}
@@ -30,11 +31,39 @@ public final class SessionRecording {
     return onlyLog(dir);
   }
 
+  /**
+   * Records a session of the guide's robot with its guide's controls ({@link
+   * ControlsSessionRobot}): moves that end, a gate that goes false and then true, and bindings that
+   * fire. It is a second session beside {@link #record}'s, which has no controls.
+   *
+   * @param dir the folder it runs in, which gets its {@code logs/}
+   * @return the session's log, as the robot recorded it
+   */
+  public static Path recordWithControls(Path dir) throws IOException, InterruptedException {
+    run(
+        ControlsSessionRobot.class,
+        dir,
+        "record",
+        Map.of("frc.simMode", "SIM", "pitwall.port", "0"),
+        Map.of());
+    return onlyLog(dir);
+  }
+
   /** Runs the session robot in its own process, in the test's temporary directory. */
   static void run(
       Path dir, String name, Map<String, String> properties, Map<String, String> environment)
       throws IOException, InterruptedException {
-    List<String> command = ChildJvm.command(List.of(), properties, ReplaySessionRobot.class);
+    run(ReplaySessionRobot.class, dir, name, properties, environment);
+  }
+
+  private static void run(
+      Class<?> robot,
+      Path dir,
+      String name,
+      Map<String, String> properties,
+      Map<String, String> environment)
+      throws IOException, InterruptedException {
+    List<String> command = ChildJvm.command(List.of(), properties, robot);
 
     Path output = dir.resolve(name + ".out");
     ProcessBuilder builder =
