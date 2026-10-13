@@ -21,6 +21,7 @@ import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.wpilib.command3.Command;
 
 /** A joint's gates, read from the simulator: each on what the joint measured this loop. */
 @ExtendWith(RobotSim.class)
@@ -120,6 +121,46 @@ class JointGatesSimTest {
     assertThat(atIntaking.getAsBoolean()).isFalse();
     assertThat(atGoal.getAsBoolean()).as("at its voltage").isTrue();
     assertThat(atIntaking.name()).isEqualTo("roller at intaking");
+  }
+
+  /**
+   * "Roller at intaking" says the roller is asked for intaking and turns at it. A command that
+   * takes the roller from one that was intaking is not told so on the answer for that one: not in
+   * the turn it takes the roller, nor in the turn it asks for intaking itself. It is from the next
+   * loop, the roller having never slowed. A gate made as the robot starts and one made once it runs
+   * say the same.
+   */
+  @Test
+  void anOutputsGateDoesNotAnswerForTheCommandBefore() {
+    Gate madeAtTheStart = roller.isAt(ROLLER_INTAKING);
+    sim.run(roller.run(ROLLER_INTAKING), 1);
+    Gate madeRunning = roller.isAt(ROLLER_INTAKING);
+    boolean[] underTheFirst = {madeAtTheStart.getAsBoolean(), madeRunning.getAsBoolean()};
+    List<Boolean> seen = new ArrayList<>();
+    double[] speedAsJudged = {Double.NaN};
+    Runnable look =
+        () -> {
+          seen.add(madeAtTheStart.getAsBoolean());
+          seen.add(madeRunning.getAsBoolean());
+        };
+    Command takes =
+        Command.requiring(roller)
+            .executing(
+                co -> {
+                  look.run(); // taken, and asked nothing
+                  co.fork(roller.run(ROLLER_INTAKING));
+                  look.run(); // asked, and not yet judged
+                  co.yield();
+                  look.run(); // judged
+                  speedAsJudged[0] = sim.simulation.velocity(ROLLER);
+                })
+            .named("Takes the roller");
+
+    sim.run(takes, 0.1);
+
+    assertThat(underTheFirst).containsExactly(true, true);
+    assertThat(seen).containsExactly(false, false, false, false, true, true);
+    assertThat(speedAsJudged[0]).as("it never slowed from 1500 rpm").isCloseTo(157, within(5.0));
   }
 
   /**

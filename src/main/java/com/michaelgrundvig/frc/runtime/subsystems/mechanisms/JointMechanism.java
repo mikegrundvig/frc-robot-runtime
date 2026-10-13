@@ -897,6 +897,12 @@ public final class JointMechanism implements Mechanism {
    * Whether it runs at one of its outputs, within its band for a speed: "shooter at shooting". One
    * not its own is refused as {@link #isAt(Position)} refuses a position.
    *
+   * <p>It runs at an output while a command asks it for that output, so this is about what it is
+   * asked, as {@link #isAtGoal} is, and not only about how fast it turns. In the turn a command
+   * takes it, or asks it for an output, it holds false until the joint has been judged against that
+   * at the loop's end, even if the command before ran it at the same output. Where it is, {@link
+   * #isAt(Position)}, is a fact, whoever has it.
+   *
    * @throws IllegalArgumentException if the output isn't one of its own, as the robot starts
    */
   public Gate isAt(Output output) {

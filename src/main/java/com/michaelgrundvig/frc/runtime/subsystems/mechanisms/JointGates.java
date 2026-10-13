@@ -21,12 +21,13 @@ import org.wpilib.math.filter.Debouncer;
  *
  * <p>Some of these state a fact about the joint, which is so whoever has the joint: where it is
  * ({@link #at}), and whether it knows where it is ({@link #ready}). The others say whether the
- * joint has done what it was asked: {@link #atGoal}. What a joint is asked can change in the middle
- * of a loop, when a command takes it or asks it something new, and what its motors were last told
- * then belongs to the question before. So such a gate holds false until the joint has been judged
- * against the question it is under now ({@link Tenure}), and tells its {@link Gate} when the
- * question changes ({@link Gate.Logic#question}), so that an answer worked out earlier in the loop
- * is not handed on.
+ * joint has done what it was asked: {@link #atGoal}, and for an output {@link #runningAt}, which is
+ * as much about what the joint is asked for as about how fast it turns. What a joint is asked can
+ * change in the middle of a loop, when a command takes it or asks it something new, and what its
+ * motors were last told then belongs to the question before. So each of these holds false until the
+ * joint has been judged against the question it is under now ({@link Tenure}), and tells its {@link
+ * Gate} when the question changes ({@link Gate.Logic#question}), so that an answer worked out
+ * earlier in the loop is not handed on.
  */
 final class JointGates {
   /** What the gates need to know of what the joint is doing, which its mechanism tells them. */
@@ -141,18 +142,20 @@ final class JointGates {
   }
 
   /**
-   * Whether the joint runs at one of its named outputs, within its band if the output is a speed.
+   * Whether the joint runs at one of its named outputs, within its band if the output is a speed:
+   * it is asked for that output now, and has been judged against the asking.
    */
   Gate.Logic runningAt(Output output) {
-    Remembered inside = new Remembered();
-    return why -> {
-      Optional<String> drivenName = doing.drivenName();
-      boolean isAskedForIt = drivenName.isPresent() && output.name().equals(drivenName.get());
-      boolean isRunningIt = doing.enabled() && isAskedForIt;
-      // Only a speed has a band to be inside. Any other output is run at as soon as it is asked.
-      boolean isASpeed = output.kind() == Output.Kind.VELOCITY;
-      inside.held = isRunningIt && (!isASpeed || withinSpeed(output.value(), inside.held));
-      return inside.held;
+    // Only a speed has a band to be inside. Any other output is run at as soon as it is applied.
+    boolean isASpeed = output.kind() == Output.Kind.VELOCITY;
+    return new OfWhatWasAsked() {
+      @Override
+      boolean isDoingIt(boolean wasRunningAtIt) {
+        Optional<String> drivenName = doing.drivenName();
+        boolean isAskedForIt = drivenName.isPresent() && output.name().equals(drivenName.get());
+        boolean isRunningIt = doing.enabled() && isAskedForIt;
+        return isRunningIt && (!isASpeed || withinSpeed(output.value(), wasRunningAtIt));
+      }
     };
   }
 
