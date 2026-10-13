@@ -746,8 +746,8 @@ drawn on both joints it is about. The roller that runs only once the pivot is ou
 pivot's card, and it stands out while the roller waits for it. The view is drawn from the
 program's own log, which AdvantageKit hands Pitwall loop by loop, and Pitwall keeps the last five
 minutes of it. So Pitwall reads the model: the runtime hands it the robot's definition, and what
-holds a joint is decided on the page's side by the model's own rules, from the logged positions and
-sensors.
+holds a joint is the robot's own logged fact, which the page resolves against the model and words
+with the model's own sentences.
 
 **Why.** The class of bug is a tuned value that lives somewhere other than the code. The code in
 the repository is then not what ran. A swapped motor controller loses the value, and a redeploy
@@ -767,7 +767,7 @@ several top teams' public code tunes live through logged tunable numbers and sav
 robot. The page has never been used in a real pit, and what its web server costs the loop on a
 Systemcore has not been measured. The Robot view's part is measured in the simulator and nowhere
 else: taking a loop of the log costs about 25 microseconds on the log's own thread and allocates
-nothing, and the five minutes it keeps take 9 MB for a robot with eight joints.
+nothing, and the five minutes it keeps take 12 MB for a robot with eight joints.
 
 **What it costs.** It is one more tool, and no other team uses it. The paste step can be forgotten,
 and the change is then gone when the field connects. That is safe, and it will surprise someone who
