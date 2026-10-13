@@ -85,7 +85,7 @@ public final class SessionRecording {
   /**
    * Records a session of the guide's robot driven about the field and then shoved ({@link
    * WorldSessionRobot}): its cameras' measurements accepted and then refused, and the estimate
-   * recovering. Beside every loop's record it logs what the robot's own objects said of that loop.
+   * recovering. Beside every loop's record it logs what the robot's own objects said in that loop.
    *
    * @param dir the folder it runs in, which gets its {@code logs/}
    * @return the session's log, as the robot recorded it

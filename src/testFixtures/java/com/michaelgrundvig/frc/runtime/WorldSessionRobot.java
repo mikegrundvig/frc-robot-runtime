@@ -1,34 +1,40 @@
 package com.michaelgrundvig.frc.runtime;
 
+import com.michaelgrundvig.frc.localization.FrameVerdict;
+import com.michaelgrundvig.frc.localization.LocalizerReport;
+import com.michaelgrundvig.frc.localization.PoseCovariance;
+import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.pitwall.simulator.JoystickInput;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
-import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
-import com.michaelgrundvig.frc.runtime.views.world.LiveWorldWitness;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.Gamepad;
 import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
+import org.wpilib.math.geometry.Pose2d;
+import org.wpilib.math.geometry.Pose3d;
+import org.wpilib.math.kinematics.SwerveModuleVelocity;
 
 /**
  * The guide's robot driven about the field in the simulator, then shoved, for the check that the
- * World view drawn from the record is the view of the robot's own objects ({@link
+ * World view drawn from the record shows what the robot's own objects said ({@link
  * SessionRecording#recordTheWorld}). It drives so its cameras see tags and the estimate follows
  * them. Then two of its cameras go blind and something shoves it most of a meter sideways, into the
  * field, which its wheels never feel: the estimate and the truth part, the cameras' measurements
  * are refused, and the estimate recovers.
  *
- * <p>Every loop a witness logs what the live view's layers say of the robot's own objects ({@link
- * LiveWorldWitness}), beside the loop's record. Like the other session robots it runs on a clock of
- * its own ({@link SessionClock}), so it is the same session on any computer.
+ * <p>Every loop it logs, beside the loop's record, what the robot's own objects say at the end of
+ * that loop ({@code Witness/World}): localization's pose and how sure it is, the simulator's true
+ * pose, the wheels as the drivetrain measured them, and what the estimator made of each camera
+ * image. Like the other session robots it runs on a clock of its own ({@link SessionClock}), so it
+ * is the same session on any computer.
  */
 final class WorldSessionRobot extends Robot {
   /** How many loops the recorded session runs, about twelve seconds. */
@@ -41,9 +47,6 @@ final class WorldSessionRobot extends Robot {
 
   /** The clock the recorded session runs on. */
   private final Optional<SessionClock> clock;
-
-  /** What the live view says, logged every loop; made in the first loop, once the robot is. */
-  private @Nullable LiveWorldWitness witness;
 
   private int loop;
 
@@ -70,22 +73,66 @@ final class WorldSessionRobot extends Robot {
   public void robotPeriodic() {
     script(++loop);
     super.robotPeriodic();
-    witness().log();
+    logTheWitness();
   }
 
-  private LiveWorldWitness witness() {
-    LiveWorldWitness made = witness;
-    if (made == null) {
-      SimulatedWorld world = container().world().orElseThrow();
-      made =
-          new LiveWorldWitness(
-              container().matchField()::field,
-              ExampleRobot.COMPETITION.definition(),
-              container().worldReadings(),
-              () -> world.drivetrain().truePose3d());
-      witness = made;
+  /**
+   * Logs what the robot's own objects say now, each as plain numbers and names: nothing of it comes
+   * from the log's own keys.
+   */
+  private void logTheWitness() {
+    RobotContainer robot = container();
+    LocalizerReport report = robot.localization().report();
+    Pose2d pose = report.pose();
+    double height = robot.matchField().field().terrain().heightAt(pose.getTranslation());
+    Logger.recordOutput(
+        "Witness/World/Estimate",
+        new double[] {
+          pose.getX(),
+          pose.getY(),
+          height,
+          robot.localization().rollRadians(),
+          robot.localization().pitchRadians(),
+          pose.getRotation().getRadians()
+        });
+    double[] spread = new double[0];
+    if (report.covariance().isPresent()) {
+      PoseCovariance covariance = report.covariance().get();
+      spread = new double[] {covariance.largestPositionStdDev(), covariance.xx() + covariance.yy()};
     }
-    return made;
+    Logger.recordOutput("Witness/World/Spread", spread);
+    Logger.recordOutput("Witness/World/Rests", report.mode().map(Enum::name).orElse(""));
+    Logger.recordOutput(
+        "Witness/World/Recoveries", report.health().map(health -> health.recoveries()).orElse(-1));
+    Pose3d truth = robot.world().orElseThrow().drivetrain().truePose3d();
+    Logger.recordOutput(
+        "Witness/World/Truth",
+        new double[] {
+          truth.getX(),
+          truth.getY(),
+          truth.getZ(),
+          truth.getRotation().getX(),
+          truth.getRotation().getY(),
+          truth.getRotation().getZ()
+        });
+    SwerveModuleVelocity[] modules = robot.drive().moduleVelocities();
+    double[] wheels = new double[2 * modules.length];
+    for (int each = 0; each < modules.length; each++) {
+      wheels[2 * each] = modules[each].velocity;
+      wheels[2 * each + 1] = modules[each].angle.getRadians();
+    }
+    Logger.recordOutput("Witness/World/Modules", wheels);
+    List<String> measured = new ArrayList<>();
+    for (FrameVerdict frame : robot.frames()) {
+      if (frame.measured().isEmpty()) {
+        continue;
+      }
+      for (TagVerdict tag : frame.tags()) {
+        String fared = tag.accepted() ? "ok" : "bad";
+        measured.add(frame.camera() + "." + tag.tag() + "." + fared);
+      }
+    }
+    Logger.recordOutput("Witness/World/Measured", measured.toArray(String[]::new));
   }
 
   /** The loops run, logged after every loop, and with it the moment the session's clock moves. */

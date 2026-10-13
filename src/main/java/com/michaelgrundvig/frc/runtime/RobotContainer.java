@@ -6,7 +6,6 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationService;
-import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.pitwall.Actions;
@@ -15,7 +14,9 @@ import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.experiment.Experiment;
 import com.michaelgrundvig.frc.pitwall.experiment.Profile;
 import com.michaelgrundvig.frc.pitwall.experiment.Profiles;
+import com.michaelgrundvig.frc.pitwall.robot.RobotSession;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
+import com.michaelgrundvig.frc.pitwall.world.WorldScene;
 import com.michaelgrundvig.frc.runtime.autos.AutoPit;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
@@ -41,7 +42,6 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.runtime.venues.Venues;
-import com.michaelgrundvig.frc.runtime.views.world.WorldView;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Placement;
@@ -59,18 +59,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
-import org.jspecify.annotations.Nullable;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.driverstation.Gamepad;
 import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Pose2d;
-import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
-import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.system.RobotController;
 import org.wpilib.tunable.TunableRegistry;
 
@@ -196,7 +192,7 @@ public final class RobotContainer implements AutoCloseable {
   private final Vision vision;
   private final Localization localization;
 
-  /** What the estimator did with the last loop's camera frames, for the World view. */
+  /** What the estimator did with the last loop's camera frames. */
   private List<FrameVerdict> frames = List.of();
 
   private final Calibration calibration;
@@ -673,25 +669,29 @@ public final class RobotContainer implements AutoCloseable {
   }
 
   /**
-   * The World view: the field, the robot where localization believes it is, its cameras' sight
-   * lines with what became of each frame, and, in the simulator, where the robot really is.
+   * The World view: the field, the robot where localization believed it was, its cameras' sight
+   * lines with what became of each image, and, in the simulator, where the robot really was.
+   * Pitwall draws it from the robot's record, loop by loop, so there is one only when Pitwall has
+   * the robot's session of its log.
    */
   private void addTheWorldView(Pitwall pitwall) {
-    // The view takes null for a robot whose true pose nobody knows, which is every real one.
-    @Nullable Supplier<Pose3d> truth = null;
-    if (world.isPresent()) {
-      SimulatedWorld simulated = world.get();
-      truth = () -> simulated.drivetrain().truePose3d();
+    Optional<RobotSession> session = pitwall.session();
+    if (session.isEmpty()) {
+      return;
     }
-    pitwall
-        .scenes()
-        .add(
-            WorldView.scene(
-                matchField::field,
-                definition,
-                worldReadings(),
-                truth,
-                camera -> Optional.of(Calibration.cameraMountAction(camera))));
+    // Only a simulator's record says where the robot really is.
+    WorldScene.Truth truth = WorldScene.Truth.NOT_KNOWN;
+    if (world.isPresent()) {
+      truth = WorldScene.Truth.IN_THE_RECORD;
+    }
+    WorldScene scene =
+        WorldScene.of(
+            definition,
+            matchField::field,
+            truth,
+            Vision.sightingWords(),
+            camera -> Optional.of(Calibration.cameraMountAction(camera)));
+    pitwall.scenes().add(scene.scene(session.get()));
   }
 
   /**
@@ -718,39 +718,6 @@ public final class RobotContainer implements AutoCloseable {
         // The joints already raise these two as alerts. The page shows the same two checks.
         .add("Mechanisms/Switches trusted", () -> joints.switchDoubts().isEmpty())
         .add("Mechanisms/Power channels", () -> joints.deadChannels().isEmpty());
-  }
-
-  /**
-   * What the World view reads each loop while a page shows it: localization's estimate and the
-   * wheels' velocities.
-   */
-  WorldView.Readings worldReadings() {
-    return new WorldView.Readings() {
-      @Override
-      public LocalizerReport report() {
-        return localization.report();
-      }
-
-      @Override
-      public double pitchRadians() {
-        return localization.pitchRadians();
-      }
-
-      @Override
-      public double rollRadians() {
-        return localization.rollRadians();
-      }
-
-      @Override
-      public SwerveModuleVelocity[] modules() {
-        return drive.moduleVelocities();
-      }
-
-      @Override
-      public List<FrameVerdict> frames() {
-        return frames;
-      }
-    };
   }
 
   // ---- The parts, for tests and for the robot program ----
