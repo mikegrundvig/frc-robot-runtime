@@ -29,14 +29,14 @@ class ExampleAutosSimTest {
         assertThat(result.moves()).as("moves nothing").isEmpty();
       } else {
         assertThat(result.moves())
-            .anyMatch(line -> line.startsWith("drive → Pickup: ARRIVED in "))
-            .anyMatch(line -> line.startsWith("pivot → in: ARRIVED in "));
+            .anySatisfy(move -> move.named("drive → Pickup").arrived())
+            .anySatisfy(move -> move.named("pivot → in").arrived());
       }
       if (result.auto().equals("Grab and shoot")) {
         assertThat(result.moves())
             .as("the second leg, and a feed that ran")
-            .anyMatch(line -> line.startsWith("drive → Shot: ARRIVED in "))
-            .anyMatch(line -> line.startsWith("feeder and indexer: feeding: CANCELED after "));
+            .anySatisfy(move -> move.named("drive → Shot").arrived())
+            .anySatisfy(move -> move.named("feeder and indexer: feeding").canceled());
       }
     }
   }

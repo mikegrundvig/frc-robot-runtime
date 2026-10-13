@@ -65,6 +65,11 @@ public final class Ended {
     return of(move.ending().orElseThrow());
   }
 
+  /** How a move of joints ended, from the ending a test kept when it ended. */
+  public static Ended ended(MoveEnding ending) {
+    return of(ending);
+  }
+
   /** How the last move on a joint ended. The test fails if none has ended on it. */
   public static Ended ended(JointMechanism joint) {
     assertThat(joint.lastEnding()).as("a move on %s has ended", joint.getName()).isPresent();

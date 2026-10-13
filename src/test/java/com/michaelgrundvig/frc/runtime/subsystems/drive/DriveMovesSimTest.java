@@ -16,6 +16,7 @@ import com.michaelgrundvig.frc.world.record.DriveOutcome;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -288,6 +289,9 @@ class DriveMovesSimTest {
     assertThat(thrown).containsExactlyEntriesOf(expected);
   }
 
+  /** What a refused move is named and says. */
+  private record Refused(String name, String why) {}
+
   /**
    * Made once the robot runs, inside a command, the same deadlines make moves that end REFUSED as
    * they start, saying the same, every kind alike: the robot stays put and the command runs on.
@@ -295,7 +299,7 @@ class DriveMovesSimTest {
   @Test
   void aDeadlineThatIsntATimeAboveZeroMadeWhileTheRobotRunsIsRefused() {
     Map<String, DriveMove> moves = new LinkedHashMap<>();
-    Map<String, String> expected = new LinkedHashMap<>();
+    Map<String, Refused> expected = new LinkedHashMap<>();
     boolean[] ended = {false};
     Command wrong =
         Command.requiring(drive)
@@ -310,10 +314,12 @@ class DriveMovesSimTest {
                                     moves.put(row, move.get().within(Seconds.of(seconds)));
                                     expected.put(
                                         row,
-                                        name
-                                            + ": REFUSED: a deadline is a time above 0 s, not "
-                                            + shown
-                                            + " s: give within() how long the move may take");
+                                        new Refused(
+                                            name,
+                                            "a deadline is a time above 0 s, not "
+                                                + shown
+                                                + " s: give within() how long the move may"
+                                                + " take"));
                                   }));
                   for (DriveMove move : moves.values()) {
                     co.await(move);
@@ -329,9 +335,15 @@ class DriveMovesSimTest {
       loops++;
     }
 
-    Map<String, String> reasons = new LinkedHashMap<>();
-    moves.forEach((row, move) -> reasons.put(row, move.reason()));
-    assertThat(reasons).containsExactlyEntriesOf(expected);
+    moves.forEach(
+        (row, move) -> {
+          Refused refused = Objects.requireNonNull(expected.get(row), row);
+          ended(move)
+              .named(refused.name())
+              .refused()
+              .because(MoveReason.REFUSED_AS_BUILT)
+              .saying(refused.why());
+        });
     assertThat(moves.values())
         .allSatisfy(move -> assertThat(move.outcome()).contains(Outcome.REFUSED));
     assertThat(ended[0]).as("the command ran on to its end").isTrue();

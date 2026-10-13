@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
@@ -160,15 +161,25 @@ class JointFaultsSimTest {
     joints.write();
   }
 
-  /** What the pivot did over some loops: what held it each loop, and each doubt said of it. */
-  private record Idled(List<String> heldBy, List<String> doubts) {}
+  /**
+   * What the pivot did over some loops: each different thing that held it, in the order they first
+   * held it (an empty list is a loop in which nothing held it), and each doubt said of it.
+   */
+  private record Idled(List<List<Holder>> heldBy, List<String> doubts) {}
+
+  /** A loop in which nothing holds the pivot. */
+  private static final List<Holder> NOT_HELD = List.of();
+
+  /** What holds a joint whose position is not a number: nowhere to hold, so it is neutral. */
+  private static final List<Holder> NOWHERE_TO_HOLD =
+      List.of(Holder.noPosition(ROBOT.joints().indexOf(PIVOT)));
 
   private Idled idleFor(int loops, boolean enabled) {
-    Set<String> heldBy = new LinkedHashSet<>();
+    Set<List<Holder>> heldBy = new LinkedHashSet<>();
     Set<String> doubts = new LinkedHashSet<>();
     for (int i = 0; i < loops; i++) {
       loop(enabled);
-      heldBy.add(pivot.heldBy());
+      heldBy.add(List.copyOf(pivot.holders()));
       doubts.addAll(joints.switchDoubts());
     }
     return new Idled(List.copyOf(heldBy), List.copyOf(doubts));
@@ -198,15 +209,15 @@ class JointFaultsSimTest {
     pivotIo.readsNoNumber = false;
     Idled wholeAgain = idleFor(5, true);
 
-    assertThat(whole).isEqualTo(new Idled(List.of(""), List.of()));
+    assertThat(whole).isEqualTo(new Idled(List.of(NOT_HELD), List.of()));
     assertThat(holdingOn)
         .as("it holds on where it held")
-        .isEqualTo(new Idled(List.of(""), List.of(doubt)));
+        .isEqualTo(new Idled(List.of(NOT_HELD), List.of(doubt)));
     assertThat(stillHeld).isEqualTo(held);
     assertThat(nowhere)
         .as("enabled with nowhere to hold")
-        .isEqualTo(new Idled(List.of("pivot's position isn't a number"), List.of(doubt)));
-    assertThat(wholeAgain).isEqualTo(new Idled(List.of(""), List.of()));
+        .isEqualTo(new Idled(List.of(NOWHERE_TO_HOLD), List.of(doubt)));
+    assertThat(wholeAgain).isEqualTo(new Idled(List.of(NOT_HELD), List.of()));
     assertThat(pivot.goal())
         .as("it holds where it read a number again, having sunk while it was neutral")
         .isCloseTo(pivot.position(), within(1e-3));

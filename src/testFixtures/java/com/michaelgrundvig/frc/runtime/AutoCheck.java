@@ -58,7 +58,8 @@ public final class AutoCheck {
    * @param alliance the alliance it ran on
    * @param ended where the robot really ended, if it started
    * @param run how the auto ended, if it started
-   * @param moves each drive and joint move's outcome line, in the order they ended
+   * @param moves how each drive and joint move ended, in the order they ended: ask each with the
+   *     {@link Ended} checks, or print it for its sentence
    * @param problems everything wrong, in words; empty when it passed
    */
   public record Result(
@@ -66,7 +67,7 @@ public final class AutoCheck {
       Alliance alliance,
       Optional<Pose2d> ended,
       Optional<Autos.Run> run,
-      List<String> moves,
+      List<Ended> moves,
       List<String> problems) {
     /** Whether nothing was wrong. */
     public boolean passed() {
@@ -88,7 +89,7 @@ public final class AutoCheck {
                           pose.getRotation().getDegrees()))
               .orElse("did not start"));
       run.ifPresent(each -> text.append(", ").append(each.describe()));
-      for (String move : moves) {
+      for (Ended move : moves) {
         text.append("\n    ").append(move);
       }
       for (String problem : problems) {
@@ -138,7 +139,7 @@ public final class AutoCheck {
     RobotSim.setEnabled(false);
     sim.build(robot, SensorErrors.NONE);
     sim.controls(controls);
-    List<String> moves = new ArrayList<>();
+    List<Ended> moves = new ArrayList<>();
     List<String> problems = new ArrayList<>();
     sim.scheduler().addEventListener(event -> heard(event, moves, problems));
     Autos autos = sim.robot().autos();
@@ -190,25 +191,25 @@ public final class AutoCheck {
   }
 
   /** Records each drive and joint move as it ends, and a refused one as a problem. */
-  private static void heard(SchedulerEvent event, List<String> moves, List<String> problems) {
+  private static void heard(SchedulerEvent event, List<Ended> moves, List<String> problems) {
     Command command = null;
     if (event instanceof SchedulerEvent.Completed done) {
       command = done.command();
     } else if (event instanceof SchedulerEvent.Canceled canceled) {
       command = canceled.command();
     }
-    if (command instanceof DriveMove move) {
-      ended(move.outcome(), move.reason(), moves, problems);
-    } else if (command instanceof Move move) {
-      ended(move.outcome(), move.reason(), moves, problems);
+    if (command instanceof DriveMove move && move.ending().isPresent()) {
+      ended(move.outcome(), Ended.ended(move), moves, problems);
+    } else if (command instanceof Move move && move.ending().isPresent()) {
+      ended(move.outcome(), Ended.ended(move), moves, problems);
     }
   }
 
   private static void ended(
-      Optional<Outcome> outcome, String reason, List<String> moves, List<String> problems) {
-    moves.add(reason);
+      Optional<Outcome> outcome, Ended ended, List<Ended> moves, List<String> problems) {
+    moves.add(ended);
     if (outcome.isPresent() && outcome.get() == Outcome.REFUSED) {
-      problems.add("a move was refused: " + reason);
+      problems.add("a move was refused: " + ended);
     }
   }
 }

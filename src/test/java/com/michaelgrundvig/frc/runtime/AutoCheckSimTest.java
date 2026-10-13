@@ -55,10 +55,11 @@ class AutoCheckSimTest {
     for (AutoCheck.Result result : results) {
       assertThat(result.passed()).isTrue();
     }
-    assertThat(of(results, "To the hub", Alliance.RED).moves()).hasSize(1);
-    assertThat(of(results, "To the hub", Alliance.RED).describe())
-        .startsWith("To the hub on RED: ended at (")
-        .contains("drive → Hub: ARRIVED in ");
+    AutoCheck.Result onRed = of(results, "To the hub", Alliance.RED);
+    assertThat(onRed.ended()).as("the robot started, and ended somewhere").isPresent();
+    assertThat(onRed.moves())
+        .singleElement()
+        .satisfies(move -> move.named("drive → Hub").arrived());
   }
 
   @Test

@@ -17,6 +17,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Move;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -124,19 +125,21 @@ class DisablingSimTest {
 
     disabledFor(0.02);
     List<String> runningAsItWasDisabled = running();
-    String endedAsItWasDisabled = out.reason();
+    Ended endedAsItWasDisabled = ended(out);
     sim.run(2);
-    String afterItsOldDeadline = out.reason();
+    Ended afterItsOldDeadline = ended(out);
     double whereItWasLeft = truth.position(PIVOT);
     enabledAgainFor(1);
 
     assertThat(runningAsItWasDisabled).doesNotContain("pivot → out");
-    assertThat(endedAsItWasDisabled)
-        .matches(
-            "pivot → out: CANCELED after 0\\.20 s, pivot at \\d+(\\.\\d+)?°: the robot was disabled");
-    assertThat(afterItsOldDeadline)
-        .as("its deadline, 1.62 s after it started, passed while disabled, and nothing timed out")
-        .isEqualTo(endedAsItWasDisabled);
+    endedAsItWasDisabled
+        .named("pivot → out")
+        .canceled()
+        .partWay()
+        .because(MoveReason.ROBOT_DISABLED)
+        .in(0.20);
+    // Its deadline, 1.62 s after it started, passed while disabled, and nothing timed out.
+    afterItsOldDeadline.named("pivot → out").canceled().because(MoveReason.ROBOT_DISABLED).in(0.20);
     assertThat(degrees(whereItWasLeft)).as("neutral part way out").isBetween(20.0, 60.0);
     assertThat(pivot.goal()).as("it holds where it is").isCloseTo(whereItWasLeft, within(0.02));
     assertThat(truth.position(PIVOT)).isCloseTo(whereItWasLeft, within(0.04));
@@ -214,7 +217,7 @@ class DisablingSimTest {
     disabledFor(2);
     List<String> runningWhileDisabled = running();
     double whileDisabled = truth.velocity(ROLLER);
-    String outcomeWhileDisabled = sim.joints().of(ROLLER).lastOutcome();
+    Ended outcomeWhileDisabled = ended(sim.joints().of(ROLLER));
     RobotSim.setEnabled(true);
     List<String> firedOnceEnabled = firedDuring(1);
     List<String> runningStillHeld = running();
@@ -227,9 +230,11 @@ class DisablingSimTest {
     assertThat(intaking).isCloseTo(2000 * RPM, within(20.0));
     assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
     assertThat(whileDisabled).as("not driven while disabled").isCloseTo(0, within(1.0));
-    assertThat(outcomeWhileDisabled)
-        .isEqualTo(
-            "roller: intaking until piece in: CANCELED after 1.50 s: the robot was disabled");
+    outcomeWhileDisabled
+        .named("roller: intaking until piece in")
+        .canceled()
+        .because(MoveReason.ROBOT_DISABLED)
+        .in(1.50);
     assertThat(firedOnceEnabled).as("held through the disable").isEmpty();
     assertThat(runningStillHeld).doesNotContain("Intake");
     assertThat(stillHeld).as("idle, it stays stopped").isCloseTo(0, within(1.0));
@@ -310,19 +315,24 @@ class DisablingSimTest {
 
     disabledFor(2);
     List<String> runningWhileDisabled = running();
-    String followWhileDisabled = sim.joints().of(SHOOTER).lastOutcome();
-    String feedWhileDisabled = sim.joints().of(FEEDER).lastOutcome();
+    Ended followWhileDisabled = ended(sim.joints().of(SHOOTER));
+    Ended feedWhileDisabled = ended(sim.joints().of(FEEDER));
     enabledAgainFor(1.5);
 
     assertThat(feeding).isCloseTo(1000 * RPM, within(10.0));
     assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
-    assertThat(followWhileDisabled)
-        .matches(
-            "shooter follows a target: CANCELED after 2\\.00 s, shooter at \\d+ rpm, its target 3000"
-                + " rpm: the robot was disabled");
-    assertThat(feedWhileDisabled)
-        .matches(
-            "feeder and indexer: feeding: CANCELED after \\d\\.\\d\\d s: the robot was disabled");
+    followWhileDisabled
+        .named("shooter follows a target")
+        .canceled()
+        .because(MoveReason.ROBOT_DISABLED)
+        .in(2.00);
+    assertThat(followWhileDisabled.partOf(SHOOTER).targetNumber())
+        .as("the speed it was chasing")
+        .isCloseTo(3000 * RPM, within(1.0));
+    feedWhileDisabled
+        .named("feeder and indexer: feeding")
+        .canceled()
+        .because(MoveReason.ROBOT_DISABLED);
     assertThat(running()).as("held through the disable").containsExactly("Drive with the sticks");
     assertThat(truth.velocity(FEEDER)).as("idle, it stays stopped").isCloseTo(0, within(1.0));
   }
@@ -433,8 +443,7 @@ class DisablingSimTest {
 
     assertThat(runningInAutonomous).contains("Grab and shoot", "drive → Pickup", "Intake");
     assertThat(runningInTeleop).containsExactly("Drive with the sticks");
-    assertThat(sim.autos().lastRun().orElseThrow().describe())
-        .isEqualTo("Grab and shoot: CUT OFF after 1.00 s, as autonomous ended");
+    Ran.lastRunOf(sim.autos()).named("Grab and shoot").cutOff().after(1.00);
     ended(sim.joints().of(ROLLER))
         .named("roller: intaking until piece in")
         .canceled()
@@ -463,8 +472,7 @@ class DisablingSimTest {
     enabledAgainFor(1);
 
     assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
-    assertThat(sim.autos().lastRun().orElseThrow().describe())
-        .isEqualTo("Grab and shoot: CUT OFF after 1.00 s, as autonomous ended");
+    Ran.lastRunOf(sim.autos()).named("Grab and shoot").cutOff().after(1.00);
     ended(sim.joints().of(ROLLER))
         .named("roller: intaking until piece in")
         .canceled()

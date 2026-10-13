@@ -210,8 +210,11 @@ class RobotContainerSimTest {
     sim.loops(1);
 
     assertEquals(start("Left", Alliance.RED), sim.robot().drive().getPose());
-    assertThat(sim.robot().matchField().placement().describe())
-        .isEqualTo("Ready on Left: 0 cm, 0° off");
+    Placement placement = sim.robot().matchField().placement();
+    assertThat(placement.status()).isEqualTo(Placement.Status.READY);
+    assertThat(placement.start()).isEqualTo("Left");
+    assertThat(placement.distanceMeters()).as("off its start by").isCloseTo(0, within(0.005));
+    assertThat(placement.headingErrorDegrees()).as("turned off by").isCloseTo(0, within(0.5));
   }
 
   @Test
@@ -325,7 +328,8 @@ class RobotContainerSimTest {
 
     assertThat(sim.robot().drive().getPose().getX()).isCloseTo(FIELD.length() / 2, within(1e-9));
     assertThat(sim.robot().matchField().allianceStation()).isEqualTo("Unknown");
-    assertThat(sim.robot().matchField().placement().describe()).isEqualTo("Alliance unknown");
+    assertThat(sim.robot().matchField().placement().status())
+        .isEqualTo(Placement.Status.ALLIANCE_UNKNOWN);
   }
 
   @Test

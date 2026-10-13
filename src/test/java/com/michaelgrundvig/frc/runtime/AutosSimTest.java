@@ -77,7 +77,7 @@ class AutosSimTest {
     assertThat(autos().names()).containsExactly("Do nothing");
     assertThat(autos().chosen().name()).isEqualTo("Do nothing");
     assertThat(autos().chosen().start()).as("starts where the Driver Station says").isEmpty();
-    assertThat(autos().lastRun().orElseThrow().describe()).startsWith("Do nothing: COMPLETED in ");
+    Ran.lastRunOf(autos()).named("Do nothing").completed();
     assertThat(sim.simulation().truePose()).isEqualTo(before);
   }
 
@@ -189,9 +189,7 @@ class AutosSimTest {
 
     assertThat(sim.scheduler().isRunning(counting.made.get(0))).isFalse();
     assertThat(counting.loops).as("stopped as autonomous ended").isEqualTo(atEnd);
-    assertThat(autos().lastRun().orElseThrow().describe())
-        .startsWith("Forever: CUT OFF after 1.0")
-        .contains(" s, as autonomous ended");
+    Ran.lastRunOf(autos()).named("Forever").cutOff().inBetween(1.0, 1.1);
   }
 
   /** The pit's choice is taken at the start of a loop while disabled, and never while enabled. */
@@ -239,9 +237,11 @@ class AutosSimTest {
 
     autonomous(0.5);
 
-    assertThat(autos().lastRun().orElseThrow().describe())
-        .isEqualTo(
-            "Broken: FAILED after 0.00 s: it couldn't be built: IllegalStateException: no path named Left 9");
+    Ran.lastRunOf(autos())
+        .named("Broken")
+        .failed()
+        .after(0.00)
+        .threw("IllegalStateException: no path named Left 9");
     assertThat(autos().failure().orElseThrow()).contains("Broken").contains("no path named Left 9");
     assertThat(sim.scheduler().getRunningCommands()).noneMatch(c -> c.name().equals("Broken"));
 
@@ -280,9 +280,7 @@ class AutosSimTest {
     sim.loopOnRobot();
     sim.loopOnRobot();
 
-    assertThat(autos().lastRun().orElseThrow().describe())
-        .startsWith("Throws: FAILED after ")
-        .endsWith(": IllegalStateException: boom");
+    Ran.lastRunOf(autos()).named("Throws").failed().threw("IllegalStateException: boom");
     assertThat(autos().failure().orElseThrow()).contains("Throws").contains("boom");
   }
 
@@ -342,7 +340,7 @@ class AutosSimTest {
     assertThat(red.getX()).as("red's Left is across the field").isGreaterThan(8.27);
     assertThat(onBlue.status()).isEqualTo(Placement.Status.READY);
     assertThat(onRed.status()).isEqualTo(Placement.Status.READY);
-    assertThat(onBlue.describe()).startsWith("Ready on Left: ");
+    assertThat(onBlue.start()).as("the start it is on").isEqualTo("Left");
     assertThat(sim.placement().status())
         .as("driven off its start")
         .isEqualTo(Placement.Status.NOT_ON_A_START);

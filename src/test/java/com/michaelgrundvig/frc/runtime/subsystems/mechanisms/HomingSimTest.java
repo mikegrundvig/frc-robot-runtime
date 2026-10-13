@@ -18,6 +18,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.record.MoveOutcome;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.record.MoveTarget;
@@ -86,12 +87,16 @@ class HomingSimTest {
     sim.simulation.powerOnAt(ELEVATOR, 1.2);
 
     sim.loop();
-    String homing = elevator.stateShown();
+    JointState homing = elevator.stateRecorded();
     double took = sim.runUntil(() -> elevator.state() != JointMechanism.State.HOMING, 10);
     sim.loop();
 
     assertThat(Homing.travelSeconds(ROBOT.math(), ELEVATOR, 2)).isCloseTo(4.51, within(0.01));
-    assertThat(homing).isEqualTo("HOMING: toward its lower stop, for at most 9.5 s");
+    assertThat(homing.standing()).isEqualTo(JointState.Standing.HOMING);
+    assertThat(homing.toward()).isEqualTo(JointState.Toward.LOWER_STOP);
+    assertThat(homing.secondsAllowed())
+        .as("the time worked out from its travel")
+        .isCloseTo(9.5, within(0.05));
     assertThat(elevator.state()).isEqualTo(JointMechanism.State.READY);
     assertThat(took).isGreaterThan(3).isLessThan(9.5);
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0, within(0.005));

@@ -16,10 +16,13 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Binding;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
+import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveEnding;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.record.MoveResult;
 import java.util.Objects;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.wpilib.math.geometry.Pose2d;
@@ -127,16 +130,15 @@ class ControlsSimTest {
 
     sim.operator().setFaceDownButton(true);
     sim.operator().notifyNewData();
-    String timedOut = "";
+    Optional<MoveEnding> timedOut = Optional.empty();
     for (int loop = 0; loop < 250 && timedOut.isEmpty(); loop++) {
       sim.loop();
-      if (pivot.lastOutcome().startsWith("pivot → out: TIMED_OUT after ")) {
-        timedOut = pivot.lastOutcome();
-      }
+      timedOut = pivot.lastEnding().filter(ending -> ending.result() == MoveResult.TIMED_OUT);
     }
     sim.run(1);
 
-    assertThat(timedOut).startsWith("pivot → out: TIMED_OUT after ").contains("pivot at ");
+    assertThat(timedOut).as("the deploy timed out").isPresent();
+    ended(timedOut.orElseThrow()).named("pivot → out").timedOut().partWay();
     ended(pivot).named("pivot → in").arrived();
     assertThat(truth.position(PIVOT)).isCloseTo(Math.toRadians(1.5), within(0.03));
   }
