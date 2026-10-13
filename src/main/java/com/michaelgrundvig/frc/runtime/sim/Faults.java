@@ -32,6 +32,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Component;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Fault;
 import com.michaelgrundvig.frc.pitwall.simulator.Values;
+import com.michaelgrundvig.frc.pitwall.world.SimulatedParts;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
@@ -40,6 +41,7 @@ import com.michaelgrundvig.frc.world.field.Surface;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import org.wpilib.math.geometry.Pose2d;
@@ -93,6 +95,42 @@ public final class Faults {
     if (!world.vision().tagIds().isEmpty()) {
       components.add(field(world.vision()));
     }
+  }
+
+  /**
+   * Which of these parts each part of the robot is, by the names they are declared under here:
+   * Pitwall's World view offers a part's faults where the part is clicked.
+   */
+  public static SimulatedParts parts() {
+    return new SimulatedParts() {
+      @Override
+      public Optional<String> camera(String name) {
+        return Optional.of(FaultCatalog.camera(name));
+      }
+
+      @Override
+      public Optional<String> gyro() {
+        return Optional.of(GYRO);
+      }
+
+      @Override
+      public Optional<String> backupImu() {
+        return Optional.of(BACKUP_IMU);
+      }
+
+      @Override
+      public Optional<String> module(int index) {
+        if (index < 0 || index >= MODULES.size()) {
+          return Optional.empty();
+        }
+        return Optional.of(FaultCatalog.module(index));
+      }
+
+      @Override
+      public Optional<String> robot() {
+        return Optional.of(ROBOT);
+      }
+    };
   }
 
   /**
@@ -315,10 +353,15 @@ public final class Faults {
             () -> drivetrain.grip() < 1,
             values -> drivetrain.grip(values.get(GRIP)),
             () -> drivetrain.grip(1)));
+    // Its X and Y are a place on the field, which Pitwall's World view can take from a click.
+    FaultCatalog.Fault placed =
+        FaultCatalog.Robot.placed(world.field().length(), world.field().width());
     faults.add(
-        event(
-            FaultCatalog.Robot.placed(world.field().length(), world.field().width()),
-            values -> world.place(placed(values))));
+        declared(placed, FaultCatalog.Lifetime.HAPPENS_ONCE)
+            .point(X, Y)
+            .apply(values -> world.place(placed(values)))
+            .undoneBy(placed.undone())
+            .build());
     if (hasBumps(world)) {
       faults.add(event(FaultCatalog.Robot.TO_A_BUMP, values -> beforeTheNearestBump(world)));
     }

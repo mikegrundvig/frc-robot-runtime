@@ -16,6 +16,7 @@ import com.michaelgrundvig.frc.pitwall.experiment.Profile;
 import com.michaelgrundvig.frc.pitwall.experiment.Profiles;
 import com.michaelgrundvig.frc.pitwall.robot.RobotSession;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
+import com.michaelgrundvig.frc.pitwall.world.SimulatedParts;
 import com.michaelgrundvig.frc.pitwall.world.WorldScene;
 import com.michaelgrundvig.frc.runtime.autos.AutoPit;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
@@ -30,6 +31,7 @@ import com.michaelgrundvig.frc.runtime.hardware.RobotHardware;
 import com.michaelgrundvig.frc.runtime.lib.timing.LoopMonitor;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimulation;
+import com.michaelgrundvig.frc.runtime.sim.Faults;
 import com.michaelgrundvig.frc.runtime.sim.Scenarios;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedHardware;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
@@ -680,9 +682,12 @@ public final class RobotContainer implements AutoCloseable {
       return;
     }
     // Only a simulator's record says where the robot really is.
+    // And only a simulated robot has parts that can be made to fail where they are clicked.
     WorldScene.Truth truth = WorldScene.Truth.NOT_KNOWN;
+    SimulatedParts simulated = SimulatedParts.NONE;
     if (world.isPresent()) {
       truth = WorldScene.Truth.IN_THE_RECORD;
+      simulated = Faults.parts();
     }
     WorldScene scene =
         WorldScene.of(
@@ -690,7 +695,8 @@ public final class RobotContainer implements AutoCloseable {
             matchField::field,
             truth,
             Vision.sightingWords(),
-            camera -> Optional.of(Calibration.cameraMountAction(camera)));
+            camera -> Optional.of(Calibration.cameraMountAction(camera)),
+            simulated);
     pitwall.scenes().add(scene.scene(session.get()));
   }
 

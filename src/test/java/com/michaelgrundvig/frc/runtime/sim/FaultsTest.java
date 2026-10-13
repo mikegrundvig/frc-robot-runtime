@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Component;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Fault;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
+import com.michaelgrundvig.frc.pitwall.world.SimulatedParts;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
@@ -21,6 +22,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO.ModuleIOInputs;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -122,6 +124,44 @@ class FaultsTest {
     byKind.put(FaultCatalog.Robot.KIND, robot);
     byKind.put(FaultCatalog.Field.KIND, List.of(FaultCatalog.Field.tagMoved(1, 32, 1)));
     return byKind;
+  }
+
+  /**
+   * Pitwall's World view offers a part's faults where the part is clicked, by the name these parts
+   * are declared under. So every name {@link Faults#parts} gives is a part declared here, for each
+   * camera of the robot, the gyro, the backup IMU, each module and the robot itself; and setting
+   * the robot down says its X and Y are a place on the field, to take from a click.
+   */
+  @Test
+  void everyPartTheWorldViewCanClickIsAPartDeclaredHere() {
+    SimulatedWorld world =
+        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+    worlds.add(world);
+    components = new Components(said::add);
+    world.addTo(components);
+    SimulatedParts parts = Faults.parts();
+    List<String> clickable = new ArrayList<>();
+    for (CameraConfig camera : ExampleRobot.SIM.definition().cameras()) {
+      clickable.add(parts.camera(camera.name()).orElseThrow());
+    }
+    clickable.add(parts.gyro().orElseThrow());
+    clickable.add(parts.backupImu().orElseThrow());
+    for (int module = 0; module < 4; module++) {
+      clickable.add(parts.module(module).orElseThrow());
+    }
+    clickable.add(parts.robot().orElseThrow());
+
+    assertThat(clickable).hasSizeGreaterThan(7).doesNotHaveDuplicates();
+    assertThat(components.components()).extracting(Component::name).containsAll(clickable);
+    assertThat(parts.module(4)).as("a robot has four modules").isEmpty();
+    Fault placed =
+        components.components().stream()
+            .filter(part -> part.name().equals(ROBOT))
+            .flatMap(part -> part.faults().stream())
+            .filter(fault -> fault.name().equals(FaultCatalog.PLACED))
+            .findFirst()
+            .orElseThrow();
+    assertThat(placed.point()).contains(new Fault.Point(FaultCatalog.X, FaultCatalog.Y));
   }
 
   /**
