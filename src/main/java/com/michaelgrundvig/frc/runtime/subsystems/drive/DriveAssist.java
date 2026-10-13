@@ -6,12 +6,14 @@ import static org.wpilib.units.Units.RadiansPerSecond;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.behavior.Why;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Heading;
+import com.michaelgrundvig.frc.world.record.DriveMoveTask;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -166,7 +168,7 @@ public final class DriveAssist implements Command {
    *
    * @param whyNot takes each thing that keeps the robot from being aimed, in the gate's words
    */
-  private boolean isAimed(List<String> whyNot) {
+  private boolean isAimed(Gate.Terms whyNot) {
     Optional<Driver> driver = drive.driver();
     if (driver.isEmpty()) {
       whyNot.add(Drive.NO_DRIVER);
@@ -231,7 +233,12 @@ public final class DriveAssist implements Command {
     if (whyNot.isPresent()) {
       // It cannot work this time. It takes its loop all the same, and the drive's default command
       // goes on.
-      Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + whyNot.get());
+      boolean hasNoDriver = drive.driver().isEmpty();
+      Why why =
+          hasNoDriver
+              ? Why.saying(MoveReason.NO_DRIVER, "")
+              : Why.saying(MoveReason.REFUSED_AS_BUILT, whyNot.get());
+      drive.recordRefused(name, DriveMoveTask.FACING_A_HEADING, why);
       coroutine.yield();
       return;
     }

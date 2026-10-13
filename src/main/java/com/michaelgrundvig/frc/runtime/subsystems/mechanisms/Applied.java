@@ -1,6 +1,8 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
+import java.util.List;
 
 /**
  * What a joint's motors were told in one loop. The joint keeps it into the next loop, where its
@@ -25,16 +27,16 @@ sealed interface Applied permits Applied.Undriven, Demand {
     HOMING;
 
     @Override
-    public String heldBy() {
-      return "";
+    public List<Holder> heldBy() {
+      return List.of();
     }
   }
 
   /**
-   * What held the joint short of what was asked, as the log shows it. Empty when nothing held it,
-   * and in a loop in which no demand drove it.
+   * What held the joint short of what was asked, in the order it was applied. Empty when nothing
+   * held it, and in a loop in which no demand drove it.
    */
-  String heldBy();
+  List<Holder> heldBy();
 
   /** Whether the joint was driven toward a position along its profile. */
   default boolean wasToAPosition() {

@@ -1,7 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
-import static com.michaelgrundvig.frc.world.config.Rules.possessive;
-
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.EncoderLoop;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
@@ -64,9 +63,14 @@ final class JointOutput {
     NOT_A_NUMBER
   }
 
+  /**
+   * @param jointIndex where the joint is in the definition's joints, which is how the log names it
+   *     in what holds it
+   */
   JointOutput(
       RobotMath math,
       Joint joint,
+      int jointIndex,
       JointIO io,
       JointReadings readings,
       JointProfile profile,
@@ -79,9 +83,7 @@ final class JointOutput {
     this.profile = profile;
     this.kA = kA;
     this.encoderLoop = encoderLoop;
-    positionLost =
-        Demand.NEUTRAL.heldTo(
-            JointAsk.NEUTRAL, possessive(joint.label()) + " position isn't a number");
+    positionLost = Demand.NEUTRAL.heldTo(JointAsk.NEUTRAL, Holder.noPosition(jointIndex));
   }
 
   /** Whether the joint closes its loop here, on its absolute encoder. */

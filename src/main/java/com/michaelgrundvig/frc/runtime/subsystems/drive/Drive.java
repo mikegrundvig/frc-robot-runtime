@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.pitwall.experiment.Rig;
 import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.behavior.Why;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
@@ -20,6 +21,11 @@ import com.michaelgrundvig.frc.world.field.Heading;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
+import com.michaelgrundvig.frc.world.record.DriveMoveTask;
+import com.michaelgrundvig.frc.world.record.DriveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveResult;
+import com.michaelgrundvig.frc.world.record.MoveSentences;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -92,9 +98,7 @@ import org.wpilib.units.measure.LinearVelocity;
 @CheckReturnValue
 public class Drive implements Mechanism, AutoCloseable {
   /** What a refusal says when the drive hasn't been handed the driver's sticks. */
-  static final String NO_DRIVER =
-      "the drivetrain has no driver's sticks: the robot hands them over as it builds the drive,"
-          + " drive.takeDriver(...)";
+  static final String NO_DRIVER = MoveSentences.NO_DRIVER;
 
   /** What a move to a place says when the drive hasn't been handed the field and the alliance. */
   static final String NO_FIELD =
@@ -412,11 +416,47 @@ public class Drive implements Mechanism, AutoCloseable {
    * the loop the robot is disabled every command is canceled for that ({@link Disabling}), and the
    * drivetrain knows which loop that is. Any other cancel has no reason it knows of.
    */
-  Optional<String> whyCanceledNow() {
+  Optional<Why> whyCanceledNow() {
     if (disabledThisLoop) {
-      return Optional.of(Disabling.WHY);
+      return Why.ROBOT_DISABLED;
     }
     return Optional.empty();
+  }
+
+  /**
+   * Logs how a move of the drivetrain ended ({@code Drive/Outcome}): the facts of the run, and
+   * beside them the move's name and the text of its reason. A sentence is made from them wherever a
+   * person reads one ({@link MoveSentences#driveOutcome}).
+   *
+   * @param name the move's name, which is its command's
+   * @param outcome the facts of the run
+   * @param why the text of its reason, or empty for a reason the facts say whole
+   */
+  void recordOutcome(String name, DriveOutcome outcome, String why) {
+    Logger.recordOutput("Drive/Outcome", outcome);
+    Logger.recordOutput("Drive/OutcomeName", name);
+    Logger.recordOutput("Drive/OutcomeWhy", why);
+  }
+
+  /**
+   * Logs that a command on the drivetrain that drives from the sticks was refused as it started.
+   *
+   * @param name the command's name
+   * @param task which of the commands that drive from the sticks it is
+   * @param why why it was refused
+   */
+  void recordRefused(String name, DriveMoveTask task, Why why) {
+    Pose2d pose = getPose();
+    DriveOutcome refused =
+        new DriveOutcome(
+            MoveResult.REFUSED,
+            task,
+            0,
+            pose.getX(),
+            pose.getY(),
+            pose.getRotation().getRadians(),
+            why.reason());
+    recordOutcome(name, refused, why.text());
   }
 
   // ---- Driving at a velocity ----
@@ -502,7 +542,8 @@ public class Drive implements Mechanism, AutoCloseable {
           // The driver's sticks are read here, as the command starts, and not when it was built.
           Optional<Driver> handedOver = driver;
           if (handedOver.isEmpty()) {
-            Logger.recordOutput("Drive/Outcome", name + ": REFUSED: " + NO_DRIVER);
+            recordRefused(
+                name, DriveMoveTask.WITH_THE_STICKS, Why.saying(MoveReason.NO_DRIVER, ""));
             return;
           }
           Driver sticks = handedOver.get();

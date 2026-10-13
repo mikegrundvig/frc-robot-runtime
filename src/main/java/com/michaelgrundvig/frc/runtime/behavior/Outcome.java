@@ -1,13 +1,14 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
 import com.michaelgrundvig.frc.world.config.Rules;
-import java.util.Locale;
+import com.michaelgrundvig.frc.world.record.MoveResult;
 import java.util.Optional;
 
 /**
- * How a move ended, whether it is a joint's or the drivetrain's. Each move records one, with a
- * reason that it logs. This is also the one policy every move ends by: when it counts as arrived,
- * when its deadline passes, and how its reason reads.
+ * How a move ended, whether it is a joint's or the drivetrain's. Each move records one, with the
+ * facts of its run, which it logs. This is also the one policy every move ends by: when it counts
+ * as arrived, and when its deadline passes. How an ending reads as a sentence is the model's to say
+ * ({@link com.michaelgrundvig.frc.world.record.MoveSentences}).
  */
 public enum Outcome {
   /** It got there: it stayed inside its band for 40 ms, or its condition held. */
@@ -58,28 +59,13 @@ public enum Outcome {
             + " s: give within() how long the move may take");
   }
 
-  /**
-   * The reason that a move which ended this way logs. In order, it holds the move's name and how it
-   * ended, how long the move ran unless it was refused ("pivot → out: ARRIVED in 0.62 s"), what the
-   * move adds of its own, and why it ended so.
-   *
-   * @param name the move's name
-   * @param seconds how long it ran
-   * @param details what the move itself says of how it ended, such as where its joints were and
-   *     when each arrived. Each part comes with its own leading ", " or " (". Empty for nothing.
-   * @param why why it ended this way, such as a gate's terms or a refusal, if the move has a reason
-   *     of its own
-   */
-  public String reason(String name, double seconds, String details, Optional<String> why) {
-    StringBuilder text = new StringBuilder(name).append(": ").append(this);
-    if (this != REFUSED) {
-      String howLong = this == ARRIVED ? " in %.2f s" : " after %.2f s";
-      text.append(String.format(Locale.ROOT, howLong, seconds));
-    }
-    text.append(details);
-    if (why.isPresent()) {
-      text.append(": ").append(why.get());
-    }
-    return text.toString();
+  /** This outcome as a move's logged facts say it. */
+  public MoveResult result() {
+    return switch (this) {
+      case ARRIVED -> MoveResult.ARRIVED;
+      case TIMED_OUT -> MoveResult.TIMED_OUT;
+      case CANCELED -> MoveResult.CANCELED;
+      case REFUSED -> MoveResult.REFUSED;
+    };
   }
 }

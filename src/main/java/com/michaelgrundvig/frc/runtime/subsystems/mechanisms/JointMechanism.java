@@ -12,7 +12,16 @@ import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.behavior.Why;
 import com.michaelgrundvig.frc.world.config.Rules;
+import com.michaelgrundvig.frc.world.record.Holder;
+import com.michaelgrundvig.frc.world.record.Identity;
+import com.michaelgrundvig.frc.world.record.JointPlace;
+import com.michaelgrundvig.frc.world.record.JointPlaces;
+import com.michaelgrundvig.frc.world.record.JointSentences;
+import com.michaelgrundvig.frc.world.record.JointState;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveSentences;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.EncoderGap;
@@ -22,8 +31,8 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
-import com.michaelgrundvig.frc.world.robot.PlaceNames;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Travel;
@@ -91,8 +100,9 @@ import org.wpilib.units.measure.LinearVelocity;
  * profile's point from where the encoder says the joint is ({@link EncoderLoop}), sent as a
  * voltage, and the encoder's word is where the joint is. Its readings, the motor controller's and
  * the encoder's, are AdvantageKit inputs, so a replay reproduces everything here. It logs under
- * {@code Joints/<label>}: {@code State}, {@code Command}, {@code Goal}, {@code At}, {@code HeldBy}
- * and {@code Outcome}, in the order to read them when it won't move.
+ * {@code Joints/<label>}: {@code State}, {@code Owner}, {@code Goal}, {@code At}, {@code HeldBy}
+ * and {@code Outcome}, in the order to read them when it won't move. Each is a fact, not a sentence
+ * ({@link JointLog}): a sentence is made from the facts wherever a person reads one.
  *
  * <p><b>Inside</b>, a loop is three steps, and each part of a step is a class of its own with tests
  * of its own.
@@ -135,7 +145,7 @@ public final class JointMechanism implements Mechanism {
   /** How long a joint must have been that slow to be stalled, in seconds. */
   static final double STALL_SECONDS = 0.25;
 
-  /** Where a joint stands, as {@code State} logs it. */
+  /** Where a joint stands. Its {@code State} logs this, with what its homing or its fault adds. */
   public enum State {
     /**
      * Held at positions, and doesn't yet know where it is: it homes on the first enable, or from
@@ -152,7 +162,17 @@ public final class JointMechanism implements Mechanism {
 
   // What the joint is, from its block.
 
+  /** The robot the joint is part of, whose names a sentence about the joint is said in. */
+  private final RobotDefinition definition;
+
   private final Joint joint;
+
+  /**
+   * Where the joint is in the definition's joints, which is how a logged fact names it. A stand-in
+   * for a joint the definition does not have is nowhere in them ({@link Identity#NONE}).
+   */
+  private final int jointIndex;
+
   private final String label;
   private final Scheduler scheduler;
 
@@ -221,8 +241,14 @@ public final class JointMechanism implements Mechanism {
   /** Its motor controllers that read as drawing nothing on their PDH channels while it works. */
   private final DeadChannels deadChannels;
 
-  /** Where it is, in its places' names, as {@code At} reads. */
-  private final PlaceNames places;
+  /** Where it is among its named places, as {@code At} logs it. */
+  private final JointPlaces places;
+
+  /**
+   * Why a move on it cannot run while its motor controllers are silent. It is made once, because a
+   * move asks every loop.
+   */
+  private final Optional<Why> notAnswering;
 
   private final JointLog log;
 
@@ -279,8 +305,17 @@ public final class JointMechanism implements Mechanism {
   /** The name of what a command asked that the joint is being driven at, if it has a name. */
   private Optional<String> drivenName = Optional.empty();
 
-  /** How the last move on it ended, as logged. */
-  private String outcome = "";
+  /**
+   * What a joint that only runs at outputs is doing, as {@code At} logs it. It is worked out when
+   * the name of what the joint is driven at changes, and not each loop.
+   */
+  private JointPlace running = JointPlace.IDLE;
+
+  /** The name the joint was driven at when {@link #running} was worked out. */
+  private Optional<String> runningName = Optional.empty();
+
+  /** How the last move on it ended, or empty before any has. */
+  private Optional<MoveEnding> outcome = Optional.empty();
 
   /**
    * A joint's control as the pit tunes it: its feedback and friction gains and its motors' current
@@ -333,14 +368,14 @@ public final class JointMechanism implements Mechanism {
    *     and handed to the sensors each loop.
    */
   JointMechanism(
-      RobotMath math,
+      RobotDefinition definition,
       Joint joint,
       Supplier<MechanismControl> tuned,
       JointIO io,
       Optional<AbsoluteEncoderIO> absolute,
       Sensors sensors,
       Scheduler scheduler) {
-    this(math, joint, tuned, io, absolute, sensors, scheduler, Optional.empty());
+    this(definition, joint, tuned, io, absolute, sensors, scheduler, Optional.empty());
   }
 
   /**
@@ -352,10 +387,10 @@ public final class JointMechanism implements Mechanism {
    * @param why why the joint has no mechanism
    */
   static JointMechanism standIn(
-      RobotMath math, Joint joint, Sensors sensors, Scheduler scheduler, String why) {
+      RobotDefinition definition, Joint joint, Sensors sensors, Scheduler scheduler, String why) {
     MechanismControl none = MechanismControl.position(0);
     return new JointMechanism(
-        math,
+        definition,
         joint,
         () -> none,
         new JointIO() {},
@@ -366,7 +401,7 @@ public final class JointMechanism implements Mechanism {
   }
 
   private JointMechanism(
-      RobotMath math,
+      RobotDefinition definition,
       Joint joint,
       Supplier<MechanismControl> tuned,
       JointIO io,
@@ -374,7 +409,11 @@ public final class JointMechanism implements Mechanism {
       Sensors sensors,
       Scheduler scheduler,
       Optional<String> standsIn) {
+    RobotMath math = definition.math();
+    this.definition = definition;
     this.joint = joint;
+    jointIndex = definition.joints().indexOf(joint);
+    notAnswering = Optional.of(new Why(MoveReason.JOINT_NOT_ANSWERING, jointIndex, ""));
     this.tuned = tuned;
     this.standsIn = standsIn;
     this.scheduler = scheduler;
@@ -415,13 +454,13 @@ public final class JointMechanism implements Mechanism {
     positionBands = holdsPositions ? control.bands().orElse(kindBands) : kindBands;
     speedBands = holdsPositions ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
 
-    idle = new Idle(label, holdsPositions);
+    idle = new Idle(jointIndex, holdsPositions);
     interlocks = new Interlocks(travel);
     List<Sensor.Switch> limits = LimitStops.switchesOf(math, joint);
-    stops = new LimitStops(limits);
+    stops = new LimitStops(limits, definition.everySensor());
     doubts = new SwitchDoubts(joint, limits);
     profile = new JointProfile(travel);
-    places = new PlaceNames(joint, positionBands.enter());
+    places = new JointPlaces(joint, positionBands.enter());
     deadChannels = new DeadChannels(joint, control.deadChannel());
 
     Optional<Driven.AbsoluteEncoder> encoder = joint.driven().absoluteEncoder();
@@ -443,7 +482,7 @@ public final class JointMechanism implements Mechanism {
             sensors,
             hasCancoder);
 
-    output = new JointOutput(math, joint, io, readings, profile, kA, encoderLoop);
+    output = new JointOutput(math, joint, jointIndex, io, readings, profile, kA, encoderLoop);
 
     Optional<MechanismControl.Homing> recipe = holdsPositions ? control.homing() : Optional.empty();
     homing =
@@ -455,7 +494,7 @@ public final class JointMechanism implements Mechanism {
             robotReadEncoder.map(JointReadings.RobotReadEncoder::forHoming),
             this::found);
     if (standsIn.isPresent()) {
-      homing.faultFor(standsIn.get());
+      homing.faultFor(JointState.Fault.NO_MECHANISM, standsIn.get());
     }
 
     gates =
@@ -516,9 +555,11 @@ public final class JointMechanism implements Mechanism {
    *
    * @param other what the joint the interlock's condition is about publishes, or empty for a
    *     condition on a sensor
+   * @param index where the interlock is in the definition's {@code everyInterlock()}, which is how
+   *     the log names it when it holds the joint
    */
-  void restrict(Interlock interlock, Optional<JointView> other) {
-    interlocks.add(interlock, other);
+  void restrict(Interlock interlock, Optional<JointView> other, int index) {
+    interlocks.add(interlock, other, index);
   }
 
   /** What it shows the interlocks on other joints: where it is and how fast, and whether known. */
@@ -529,6 +570,19 @@ public final class JointMechanism implements Mechanism {
   /** The joint, as the robot's definition has it. */
   public Joint joint() {
     return joint;
+  }
+
+  /** The robot the joint is part of. */
+  RobotDefinition definition() {
+    return definition;
+  }
+
+  /**
+   * Where the joint is in the definition's joints, which is how a logged fact names it, or {@link
+   * Identity#NONE} for a stand-in for a joint the definition does not have.
+   */
+  int index() {
+    return jointIndex;
   }
 
   @Override
@@ -581,19 +635,41 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * Where it stands, as {@code State} logs it: why, when it's faulted, and while it homes, toward
-   * what and for how long at most ("HOMING: toward its lower stop, for at most 9.5 s").
+   * Where it stands, as {@code State} logs it: its state, and while it homes, toward what and for
+   * how long at most; when it is faulted, for which of the reasons a joint can be.
    */
-  String stateShown() {
-    return homing.shown();
+  public JointState stateRecorded() {
+    return homing.recorded();
   }
 
   /**
-   * What holds it this loop, as logged: its interlocks, its limit switches, and, left idle with
-   * nowhere to hold, a position that isn't a number. Empty for none.
+   * Where it stands, as a person reads it: why, when it's faulted, and while it homes, toward what
+   * and for how long at most ("HOMING: toward its lower stop, for at most 9.5 s").
+   */
+  String stateShown() {
+    return JointSentences.state(definition, joint, homing.recorded(), homing.fault().orElse(""));
+  }
+
+  /**
+   * What holds it this loop, as {@code HeldBy} logs it, in the order it is applied: its idle with
+   * nowhere to hold, a position that isn't a number; its interlocks; and its limit switches. Empty
+   * for none.
+   */
+  public List<Holder> holders() {
+    return applied.heldBy();
+  }
+
+  /**
+   * What holds it this loop, as a person reads it: "roller runs only when pivot at least run".
+   * Empty for none.
    */
   public String heldBy() {
-    return applied.heldBy();
+    return JointSentences.heldBy(definition, applied.heldBy());
+  }
+
+  /** Where it is among its named places, or what it runs at, as {@code At} logs it. */
+  public JointPlace place() {
+    return where();
   }
 
   // ---- The pre-built commands ----
@@ -893,21 +969,29 @@ public final class JointMechanism implements Mechanism {
    * the robot is disabled every command is canceled for that ({@link Disabling}), and the joint
    * knows which loop that is. Any other cancel has no reason the joint knows of.
    */
-  Optional<String> whyCanceledNow() {
+  Optional<Why> whyCanceledNow() {
     if (disabledThisLoop) {
-      return Optional.of(Disabling.WHY);
+      return Why.ROBOT_DISABLED;
     }
     return Optional.empty();
   }
 
   /** Logs how the last move on it ended, from now on. */
-  void recordOutcome(String outcome) {
-    this.outcome = outcome;
+  void recordOutcome(MoveEnding ending) {
+    outcome = Optional.of(ending);
   }
 
-  /** How the last move on it ended: "pivot → out: ARRIVED in 0.41 s"; empty before any has. */
-  public String lastOutcome() {
+  /** How the last move on it ended, as {@code Outcome} logs it; empty before any has. */
+  public Optional<MoveEnding> lastEnding() {
     return outcome;
+  }
+
+  /**
+   * How the last move on it ended, as a person reads it: "pivot → out: ARRIVED in 0.41 s"; empty
+   * before any has.
+   */
+  public String lastOutcome() {
+    return outcome.map(MoveEnding::sentence).orElse("");
   }
 
   /** When this loop began, in nanoseconds on the robot's clock. */
@@ -924,9 +1008,27 @@ public final class JointMechanism implements Mechanism {
       return standsIn;
     }
     if (!readings.answers()) {
-      return Optional.of(label + " isn't answering: its motor controllers are silent");
+      return Optional.of(MoveSentences.notAnswering(joint));
     }
     return homing.fault();
+  }
+
+  /**
+   * Why moves on the joint cannot run, if they cannot ({@link #fault}), as a move records it: which
+   * of the reasons it is, about this joint, with the fault's text where the reason has some.
+   */
+  Optional<Why> whyMovesCannotRun() {
+    if (standsIn.isPresent()) {
+      return Optional.of(new Why(MoveReason.JOINT_FAULTED, jointIndex, standsIn.get()));
+    }
+    if (!readings.answers()) {
+      return notAnswering;
+    }
+    Optional<String> fault = homing.fault();
+    if (fault.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(new Why(MoveReason.JOINT_FAULTED, jointIndex, fault.get()));
   }
 
   /**
@@ -965,8 +1067,12 @@ public final class JointMechanism implements Mechanism {
    * at every turn of it for a joint whose range spans a turn or more ({@link
    * Travel#whyUnreachable}).
    */
-  Optional<String> whyUnreachable(double position) {
-    return Optional.ofNullable(travel.whyUnreachable(position, readings.position()));
+  Optional<Why> whyUnreachable(double position) {
+    String why = travel.whyUnreachable(position, readings.position());
+    if (why == null) {
+      return Optional.empty();
+    }
+    return Optional.of(new Why(MoveReason.TARGET_UNREACHABLE, jointIndex, why));
   }
 
   /**
@@ -1107,6 +1213,7 @@ public final class JointMechanism implements Mechanism {
       return;
     }
     homing.faultFor(
+        JointState.Fault.SETTINGS_NOT_TAKEN,
         possessive(label)
             + " "
             + readings.unconfigured()
@@ -1310,8 +1417,12 @@ public final class JointMechanism implements Mechanism {
   /** Logs what the joint was asked and what it did this loop. */
   private void log() {
     double goal = applied.wasToAPosition() ? profile.goal() : lastAskedNumber;
-    log.did(homing.shown(), goal, where(), applied.heldBy(), outcome);
-    log.asked(requests.askerShown(), requests.nameShown(), requests.rejected());
+    log.did(homing.recorded(), homing.fault().orElse(""), goal, where(), applied.heldBy());
+    log.asked(requests.owner(), requests.commandName(), requests.nameShown(), requests.rejected());
+    // Asked plainly, and not with a method reference, which would make an object every loop.
+    if (outcome.isPresent()) {
+      log.outcome(outcome.get());
+    }
     log.setpoint(profile.position(), profile.velocity());
     if (readings.encoderSaysWhere()) {
       log.encoderAt(readings.positionByEncoder());
@@ -1323,21 +1434,47 @@ public final class JointMechanism implements Mechanism {
   }
 
   /**
-   * Where the joint is, as the log's {@code At} says it. A joint that holds positions is said in
-   * its names for them: "at out", "between run and out", "below in", or a number if it has no
-   * names, and "unknown" while it does not know. A joint that only runs at outputs, a roller, is
-   * said by what it runs at.
+   * Where the joint is, as the log's {@code At} says it. A joint that holds positions is said by
+   * where it lies among its named places: at one, between two, beyond them, nowhere named if it has
+   * none, and unknown while it does not know. A joint that only runs at outputs, a roller, is said
+   * by what it runs at.
    */
-  private String where() {
+  private JointPlace where() {
     if (!holdsPositions) {
-      if (drivenName.isPresent()) {
-        return drivenName.get();
-      }
-      return applied.wasNeutral() ? "stopped" : "idle";
+      return whatItRunsAt();
     }
     if (homing.state() != State.READY) {
-      return "unknown";
+      return JointPlace.UNKNOWN;
     }
     return places.at(readings.position());
+  }
+
+  /**
+   * What a joint that only runs at outputs is doing: running at the named output a command asked
+   * for, stopped, or driven at something that has no name.
+   */
+  private JointPlace whatItRunsAt() {
+    if (drivenName.isEmpty()) {
+      return applied.wasNeutral() ? JointPlace.STOPPED : JointPlace.IDLE;
+    }
+    // The name is looked up among the joint's outputs only when another name is asked. A command
+    // that asks the same thing loop after loop hands over the same name, which compares at once.
+    if (!drivenName.equals(runningName)) {
+      runningName = drivenName;
+      running = runningAt(drivenName.get());
+    }
+    return running;
+  }
+
+  /** A joint running at the output of a name: one of its own, or stopped, which every joint has. */
+  private JointPlace runningAt(String name) {
+    List<Output> outputs = joint.outputs();
+    for (int index = 0; index < outputs.size(); index++) {
+      if (outputs.get(index).name().equals(name)) {
+        return JointPlace.running(index);
+      }
+    }
+    boolean isStopped = Output.STOPPED.name().equals(name);
+    return isStopped ? JointPlace.STOPPED : JointPlace.IDLE;
   }
 }

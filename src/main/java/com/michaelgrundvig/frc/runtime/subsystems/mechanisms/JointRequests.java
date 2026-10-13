@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.world.record.JointOwner;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import java.util.Optional;
 import org.wpilib.command3.Command;
@@ -109,14 +110,26 @@ final class JointRequests {
     return request;
   }
 
-  /** Who asked something of the joint this loop, as the log's {@code Command} says it. */
-  String askerShown() {
+  /** Who asked something of the joint this loop, as the log's {@code Owner} says it. */
+  JointOwner owner() {
     Optional<Request> requested = thisLoop();
     if (requested.isEmpty()) {
-      return "idle";
+      return JointOwner.IDLE;
     }
-    Optional<Command> by = requested.get().by();
-    return by.isPresent() ? by.get().name() : "outside any command";
+    boolean aCommandAsked = requested.get().by().isPresent();
+    return aCommandAsked ? JointOwner.COMMAND : JointOwner.OUTSIDE_ANY_COMMAND;
+  }
+
+  /**
+   * The name of the command that asked something of the joint this loop, as the log's {@code
+   * Command} says it. Empty when no command asked.
+   */
+  String commandName() {
+    Optional<Request> requested = thisLoop();
+    if (requested.isEmpty() || requested.get().by().isEmpty()) {
+      return "";
+    }
+    return requested.get().by().get().name();
   }
 
   /** The name of what a command asked for this loop, as the log's {@code GoalName} says it. */

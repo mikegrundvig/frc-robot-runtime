@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import java.util.ArrayList;
 import java.util.List;
@@ -12,6 +13,13 @@ import org.junit.jupiter.api.Test;
  * and a roller stops. No simulator: each loop is from what it's given.
  */
 class IdleTest {
+  /**
+   * Where the joints these tests idle are in a robot's joints, which names each in what holds it.
+   */
+  private static final int PIVOT = 0;
+
+  private static final int ROLLER = 1;
+
   private static final Demand TO_ONE = Demands.toPosition(1, 0.5);
   private static final Demand AT_SPEED = Demands.atVelocity(40);
   private static final Applied NOTHING = Applied.Undriven.NOTHING;
@@ -22,7 +30,7 @@ class IdleTest {
   /** Nothing to hold until it's first read; then where it was read, along the profile it's on. */
   @Test
   void aJointHeldAtPositionsHoldsWhereItWasRead() {
-    Idle idle = new Idle("pivot", true);
+    Idle idle = new Idle(PIVOT, true);
     boolean before = idle.at().isPresent();
     idle.holdAt(0.3);
 
@@ -35,7 +43,7 @@ class IdleTest {
   /** A move that ended leaves it holding where the move put it. */
   @Test
   void afterAMoveItHoldsWhereTheMoveEnded() {
-    Idle idle = new Idle("pivot", true);
+    Idle idle = new Idle(PIVOT, true);
     idle.holdAt(0);
 
     idle.moveEnded(1.2);
@@ -47,7 +55,7 @@ class IdleTest {
   /** From an output or a stop, it holds where it is now, its profile starting again from there. */
   @Test
   void fromAnOutputItHoldsWhereItIsNow() {
-    Idle idle = new Idle("pivot", true);
+    Idle idle = new Idle(PIVOT, true);
     idle.holdAt(0);
 
     Demand held = idle.demand(Demands.atVoltage(3), 0.8);
@@ -62,7 +70,7 @@ class IdleTest {
    */
   @Test
   void aJointThatOnlyRunsAtOutputsStops() {
-    Idle idle = new Idle("roller", false);
+    Idle idle = new Idle(ROLLER, false);
     idle.holdAt(0);
 
     Demand stopped = idle.demand(AT_SPEED, 2);
@@ -84,8 +92,8 @@ class IdleTest {
    */
   @Test
   void aReadingThatIsNotANumberIsNowhereToHold() {
-    Idle idle = new Idle("pivot", true);
-    Demand nowhere = new Demand(JointAsk.NEUTRAL, false, "pivot's position isn't a number");
+    Idle idle = new Idle(PIVOT, true);
+    Demand nowhere = new Demand(JointAsk.NEUTRAL, false, List.of(Holder.noPosition(PIVOT)));
     List<Demand> idled = new ArrayList<>();
 
     // Each row is a loop: where the joint was told it holds as the loop began, if it was told, and
@@ -124,7 +132,7 @@ class IdleTest {
   /** A roller, which holds nowhere, is neutral whatever it reads, and has nothing to say of it. */
   @Test
   void aRollerThatReadsNoNumberIsNeutralAsEver() {
-    Idle idle = new Idle("roller", false);
+    Idle idle = new Idle(ROLLER, false);
 
     idle.holdAt(Double.NaN);
 

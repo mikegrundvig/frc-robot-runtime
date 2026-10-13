@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.Condition;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
@@ -35,12 +36,16 @@ final class LimitStops {
    * @param limit the switch
    * @param tripped the condition that holds while the switch is tripped
    * @param end the end of the joint's travel the switch is at
-   * @param shown what the log says while the switch holds the joint: "pivot upper limit tripped"
+   * @param holder the switch as the log names what holds the joint: by where it is among the
+   *     robot's sensors
    */
-  private record Stop(Sensor.Switch limit, Condition.Tripped tripped, End end, String shown) {
-    static Stop at(Sensor.Switch limit) {
+  private record Stop(Sensor.Switch limit, Condition.Tripped tripped, End end, Holder holder) {
+    /**
+     * @param index where the switch is in the definition's {@code everySensor()}
+     */
+    static Stop at(Sensor.Switch limit, int index) {
       End end = ((Sensor.Switch.Limit) limit.kind()).end();
-      return new Stop(limit, limit.tripped(), end, limit.label() + " tripped");
+      return new Stop(limit, limit.tripped(), end, Holder.limitSwitch(index));
     }
 
     /** Whether a value lies beyond another, toward this switch's end of the joint's travel. */
@@ -76,7 +81,7 @@ final class LimitStops {
      */
     static Hold beginning(Stop by, Demand asked, JointAsk.ToPosition toPosition, double stopped) {
       JointAsk held = new JointAsk.ToPosition(stopped, toPosition.cruiseShare());
-      String heldBy = Demand.joined(asked.heldBy(), by.shown());
+      List<Holder> heldBy = Demand.joined(asked.heldBy(), by.holder());
       return new Hold(by, asked, new Demand(held, true, heldBy), new Demand(held, false, heldBy));
     }
 
@@ -111,7 +116,7 @@ final class LimitStops {
    */
   private record Stilled(Stop by, Demand asked, Demand neutral) {
     static Stilled beginning(Stop by, Demand asked) {
-      return new Stilled(by, asked, asked.heldTo(JointAsk.NEUTRAL, by.shown()));
+      return new Stilled(by, asked, asked.heldTo(JointAsk.NEUTRAL, by.holder()));
     }
 
     /** Whether this is a demand held neutral by a switch: the same switch, and an equal demand. */
@@ -151,19 +156,22 @@ final class LimitStops {
 
   /**
    * @param switches the joint's limit switches
+   * @param everySensor the definition's {@code everySensor()}, which the switches are among: the
+   *     log names a switch by where it is in this list
    */
-  LimitStops(List<Sensor.Switch> switches) {
+  LimitStops(List<Sensor.Switch> switches, List<Sensor> everySensor) {
     stops = new Stop[switches.size()];
     for (int index = 0; index < stops.length; index++) {
-      stops[index] = Stop.at(switches.get(index));
+      Sensor.Switch limit = switches.get(index);
+      stops[index] = Stop.at(limit, everySensor.indexOf(limit));
     }
   }
 
   /**
    * What the joint's tripped limit switches leave of what it is asked this loop. Each switch that
-   * holds the joint says so ("pivot upper limit tripped"). A demand that no switch changes is
-   * handed back as the very same object, and so is what a switch leaves of a demand it stopped the
-   * same way the loop before.
+   * holds the joint is added to what holds it. A demand that no switch changes is handed back as
+   * the very same object, and so is what a switch leaves of a demand it stopped the same way the
+   * loop before.
    *
    * @param demand what the joint is asked, as its interlocks left it
    * @param at where the joint is

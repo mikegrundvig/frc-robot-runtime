@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -68,7 +69,7 @@ class JointHomingTest {
     homing.robotStarted(now);
 
     assertThat(homing.state()).isEqualTo(State.READY);
-    assertThat(homing.shown()).isEqualTo("READY");
+    assertThat(homing.recorded()).isEqualTo(JointState.READY);
     assertThat(homing.waits()).isFalse();
     assertThat(homing.fault()).isEmpty();
   }
@@ -83,7 +84,7 @@ class JointHomingTest {
     homing.robotStarted(now);
     State before = homing.state();
     loop(homing, true, true, -0.3);
-    String shown = homing.shown();
+    JointState recorded = homing.recorded();
     double volts = homing.pushVolts();
     for (int i = 0; i < 13; i++) {
       loop(homing, true, false, 0);
@@ -94,7 +95,9 @@ class JointHomingTest {
     homing.foundLoopWritten();
 
     assertThat(before).isEqualTo(State.UNHOMED);
-    assertThat(shown).isEqualTo("HOMING: toward its lower stop, for at most 9.5 s");
+    assertThat(recorded.standing()).isEqualTo(JointState.Standing.HOMING);
+    assertThat(recorded.toward()).isEqualTo(JointState.Toward.LOWER_STOP);
+    assertThat(recorded.secondsAllowed()).isCloseTo(9.5, within(0.05));
     assertThat(volts).isEqualTo(-2);
     assertThat(early).as("not still a quarter second yet").isEmpty();
     assertThat(found).containsExactly(0.0);
@@ -155,7 +158,7 @@ class JointHomingTest {
     assertThat(disabled).as("it homes on the next enable").isEqualTo(State.UNHOMED);
     assertThat(waits).isTrue();
     assertThat(homing.state()).isEqualTo(State.HOMING);
-    assertThat(homing.shown()).isEqualTo("HOMING: toward its lower stop, for at most 9.5 s");
+    assertThat(homing.recorded().toward()).isEqualTo(JointState.Toward.LOWER_STOP);
     assertThat(none.moveWaits(now, true)).isFalse();
     assertThat(none.state()).isEqualTo(State.READY);
   }
@@ -245,9 +248,11 @@ class JointHomingTest {
     assertThat(beforeItIsEnabled).isEqualTo(State.UNHOMED);
     assertThat(states).as("never homing, so never pushed").containsOnly(State.FAULTED);
     assertThat(aMoveWaits).isFalse();
-    assertThat(homing.shown())
-        .isEqualTo(
-            "FAULTED: pivot's homing has no lower limit switch with a known position to home to,"
+    assertThat(homing.recorded())
+        .isEqualTo(JointState.faulted(JointState.Fault.HOMING_HAS_NO_SWITCH));
+    assertThat(homing.fault())
+        .contains(
+            "pivot's homing has no lower limit switch with a known position to home to,"
                 + " so it isn't pushed: give its block one where it trips");
     assertThat(found).isEmpty();
   }
@@ -321,7 +326,8 @@ class JointHomingTest {
         .withMessageContaining("pivot homes to its upper limit switch, and its block has none");
     // The sound robot's joint finds its switch by the same lookup its mechanism uses.
     Joint homing = sound.joints().stream().filter(PIVOT::equals).findFirst().orElseThrow();
-    LimitStops stops = new LimitStops(LimitStops.switchesOf(sound.math(), homing));
+    LimitStops stops =
+        new LimitStops(LimitStops.switchesOf(sound.math(), homing), sound.everySensor());
     assertThat(stops.homingSwitch(ControllerSettings.control(homing).homing()))
         .contains(PIVOT_DOWN);
   }
@@ -435,7 +441,8 @@ class JointHomingTest {
   void faultedOtherwiseItsEncoderStillSeedsIt() {
     JointHoming homing = byEncoder(false);
     homing.robotStarted(now);
-    homing.faultFor("pivot's motor 32 didn't take its settings");
+    homing.faultFor(
+        JointState.Fault.SETTINGS_NOT_TAKEN, "pivot's motor 32 didn't take its settings");
     homing.encoderRead(now, OptionalDouble.of(0.3));
     boolean awaitingAfter = homing.awaitsEncoder();
     homing.homeAgain(now, true);
@@ -444,6 +451,8 @@ class JointHomingTest {
     assertThat(found).containsExactly(0.3, 0.35);
     assertThat(awaitingAfter).isFalse();
     assertThat(homing.state()).isEqualTo(State.FAULTED);
-    assertThat(homing.shown()).isEqualTo("FAULTED: pivot's motor 32 didn't take its settings");
+    assertThat(homing.recorded())
+        .isEqualTo(JointState.faulted(JointState.Fault.SETTINGS_NOT_TAKEN));
+    assertThat(homing.fault()).contains("pivot's motor 32 didn't take its settings");
   }
 }

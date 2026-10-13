@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.Condition;
 import com.michaelgrundvig.frc.world.robot.ConditionReading;
 import com.michaelgrundvig.frc.world.robot.Interlock;
@@ -39,10 +40,10 @@ final class Interlocks {
    * @param interlock the rule
    * @param other what the joint its condition is about publishes, or empty for a condition on a
    *     sensor
-   * @param shown the rule in words, as the log names what holds a joint. It is worked out once
-   *     here, because building it every loop would be wasteful.
+   * @param holder the rule as the log names what holds a joint: by where it is among the robot's
+   *     interlocks. It is made once here, so that no loop makes one.
    */
-  private record Enforced(Interlock interlock, Optional<JointView> other, String shown) {}
+  private record Enforced(Interlock interlock, Optional<JointView> other, Holder holder) {}
 
   /**
    * How the joint is moving this loop, as the model reads it. There is one of these for the joint,
@@ -130,9 +131,11 @@ final class Interlocks {
    *
    * @param other what the joint its condition is about publishes, or empty for a condition on a
    *     sensor
+   * @param index where the interlock is in the definition's {@code everyInterlock()}, which is how
+   *     the log names it
    */
-  void add(Interlock interlock, Optional<JointView> other) {
-    enforced.add(new Enforced(interlock, other, interlock.toString()));
+  void add(Interlock interlock, Optional<JointView> other, int index) {
+    enforced.add(new Enforced(interlock, other, Holder.interlock(index)));
     List<Interlock> interlocks = enforced.stream().map(Enforced::interlock).toList();
     enforcement = new InterlockEnforcement(travel, interlocks, RobotLoop.PERIOD_SECONDS);
     last = InterlockVerdict.startingFrom(enforcement.initialState());
@@ -219,18 +222,18 @@ final class Interlocks {
    */
   private Demand changed(Demand demand, InterlockVerdict verdict) {
     boolean restartProfile = demand.restartProfile() || verdict.restartProfile();
-    String heldBy = demand.heldBy();
+    List<Holder> heldBy = demand.heldBy();
     for (Interlock holding : verdict.heldBy()) {
-      heldBy = Demand.joined(heldBy, shown(holding));
+      heldBy = Demand.joined(heldBy, holderFor(holding));
     }
     return new Demand(verdict.allowed(), restartProfile, heldBy);
   }
 
-  /** An interlock in words, as it was worked out when the interlock was added. */
-  private String shown(Interlock interlock) {
+  /** An interlock as the log names it, as it was made when the interlock was added. */
+  private Holder holderFor(Interlock interlock) {
     for (Enforced each : enforced) {
       if (each.interlock().equals(interlock)) {
-        return each.shown();
+        return each.holder();
       }
     }
     throw new IllegalStateException(interlock + " is not one of this joint's interlocks");

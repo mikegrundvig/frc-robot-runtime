@@ -8,9 +8,14 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.behavior.Why;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
+import com.michaelgrundvig.frc.world.record.DriveMoveTask;
+import com.michaelgrundvig.frc.world.record.DriveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveSentences;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -18,12 +23,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
-import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Mechanism;
@@ -117,7 +122,12 @@ public final class DriveMove implements Command {
   /** How the latest run ended. Empty while it runs, and before the move has first run. */
   private Optional<Outcome> outcome = Optional.empty();
 
-  private String reason = "";
+  /** The facts of how the latest run ended, or empty while it runs and before it has first run. */
+  private Optional<DriveOutcome> ending = Optional.empty();
+
+  /** The text of the reason the latest run ended for, or empty for a reason its facts say whole. */
+  private String endingWhy = "";
+
   private boolean running;
 
   /** Whether the latest run has waited for a loop yet. */
@@ -371,9 +381,31 @@ public final class DriveMove implements Command {
     return outcome;
   }
 
-  /** Why its latest run ended as it did: "drive → 90.0°: ARRIVED in 0.84 s". */
+  /**
+   * The facts of how its latest run ended, as {@code Drive/Outcome} logs them: how it ended, how
+   * long it ran, where the robot was, and why. Empty before a run has ended, and while one runs.
+   */
+  public Optional<DriveOutcome> ending() {
+    return ending;
+  }
+
+  /**
+   * The text of the reason its latest run ended for, as {@code Drive/OutcomeWhy} logs it: a gate's
+   * name and its false terms, or a refusal's own words. Empty for a reason its facts say whole.
+   */
+  public String endingWhy() {
+    return endingWhy;
+  }
+
+  /**
+   * Why its latest run ended as it did, as a person reads it: "drive → 90.0°: ARRIVED in 0.84 s".
+   * Empty before a run has ended, and while one runs. Read {@link #ending} for the facts.
+   */
   public String reason() {
-    return reason;
+    if (ending.isEmpty()) {
+      return "";
+    }
+    return MoveSentences.driveOutcome(name, ending.get(), endingWhy);
   }
 
   /**
@@ -406,7 +438,7 @@ public final class DriveMove implements Command {
   public void run(Coroutine coroutine) {
     startRun();
     if (refused.isPresent()) {
-      end(Outcome.REFUSED, "", refused);
+      end(Outcome.REFUSED, Optional.of(Why.saying(MoveReason.REFUSED_AS_BUILT, refused.get())));
     } else {
       waitToBeEnabled(coroutine);
       switch (task) {
@@ -426,7 +458,8 @@ public final class DriveMove implements Command {
   private void startRun() {
     running = true;
     outcome = Optional.empty();
-    reason = "";
+    ending = Optional.empty();
+    endingWhy = "";
     Arrays.fill(passed, false);
     atEndSince = OptionalLong.empty();
     startNanos = RobotController.getTime();
@@ -450,7 +483,7 @@ public final class DriveMove implements Command {
   @Override
   public void onCancel() {
     if (running) {
-      end(Outcome.CANCELED, "", drive.whyCanceledNow());
+      end(Outcome.CANCELED, drive.whyCanceledNow());
     }
   }
 
@@ -464,7 +497,11 @@ public final class DriveMove implements Command {
       boolean pastItsDeadline =
           deadline.isPresent() && RobotController.getTime() >= deadline.getAsLong();
       if (pastItsDeadline) {
-        end(Outcome.TIMED_OUT, "", runUntil.whyItNeverHeld());
+        Optional<Why> neverHeld =
+            runUntil
+                .whyItNeverHeld()
+                .map(gateSays -> Why.saying(MoveReason.CONDITION_NEVER_HELD, gateSays));
+        end(Outcome.TIMED_OUT, neverHeld);
         return;
       }
       drive.runVelocity(runUntil.velocity());
@@ -484,7 +521,8 @@ public final class DriveMove implements Command {
     try {
       plan = planned(path, control);
     } catch (IllegalArgumentException e) {
-      end(Outcome.REFUSED, "", Optional.ofNullable(e.getMessage()));
+      String plannerSays = Objects.requireNonNullElse(e.getMessage(), "");
+      end(Outcome.REFUSED, Optional.of(Why.saying(MoveReason.PATH_NOT_PLANNED, plannerSays)));
       return;
     }
     PathFollower follower = new PathFollower(drive, plan.trajectory(), path.arrival(), control);
@@ -504,7 +542,8 @@ public final class DriveMove implements Command {
         return;
       }
       if (now >= deadline) {
-        end(Outcome.TIMED_OUT, ", " + whereItGotTo(path.arrival(), pose), Optional.empty());
+        // The move's facts hold where the robot got to, and its sentence says so.
+        end(Outcome.TIMED_OUT, Optional.empty());
         return;
       }
       follower.drive(elapsedSeconds, pose, measuredOnField);
@@ -586,15 +625,6 @@ public final class DriveMove implements Command {
     return now - atEndSince.getAsLong() >= Outcome.DWELL_NANOS;
   }
 
-  /** Where the robot got to, as a move that timed out says it. */
-  private static String whereItGotTo(DriveTask.Arrival arrival, Pose2d pose) {
-    return switch (arrival) {
-      case FACING_ITS_HEADING ->
-          String.format(Locale.ROOT, "heading at %.1f°", pose.getRotation().getDegrees());
-      case AT_ITS_POSE -> "at " + shown(pose).replace(") ", ") facing ");
-    };
-  }
-
   /** How long this run has gone on, in seconds. */
   private double elapsedSeconds() {
     return (RobotController.getTime() - startNanos) / 1e9;
@@ -602,22 +632,41 @@ public final class DriveMove implements Command {
 
   /** Ends its run with nothing to add to how it ended. */
   private void end(Outcome how) {
-    end(how, "", Optional.empty());
+    end(how, Optional.empty());
   }
 
   /**
-   * Ends its run: records how it ended and the reason it logs ({@link Outcome#reason}), and stops
-   * the drivetrain.
+   * Ends its run: records how it ended, logs the facts of the run, and stops the drivetrain.
    *
-   * @param details where the robot got to, for a path that timed out, led by its own ", "; empty
-   *     otherwise
    * @param why why it ended so, if there is a reason: a gate's terms, or a refusal
    */
-  private void end(Outcome how, String details, Optional<String> why) {
+  private void end(Outcome how, Optional<Why> why) {
     running = false;
     outcome = Optional.of(how);
-    reason = how.reason(name, elapsedSeconds(), details, why);
+    Pose2d pose = drive.getPose();
+    DriveOutcome ended =
+        new DriveOutcome(
+            how.result(),
+            taskRecorded(),
+            elapsedSeconds(),
+            pose.getX(),
+            pose.getY(),
+            pose.getRotation().getRadians(),
+            why.map(Why::reason).orElse(MoveReason.NONE));
+    ending = Optional.of(ended);
+    endingWhy = why.map(Why::text).orElse("");
     drive.runVelocity(new ChassisVelocities());
-    Logger.recordOutput("Drive/Outcome", reason);
+    drive.recordOutcome(name, ended, endingWhy);
+  }
+
+  /** What the move does, as its outcome records it. */
+  private DriveMoveTask taskRecorded() {
+    return switch (task) {
+      case DriveTask.RunUntil runUntil -> DriveMoveTask.RUN_UNTIL;
+      case DriveTask.TurnTo turnTo -> DriveMoveTask.TURN_TO;
+      case DriveTask.ToPose toPose -> DriveMoveTask.TO_POSE;
+      case DriveTask.ToPlace toPlace -> DriveMoveTask.TO_PLACE;
+      case DriveTask.Through through -> DriveMoveTask.THROUGH_KEYFRAMES;
+    };
   }
 }

@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Travel;
@@ -97,11 +98,15 @@ final class EncoderTrust {
         slip.slipped(now, comparable ? encoder : Double.NaN, motor, readings.velocity());
 
     if (readings.magnetIsBad()) {
-      homing.distrust(magnetIsBad(), heldOnMotor(motor, enabled));
+      homing.distrust(
+          JointState.Fault.ENCODER_MAGNET_BAD, magnetIsBad(), heldOnMotor(motor, enabled));
       return Change.NONE;
     }
     if (slipped.isPresent()) {
-      homing.distrust(oneOfThemSlipped(slipped.get()), heldOnMotor(motor, enabled));
+      homing.distrust(
+          JointState.Fault.ENCODER_SLIPPED,
+          oneOfThemSlipped(slipped.get()),
+          heldOnMotor(motor, enabled));
       return Change.NONE;
     }
     if (!homing.distrusted()) {

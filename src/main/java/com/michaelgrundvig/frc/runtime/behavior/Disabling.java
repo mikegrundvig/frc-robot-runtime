@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
+import com.michaelgrundvig.frc.world.record.MoveSentences;
 import org.wpilib.command3.Scheduler;
 
 /**
@@ -25,9 +26,10 @@ import org.wpilib.command3.Scheduler;
 public final class Disabling {
   /**
    * What a move that is canceled this way says, after how it ended: "pivot → out: CANCELED after
-   * 0.20 s, pivot at 38.49°: the robot was disabled".
+   * 0.20 s, pivot at 38.49°: the robot was disabled". A move records the reason as a fact ({@link
+   * Why#ROBOT_DISABLED}), and these are the words its sentence says it in.
    */
-  public static final String WHY = "the robot was disabled";
+  public static final String WHY = MoveSentences.ROBOT_WAS_DISABLED;
 
   private final Scheduler scheduler;
 

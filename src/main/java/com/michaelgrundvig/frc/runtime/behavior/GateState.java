@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
+import com.michaelgrundvig.frc.world.record.GateTerm;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -28,12 +29,16 @@ final class GateState implements BooleanSupplier {
   }
 
   /** What is logged for a gate with nothing blocking it. */
-  private static final String[] NOTHING_BLOCKING = new String[0];
+  private static final GateTerm[] NOTHING_BLOCKING = new GateTerm[0];
+
+  /** What is logged beside the terms of a gate none of whose terms is text. */
+  private static final String[] NO_TEXT = new String[0];
 
   private final String name;
   private final Gate.Logic logic;
   private final String key;
   private final String blockingKey;
+  private final String blockingTextKey;
 
   private Upkeep upkeep = Upkeep.EVERY_LOOP;
 
@@ -41,7 +46,7 @@ final class GateState implements BooleanSupplier {
   private boolean holds;
 
   /** The terms that kept it false the last time it was worked out. */
-  private final List<String> blocking = new ArrayList<>();
+  private final Gate.Terms blocking = new Gate.Terms();
 
   /**
    * Whether the gate is logged. A gate that was debounced into another is not: the debounced gate
@@ -50,10 +55,13 @@ final class GateState implements BooleanSupplier {
   private boolean logged = true;
 
   /**
-   * The blocking terms as they were last logged. The same array is logged again while the terms
-   * stay the same, so that a steady gate allocates nothing.
+   * How each blocking term read when the terms were last logged. The terms are logged again only
+   * when they read otherwise, so that a steady gate logs, and allocates, nothing.
    */
-  private String[] shown = NOTHING_BLOCKING;
+  private final List<String> shown = new ArrayList<>();
+
+  /** Whether the terms have been logged yet. A gate logs them the first time whatever they are. */
+  private boolean termsLogged;
 
   /**
    * The alert of every gate name whose logic has thrown, by that name. Gates of one name share one
@@ -84,6 +92,7 @@ final class GateState implements BooleanSupplier {
     this.logic = logic;
     key = "Gates/" + name;
     blockingKey = key + "/Blocking";
+    blockingTextKey = key + "/BlockingText";
   }
 
   /** From now on the gate is worked out each time it is read, and never by the scheduler. */
@@ -111,10 +120,10 @@ final class GateState implements BooleanSupplier {
   }
 
   /**
-   * The terms that kept the gate false the last time it was worked out. This is the list itself,
-   * which the next working out changes.
+   * The terms that kept the gate false the last time it was worked out. These are the terms
+   * themselves, which the next working out changes.
    */
-  List<String> blocking() {
+  Gate.Terms blocking() {
     return blocking;
   }
 
@@ -144,8 +153,7 @@ final class GateState implements BooleanSupplier {
   private void holdFalseAfter(RuntimeException thrown) {
     holds = false;
     blocking.clear();
-    String term = name + " threw: " + said(thrown);
-    blocking.add(term);
+    String term = blocking.addThrew(name, said(thrown));
     report(term, thrown);
   }
 
@@ -193,23 +201,37 @@ final class GateState implements BooleanSupplier {
 
   private void log() {
     Logger.recordOutput(key, holds);
-    if (!isShown(blocking)) {
-      shown = blocking.toArray(String[]::new);
+    List<String> reads = blocking.shown();
+    if (termsLogged && shown.equals(reads)) {
+      return;
     }
-    Logger.recordOutput(blockingKey, shown);
+    termsLogged = true;
+    shown.clear();
+    shown.addAll(reads);
+    logTerms();
   }
 
-  /** Whether these terms are the ones last logged, in the same order. */
-  private boolean isShown(List<String> terms) {
-    if (shown.length != terms.size()) {
-      return false;
+  /**
+   * Logs the terms that keep the gate false: each as a fact, and beside them the text of those that
+   * are text. A term in a team's own words, and the term of a logic that threw, each point at their
+   * text by where it is in that list.
+   */
+  private void logTerms() {
+    if (blocking.size() == 0) {
+      Logger.recordOutput(blockingKey, NOTHING_BLOCKING);
+      Logger.recordOutput(blockingTextKey, NO_TEXT);
+      return;
     }
-    for (int i = 0; i < shown.length; i++) {
-      if (!shown[i].equals(terms.get(i))) {
-        return false;
+    GateTerm[] terms = new GateTerm[blocking.size()];
+    List<String> text = new ArrayList<>();
+    for (int index = 0; index < terms.length; index++) {
+      terms[index] = blocking.logged(index, text.size());
+      if (blocking.hasText(index)) {
+        text.add(blocking.text(index));
       }
     }
-    return true;
+    Logger.recordOutput(blockingKey, terms);
+    Logger.recordOutput(blockingTextKey, text.toArray(NO_TEXT));
   }
 
   /** What an exception says, or its kind when it says nothing. */

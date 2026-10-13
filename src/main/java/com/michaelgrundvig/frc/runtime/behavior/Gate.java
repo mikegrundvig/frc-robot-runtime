@@ -4,6 +4,9 @@ import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 
 import com.google.errorprone.annotations.CheckReturnValue;
+import com.michaelgrundvig.frc.world.record.ControlSentences;
+import com.michaelgrundvig.frc.world.record.GateTerm;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
@@ -21,9 +24,11 @@ import org.wpilib.units.measure.Time;
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=gates}
  *
  * <p><b>The log.</b> Each time a gate is worked out it is logged: {@code Gates/ready to shoot =
- * false}, and {@code Gates/ready to shoot/Blocking = [aimed]}, the terms that are false. Terms go
- * one level deep. A gate is made of other gates, each one a lambda, and there is no expression
- * language.
+ * false}, and the terms that are false, {@code Gates/ready to shoot/Blocking}. A term the robot's
+ * model can name is logged as a fact: the joint that does not know where it is, the sensor that is
+ * lost ({@link GateTerm}). A term in a team's own words, such as the name of another gate, is text,
+ * logged beside the terms ({@code Gates/ready to shoot/BlockingText = [aimed]}). Terms go one level
+ * deep. A gate is made of other gates, each one a lambda, and there is no expression language.
  *
  * <p><b>When it is worked out.</b> A gate made as the robot starts is worked out once a loop from
  * then on, before the scheduler's bindings and commands read it. A gate made once the robot runs
@@ -47,10 +52,124 @@ public final class Gate extends Trigger {
     /**
      * Whether the gate holds now.
      *
-     * @param why where to add the name of each term that keeps the gate false
+     * @param why where to add each term that keeps the gate false
      */
-    boolean holds(List<String> why);
+    boolean holds(Terms why);
   }
+
+  /**
+   * The terms that keep a gate false, as its logic names them while it is worked out. A term is a
+   * team's own words ({@link #add(String)}), or a fact the robot's model can name, added with how
+   * it reads ({@link #add(GateTerm, String)}).
+   */
+  public static final class Terms {
+    /** How each term reads, in the order they were added. */
+    private final List<String> shown = new ArrayList<>();
+
+    /** What each term is, in the same order. A term in words points at no text until logged. */
+    private final List<GateTerm> facts = new ArrayList<>();
+
+    /**
+     * The text of each term that has some, in the same order, and empty for a term that has none: a
+     * team's own words, or what a logic threw.
+     */
+    private final List<String> text = new ArrayList<>();
+
+    Terms() {}
+
+    /** Adds a term in a team's own words: the name of a gate, or whatever says what is false. */
+    public void add(String term) {
+      facts.add(IN_WORDS);
+      shown.add(term);
+      text.add(term);
+    }
+
+    /**
+     * Adds a term the robot's model can name.
+     *
+     * @param term what it is: a joint that does not know where it is, a sensor that is lost
+     * @param shown how it reads, from the model's function for it ({@link
+     *     ControlSentences#gateTerm}), worked out once and not each loop
+     */
+    public void add(GateTerm term, String shown) {
+      facts.add(term);
+      this.shown.add(shown);
+      text.add("");
+    }
+
+    /**
+     * Adds the one term of a gate whose logic threw.
+     *
+     * @param gate the gate's name
+     * @param thrown what was thrown, as it says itself
+     * @return the term as it reads: "aimed threw: no target"
+     */
+    String addThrew(String gate, String thrown) {
+      String reads = ControlSentences.threw(gate, thrown);
+      facts.add(THREW);
+      shown.add(reads);
+      text.add(thrown);
+      return reads;
+    }
+
+    /** Adds every term of another gate, as they are. */
+    void addAll(Terms other) {
+      facts.addAll(other.facts);
+      shown.addAll(other.shown);
+      text.addAll(other.text);
+    }
+
+    void clear() {
+      facts.clear();
+      shown.clear();
+      text.clear();
+    }
+
+    /** How many terms there are. */
+    int size() {
+      return facts.size();
+    }
+
+    /**
+     * One term as the log holds it. A term that has text points at where its text is among the
+     * gate's texts, which is the next place in them.
+     *
+     * @param index which term, in the order they were added
+     * @param textsSoFar how many of the terms before it have text
+     */
+    GateTerm logged(int index, int textsSoFar) {
+      GateTerm fact = facts.get(index);
+      return hasText(index) ? new GateTerm(fact.kind(), textsSoFar) : fact;
+    }
+
+    /** Whether a term has text to log beside the terms. */
+    boolean hasText(int index) {
+      GateTerm.Kind kind = facts.get(index).kind();
+      return kind == GateTerm.Kind.TEXT || kind == GateTerm.Kind.THREW;
+    }
+
+    /** The text of a term that has some. */
+    String text(int index) {
+      return text.get(index);
+    }
+
+    /** How each term reads, in the order they were added. This is the list itself. */
+    List<String> shown() {
+      return shown;
+    }
+  }
+
+  /**
+   * What a term in a team's own words is while a gate is worked out. Its text gets its place among
+   * the gate's texts only when the terms are logged, so that adding one in a loop makes nothing.
+   */
+  private static final GateTerm IN_WORDS = GateTerm.text(0);
+
+  /** What the term of a logic that threw is while a gate is worked out, likewise. */
+  private static final GateTerm THREW = new GateTerm(GateTerm.Kind.THREW, 0);
+
+  /** What a debounced gate adds while what it reads has not yet held for its time. */
+  private static final GateTerm SETTLING = GateTerm.settling();
 
   /** What a gate with a band remembers between workings out: whether it held the last time. */
   private static final class Remembered {
@@ -177,6 +296,7 @@ public final class Gate extends Trigger {
     Debounce debouncer = new Debounce(time.in(Seconds), type);
     GateState undebounced = state;
     undebounced.stopLogging();
+    String settling = ControlSentences.settling(name);
     Remembered everHeld = new Remembered();
     return new Gate(
         scheduler,
@@ -190,7 +310,7 @@ public final class Gate extends Trigger {
             return true;
           }
           if (holdsNow) {
-            why.add(name + " settling");
+            why.add(SETTLING, settling);
           } else {
             why.addAll(undebounced.blocking());
           }
@@ -236,12 +356,12 @@ public final class Gate extends Trigger {
   }
 
   /**
-   * The terms that keep it false this loop. Empty while it holds, and always empty for a gate
-   * without terms.
+   * The terms that keep it false this loop, each as it reads. Empty while it holds, and always
+   * empty for a gate without terms.
    */
   public List<String> blocking() {
     state.bringUpToDate();
-    return List.copyOf(state.blocking());
+    return List.copyOf(state.blocking().shown());
   }
 
   /**
@@ -250,11 +370,7 @@ public final class Gate extends Trigger {
    */
   public String why() {
     state.bringUpToDate();
-    List<String> blocking = state.blocking();
-    if (blocking.isEmpty()) {
-      return name + " is false";
-    }
-    return name + " is false: " + String.join(", ", blocking);
+    return ControlSentences.gateWhy(name, state.blocking().shown());
   }
 
   @Override

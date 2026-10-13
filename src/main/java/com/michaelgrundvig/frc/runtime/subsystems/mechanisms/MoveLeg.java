@@ -1,8 +1,12 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
+import com.michaelgrundvig.frc.world.record.Identity;
+import com.michaelgrundvig.frc.world.record.MoveTarget;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.Position;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -48,8 +52,30 @@ final class MoveLeg {
    */
   record Unplanned() implements Part {}
 
+  /**
+   * What a move sent a joint to or ran it at, as the move's outcome records it.
+   *
+   * @param kind what kind of thing it is
+   * @param index for a named position or a named output, where it is in the joint's own list of
+   *     them; {@link Identity#NONE} for anything else
+   * @param number the target as a number, in the units its kind has, or NaN where it has none
+   */
+  record Target(MoveTarget kind, int index, double number) {
+    /** Nothing the outcome can say: a hold, a homing, or a move refused for where it would go. */
+    static final Target NONE = new Target(MoveTarget.NONE, Identity.NONE, Double.NaN);
+
+    /** Stopped, the output every joint has. */
+    static final Target STOPPED = new Target(MoveTarget.STOPPED, Identity.NONE, 0);
+  }
+
   final JointMechanism joint;
   final Part part;
+
+  /**
+   * Where the leg's named position or named output is in the joint's own list of them, or {@link
+   * Identity#NONE} for a leg that has neither. It is looked up once, as the leg is made.
+   */
+  private final int indexOfItsName;
 
   // How the latest run is going.
 
@@ -69,6 +95,46 @@ final class MoveLeg {
     this.joint = joint;
     this.part = part;
     target = part instanceof AtPlace atPlace ? atPlace.position() : Double.NaN;
+    indexOfItsName = indexOfItsName(joint, part);
+  }
+
+  /** Where a part's named position or named output is in the joint's own list of them. */
+  private static int indexOfItsName(JointMechanism joint, Part part) {
+    return switch (part) {
+      case AtPlace atPlace -> {
+        List<Position> positions = joint.joint().positions();
+        for (int index = 0; index < positions.size(); index++) {
+          boolean isItsName =
+              atPlace.name().isPresent()
+                  && positions.get(index).name().equals(atPlace.name().get());
+          if (isItsName) {
+            yield index;
+          }
+        }
+        yield Identity.NONE;
+      }
+      case AtOutput atOutput -> joint.joint().outputs().indexOf(atOutput.output());
+      case Unplanned unplanned -> Identity.NONE;
+    };
+  }
+
+  /** What this run sent the joint to or ran it at, as the move's outcome records it. */
+  Target recordedTarget() {
+    return switch (part) {
+      case AtPlace atPlace -> {
+        MoveTarget kind = atPlace.name().isPresent() ? MoveTarget.PLACE : MoveTarget.NUMBER;
+        yield new Target(kind, indexOfItsName, target);
+      }
+      case AtOutput atOutput -> {
+        boolean isOneOfItsOwn = Identity.isSome(indexOfItsName);
+        if (!isOneOfItsOwn) {
+          // The only output a joint runs at that is not in its list is the one every joint has.
+          yield Target.STOPPED;
+        }
+        yield new Target(MoveTarget.OUTPUT, indexOfItsName, atOutput.output().value());
+      }
+      case Unplanned unplanned -> Target.NONE;
+    };
   }
 
   /** The same leg with no run behind it, for another move made from the same plan. */

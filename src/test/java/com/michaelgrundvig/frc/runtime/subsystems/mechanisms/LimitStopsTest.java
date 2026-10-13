@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.TURRET;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.List;
@@ -23,7 +24,20 @@ class LimitStopsTest {
       JointFixtures.limit("turret left", TURRET, Sensor.Switch.Limit.End.LOWER);
 
   private final SwitchReadings switches = new SwitchReadings(TURRET_RIGHT, TURRET_LEFT);
-  private final LimitStops turret = new LimitStops(List.of(TURRET_RIGHT, TURRET_LEFT));
+
+  /** The robot's sensors. What holds the turret names a switch by where it is among them. */
+  private static final List<Sensor> SENSORS = List.of(TURRET_RIGHT, TURRET_LEFT);
+
+  private static final Holder RIGHT = Holder.limitSwitch(SENSORS.indexOf(TURRET_RIGHT));
+  private static final Holder LEFT = Holder.limitSwitch(SENSORS.indexOf(TURRET_LEFT));
+
+  /** The turret held by its right switch, and by nothing else. */
+  private static final List<Holder> RIGHT_TRIPPED = List.of(RIGHT);
+
+  /** An interlock on the turret, which holds it above its limit switches. */
+  private static final Holder AN_INTERLOCK = Holder.interlock(0);
+
+  private final LimitStops turret = new LimitStops(List.of(TURRET_RIGHT, TURRET_LEFT), SENSORS);
 
   private static final Demand BACK = Demands.toPosition(Math.PI, 0.5);
   private static final Demand FRONT = Demands.toPosition(0, 0.5);
@@ -44,8 +58,7 @@ class LimitStopsTest {
 
     Demand held = turret.apply(BACK, 1.6, switches.sensors());
 
-    assertThat(held)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, "turret right tripped"));
+    assertThat(held).isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, RIGHT_TRIPPED));
   }
 
   /**
@@ -62,7 +75,7 @@ class LimitStopsTest {
     Demand pushedBack = turret.apply(BACK, 1.57, switches.sensors());
 
     assertThat(pushedOn)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), false, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), false, RIGHT_TRIPPED));
     assertThat(pushedBack).isSameAs(pushedOn);
   }
 
@@ -95,7 +108,7 @@ class LimitStopsTest {
 
     assertThat(cleared).isSameAs(BACK);
     assertThat(again)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.62, 0.5), true, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.62, 0.5), true, RIGHT_TRIPPED));
   }
 
   /**
@@ -113,9 +126,9 @@ class LimitStopsTest {
     Demand lasting = turret.apply(further, 1.64, switches.sensors());
 
     assertThat(begun)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), true, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), true, RIGHT_TRIPPED));
     assertThat(lasting)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), false, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.25), false, RIGHT_TRIPPED));
   }
 
   /**
@@ -131,8 +144,7 @@ class LimitStopsTest {
     Demand back = turret.apply(BACK, 1.55, switches.sensors());
 
     assertThat(away).isSameAs(FRONT);
-    assertThat(back)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.55, 0.5), true, "turret right tripped"));
+    assertThat(back).isEqualTo(new Demand(new JointAsk.ToPosition(1.55, 0.5), true, RIGHT_TRIPPED));
   }
 
   /**
@@ -146,15 +158,14 @@ class LimitStopsTest {
     turret.apply(BACK, 1.6, switches.sensors());
 
     Demand restarting = turret.apply(BACK.restartingProfile(), 1.6, switches.sensors());
-    Demand interlocked = BACK.heldTo(BACK.ask(), "turret stays in while elevator is down");
+    Demand interlocked = BACK.heldTo(BACK.ask(), AN_INTERLOCK);
     Demand begun = turret.apply(interlocked, 1.6, switches.sensors());
     Demand lasting = turret.apply(interlocked, 1.6, switches.sensors());
 
     assertThat(restarting.restartProfile()).as("restarted from above").isTrue();
     assertThat(begun.restartProfile()).as("a new hold").isTrue();
     assertThat(lasting.restartProfile()).isFalse();
-    assertThat(lasting.heldBy())
-        .isEqualTo("turret stays in while elevator is down; turret right tripped");
+    assertThat(lasting.heldBy()).containsExactly(AN_INTERLOCK, RIGHT);
   }
 
   /** Leaving it is free, and once it clears, a move past it is held where it next trips. */
@@ -183,7 +194,7 @@ class LimitStopsTest {
     Demand stopped = turret.apply(toward, 1.6, switches.sensors());
 
     assertThat(stopped.ask()).isEqualTo(JointAsk.NEUTRAL);
-    assertThat(stopped.heldBy()).isEqualTo("turret right tripped");
+    assertThat(stopped.heldBy()).containsExactly(RIGHT);
     assertThat(turret.apply(away, 1.6, switches.sensors())).isSameAs(away);
     assertThat(turret.apply(Demand.NEUTRAL, 1.6, switches.sensors()).heldBy()).isEmpty();
   }
@@ -198,7 +209,7 @@ class LimitStopsTest {
   void anOutputHeldNeutralIsTheSameDemandWhileNothingChanges() {
     switches.trip(TURRET_RIGHT, true);
     Demand toward = Demands.atVoltage(2);
-    Demand neutral = new Demand(JointAsk.NEUTRAL, false, "turret right tripped");
+    Demand neutral = new Demand(JointAsk.NEUTRAL, false, RIGHT_TRIPPED);
 
     Demand begun = turret.apply(toward, 1.6, switches.sensors());
     Demand lasting = turret.apply(toward, 1.62, switches.sensors());
@@ -206,7 +217,7 @@ class LimitStopsTest {
     Demand harder = turret.apply(Demands.atVoltage(3), 1.61, switches.sensors());
     Demand interlocked =
         turret.apply(
-            Demands.atVoltage(3).heldTo(new JointAsk.AtVoltage(1), "turret slow near its end"),
+            Demands.atVoltage(3).heldTo(new JointAsk.AtVoltage(1), AN_INTERLOCK),
             1.61,
             switches.sensors());
     Demand away = turret.apply(Demands.atVoltage(-2), 1.61, switches.sensors());
@@ -221,8 +232,7 @@ class LimitStopsTest {
     assertThat(askedAgain).as("asked again as another object").isSameAs(begun);
     assertThat(harder).as("another output").isEqualTo(neutral).isNotSameAs(begun);
     assertThat(interlocked)
-        .isEqualTo(
-            new Demand(JointAsk.NEUTRAL, false, "turret slow near its end; turret right tripped"));
+        .isEqualTo(new Demand(JointAsk.NEUTRAL, false, List.of(AN_INTERLOCK, RIGHT)));
     assertThat(away.ask()).as("leaving is free").isEqualTo(new JointAsk.AtVoltage(-2));
     assertThat(towardAgain).isEqualTo(neutral);
     assertThat(cleared).isSameAs(toward);
@@ -242,7 +252,7 @@ class LimitStopsTest {
   void aHoldThatChangesKindForgetsWhereTheJointWasStopped() {
     switches.trip(TURRET_RIGHT, true);
     Demand toward = Demands.atVoltage(2);
-    Demand neutral = new Demand(JointAsk.NEUTRAL, false, "turret right tripped");
+    Demand neutral = new Demand(JointAsk.NEUTRAL, false, RIGHT_TRIPPED);
 
     Demand held = turret.apply(BACK, 1.6, switches.sensors());
     Demand stilled = turret.apply(toward, 1.6, switches.sensors());
@@ -253,21 +263,20 @@ class LimitStopsTest {
     Demand stilledAgain = turret.apply(toward, 1.52, switches.sensors());
     Demand heldOnceMore = turret.apply(BACK, 1.5, switches.sensors());
 
-    assertThat(held)
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, "turret right tripped"));
+    assertThat(held).isEqualTo(new Demand(new JointAsk.ToPosition(1.6, 0.5), true, RIGHT_TRIPPED));
     assertThat(stilled).isEqualTo(neutral);
     assertThat(coasting).as("held neutral, the next loop").isSameAs(stilled);
     assertThat(heldAgain)
         .as("a new hold where the joint is by then")
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), true, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), true, RIGHT_TRIPPED));
     assertThat(lasting)
         .as("its profile started again once")
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), false, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.52, 0.5), false, RIGHT_TRIPPED));
     assertThat(lastingOn).as("the very same demand while it lasts").isSameAs(lasting);
     assertThat(stilledAgain).isEqualTo(neutral);
     assertThat(heldOnceMore)
         .as("and back again")
-        .isEqualTo(new Demand(new JointAsk.ToPosition(1.5, 0.5), true, "turret right tripped"));
+        .isEqualTo(new Demand(new JointAsk.ToPosition(1.5, 0.5), true, RIGHT_TRIPPED));
   }
 
   /** A lost switch holds no condition, so it stops nothing; nor does one never read. */
@@ -283,8 +292,8 @@ class LimitStopsTest {
   void itsSwitchAtAnEndIsOneWhosePositionIsKnown() {
     assertThat(turret.at(Sensor.Switch.Limit.End.UPPER)).contains(TURRET_RIGHT);
     assertThat(turret.at(Sensor.Switch.Limit.End.LOWER)).isEmpty();
-    assertThat(new LimitStops(List.of()).at(Sensor.Switch.Limit.End.UPPER)).isEmpty();
-    assertThat(new LimitStops(List.of(TURRET_RIGHT)).at(Sensor.Switch.Limit.End.LOWER))
+    assertThat(new LimitStops(List.of(), SENSORS).at(Sensor.Switch.Limit.End.UPPER)).isEmpty();
+    assertThat(new LimitStops(List.of(TURRET_RIGHT), SENSORS).at(Sensor.Switch.Limit.End.LOWER))
         .as("a switch at the other end only")
         .isEmpty();
   }
@@ -298,7 +307,7 @@ class LimitStopsTest {
     Demand right = turret.apply(Demands.atVoltage(2), 0, both.sensors());
     Demand left = turret.apply(Demands.atVoltage(-2), 0, both.sensors());
 
-    assertThat(right.heldBy()).isEqualTo("turret right tripped");
-    assertThat(left.heldBy()).isEqualTo("turret left tripped");
+    assertThat(right.heldBy()).containsExactly(RIGHT);
+    assertThat(left.heldBy()).containsExactly(LEFT);
   }
 }

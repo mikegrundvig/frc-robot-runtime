@@ -11,6 +11,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.RPM;
 
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
@@ -75,6 +76,14 @@ class InterlocksTest {
     return Demands.toPosition(radians(degrees), 0.5);
   }
 
+  /**
+   * Where a test's interlocks are among its robot's, which is how what holds a joint names each: a
+   * test adds them in this order.
+   */
+  private static final int FIRST = 0;
+
+  private static final int SECOND = 1;
+
   private final Other pivotView = new Other();
   private final Other elevatorView = new Other();
   private final Other rollerView = new Other();
@@ -84,7 +93,7 @@ class InterlocksTest {
   void aJointThatRunsOnlyWhenAnotherIsPastAPlaceStopsUntilItIs() {
     Interlocks roller = new Interlocks(travel(ROLLER));
     Interlock rule = Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110)));
-    roller.add(rule, Optional.of(pivotView.at(radians(1.5))));
+    roller.add(rule, Optional.of(pivotView.at(radians(1.5))), FIRST);
     Demand intaking = Demands.atVelocity(50);
 
     Demand stopped = roller.apply(intaking, 0, 0, 0, Demands.NO_SENSORS);
@@ -92,7 +101,7 @@ class InterlocksTest {
     Demand running = roller.apply(intaking, 0, 0, 0, Demands.NO_SENSORS);
 
     assertThat(stopped.ask()).isEqualTo(JointAsk.NEUTRAL);
-    assertThat(stopped.heldBy()).isEqualTo("roller runs only when pivot at least 110°");
+    assertThat(stopped.heldBy()).containsExactly(Holder.interlock(FIRST));
     assertThat(running).isSameAs(intaking);
   }
 
@@ -102,7 +111,8 @@ class InterlocksTest {
     Interlocks roller = new Interlocks(travel(ROLLER));
     roller.add(
         Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))),
-        Optional.of(pivotView.at(radians(120))));
+        Optional.of(pivotView.at(radians(120))),
+        FIRST);
     pivotView.knowsWhere = false;
 
     assertThat(roller.apply(Demands.atVelocity(50), 0, 0, 0, Demands.NO_SENSORS).ask())
@@ -119,7 +129,8 @@ class InterlocksTest {
     Interlocks turret = new Interlocks(travel(TURRET));
     turret.add(
         Interlock.that(TURRET).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))),
-        Optional.of(rollerView));
+        Optional.of(rollerView),
+        FIRST);
     rollerView.knowsWhere = false;
     Demand back = toward(180);
 
@@ -134,7 +145,7 @@ class InterlocksTest {
         .as("1 rad, braking from 3 rad/s at 10 rad/s²")
         .isCloseTo(1.45, within(1e-12));
     assertThat(Demands.cruiseShare(held)).isEqualTo(1);
-    assertThat(held.heldBy()).isEqualTo("turret runs only when roller at least 1000 rpm");
+    assertThat(held.heldBy()).containsExactly(Holder.interlock(FIRST));
     assertThat(Demands.position(stillHeld)).as("worked out once").isEqualTo(Demands.position(held));
     assertThat(letGo).isEqualTo(back.restartingProfile());
     assertThat(after).isSameAs(back);
@@ -145,7 +156,8 @@ class InterlocksTest {
     Interlocks pivot = new Interlocks(travel(PIVOT));
     pivot.add(
         Interlock.that(PIVOT).keepsOut(Range.degrees(40, 80)).when(ELEVATOR.atMost(ELEVATOR_CLEAR)),
-        Optional.of(elevatorView.at(0)));
+        Optional.of(elevatorView.at(0)),
+        FIRST);
     return pivot;
   }
 
@@ -165,8 +177,7 @@ class InterlocksTest {
 
     assertThat(Demands.position(fromBelow)).isCloseTo(radians(40), within(1e-12));
     assertThat(Demands.cruiseShare(fromBelow)).isEqualTo(1);
-    assertThat(fromBelow.heldBy())
-        .isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(fromBelow.heldBy()).containsExactly(Holder.interlock(FIRST));
     assertThat(Demands.position(fromAbove)).isCloseTo(radians(80), within(1e-12));
     assertThat(short_).as("a target short of it isn't held").isEqualTo(toward(30));
     assertThat(open).isEqualTo(toward(130));
@@ -187,8 +198,7 @@ class InterlocksTest {
     Demand askedAnother = pivot.apply(toward(120), radians(11), 0.5, 0, Demands.NO_SENSORS);
     Demand askedAsBefore = pivot.apply(asked, radians(11), 0.5, 0, Demands.NO_SENSORS);
 
-    assertThat(first.heldBy())
-        .isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(first.heldBy()).containsExactly(Holder.interlock(FIRST));
     assertThat(second).isSameAs(first);
     assertThat(askedAnother).isNotSameAs(first).isEqualTo(first);
     assertThat(askedAsBefore).isEqualTo(first);
@@ -228,7 +238,8 @@ class InterlocksTest {
         Interlock.that(PIVOT)
             .keepsOut(Range.degrees(100, 135))
             .when(ELEVATOR.atMost(ELEVATOR_CLEAR)),
-        Optional.of(elevatorView.at(0)));
+        Optional.of(elevatorView.at(0)),
+        FIRST);
 
     Demand down = pivot.apply(toward(1.5), radians(135), 0, 0, Demands.NO_SENSORS);
     Demand deeper = pivot.apply(toward(120), radians(135), 0, 0, Demands.NO_SENSORS);
@@ -355,10 +366,11 @@ class InterlocksTest {
   void aSensorsConditionHoldsAndALostSensorRestricts() {
     Sensors sensors = sensors();
     Interlocks roller = new Interlocks(travel(ROLLER));
-    roller.add(Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()), Optional.empty());
+    roller.add(Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()), Optional.empty(), FIRST);
     roller.add(
         Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))),
-        Optional.of(pivotView));
+        Optional.of(pivotView),
+        SECOND);
     Demand intaking = Demands.atVelocity(50);
     pivotView.at(radians(120));
 
@@ -376,9 +388,9 @@ class InterlocksTest {
 
     assertThat(clear).isSameAs(intaking);
     assertThat(tripped.ask()).isEqualTo(JointAsk.NEUTRAL);
-    assertThat(tripped.heldBy()).isEqualTo("roller runs only when claw beam clear");
+    assertThat(tripped.heldBy()).containsExactly(Holder.interlock(FIRST));
     assertThat(lost.heldBy())
-        .isEqualTo(
-            "roller runs only when claw beam clear; roller runs only when pivot at least 110°");
+        .as("held by two rules, it names both, in their order")
+        .containsExactly(Holder.interlock(FIRST), Holder.interlock(SECOND));
   }
 }

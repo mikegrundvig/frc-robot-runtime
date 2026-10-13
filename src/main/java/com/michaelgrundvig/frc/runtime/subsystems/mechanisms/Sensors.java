@@ -4,6 +4,8 @@ import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.world.record.ControlSentences;
+import com.michaelgrundvig.frc.world.record.GateTerm;
 import com.michaelgrundvig.frc.world.robot.Condition;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
@@ -63,6 +65,13 @@ public final class Sensors {
   }
 
   private final Scheduler scheduler;
+
+  /** The robot, whose names a gate's term about a sensor is said in. */
+  private final RobotDefinition definition;
+
+  /** The definition's sensors. A logged fact names a sensor by where it is among them. */
+  private final List<Sensor> everySensor;
+
   private final Reading[] readings;
   private final Map<Sensor, Reading> bySensor = new HashMap<>();
 
@@ -75,8 +84,10 @@ public final class Sensors {
    */
   Sensors(RobotDefinition definition, Function<Sensor.Placed, SensorIO> io, Scheduler scheduler) {
     this.scheduler = scheduler;
+    this.definition = definition;
+    everySensor = definition.everySensor();
     List<Reading> built = new ArrayList<>();
-    for (Sensor sensor : definition.math().sensors()) {
+    for (Sensor sensor : everySensor) {
       if (sensor instanceof Sensor.Placed placed) {
         boolean isReadByItsJoint = ControllerPins.onPin(placed) != null;
         Optional<SensorIO> own =
@@ -149,13 +160,15 @@ public final class Sensors {
     if (reading == null) {
       return Refusals.gate(scheduler, name, notOurs(condition.sensor()));
     }
+    GateTerm lost = new GateTerm(GateTerm.Kind.SENSOR_LOST, everySensor.indexOf(reading.sensor));
+    String lostShown = ControlSentences.gateTerm(definition, name, lost, List.of());
     return new Gate(
         scheduler,
         name,
         why -> {
           boolean holds = holds(condition);
           if (!holds && !reading.inputs.connected) {
-            why.add(reading.sensor.label() + " lost");
+            why.add(lost, lostShown);
           }
           return holds;
         });

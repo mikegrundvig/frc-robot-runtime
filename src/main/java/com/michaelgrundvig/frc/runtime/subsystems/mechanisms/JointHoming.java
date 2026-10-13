@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Ready;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.SeekingSwitch;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Unhomed;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -178,12 +179,11 @@ final class JointHoming {
   }
 
   /**
-   * The joint's phase as {@code State} logs it: its state, with why when it is faulted, and while
-   * it homes, toward what and for how long at most ("HOMING: toward its lower stop, for at most 9.5
-   * s").
+   * The joint's phase as {@code State} logs it: where it stands, which of the reasons it is faulted
+   * for when it is, and while it homes, toward what and for how long at most.
    */
-  String shown() {
-    return phase.shown();
+  JointState recorded() {
+    return phase.recorded();
   }
 
   /** Why moves on the joint are refused, if it is faulted. */
@@ -278,13 +278,14 @@ final class JointHoming {
    * since driving it without their current limits or its ratio would be a guess at full power, and
    * for a stand-in for a joint with no mechanism ({@link JointMechanism#standIn}).
    *
+   * @param fault which of the reasons a joint is faulted for this is
    * @param why what is wrong and what to do about it
    */
-  void faultFor(String why) {
+  void faultFor(JointState.Fault fault, String why) {
     if (phase.state() == State.FAULTED) {
       return;
     }
-    phase = new Faulted(why, phase instanceof AwaitingEncoder);
+    phase = new Faulted(JointState.faulted(fault), why, phase instanceof AwaitingEncoder);
   }
 
   /**
@@ -311,6 +312,7 @@ final class JointHoming {
       AwaitingEncoder awaiting = (AwaitingEncoder) phase;
       phase =
           new EncoderSilent(
+              JointState.faulted(JointState.Fault.ENCODER_GAVE_NO_READING),
               String.format(
                   Locale.ROOT,
                   "%s's absolute encoder gave no reading in %.1f s%s: it's seeded when it does",
@@ -325,7 +327,7 @@ final class JointHoming {
   /** The phase a joint moves to when its absolute encoder has just said where it is. */
   private HomingPhase afterEncoderFoundIt() {
     if (phase instanceof Faulted faulted) {
-      return new Faulted(faulted.why(), false);
+      return new Faulted(faulted.recorded(), faulted.why(), false);
     }
     // A joint whose loop closes on its encoder already reads where it is from the encoder in this
     // loop. Any other reads its motor's new count only from the next loop.
@@ -358,6 +360,7 @@ final class JointHoming {
     if (lostNow) {
       phase =
           new EncoderSilent(
+              JointState.faulted(JointState.Fault.ENCODER_LOST),
               possessive(label)
                   + " absolute encoder is lost"
                   + onPort()
@@ -374,7 +377,9 @@ final class JointHoming {
     if (phase instanceof AwaitingEncoder awaiting) {
       phase = new AwaitingEncoder(awaiting.since(), OptionalDouble.of(onMotor));
     } else if (phase instanceof EncoderSilent silent) {
-      phase = new EncoderSilent(silent.why(), silent.since(), OptionalDouble.of(onMotor));
+      phase =
+          new EncoderSilent(
+              silent.recorded(), silent.why(), silent.since(), OptionalDouble.of(onMotor));
     }
   }
 
@@ -442,12 +447,13 @@ final class JointHoming {
     Approach approach = nextApproach(seeking.approach(), tripped, at);
     boolean outOfTime = now - seeking.since() >= Math.round(secondsAllowed * 1e9);
     if (!outOfTime) {
-      phase = new SeekingSwitch(seeking.toward(), seeking.since(), approach, limit);
+      phase = new SeekingSwitch(seeking.recorded(), seeking.since(), approach, limit);
       return;
     }
     Homing.ToSwitch recipe = toSwitch.orElseThrow();
     phase =
         new Faulted(
+            JointState.faulted(JointState.Fault.HOMING_MISSED_ITS_SWITCH),
             String.format(
                 Locale.ROOT,
                 "%s's homing didn't %s %s in %.1f s%s%s",
@@ -540,6 +546,7 @@ final class JointHoming {
     boolean assumedAtRest = recipe.isPresent() && recipe.get() instanceof Homing.AssumeAtRest;
     if (assumedAtRest) {
       faultFor(
+          JointState.Fault.CONTROLLER_RESTARTED,
           possessive(label)
               + " motor controller restarted, so where "
               + label
@@ -553,13 +560,14 @@ final class JointHoming {
    * faulted: its moves are refused, saying why, until the encoder is trusted again ({@link
    * #trust}).
    *
+   * @param fault which of the reasons an encoder is not trusted for this is
    * @param why what is wrong and what to do about it
    * @param heldOnMotor where the joint holds by its motor's count meanwhile, which is where it
    *     comes to a stop, for a joint whose motor controller's loop runs on the motor's count
    */
-  void distrust(String why, OptionalDouble heldOnMotor) {
+  void distrust(JointState.Fault fault, String why, OptionalDouble heldOnMotor) {
     if (phase.state() == State.READY) {
-      phase = new EncoderDistrusted(why, heldOnMotor);
+      phase = new EncoderDistrusted(JointState.faulted(fault), why, heldOnMotor);
     }
   }
 
@@ -571,7 +579,7 @@ final class JointHoming {
    */
   void stillDistrusted(OptionalDouble heldOnMotor) {
     if (phase instanceof EncoderDistrusted distrusted) {
-      phase = new EncoderDistrusted(distrusted.why(), heldOnMotor);
+      phase = new EncoderDistrusted(distrusted.recorded(), distrusted.why(), heldOnMotor);
     }
   }
 
@@ -608,7 +616,7 @@ final class JointHoming {
    */
   private void awaitEncoder(long now) {
     if (phase instanceof Faulted faulted) {
-      phase = new Faulted(faulted.why(), true);
+      phase = new Faulted(faulted.recorded(), faulted.why(), true);
     } else {
       phase = new AwaitingEncoder(now, phase.heldOnMotor());
     }
@@ -630,24 +638,31 @@ final class JointHoming {
    */
   private void begin(long now) {
     if (toHardStop.isPresent()) {
-      String stop = "its " + shown(toHardStop.get().end()) + " stop";
-      phase = new PushingToStop(toward(stop), now, OptionalLong.empty());
+      boolean towardItsLowerEnd = toHardStop.get().end() == End.LOWER;
+      JointState.Toward stop =
+          towardItsLowerEnd ? JointState.Toward.LOWER_STOP : JointState.Toward.UPPER_STOP;
+      phase = new PushingToStop(homingToward(stop), now, OptionalLong.empty());
       return;
     }
     if (homingSwitch.isPresent()) {
       Sensor.Switch onto = homingSwitch.get();
-      phase = new SeekingSwitch(toward(onto.label()), now, new Approach.SwitchNotYetRead(), onto);
+      boolean towardItsLowerEnd = ((Sensor.Switch.Limit) onto.kind()).end() == End.LOWER;
+      JointState.Toward itsSwitch =
+          towardItsLowerEnd ? JointState.Toward.LOWER_SWITCH : JointState.Toward.UPPER_SWITCH;
+      phase =
+          new SeekingSwitch(homingToward(itsSwitch), now, new Approach.SwitchNotYetRead(), onto);
       return;
     }
-    phase = new Faulted(whyItHasNoSwitchToHomeTo(), false);
+    phase =
+        new Faulted(
+            JointState.faulted(JointState.Fault.HOMING_HAS_NO_SWITCH),
+            whyItHasNoSwitchToHomeTo(),
+            false);
   }
 
-  /**
-   * What a homing joint is pushed toward and for how long at most, as the log says it: "toward its
-   * lower stop, for at most 9.5 s".
-   */
-  private String toward(String what) {
-    return String.format(Locale.ROOT, "toward %s, for at most %.1f s", what, secondsAllowed);
+  /** What a joint that begins to home logs: what it is pushed toward, and for how long at most. */
+  private JointState homingToward(JointState.Toward toward) {
+    return JointState.homing(toward, secondsAllowed);
   }
 
   /** Why a joint whose recipe homes it to a limit switch it does not have is faulted. */
@@ -681,6 +696,7 @@ final class JointHoming {
     boolean outOfTime = now - pushing.since() >= Math.round(secondsAllowed * 1e9);
     if (outOfTime) {
       return new Faulted(
+          JointState.faulted(JointState.Fault.HOMING_FOUND_NO_STOP),
           String.format(
               Locale.ROOT,
               "%s's homing found no stop in %.1f s%s, pushing toward its %s one",
@@ -693,7 +709,7 @@ final class JointHoming {
     if (stillSince.equals(pushing.stillSince())) {
       return pushing;
     }
-    return new PushingToStop(pushing.toward(), pushing.since(), stillSince);
+    return new PushingToStop(pushing.recorded(), pushing.since(), stillSince);
   }
 
   /** Since when a joint pushed into its stop has been still: from now, if it has just stopped. */

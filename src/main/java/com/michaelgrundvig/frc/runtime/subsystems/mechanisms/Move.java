@@ -1,6 +1,5 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
-import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 import static org.wpilib.units.Units.Value;
 
@@ -8,6 +7,7 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.behavior.Why;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.AtOutput;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.AtPlace;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.Unplanned;
@@ -17,10 +17,18 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MovePlan.Hold;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MovePlan.Home;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MovePlan.Run;
 import com.michaelgrundvig.frc.world.config.Rules;
+import com.michaelgrundvig.frc.world.record.Holder;
+import com.michaelgrundvig.frc.world.record.Identity;
+import com.michaelgrundvig.frc.world.record.MoveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveProgress;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveTarget;
+import com.michaelgrundvig.frc.world.record.MoveTask;
 import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -42,8 +50,9 @@ import org.wpilib.units.measure.Time;
 
 /**
  * A pre-built command on the robot's joints: a v3 {@link Command} that records how it ended, as one
- * of four outcomes, each with a reason it logs under each of its joints ({@code
- * Joints/pivot/Outcome}).
+ * of four outcomes, each with what it logs under each of its joints ({@code Joints/pivot/Outcome}):
+ * the facts of the run ({@link MoveEnding}), which read as a sentence wherever a person reads one
+ * ({@link #reason}).
  *
  * <ul>
  *   <li>{@link Outcome#ARRIVED}: inside the joint's band for 40 ms, every joint for a move to a
@@ -100,6 +109,15 @@ public final class Move implements Command {
   /** The command scheduler its joints are registered with, which says whether the robot starts. */
   private final Scheduler scheduler;
 
+  /** The robot its joints are part of, whose names its ending's sentence is said in. */
+  private final RobotDefinition definition;
+
+  /**
+   * The configuration it goes to or stays at, as its index in the definition's configurations, or
+   * {@link Identity#NONE} for a move of one joint.
+   */
+  private final int configuration;
+
   private final MovePlan plan;
   private final MoveLeg[] legs;
   private final Set<Mechanism> requirements;
@@ -123,7 +141,8 @@ public final class Move implements Command {
   /** How the latest run ended, or empty before any run has ended. */
   private Optional<Outcome> outcome = Optional.empty();
 
-  private String reason = "";
+  /** The facts of how the latest run ended, or empty before any run has ended. */
+  private Optional<MoveEnding> ending = Optional.empty();
 
   /** When each joint got there in the latest run, in seconds from its start, as the run ended. */
   private Map<Joint, Double> arrivals = Map.of();
@@ -137,8 +156,15 @@ public final class Move implements Command {
    */
   private double chasedTarget;
 
-  private Move(Scheduler scheduler, MovePlan plan, MoveLeg[] legs) {
+  private Move(
+      Scheduler scheduler,
+      RobotDefinition definition,
+      int configuration,
+      MovePlan plan,
+      MoveLeg[] legs) {
     this.scheduler = scheduler;
+    this.definition = definition;
+    this.configuration = configuration;
     this.plan = plan;
     this.legs = legs;
     Set<Mechanism> required = new LinkedHashSet<>();
@@ -150,7 +176,12 @@ public final class Move implements Command {
 
   /** A move of one joint. */
   private static Move of(MovePlan plan, MoveLeg leg) {
-    return new Move(leg.joint.getRegisteredScheduler(), plan, new MoveLeg[] {leg});
+    return new Move(
+        leg.joint.getRegisteredScheduler(),
+        leg.joint.definition(),
+        Identity.NONE,
+        plan,
+        new MoveLeg[] {leg});
   }
 
   // ---- Made by the joints ----
@@ -213,7 +244,7 @@ public final class Move implements Command {
 
   /**
    * A move that has one joint chase a target. Its name cannot say what the target is, since that
-   * may change every loop; its outcome says what the joint was last chasing ({@link #details}).
+   * may change every loop; its outcome says what the joint was last chasing.
    *
    * @param refused why it cannot run, if it cannot
    */
@@ -262,13 +293,15 @@ public final class Move implements Command {
    * @param task whether it goes to the configuration or stays at it
    * @param refused why it cannot run, if it cannot
    * @param scheduler the command scheduler the joints are registered with
+   * @param definition the robot, which has the configuration among its own
    */
   static Move configuration(
       Configuration configuration,
       List<Optional<JointMechanism>> joints,
       MovePlan.Task task,
       Optional<String> refused,
-      Scheduler scheduler) {
+      Scheduler scheduler,
+      RobotDefinition definition) {
     List<MoveLeg> legs = new ArrayList<>();
     for (int i = 0; i < joints.size(); i++) {
       var target = configuration.targets().get(i);
@@ -287,7 +320,12 @@ public final class Move implements Command {
       }
     }
     String name = jointsOf(configuration) + linkFor(task) + configuration.name();
-    return new Move(scheduler, MovePlan.of(task, name, refused), legs.toArray(MoveLeg[]::new));
+    return new Move(
+        scheduler,
+        definition,
+        definition.configurations().indexOf(configuration),
+        MovePlan.of(task, name, refused),
+        legs.toArray(MoveLeg[]::new));
   }
 
   /** What joins a configuration's joints to its name: an arrow for a move to it, as a joint's. */
@@ -405,7 +443,7 @@ public final class Move implements Command {
     for (int i = 0; i < legs.length; i++) {
       copies[i] = legs[i].copy();
     }
-    return new Move(scheduler, plan, copies);
+    return new Move(scheduler, definition, configuration, plan, copies);
   }
 
   // ---- How it ended ----
@@ -423,9 +461,23 @@ public final class Move implements Command {
     return outcome;
   }
 
-  /** Why its latest run ended as it did, as logged: "pivot → out: ARRIVED in 0.41 s". */
+  /**
+   * The facts of how its latest run ended, as logged under each of its joints: how it ended, how
+   * long it ran, where each joint was, and why. Empty before a run has ended, and while one runs.
+   */
+  public Optional<MoveEnding> ending() {
+    if (running) {
+      return Optional.empty();
+    }
+    return ending;
+  }
+
+  /**
+   * Why its latest run ended as it did, as a person reads it: "pivot → out: ARRIVED in 0.41 s".
+   * Empty before a run has ended, and while one runs. Read {@link #ending} for the facts.
+   */
   public String reason() {
-    return reason;
+    return ending().map(MoveEnding::sentence).orElse("");
   }
 
   /**
@@ -472,7 +524,7 @@ public final class Move implements Command {
     // joints to home then says how long it waited, and not how long ago an earlier run began.
     startNanos = now();
     outcome = Optional.empty();
-    reason = "";
+    ending = Optional.empty();
     chased = Chased.NOTHING_YET;
     boolean yielded = false;
     boolean homesTheJoint = plan.task() instanceof Home;
@@ -513,7 +565,7 @@ public final class Move implements Command {
    * Why the move is canceled now, where its joints can say: the robot was disabled this loop. A
    * move of no joints has none to ask.
    */
-  private Optional<String> whyCanceledNow() {
+  private Optional<Why> whyCanceledNow() {
     if (legs.length == 0) {
       return Optional.empty();
     }
@@ -558,7 +610,7 @@ public final class Move implements Command {
   /** Begins a run. A run that is refused, or has nothing to do, ends at once. */
   private Progress begin() {
     startNanos = now();
-    Optional<String> refused = whyRefused();
+    Optional<Why> refused = whyRefused();
     if (refused.isPresent()) {
       return ended(Outcome.REFUSED, refused);
     }
@@ -590,32 +642,32 @@ public final class Move implements Command {
    * refused as it was made; a joint is faulted, or cannot reach where it is sent; or a gate the
    * move depends on does not hold.
    */
-  private Optional<String> whyRefused() {
+  private Optional<Why> whyRefused() {
     if (plan.refused().isPresent()) {
-      return plan.refused();
+      return Optional.of(Why.saying(MoveReason.REFUSED_AS_BUILT, plan.refused().get()));
     }
     for (MoveLeg leg : legs) {
-      Optional<String> cannot = whyRefused(leg);
+      Optional<Why> cannot = whyRefused(leg);
       if (cannot.isPresent()) {
         return cannot;
       }
     }
     if (plan.onlyIf().isPresent() && !plan.onlyIf().get().getAsBoolean()) {
-      return Optional.of(plan.onlyIf().get().why());
+      return Optional.of(Why.saying(MoveReason.GATE_FALSE, plan.onlyIf().get().why()));
     }
     if (plan.onlyWhile().isPresent() && !plan.onlyWhile().get().getAsBoolean()) {
-      return Optional.of(plan.onlyWhile().get().why());
+      return Optional.of(Why.saying(MoveReason.GATE_FALSE, plan.onlyWhile().get().why()));
     }
     return Optional.empty();
   }
 
   /** Why one joint's part of the move cannot start, if it cannot. */
-  private Optional<String> whyRefused(MoveLeg leg) {
+  private Optional<Why> whyRefused(MoveLeg leg) {
     if (plan.task() instanceof Home) {
       // A faulted joint may be homed again: that is what clears most faults.
       return Optional.empty();
     }
-    Optional<String> fault = leg.joint.fault();
+    Optional<Why> fault = leg.joint.whyMovesCannotRun();
     if (fault.isPresent()) {
       return fault;
     }
@@ -681,16 +733,19 @@ public final class Move implements Command {
     }
     long now = now();
     for (MoveLeg leg : legs) {
-      Optional<String> fault = leg.joint.fault();
+      // A run that a joint stops part way says that it cannot go on, and then why: the run began,
+      // which is what its ending's sentence tells the two apart by.
+      Optional<Why> fault = leg.joint.whyMovesCannotRun();
       if (fault.isPresent()) {
-        return ended(Outcome.REFUSED, Optional.of("can't go on: " + fault.get()));
+        return ended(Outcome.REFUSED, fault);
       }
     }
     if (plan.onlyWhile().isPresent() && !plan.onlyWhile().get().getAsBoolean()) {
-      return ended(Outcome.CANCELED, Optional.of(plan.onlyWhile().get().why()));
+      Why fell = Why.saying(MoveReason.GATE_FELL, plan.onlyWhile().get().why());
+      return ended(Outcome.CANCELED, Optional.of(fell));
     }
     if (plan.task() instanceof GoTo) {
-      Optional<String> lost = whyPositionLost();
+      Optional<Why> lost = whyPositionLost();
       if (lost.isPresent()) {
         return ended(Outcome.REFUSED, lost);
       }
@@ -704,9 +759,9 @@ public final class Move implements Command {
     }
     if (now >= deadlineNanos) {
       // A gate that never opened says why: "coral in claw is false: claw beam lost".
-      Optional<String> why =
+      Optional<Why> why =
           until.isPresent() && until.get() instanceof Gate gate
-              ? Optional.of(gate.why())
+              ? Optional.of(Why.saying(MoveReason.CONDITION_NEVER_HELD, gate.why()))
               : Optional.empty();
       return ended(Outcome.TIMED_OUT, why);
     }
@@ -724,7 +779,7 @@ public final class Move implements Command {
    * not a number: a joint cannot be taken along a profile from nowhere. The run ends before it asks
    * anything more, so the joint does what it does idle, which with nowhere to hold is neutral.
    */
-  private Optional<String> whyPositionLost() {
+  private Optional<Why> whyPositionLost() {
     for (MoveLeg leg : legs) {
       boolean positionsItsJoint = !leg.runsAtAnOutput();
       if (positionsItsJoint && Double.isNaN(leg.joint.position())) {
@@ -734,12 +789,9 @@ public final class Move implements Command {
     return Optional.empty();
   }
 
-  /** What a run says when it ends because a joint's position stopped being a number. */
-  private static String positionLost(JointMechanism joint) {
-    return "can't go on: "
-        + possessive(joint.getName())
-        + " position stopped being a number: check its encoder and its motor controller's"
-        + " settings";
+  /** Why a run ends when a joint's position stops being a number. */
+  private static Why positionLost(JointMechanism joint) {
+    return new Why(MoveReason.POSITION_LOST, joint.index(), "");
   }
 
   /** One loop of a homing: it ends when the joint knows where it is, or is faulted. */
@@ -748,7 +800,7 @@ public final class Move implements Command {
     if (joint.state() == JointMechanism.State.READY) {
       return ended(Outcome.ARRIVED, Optional.empty());
     }
-    Optional<String> fault = joint.fault();
+    Optional<Why> fault = joint.whyMovesCannotRun();
     if (fault.isPresent()) {
       return ended(Outcome.REFUSED, fault);
     }
@@ -792,9 +844,8 @@ public final class Move implements Command {
         joint.joint() instanceof Joint.Revolute
             ? "an angle or an angular velocity"
             : "a distance or a linear velocity";
-    return ended(
-        Outcome.REFUSED,
-        Optional.of(joint.getName() + " can't follow " + given + ": it takes " + takes));
+    String wrongKind = joint.getName() + " can't follow " + given + ": it takes " + takes;
+    return ended(Outcome.REFUSED, Optional.of(Why.saying(MoveReason.TARGET_WRONG_KIND, wrongKind)));
   }
 
   /**
@@ -818,13 +869,20 @@ public final class Move implements Command {
    * @param why what made it end this way, where the outcome alone does not say: a refusal's reason,
    *     or the gate that fell or never opened
    */
-  private void end(Outcome how, Optional<String> why) {
+  private void end(Outcome how, Optional<Why> why) {
     running = false;
     outcome = Optional.of(how);
     double seconds = (now() - startNanos) / 1e9;
     Map<Joint, Double> came = arrivalsAsItEnded();
     arrivals = Collections.unmodifiableMap(came);
-    reason = how.reason(plan.name(), seconds, details(how, came), why);
+    MoveEnding ended =
+        new MoveEnding(
+            definition,
+            plan.name(),
+            partsAsItEnded(how, seconds, why),
+            how == Outcome.TIMED_OUT ? whatHoldsItsJoints() : List.of(),
+            why.map(Why::text).orElse(""));
+    ending = Optional.of(ended);
 
     boolean homedTheJoint = plan.task() instanceof Home;
     boolean arrivedAtItsPlaces = how == Outcome.ARRIVED && plan.task() instanceof GoTo;
@@ -835,12 +893,12 @@ public final class Move implements Command {
       } else if (positionedItsJoint) {
         leg.joint.moveEndedShort();
       }
-      leg.joint.recordOutcome(reason);
+      leg.joint.recordOutcome(ended);
     }
   }
 
   /** Ends the run ({@link #end}), and says that it has ended. */
-  private Progress ended(Outcome how, Optional<String> why) {
+  private Progress ended(Outcome how, Optional<Why> why) {
     end(how, why);
     return Progress.ENDED;
   }
@@ -863,77 +921,100 @@ public final class Move implements Command {
   }
 
   /**
-   * What the outcome's reason says beyond how the run ended and how long it took.
-   *
-   * <ul>
-   *   <li>Arrived, a move of several joints says when each got there: " (pivot 0.41 s, elevator
-   *       0.72 s)".
-   *   <li>Timed out or canceled, it says where each joint it positioned was: ", pivot at 62°". A
-   *       follow says it in the quantity its joint was chasing, with the target: ", shooter at 2990
-   *       rpm, its target 3000 rpm". Timed out, it also says what held each joint: ", held: pivot
-   *       keeps out of 40° to 80°".
-   *   <li>Refused, the refusal's own reason says it all.
-   * </ul>
+   * Every joint's part of the run as it ended, in the move's order: what the move's outcome logs. A
+   * move of no joints, which is always refused, has one part that is no joint's, so that it too has
+   * an ending to read.
    */
-  private String details(Outcome how, Map<Joint, Double> came) {
-    StringBuilder text = new StringBuilder();
-    switch (how) {
-      case ARRIVED -> {
-        if (legs.length > 1) {
-          List<String> each = new ArrayList<>();
-          came.forEach(
-              (joint, at) -> each.add(String.format(Locale.ROOT, "%s %.2f s", joint.label(), at)));
-          text.append(" (").append(String.join(", ", each)).append(")");
-        }
-      }
-      case TIMED_OUT, CANCELED -> {
-        boolean homedTheJoint = plan.task() instanceof Home;
-        for (MoveLeg leg : legs) {
-          if (!leg.runsAtAnOutput() && !homedTheJoint) {
-            text.append(", ").append(whereItWas(leg.joint));
-          }
-        }
-        if (how == Outcome.TIMED_OUT) {
-          for (MoveLeg leg : legs) {
-            if (!leg.joint.heldBy().isEmpty()) {
-              text.append(", held: ").append(leg.joint.heldBy());
-            }
-          }
-        }
-      }
-      case REFUSED -> {}
+  private List<MoveOutcome> partsAsItEnded(Outcome how, double seconds, Optional<Why> why) {
+    MoveProgress progress = started ? MoveProgress.BEGUN : MoveProgress.NOT_BEGUN;
+    MoveReason reason = why.map(Why::reason).orElse(MoveReason.NONE);
+    int reasonJoint = why.map(Why::joint).orElse(Identity.NONE);
+    List<MoveOutcome> parts = new ArrayList<>();
+    for (MoveLeg leg : legs) {
+      MoveLeg.Target target = targetOf(leg);
+      parts.add(
+          new MoveOutcome(
+              how.result(),
+              taskRecorded(),
+              progress,
+              seconds,
+              leg.joint.index(),
+              configuration,
+              target.kind(),
+              target.index(),
+              target.number(),
+              leg.joint.position(),
+              leg.joint.velocity(),
+              arrivedSeconds(leg),
+              reason,
+              reasonJoint));
     }
-    return text.toString();
+    if (parts.isEmpty()) {
+      parts.add(
+          new MoveOutcome(
+              how.result(),
+              taskRecorded(),
+              progress,
+              seconds,
+              Identity.NONE,
+              configuration,
+              MoveTarget.NONE,
+              Identity.NONE,
+              Double.NaN,
+              Double.NaN,
+              Double.NaN,
+              Double.NaN,
+              reason,
+              reasonJoint));
+    }
+    return parts;
   }
 
-  /**
-   * Where a joint the move drove was as the run ended: "pivot at 62°". A follow says it in the
-   * quantity its joint was chasing, and what the target was: "shooter at 2990 rpm, its target 3000
-   * rpm". A follow that ended before it chased anything says it in the quantity its joint is driven
-   * by, a position for a joint held at positions and a speed for any other.
-   */
-  private String whereItWas(JointMechanism joint) {
-    if (!(plan.task() instanceof Follow)) {
-      return atItsPosition(joint);
-    }
-    Joint model = joint.joint();
-    return switch (chased) {
-      case A_POSITION -> atItsPosition(joint) + ", its target " + model.shown(chasedTarget);
-      case A_SPEED -> atItsSpeed(joint) + ", its target " + model.shownSpeed(chasedTarget);
-      case NOTHING_YET -> model.holdsPositions() ? atItsPosition(joint) : atItsSpeed(joint);
+  /** What the move does, as its outcome records it. */
+  private MoveTask taskRecorded() {
+    return switch (plan.task()) {
+      case GoTo goTo -> MoveTask.GO_TO;
+      case Run run -> run.until().isPresent() ? MoveTask.RUN_UNTIL : MoveTask.RUN;
+      case Follow follow -> MoveTask.FOLLOW;
+      case Hold hold -> MoveTask.HOLD;
+      case Home home -> MoveTask.HOME;
     };
   }
 
-  /** A joint's position, as an outcome says it: "pivot at 62°". */
-  private static String atItsPosition(JointMechanism joint) {
-    return joint.getName() + " at " + joint.joint().shown(joint.position());
+  /**
+   * What the run sent one joint to or ran it at, as its outcome records it. A follow has no target
+   * fixed in advance, so it records what its joint was last chasing.
+   */
+  private MoveLeg.Target targetOf(MoveLeg leg) {
+    if (!(plan.task() instanceof Follow)) {
+      return leg.recordedTarget();
+    }
+    return switch (chased) {
+      case A_POSITION -> new MoveLeg.Target(MoveTarget.NUMBER, Identity.NONE, chasedTarget);
+      case A_SPEED -> new MoveLeg.Target(MoveTarget.SPEED, Identity.NONE, chasedTarget);
+      case NOTHING_YET -> MoveLeg.Target.NONE;
+    };
   }
 
   /**
-   * A joint's speed, as an outcome says it, in the joint's unit of speed: "shooter at 2990 rpm".
+   * When one joint of a move to a place came inside its band for good, in seconds from the run's
+   * start, or not a number for a joint that is outside its band as the run ends.
    */
-  private static String atItsSpeed(JointMechanism joint) {
-    return joint.getName() + " at " + joint.joint().shownSpeed(joint.velocity());
+  private double arrivedSeconds(MoveLeg leg) {
+    boolean wentToAPlace = started && plan.task() instanceof GoTo;
+    if (!wentToAPlace || leg.insideSince().isEmpty()) {
+      return Double.NaN;
+    }
+    return (leg.insideSince().getAsLong() - startNanos) / 1e9;
+  }
+
+  /** What holds each of the move's joints now, joint by joint in the move's order. */
+  private List<Holder> whatHoldsItsJoints() {
+    List<Holder> holding = new ArrayList<>();
+    for (MoveLeg leg : legs) {
+      holding.addAll(leg.joint.holders());
+    }
+    return holding;
   }
 
   /**

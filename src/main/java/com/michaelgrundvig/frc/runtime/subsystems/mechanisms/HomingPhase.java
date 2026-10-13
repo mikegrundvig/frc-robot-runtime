@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
+import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.Optional;
 import java.util.OptionalDouble;
@@ -20,12 +21,11 @@ sealed interface HomingPhase {
   State state();
 
   /**
-   * The phase as {@code State} logs it: the state's name, with what a homing joint is pushed toward
-   * ("HOMING: toward its lower stop, for at most 9.5 s") or why a faulted one is faulted.
+   * The phase as {@code State} logs it: where the joint stands, with what a homing joint is pushed
+   * toward and for how long at most, or which of the reasons a faulted one is faulted for. A phase
+   * that has more to say than its standing is made with what it logs, so that asking makes nothing.
    */
-  default String shown() {
-    return state().name();
-  }
+  JointState recorded();
 
   /** Why moves on the joint are refused, if it is faulted. */
   default Optional<String> fault() {
@@ -51,6 +51,11 @@ sealed interface HomingPhase {
     public State state() {
       return State.READY;
     }
+
+    @Override
+    public JointState recorded() {
+      return JointState.READY;
+    }
   }
 
   /**
@@ -62,6 +67,11 @@ sealed interface HomingPhase {
     public State state() {
       return State.READY;
     }
+
+    @Override
+    public JointState recorded() {
+      return JointState.READY;
+    }
   }
 
   /**
@@ -71,6 +81,11 @@ sealed interface HomingPhase {
     @Override
     public State state() {
       return State.UNHOMED;
+    }
+
+    @Override
+    public JointState recorded() {
+      return JointState.UNHOMED;
     }
   }
 
@@ -89,6 +104,11 @@ sealed interface HomingPhase {
     }
 
     @Override
+    public JointState recorded() {
+      return JointState.UNHOMED;
+    }
+
+    @Override
     public boolean awaitsEncoder() {
       return true;
     }
@@ -97,19 +117,15 @@ sealed interface HomingPhase {
   /**
    * The joint is being pushed into its hard stop.
    *
-   * @param toward what it is pushed toward and for how long at most, as the log says it
+   * @param recorded what it logs: which stop it is pushed toward, and for how long at most
    * @param since when the push began, in nanoseconds
    * @param stillSince since when the joint has been still, in nanoseconds, or empty while it moves
    */
-  record PushingToStop(String toward, long since, OptionalLong stillSince) implements HomingPhase {
+  record PushingToStop(JointState recorded, long since, OptionalLong stillSince)
+      implements HomingPhase {
     @Override
     public State state() {
       return State.HOMING;
-    }
-
-    @Override
-    public String shown() {
-      return "HOMING: " + toward;
     }
   }
 
@@ -136,42 +152,33 @@ sealed interface HomingPhase {
   /**
    * The joint is being driven onto its limit switch.
    *
-   * @param toward what it is driven toward and for how long at most, as the log says it
+   * @param recorded what it logs: which switch it is driven toward, and for how long at most
    * @param since when it set off, in nanoseconds
    * @param approach how far it has got
    * @param onto the switch it is driven onto. A joint is in this phase only with a switch to seek,
    *     which is what lets every loop of the push be timed by reading it.
    */
-  record SeekingSwitch(String toward, long since, Approach approach, Sensor.Switch onto)
+  record SeekingSwitch(JointState recorded, long since, Approach approach, Sensor.Switch onto)
       implements HomingPhase {
     @Override
     public State state() {
       return State.HOMING;
-    }
-
-    @Override
-    public String shown() {
-      return "HOMING: " + toward;
     }
   }
 
   /**
    * The joint's moves are refused until it homes again.
    *
+   * @param recorded what it logs: which of the reasons it is faulted for
    * @param why what is wrong and what to do about it
    * @param awaitsEncoder whether the joint's absolute encoder is still to say where the joint is.
    *     Its reading then tells the joint's motor controller where the joint is, though the joint
    *     stays faulted for whatever else is wrong.
    */
-  record Faulted(String why, boolean awaitsEncoder) implements HomingPhase {
+  record Faulted(JointState recorded, String why, boolean awaitsEncoder) implements HomingPhase {
     @Override
     public State state() {
       return State.FAULTED;
-    }
-
-    @Override
-    public String shown() {
-      return "FAULTED: " + why;
     }
 
     @Override
@@ -184,20 +191,17 @@ sealed interface HomingPhase {
    * The joint's moves are refused because the absolute encoder that says where it is gives no
    * reading. The encoder's next reading makes the joint ready again.
    *
+   * @param recorded what it logs: which of the reasons it is faulted for
    * @param why what is wrong
    * @param since when the joint began to wait for the reading, in nanoseconds
    * @param heldOnMotor where it holds by its motor's count meanwhile, for a joint whose loop closes
    *     on the encoder
    */
-  record EncoderSilent(String why, long since, OptionalDouble heldOnMotor) implements HomingPhase {
+  record EncoderSilent(JointState recorded, String why, long since, OptionalDouble heldOnMotor)
+      implements HomingPhase {
     @Override
     public State state() {
       return State.FAULTED;
-    }
-
-    @Override
-    public String shown() {
-      return "FAULTED: " + why;
     }
 
     @Override
@@ -216,19 +220,16 @@ sealed interface HomingPhase {
    * magnet is bad, or the encoder and the motor's count have come apart, so one of them slipped.
    * The joint is ready again once the encoder is trusted again.
    *
+   * @param recorded what it logs: which of the reasons it is faulted for
    * @param why what is wrong and what to do about it
    * @param heldOnMotor where it holds by its motor's count meanwhile, for a joint whose motor
    *     controller's loop runs on the motor's count and so can still hold
    */
-  record EncoderDistrusted(String why, OptionalDouble heldOnMotor) implements HomingPhase {
+  record EncoderDistrusted(JointState recorded, String why, OptionalDouble heldOnMotor)
+      implements HomingPhase {
     @Override
     public State state() {
       return State.FAULTED;
-    }
-
-    @Override
-    public String shown() {
-      return "FAULTED: " + why;
     }
 
     @Override

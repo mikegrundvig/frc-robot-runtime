@@ -6,6 +6,8 @@ import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.record.ControlSentences;
+import com.michaelgrundvig.frc.world.record.GateTerm;
 import com.michaelgrundvig.frc.world.robot.Condition;
 import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Drive;
@@ -115,6 +117,9 @@ public final class Joints implements AutoCloseable {
   /** Stand-ins for joints with no mechanism, asked for once the robot runs ({@link #of}). */
   private final Map<Joint, JointMechanism> standIns = new HashMap<>();
 
+  /** The names behind the numbers in what the joints log, logged once. */
+  private final RecordedNames names;
+
   private final RobotDefinition definition;
   private final Sensors sensors;
   private final Power power;
@@ -192,14 +197,14 @@ public final class Joints implements AutoCloseable {
     refuseWhatCannotBeBuilt(definition);
     this.definition = definition;
     this.scheduler = scheduler;
-    RobotMath math = definition.math();
+    names = new RecordedNames(definition);
     // The hardware is asked for in this order: the sensors, each joint's, then the PDH.
     sensors = new Sensors(definition, hardware::sensor, scheduler);
     List<JointMechanism> built = new ArrayList<>();
     for (Joint joint : driven(definition)) {
       JointMechanism mechanism =
           new JointMechanism(
-              math,
+              definition,
               joint,
               tunings.apply(joint),
               hardware.joint(joint),
@@ -219,10 +224,12 @@ public final class Joints implements AutoCloseable {
     // An interlock reads the other joint it names through what that joint's mechanism shows. So
     // each mechanism is handed its interlocks only now, once every mechanism is built: two joints
     // may restrict each other.
-    for (Interlock interlock : definition.everyInterlock()) {
+    List<Interlock> everyInterlock = definition.everyInterlock();
+    for (int index = 0; index < everyInterlock.size(); index++) {
+      Interlock interlock = everyInterlock.get(index);
       JointMechanism restricted = enforced(interlock.joint());
       Optional<JointView> other = interlock.other().map(this::enforced).map(JointMechanism::view);
-      restricted.restrict(interlock, other);
+      restricted.restrict(interlock, other, index);
     }
   }
 
@@ -469,8 +476,7 @@ public final class Joints implements AutoCloseable {
     String why = noMechanism(joint);
     Refusals.asBuilt(scheduler, Optional.of(why));
     return standIns.computeIfAbsent(
-        joint,
-        standIn -> JointMechanism.standIn(definition.math(), standIn, sensors, scheduler, why));
+        joint, standIn -> JointMechanism.standIn(definition, standIn, sensors, scheduler, why));
   }
 
   /** Why a joint has no mechanism: the template doesn't drive it, or it isn't the robot's. */
@@ -509,7 +515,8 @@ public final class Joints implements AutoCloseable {
         mechanisms(configuration),
         new MovePlan.GoTo(),
         refused(configuration),
-        scheduler);
+        scheduler,
+        definition);
   }
 
   /**
@@ -523,7 +530,8 @@ public final class Joints implements AutoCloseable {
         mechanisms(configuration),
         new MovePlan.Run(Optional.empty()),
         refused(configuration),
-        scheduler);
+        scheduler,
+        definition);
   }
 
   /**
@@ -608,8 +616,8 @@ public final class Joints implements AutoCloseable {
     return switch (definition.own(condition)) {
       case Condition.OnSensor onSensor -> sensors.gate(name, onSensor);
       case Condition.At at -> atGate(name, at);
-      case Condition.OnJoint where -> reading(name, where.joint(), whetherItIs(where));
-      case Condition.UpToSpeed speed -> reading(name, speed.joint(), whetherItRunsAt(speed));
+      case Condition.OnJoint where -> reading(name, where.joint(), whetherItIs(name, where));
+      case Condition.UpToSpeed speed -> reading(name, speed.joint(), whetherItRunsAt(name, speed));
     };
   }
 
@@ -632,10 +640,14 @@ public final class Joints implements AutoCloseable {
    * Whether a condition on where a joint is holds, given what the joint shows. It holds false,
    * saying why, while the joint doesn't know where it is.
    */
-  private static BiPredicate<JointView, List<String>> whetherItIs(Condition.OnJoint where) {
+  private BiPredicate<JointView, Gate.Terms> whetherItIs(String name, Condition.OnJoint where) {
+    GateTerm unknown =
+        new GateTerm(
+            GateTerm.Kind.JOINT_POSITION_UNKNOWN, definition.joints().indexOf(where.joint()));
+    String unknownShown = ControlSentences.gateTerm(definition, name, unknown, List.of());
     return (view, why) -> {
       if (!view.knowsWhere()) {
-        why.add(where.joint().label() + " doesn't know where it is");
+        why.add(unknown, unknownShown);
         return false;
       }
       return where.holdsAt(view.position());
@@ -646,10 +658,14 @@ public final class Joints implements AutoCloseable {
    * Whether a condition on how fast a joint runs holds, given what the joint shows. It holds false,
    * saying why, while the joint's motor controllers don't answer.
    */
-  private static BiPredicate<JointView, List<String>> whetherItRunsAt(Condition.UpToSpeed speed) {
+  private BiPredicate<JointView, Gate.Terms> whetherItRunsAt(
+      String name, Condition.UpToSpeed speed) {
+    GateTerm silent =
+        new GateTerm(GateTerm.Kind.JOINT_NOT_ANSWERING, definition.joints().indexOf(speed.joint()));
+    String silentShown = ControlSentences.gateTerm(definition, name, silent, List.of());
     return (view, why) -> {
       if (!view.answers()) {
-        why.add(speed.joint().label() + " isn't answering");
+        why.add(silent, silentShown);
         return false;
       }
       return speed.holdsAt(view.velocity());
@@ -662,7 +678,7 @@ public final class Joints implements AutoCloseable {
    *
    * @param holds whether it holds, given what the joint shows, adding why not
    */
-  private Gate reading(String name, Joint joint, BiPredicate<JointView, List<String>> holds) {
+  private Gate reading(String name, Joint joint, BiPredicate<JointView, Gate.Terms> holds) {
     JointMechanism mechanism = byJoint.get(joint);
     if (mechanism == null) {
       return Refusals.gate(scheduler, name, noMechanism(joint));
@@ -753,6 +769,7 @@ public final class Joints implements AutoCloseable {
    * runs. Then says what's wrong in its alerts.
    */
   public void read(long nowNanos, boolean enabled) {
+    names.logOnce();
     for (JointMechanism joint : joints) {
       joint.read(nowNanos, enabled);
     }

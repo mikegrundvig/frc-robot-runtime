@@ -1,7 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
-import static com.michaelgrundvig.frc.world.config.Rules.possessive;
-
+import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import java.util.OptionalDouble;
 
@@ -59,14 +58,13 @@ final class Idle {
   private final Demand nowhereToHold;
 
   /**
-   * @param label the joint's label, which names it in what holds it
+   * @param joint the joint's index in the definition's joints, which names it in what holds it
    * @param holdsPositions whether the joint is one that holds positions
    */
-  Idle(String label, boolean holdsPositions) {
+  Idle(int joint, boolean holdsPositions) {
     this.holdsPositions = holdsPositions;
     holdsWhenIdle = holdsPositions;
-    nowhereToHold =
-        Demand.NEUTRAL.heldTo(JointAsk.NEUTRAL, possessive(label) + " position isn't a number");
+    nowhereToHold = Demand.NEUTRAL.heldTo(JointAsk.NEUTRAL, Holder.noPosition(joint));
   }
 
   /** Where the joint holds when idle, or empty while there is nowhere to hold yet. */
