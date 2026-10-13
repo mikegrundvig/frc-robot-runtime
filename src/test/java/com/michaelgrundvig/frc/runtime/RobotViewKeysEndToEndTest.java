@@ -7,7 +7,9 @@ import com.michaelgrundvig.frc.pitwall.AdvantageKitLog;
 import com.michaelgrundvig.frc.pitwall.robot.LogKeys;
 import com.michaelgrundvig.frc.pitwall.robot.Moment;
 import com.michaelgrundvig.frc.pitwall.robot.RobotSession;
+import com.michaelgrundvig.frc.pitwall.robot.Sighting;
 import com.michaelgrundvig.frc.world.record.JointState;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.lang.reflect.Field;
@@ -30,19 +32,19 @@ import org.littletonrobotics.junction.LogTable;
 import org.littletonrobotics.junction.wpilog.WPILOGReader;
 
 /**
- * The keys Pitwall's Robot view reads are the keys the robot really logs, each of the type Pitwall
- * reads it as. Pitwall lists them in one place ({@link LogKeys}), and nothing else ties that list
- * to the runtime's logging: a key renamed here, or a fact given another shape, would leave the page
- * drawing nothing, with every test of either side still passing.
+ * The keys Pitwall's Robot view and World view read are the keys the robot really logs, each of the
+ * type Pitwall reads it as. Pitwall lists them in one place ({@link LogKeys}), and nothing else
+ * ties that list to the runtime's logging: a key renamed here, or a fact given another shape, would
+ * leave the page drawing nothing, with every test of either side still passing.
  *
  * <p>So a real session's log is read back: the guide's robot, with the guide's controls, runs in
  * the simulator in a process of its own and records its log ({@link
  * SessionRecording#recordWithControls}). In that session the drive team deploys and stows the
  * pivot, so two moves end, and holds the aimed shot, so a gate goes false and then true, and each
- * press fires its binding. Every loop of that log is handed to Pitwall's own receiver, and every
- * key in the list is looked for in it, for every joint, sensor and gamepad, and for what a move, a
- * gate and a binding write once they have happened. Each of those must be there, and not only be of
- * the right type if it is.
+ * press fires its binding. Then the robot is shoved, so its cameras' measurements are refused.
+ * Every loop of that log is handed to Pitwall's own receiver, and every key in the list is looked
+ * for in it, for every joint, sensor and gamepad, and for what a move, a gate and a binding write
+ * once they have happened. Each of those must be there, and not only be of the right type if it is.
  */
 @EndToEndTest
 class RobotViewKeysEndToEndTest {
@@ -131,6 +133,46 @@ class RobotViewKeysEndToEndTest {
           LogKeys.FIRED, Logged.fact("BindingFired[]"),
           LogKeys.BINDINGS, TEXTS);
 
+  private static final Logged WHOLE = Logged.plain(LogTable.LoggableType.Integer);
+
+  /**
+   * Where the robot is, as Pitwall's World view reads it: logged from the first loops by the
+   * default localizer, the drivetrain and the simulator.
+   */
+  private static final Map<String, Logged> WORLD =
+      Map.ofEntries(
+          Map.entry(LogKeys.ESTIMATED_POSE, Logged.fact("Pose3d")),
+          Map.entry(LogKeys.COVARIANCE, Logged.fact("PoseCovariance")),
+          Map.entry(LogKeys.RESTS_ON, TEXT),
+          Map.entry(LogKeys.MEASUREMENTS_ACCEPTED, WHOLE),
+          Map.entry(LogKeys.MEASUREMENTS_REJECTED, WHOLE),
+          Map.entry(LogKeys.VISION_AGE, NUMBER),
+          Map.entry(LogKeys.RECOVERIES, WHOLE),
+          Map.entry(LogKeys.PLACEMENTS, WHOLE),
+          Map.entry(LogKeys.PLACED_BECAUSE, TEXT),
+          Map.entry(LogKeys.MODULES, Logged.fact("SwerveModuleVelocity[]")),
+          Map.entry(LogKeys.TRUE_POSE, Logged.fact("Pose3d")));
+
+  /** What each camera logs of its tags once it has seen one. */
+  private static final Map<String, Logged> CAMERA =
+      Map.of(
+          LogKeys.SIGHTINGS,
+          Logged.fact("Sighting[]"),
+          LogKeys.SIGHTING_NUMBERS,
+          Logged.plain(LogTable.LoggableType.DoubleArray));
+
+  /**
+   * How many bytes each value that Pitwall reads as plain numbers takes: eight for each number, in
+   * the order Pitwall reads them. A pose in 3D is seven numbers, a covariance four, and a module's
+   * velocity two.
+   */
+  private static final Map<String, Integer> BYTES_OF_NUMBERS =
+      Map.of(
+          LogKeys.ESTIMATED_POSE, 7 * Double.BYTES,
+          LogKeys.TRUE_POSE, 7 * Double.BYTES,
+          LogKeys.COVARIANCE, 4 * Double.BYTES,
+          LogKeys.MODULES, 4 * 2 * Double.BYTES);
+
   /** The gates the guide's controls make, which the session must log. */
   private static final List<String> GATES_THE_CONTROLS_MAKE = List.of("piece in", "ready to feed");
 
@@ -143,6 +185,15 @@ class RobotViewKeysEndToEndTest {
 
   /** What the last loop of the session's log holds, by key as the log names it. */
   private static final Map<String, Logged> logged = new LinkedHashMap<>();
+
+  /** How many bytes the last loop's value under each key takes, for the values that are structs. */
+  private static final Map<String, Integer> bytes = new LinkedHashMap<>();
+
+  /** What became of the tags the cameras saw over the session, as Pitwall's moments hold them. */
+  private static final Set<Sighting.Fate> fates = new TreeSet<>();
+
+  /** What the estimate rested on over the session, as Pitwall's moments hold it. */
+  private static final Set<Moment.Rests> rested = new TreeSet<>();
 
   /**
    * What some keys held over the session, each change in the order it came: a boolean as "true" or
@@ -168,8 +219,27 @@ class RobotViewKeysEndToEndTest {
       receiver.putTable(LogTable.clone(table));
       loops++;
       table.getAll(false).forEach(RobotViewKeysEndToEndTest::noticeIfItChanged);
+      noticeTheWorld(session.newest().orElseThrow().world());
     }
     table.getAll(false).forEach((key, value) -> logged.put(key, Logged.of(value)));
+    table
+        .getAll(false)
+        .forEach(
+            (key, value) -> {
+              if (value.type == LogTable.LoggableType.Raw) {
+                bytes.put(key, value.getRaw().length);
+              }
+            });
+  }
+
+  /** Remembers what one loop's moment says of the cameras' tags and of the estimate. */
+  private static void noticeTheWorld(Moment.OfWorld world) {
+    world.estimate().ifPresent(estimate -> rested.add(estimate.rests()));
+    for (Moment.OfCamera camera : world.cameras()) {
+      for (Moment.Sighted sighted : camera.sightings()) {
+        fates.add(sighted.fate());
+      }
+    }
   }
 
   /** Remembers what a key holds, if that is one of the kinds the session is asked about. */
@@ -223,6 +293,15 @@ class RobotViewKeysEndToEndTest {
       String gamepad = LogKeys.gamepad(port);
       GAMEPAD.forEach((key, type) -> required.put(gamepad + key, type));
     }
+    required.putAll(WORLD);
+    for (CameraConfig camera : DEFINITION.cameras()) {
+      // A camera logs its tags as facts the first time it sees one, and its numbers every loop.
+      String out = LogKeys.camera(camera.name());
+      required.put(out + LogKeys.SIGHTING_NUMBERS, CAMERA.get(LogKeys.SIGHTING_NUMBERS));
+      if (logged.containsKey(out + LogKeys.SIGHTINGS)) {
+        required.put(out + LogKeys.SIGHTINGS, CAMERA.get(LogKeys.SIGHTINGS));
+      }
+    }
     for (String key : logged.keySet()) {
       boolean isAGatesOwn =
           key.startsWith(LogKeys.GATES)
@@ -270,7 +349,9 @@ class RobotViewKeysEndToEndTest {
             SENSOR,
             GAMEPAD,
             ROBOT,
-            GATE)) {
+            GATE,
+            WORLD,
+            CAMERA)) {
       checked.addAll(keys.keySet());
     }
     // Prefixes, which the keys above are built on, and the one input only some joints log: an
@@ -307,6 +388,46 @@ class RobotViewKeysEndToEndTest {
                         .assertThat(changes.getOrDefault(key, List.of()))
                         .as(key + " should have held " + order + " in turn")
                         .containsSubsequence(order.toArray(String[]::new))));
+  }
+
+  /**
+   * Pitwall reads a pose, a covariance and the modules' velocities as the plain numbers they are
+   * made of, eight bytes each, without the type that made them. Each must be exactly as many bytes
+   * as the numbers Pitwall takes from it, or a field added to one would shift every number after.
+   */
+  @Test
+  void theValuesPitwallReadsAsNumbersAreMadeOfThoseNumbersAlone() {
+    assertSoftly(
+        softly ->
+            BYTES_OF_NUMBERS.forEach(
+                (key, expected) ->
+                    softly.assertThat(bytes.get(key)).as(key + ", in bytes").isEqualTo(expected)));
+  }
+
+  /**
+   * Read through Pitwall's own receiver, the log says where the robot was and what its cameras saw:
+   * an estimate with how sure it is and what it rests on, the true pose, the four wheels, and tags
+   * the estimator accepted and tags it refused, since the session shoves the robot.
+   */
+  @Test
+  void pitwallsSessionHoldsWhereTheRobotWasAndWhatItsCamerasSaw() {
+    Moment.OfWorld world = session.newest().orElseThrow().world();
+
+    Moment.OfEstimate estimate = world.estimate().orElseThrow();
+    assertThat(estimate.pose().getX()).isBetween(0.0, RobotSim.FIELD.length());
+    assertThat(estimate.pose().getY()).isBetween(0.0, RobotSim.FIELD.width());
+    assertThat(estimate.spread()).isPresent();
+    assertThat(estimate.tally().orElseThrow().accepted()).isPositive();
+    assertThat(estimate.tally().orElseThrow().rejected()).isPositive();
+    assertThat(estimate.placements()).isPositive();
+    assertThat(estimate.placedBecause()).startsWith("placed on ");
+    assertThat(world.truth()).isPresent();
+    assertThat(world.modules()).hasSize(4);
+    assertThat(world.cameras())
+        .extracting(Moment.OfCamera::name)
+        .containsExactlyElementsOf(DEFINITION.cameras().stream().map(CameraConfig::name).toList());
+    assertThat(rested).contains(Moment.Rests.TRACKING);
+    assertThat(fates).contains(Sighting.Fate.ACCEPTED, Sighting.Fate.REJECTED);
   }
 
   /** Read through Pitwall's own receiver, the log gives every joint, as the facts it logged. */
