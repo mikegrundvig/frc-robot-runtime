@@ -7,7 +7,9 @@
 
 package com.michaelgrundvig.frc.runtime;
 
+import com.michaelgrundvig.frc.pitwall.AdvantageKitLog;
 import com.michaelgrundvig.frc.pitwall.Pitwall;
+import com.michaelgrundvig.frc.pitwall.robot.RobotSession;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
@@ -149,6 +151,10 @@ public class Robot extends LoggedRobot {
    * <p>The log is set up and started first, so that everything built afterwards is logged from its
    * first value. Pitwall is started before the robot is put together, because the mechanisms read
    * their configuration through it.
+   *
+   * <p>Where the page is served, Pitwall is handed the robot's session: the robot's definition, and
+   * the last few minutes of the log, which the log hands it loop by loop. Its Robot view draws the
+   * robot's joints from that.
    */
   public Robot(RobotProgram program) {
     super(RobotLoop.PERIOD_SECONDS);
@@ -161,14 +167,19 @@ public class Robot extends LoggedRobot {
       System.out.println(
           "Simulator: scenario " + scenario.get().name() + ": " + scenario.get().description());
     }
-    chooseWhereTheLogGoes();
+    RobotConfig robot = program.robot().get();
+    Optional<RobotSession> session = sessionFor(mode, robot);
+    chooseWhereTheLogGoes(session);
     Logger.start();
     debugDeploy.set(
         mode == RunMode.REAL
             && startedForDebugger(ManagementFactory.getRuntimeMXBean().getInputArguments()));
 
-    RobotConfig robot = program.robot().get();
-    pitwall = Pitwall.start(robot.name());
+    if (session.isPresent()) {
+      pitwall = Pitwall.start(robot.name(), session.get());
+    } else {
+      pitwall = Pitwall.start(robot.name());
+    }
     container =
         assemble(
             mode,
@@ -200,8 +211,26 @@ public class Robot extends LoggedRobot {
     Logger.recordMetadata("GitDirty", build.changes().text());
   }
 
-  /** Chooses where the log is written and streamed, and in a replay where it is read from. */
-  private void chooseWhereTheLogGoes() {
+  /**
+   * The robot's session for Pitwall's page, wherever the page is served: on a robot and in the
+   * simulator. A replay serves no page, so it keeps no session.
+   */
+  static Optional<RobotSession> sessionFor(RunMode mode, RobotConfig robot) {
+    if (mode == RunMode.REPLAY) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        RobotSession.of(
+            robot.definition(), RobotLoop.PERIOD_SECONDS, RobotSession.REMEMBERED_SECONDS));
+  }
+
+  /**
+   * Chooses where the log is written and streamed, and in a replay where it is read from.
+   *
+   * @param session Pitwall's session of the robot, which takes every loop's record beside the log's
+   *     file and its stream; empty in a replay
+   */
+  private void chooseWhereTheLogGoes(Optional<RobotSession> session) {
     switch (mode) {
       case REAL -> {
         // On a robot the log goes to the USB drive, and is streamed to dashboards. On the field the
@@ -226,6 +255,8 @@ public class Robot extends LoggedRobot {
         Logger.addDataReceiver(new WPILOGWriter(LogFileUtil.addPathSuffix(logPath, "_sim")));
       }
     }
+    // Pitwall's Robot view is drawn from the log itself: its session takes every loop's record.
+    session.ifPresent(taking -> Logger.addDataReceiver(AdvantageKitLog.receiver(taking)));
   }
 
   /** Whether the program was started for a debugger to attach (JDWP), as a debug deploy is. */

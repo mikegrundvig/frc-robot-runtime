@@ -30,6 +30,22 @@ import org.wpilib.simulation.DriverStationSim;
  */
 @ExtendWith(RobotSim.class)
 class RobotTest {
+  /**
+   * Pitwall's Robot view is drawn from a session of the robot: its definition, and five minutes of
+   * its log. There is one wherever the page is served, and none in a replay, which serves no page.
+   */
+  @Test
+  void pitwallKeepsASessionOfTheRobotWhereverItsPageIsServed() {
+    RobotConfig robot = ExampleRobot.COMPETITION;
+
+    assertSame(robot.definition(), Robot.sessionFor(RunMode.SIM, robot).orElseThrow().definition());
+    assertEquals(
+        15_000,
+        Robot.sessionFor(RunMode.REAL, robot).orElseThrow().capacity(),
+        "five minutes of loops");
+    assertTrue(Robot.sessionFor(RunMode.REPLAY, robot).isEmpty(), "a replay serves no page");
+  }
+
   @Test
   void withoutTheGuiTheSimulatorStartsReadyButDisabled() {
     asARealRobotStarts();
