@@ -731,7 +731,8 @@ right than drawn paths, even for the students who write the code.
 
 **What most teams do.** Tunable numbers on a NetworkTables dashboard, or gains set from a vendor's
 tuner straight into the motor controller. The values are saved on the robot or in the device. They
-are copied back into the code by hand, or they are not.
+are copied back into the code by hand, or they are not. To see what a mechanism is doing they plot
+its numbers on a dashboard, or draw it in 3D from CAD.
 
 **What this does.** The robot serves a web page, Pitwall, and the simulator serves the same page.
 Its Tune view edits gains and current limits while the robot runs, within limits. Nothing is saved
@@ -739,23 +740,45 @@ on the robot. The Changes view lists each difference as the builder call that co
 `.withKs(0.25)`, and you paste that into the description. When the field connects, every value
 returns to what is committed.
 
+Its Robot view draws the robot's joints from the model, live: a card for each joint, drawn by its
+kind, with where it is, where it was told to go, who owns it and what holds it. An interlock is
+drawn on both joints it is about. The roller that runs only once the pivot is out is a mark on the
+pivot's card, and it stands out while the roller waits for it. The view is drawn from the
+program's own log, which AdvantageKit hands Pitwall loop by loop, and Pitwall keeps the last five
+minutes of it. So Pitwall reads the model: the runtime hands it the robot's definition, and what
+holds a joint is decided on the page's side by the model's own rules, from the logged positions and
+sensors.
+
 **Why.** The class of bug is a tuned value that lives somewhere other than the code. The code in
 the repository is then not what ran. A swapped motor controller loses the value, and a redeploy
 keeps a stale one. Here a match always runs the committed configuration. The page also needs no
 install and no layout file, and it is the same in the simulator, so a student can learn it before
 the robot exists.
 
+The Robot view is there because a simulator is of little use unless you can see what the simulated
+robot is doing, and the model's geometry is boxes, which say little in 3D. A view of what the
+program believes and why, drawn from the model, says more: "the roller is waiting for the pivot" is
+a fact on the page, where a 3D drawing shows a still roller. Until 2026-10-12 Pitwall knew nothing
+of robots, and the runtime handed it generic data. A view that knows what a joint, a place and an
+interlock are could not be built from generic data without rebuilding the model beside it.
+
 **Evidence, and how strong it is.** Argued. No census class is claimed. Precedent, for part of it:
 several top teams' public code tunes live through logged tunable numbers and saves nothing on the
 robot. The page has never been used in a real pit, and what its web server costs the loop on a
-Systemcore has not been measured.
+Systemcore has not been measured. The Robot view's part is measured in the simulator and nowhere
+else: taking a loop of the log costs about 25 microseconds on the log's own thread and allocates
+nothing, and the five minutes it keeps take 9 MB for a robot with eight joints.
 
 **What it costs.** It is one more tool, and no other team uses it. The paste step can be forgotten,
 and the change is then gone when the field connects. That is safe, and it will surprise someone who
 saw it work in the pit. The page is not reachable through the field network, on purpose: nothing is
-tuned on the field.
+tuned on the field. Pitwall can no longer be used without the model, and a change to the keys the
+runtime logs has to be made in Pitwall's list of them too.
 
-**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places.
+**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places. A
+timeline of the session, to scrub and step through the five minutes Pitwall remembers, with the
+World view following it: the Robot view shows the newest loop only. Opening a saved log stays
+AdvantageScope's job.
 
 **What would change our mind.** A pit crew that keeps losing tuned values at the paste step. Or a
 dashboard teams already know that does the same job and shows the change to commit.
@@ -767,16 +790,17 @@ sits inside it, or in a second repository that drifts.
 
 **What this does.** There are five. The **model** is the vocabulary and the checks. It depends on
 WPILib's math and units and nothing else of a robot program, so a robot, a simulator and a replay
-read the same model. **Pitwall** is the pit page. It knows nothing about robots, and the program
-hands it data. The **runtime** is the program every robot shares, and an architecture test fails if
+read the same model. **Pitwall** is the pit page. It reads the model, to draw a robot's joints as
+the model says them, and knows nothing of the runtime or of any team's robot: the program hands it
+the robot's definition and its data. The **runtime** is the program every robot shares, and an architecture test fails if
 it names a class of the team's. A **team's program** is `Main`, the robots' descriptions and
 `Controls`. It takes the other three as git submodules, built from source in one build, with no
 version numbers. Localization is a fifth, a library the runtime reads, as section 13 says.
 
 **Why.** The project began as one repository, for its first stretch of development. With everything
 in one place the boundaries were conventions, and they were crossed. Splitting it made the
-boundaries real. The model cannot see the runtime. Pitwall cannot see a robot. The runtime cannot
-name a team's class. A team's repository holds only what the team edits.
+boundaries real. The model cannot see the runtime. Pitwall cannot see the runtime or a team's robot.
+The runtime cannot name a team's class. A team's repository holds only what the team edits.
 
 **Evidence, and how strong it is.** Experience. We did it the other way first and unwound it. That
 is one project's experience and not a measurement, and no census class bears on it.
