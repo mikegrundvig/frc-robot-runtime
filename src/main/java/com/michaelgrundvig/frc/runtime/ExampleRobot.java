@@ -11,6 +11,7 @@ import static org.wpilib.units.Units.DegreesPerSecondPerSecond;
 import static org.wpilib.units.Units.Hertz;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.KilogramSquareMeters;
+import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
@@ -22,6 +23,8 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.world.game.SeasonLimits;
+import com.michaelgrundvig.frc.world.physical.Inertia;
+import com.michaelgrundvig.frc.world.physical.MassProperties;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
@@ -47,6 +50,7 @@ import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.List;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation3d;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The robot that docs/mechanisms.md describes, and the one the template runs until a team writes
@@ -193,12 +197,71 @@ public final class ExampleRobot {
    */
   public static final Output SHOOTING = Output.rpm("shooting", 3000);
 
+  /** The flywheel's mass, 1.8 kg, its radius, 2 in, and its shaft's length, 0.5 m. */
+  private static final Mass FLYWHEEL_MASS = Kilograms.of(1.8);
+
+  private static final double FLYWHEEL_RADIUS = Inches.of(2).in(Meters);
+  private static final double FLYWHEEL_LENGTH = 0.5;
+
+  /** A solid cylinder's inertia about its shaft: half its mass times its radius squared. */
+  private static final double FLYWHEEL_ABOUT_ITS_SHAFT =
+      FLYWHEEL_MASS.in(Kilograms) * FLYWHEEL_RADIUS * FLYWHEEL_RADIUS / 2;
+
+  /**
+   * A solid cylinder's inertia across its shaft: a twelfth of its mass times the sum of three times
+   * its radius squared and its length squared. Nothing reads it yet.
+   */
+  private static final double FLYWHEEL_ACROSS_ITS_SHAFT =
+      FLYWHEEL_MASS.in(Kilograms)
+          * (3 * FLYWHEEL_RADIUS * FLYWHEEL_RADIUS + FLYWHEEL_LENGTH * FLYWHEEL_LENGTH)
+          / 12;
+
+  /**
+   * What the shooter's motors turn: four 4 in wheels of 0.25 kg each on one shaft 0.5 m long, with
+   * a 4 in steel disk a quarter of an inch thick at each end of it to carry the wheels' speed
+   * through a shot (0.4 kg each, from steel's 7850 kg/m^3). That is 1.8 kg in all. None of it has
+   * been weighed: these are estimates of a typical shooter, so weigh yours, or take the numbers
+   * from CAD's mass-properties report.
+   *
+   * <p>Every part is a disk 4 in across, so together they are as hard to spin as one solid cylinder
+   * of their mass: 1/2 x 1.8 kg x (0.0508 m)^2 = 0.00232 kg m^2 about the shaft, ninety times the
+   * two rotors' own 0.000026. The shaft lies along the shooter's axis, the robot's y, through the
+   * joint, so gravity does not turn it.
+   *
+   * <p>The mass is what makes the shooter take time to spin up. Under their 40 A stator limit the
+   * two Kraken X60s push with 2 x 40 A x 0.0194 N m/A = 1.55 N m, so 3000 rpm (314 rad/s) takes
+   * about inertia x speed / torque = 0.00235 kg m^2 x 314 / 1.55 = 0.48 s, and a little longer to
+   * settle, since the current falls below its limit over the last 300 rpm. The simulator's shooter
+   * is within its band of 3000 rpm 0.50 s after it is asked. Without this link the simulator would
+   * have it there within one loop, as no real shooter is, and a shot that fed too early would look
+   * the same as one that waited.
+   */
+  private static final Link FLYWHEEL =
+      Link.builder()
+          .label("flywheel")
+          .mass(
+              MassProperties.builder()
+                  .mass(FLYWHEEL_MASS)
+                  .cg(Translation3d.ZERO)
+                  .inertia(
+                      Inertia.builder()
+                          .ixx(FLYWHEEL_ACROSS_ITS_SHAFT)
+                          .iyy(FLYWHEEL_ABOUT_ITS_SHAFT)
+                          .izz(FLYWHEEL_ACROSS_ITS_SHAFT)
+                          .ixy(0)
+                          .ixz(0)
+                          .iyz(0)
+                          .build())
+                  .build())
+          .build();
+
   /**
    * A flywheel on two motors, the second mounted facing the other way. It coasts when nothing is
    * asked of it.
    */
   public static final Joint.Revolute SHOOTER =
       Joint.roller("shooter", Part.CHASSIS, new Translation3d(-0.2, 0, 0.45))
+          .carries(FLYWHEEL)
           .outputs(SHOOTING)
           .motors(
               Motor.KRAKEN_X60

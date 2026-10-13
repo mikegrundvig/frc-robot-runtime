@@ -108,11 +108,11 @@ shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
-shooter,leader,Slot0,kA,1.3824780083498102E-4
+shooter,leader,Slot0,kA,0.012487902580531398
 shooter,leader,Slot0,GravityType,Arm_Cosine
 shooter,leader,Slot1,kP,0.12566370614359174
 shooter,leader,Slot1,kV,0.12
-shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,kA,0.012487902580531398
 shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
@@ -229,11 +229,11 @@ shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
-shooter,leader,Slot0,kA,1.3824780083498102E-4
+shooter,leader,Slot0,kA,0.012487902580531398
 shooter,leader,Slot0,GravityType,Arm_Cosine
 shooter,leader,Slot1,kP,0.12566370614359174
 shooter,leader,Slot1,kV,0.12
-shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,kA,0.012487902580531398
 shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
@@ -355,11 +355,11 @@ shooter,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 shooter,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 shooter,leader,Slot0,kP,0.12566370614359174
 shooter,leader,Slot0,kV,0.12
-shooter,leader,Slot0,kA,1.3824780083498102E-4
+shooter,leader,Slot0,kA,0.012487902580531398
 shooter,leader,Slot0,GravityType,Arm_Cosine
 shooter,leader,Slot1,kP,0.12566370614359174
 shooter,leader,Slot1,kV,0.12
-shooter,leader,Slot1,kA,1.3824780083498102E-4
+shooter,leader,Slot1,kA,0.012487902580531398
 shooter,leader,Slot1,GravityType,Arm_Cosine
 shooter,follower 53,request,LeaderID,52
 shooter,follower 53,request,MotorAlignment,Opposed
