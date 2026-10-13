@@ -102,7 +102,7 @@ class InterlocksSimTest {
     sim.run(sim.joints.goTo(DEPLOYED), 2);
 
     assertThat(waiting).isCloseTo(0, within(0.5));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
+    assertThat(heldBy).containsExactly(ROLLER_ONLY_WHEN_OUT);
     assertThat(intaking.outcome()).as("still running").isEmpty();
     assertThat(roller.holders()).isEmpty();
     assertThat(sim.simulation.velocity(ROLLER))
@@ -297,7 +297,7 @@ class InterlocksSimTest {
     blocks.run(held.run(ROLLER_INTAKING), 0.5);
 
     assertThat(blocks.simulation.velocity(ROLLER)).isCloseTo(0, within(0.5));
-    assertThat(Held.interlocksHolding(held)).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(Held.interlocksHolding(held)).containsExactly(ROLLER_ONLY_WHEN_OUT);
   }
 
   /**
@@ -324,7 +324,8 @@ class InterlocksSimTest {
     spun.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(waiting).isCloseTo(1.5, within(1.0));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(heldBy)
+        .containsExactly(Interlock.that(PIVOT).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))));
     assertThat(out.arrived()).isTrue();
     assertThat(Math.toDegrees(spun.simulation.position(PIVOT))).isCloseTo(130, within(2.0));
   }
@@ -366,7 +367,8 @@ class InterlocksSimTest {
     }
 
     assertThat(held).as("where it's stuck").isCloseTo(0.3, within(0.03));
-    assertThat(Held.interlocksHolding(lift)).hasSize(1).isEqualTo(Held.interlocksOn(lift));
+    assertThat(Held.interlocksHolding(lift))
+        .containsExactly(Interlock.that(ELEVATOR).runsOnlyWhen(PIVOT.atLeast(PIVOT_RUN)));
     assertThat(highest).as("no further than where it's held").isCloseTo(held, within(0.01));
   }
 
@@ -399,7 +401,7 @@ class InterlocksSimTest {
     }
 
     assertThat(held).as("inside, where it's stuck").isBetween(40.0, 80.0);
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(lowest).as("no deeper than where it's held").isCloseTo(held, within(1.0));
   }
 
@@ -464,7 +466,7 @@ class InterlocksSimTest {
 
     assertThat(held).as("at the region's edge").isCloseTo(40, within(0.1));
     assertThat(stays).as("and held there, pushing on").isCloseTo(40, within(0.1));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(pivotDegrees()).as("through the open region").isGreaterThan(80);
     assertThat(pivot.holders()).isEmpty();
   }
@@ -478,7 +480,7 @@ class InterlocksSimTest {
     sim.run(1.5);
 
     assertThat(held).as("at the region's edge").isCloseTo(40, within(0.1));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(pivotDegrees()).as("through the open region").isGreaterThan(80);
   }
 
@@ -514,7 +516,11 @@ class InterlocksSimTest {
     nudged.run(1.5);
 
     assertThat(furthest).as("at the region's edge").isCloseTo(40, within(0.1));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(heldBy)
+        .containsExactly(
+            Interlock.that(NUDGED)
+                .keepsOut(Range.degrees(40, 80))
+                .when(ELEVATOR.atMost(ELEVATOR_CLEAR)));
     assertThat(Math.toDegrees(nudged.simulation.position(NUDGED)))
         .as("through the open region")
         .isGreaterThan(80);
@@ -543,7 +549,7 @@ class InterlocksSimTest {
     double furthest = furthest(strong, PIVOT, chasing.follow(() -> RadiansPerSecond.of(5)), 1);
 
     assertThat(furthest).as("at the region's edge").isCloseTo(40, within(0.5));
-    assertThat(Held.interlocksHolding(chasing)).hasSize(1).isEqualTo(Held.interlocksOn(chasing));
+    assertThat(Held.interlocksHolding(chasing)).containsExactly(PIVOT_CLEARS_ELEVATOR);
   }
 
   /**
@@ -628,7 +634,7 @@ class InterlocksSimTest {
                 + " check how Aim works it out");
     assertThat(during).isCloseTo(before, within(0.5));
     assertThat(furthest).as("never past the edge").isLessThan(40.1);
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(chased));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(chased.rejected()).as("a loop's").isEmpty();
     assertThat(io(ios, PIVOT).notNumbers).isEmpty();
     assertThat(pivotDegrees(watched)).as("the next target").isCloseTo(30, within(0.5));
@@ -682,7 +688,7 @@ class InterlocksSimTest {
     silent.runUntil(() -> out.outcome().isPresent(), 2);
 
     assertThat(waiting).as("at the region's edge").isBetween(38.0, 41.0);
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(out.arrived()).as("let go").isTrue();
   }
 
@@ -708,7 +714,7 @@ class InterlocksSimTest {
     io(ios, ELEVATOR).stale = false;
     stale.runUntil(() -> out.outcome().isPresent(), 2);
 
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(heldBy).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(refused).as("its moves refused").isFalse();
     assertThat(out.arrived()).as("let go").isTrue();
   }
@@ -747,7 +753,8 @@ class InterlocksSimTest {
 
     assertThat(stopped).as("held on its way out").isBetween(5.0, 125.0);
     assertThat(still).as("where it stopped").isCloseTo(stopped, within(0.5));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
+    assertThat(heldBy)
+        .containsExactly(Interlock.that(PIVOT).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000))));
     assertThat(out.arrived()).as("let go").isTrue();
   }
 
@@ -829,8 +836,10 @@ class InterlocksSimTest {
           .isCloseTo(180, within(1.0));
       assertThat(Held.interlocksHolding(held))
           .as(how)
-          .hasSize(1)
-          .isEqualTo(Held.interlocksOn(held));
+          .containsExactly(
+              Interlock.that(turret)
+                  .keepsOut(Range.degrees(180, 360))
+                  .when(ELEVATOR.atMost(ELEVATOR_CLEAR)));
     }
   }
 

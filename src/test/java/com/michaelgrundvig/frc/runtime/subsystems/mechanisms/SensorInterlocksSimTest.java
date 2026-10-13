@@ -42,15 +42,16 @@ class SensorInterlocksSimTest {
           .fieldOfView(Degrees.of(27))
           .build();
 
+  private static final Interlock ROLLER_ONLY_WHILE_CLEAR =
+      Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear());
+
+  private static final Interlock PIVOT_AVOIDS_NEAR_REEF =
+      Interlock.that(PIVOT).keepsOut(Range.degrees(60, 90)).when(REEF.nearerThan(Meters.of(0.3)));
+
   private static final RobotDefinition ROBOT =
       RobotDefinitionBuilder.builder(JointFixtures.ROBOT)
           .sensors(List.of(CLAW_BEAM, REEF))
-          .interlocks(
-              List.of(
-                  Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear()),
-                  Interlock.that(PIVOT)
-                      .keepsOut(Range.degrees(60, 90))
-                      .when(REEF.nearerThan(Meters.of(0.3)))))
+          .interlocks(List.of(ROLLER_ONLY_WHILE_CLEAR, PIVOT_AVOIDS_NEAR_REEF))
           .build();
 
   private final JointsSimHarness sim = new JointsSimHarness(ROBOT);
@@ -75,7 +76,7 @@ class SensorInterlocksSimTest {
 
     assertThat(running).as("1500 rpm through 3:1, in rad/s").isGreaterThan(40);
     assertThat(tripped).isCloseTo(0, within(1.0));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
+    assertThat(heldBy).containsExactly(ROLLER_ONLY_WHILE_CLEAR);
     assertThat(sim.simulation.velocity(ROLLER)).as("lost: held").isCloseTo(0, within(1.0));
   }
 
@@ -96,7 +97,7 @@ class SensorInterlocksSimTest {
     sim.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(waiting).as("at the band's edge").isCloseTo(60, within(2.0));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
+    assertThat(heldBy).containsExactly(PIVOT_AVOIDS_NEAR_REEF);
     assertThat(out.arrived()).isTrue();
   }
 
@@ -127,7 +128,7 @@ class SensorInterlocksSimTest {
     assertThat(Math.toDegrees(held)).as("inside the band").isBetween(60.0, 90.0);
     assertThat(goals).as("one point, worked out once").containsOnly(held);
     assertThat(sim.simulation.position(PIVOT)).isCloseTo(held, within(Math.toRadians(1)));
-    assertThat(Held.interlocksHolding(pivot)).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
+    assertThat(Held.interlocksHolding(pivot)).containsExactly(PIVOT_AVOIDS_NEAR_REEF);
   }
 
   /** An interlock on a sensor the robot doesn't have is refused as the definition is built. */

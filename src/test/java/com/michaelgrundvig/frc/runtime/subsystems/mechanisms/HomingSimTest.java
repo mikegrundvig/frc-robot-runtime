@@ -354,7 +354,8 @@ class HomingSimTest {
 
     assertThat(homing).isEqualTo(JointMechanism.State.HOMING);
     assertThat(whileHoming).isCloseTo(0, within(0.5));
-    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
+    assertThat(heldBy)
+        .containsExactly(Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(PIVOT_RUN)));
     assertThat(unknown).isEqualTo("pivot at least run is false: pivot doesn't know where it is");
     assertThat(run.getAsBoolean()).as("known past run, once homed").isTrue();
     assertThat(pivot.state()).isEqualTo(JointMechanism.State.READY);

@@ -11,7 +11,9 @@ import java.util.List;
  * What holds a joint, for a test to check against the robot's own interlocks and switches and never
  * against a sentence: {@code assertThat(Held.interlocksHolding(roller)).containsExactly(RULE)}. A
  * joint says what holds it by where each thing is in the robot's definition ({@link Holder}), and
- * this looks each one up there.
+ * this looks each one up there. A test names the rule it expects, with its kind, its joint and its
+ * threshold or region, and does not ask for "the interlock the definition puts on this joint": that
+ * would pass for any rule at all.
  */
 public final class Held {
   private Held() {}
@@ -34,17 +36,6 @@ public final class Held {
   /** The limit switches that held a move's joints as it timed out, joint by joint. */
   public static List<Sensor> switchesThatHeld(MoveEnding ending) {
     return switches(ending.definition(), ending.heldAsItEnded());
-  }
-
-  /** Every interlock the robot puts on a joint, in the definition's order. */
-  public static List<Interlock> interlocksOn(JointMechanism joint) {
-    List<Interlock> on = new ArrayList<>();
-    for (Interlock interlock : joint.definition().everyInterlock()) {
-      if (interlock.joint().equals(joint.joint())) {
-        on.add(interlock);
-      }
-    }
-    return on;
   }
 
   private static List<Interlock> interlocks(RobotDefinition definition, List<Holder> holders) {
