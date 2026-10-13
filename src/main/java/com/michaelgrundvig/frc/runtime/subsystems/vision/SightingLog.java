@@ -17,11 +17,11 @@ import org.littletonrobotics.junction.Logger;
  *
  * <p>A tag's fact ({@link Sighting}) holds no text: the tag by its number, and its verdict and its
  * image's solver by their numbers in localization's own lists. Those facts are logged under {@code
- * Vision/<camera>/Sightings}, and only when they differ from the last logged, which is when the
- * camera sees other tags or its tags fare otherwise. The measurements behind them are new with
- * every image, so they are logged beside as plain numbers, {@code Vision/<camera>/SightingNumbers},
- * {@link Sighting#NUMBERS} for each fact in the facts' order, and as an empty list in a loop
- * without an image.
+ * Vision/<camera>/Sightings}, an image's tags by their numbers, and only when they differ from the
+ * last logged, which is when the camera sees other tags or its tags fare otherwise. The
+ * measurements behind them are new with every image, so they are logged beside as plain numbers,
+ * {@code Vision/<camera>/SightingNumbers}, {@link Sighting#NUMBERS} for each fact in the facts'
+ * order, and as an empty list in a loop without an image.
  */
 final class SightingLog {
   /**
@@ -95,9 +95,15 @@ final class SightingLog {
       if (!frame.camera().equals(camera)) {
         continue;
       }
-      for (TagVerdict tag : frame.tags()) {
+      // A camera hands over an image's tags in no order of its own, and the same tags in another
+      // order would be other facts: so they are logged by their numbers, lowest first.
+      List<TagVerdict> tagged = frame.tags();
+      int next = nextByNumber(tagged, Integer.MIN_VALUE, -1);
+      while (next >= 0) {
+        TagVerdict tag = tagged.get(next);
         putNumbers(sighted.size(), tag, frame.measured());
         sighted.add(sighting(tag, image, frame.measured()));
+        next = nextByNumber(tagged, tag.tag(), next);
       }
       image++;
     }
@@ -106,6 +112,26 @@ final class SightingLog {
       Logger.recordOutput(sightingsKey, logged.toArray(NO_SIGHTINGS));
     }
     Logger.recordOutput(numbersKey, numbers);
+  }
+
+  /**
+   * Which of an image's tags comes next by its number, after one given: the one with the lowest
+   * number above it, or the same number further along the list. -1 after the last. It makes
+   * nothing, since it runs for every image.
+   *
+   * @param afterTag the number of the tag before, or the least there is to start
+   * @param afterIndex where that tag is in the list, or -1 to start
+   */
+  private static int nextByNumber(List<TagVerdict> tags, int afterTag, int afterIndex) {
+    int next = -1;
+    for (int each = 0; each < tags.size(); each++) {
+      int number = tags.get(each).tag();
+      boolean after = number > afterTag || (number == afterTag && each > afterIndex);
+      if (after && (next < 0 || number < tags.get(next).tag())) {
+        next = each;
+      }
+    }
+    return next;
   }
 
   private static Sighting sighting(
