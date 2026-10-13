@@ -9,7 +9,6 @@ import java.util.Optional;
 import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.Gamepad;
-import org.wpilib.framework.RobotBase;
 import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
 
@@ -59,7 +58,7 @@ final class ControlsSessionRobot extends Robot {
 
   /** Runs the session robot: {@code java com.michaelgrundvig.frc.runtime.ControlsSessionRobot}. */
   public static void main(String... args) {
-    RobotBase.startRobot(() -> new ControlsSessionRobot(SessionRecording.clock()));
+    SessionRecording.start(ControlsSessionRobot::new);
   }
 
   @Override

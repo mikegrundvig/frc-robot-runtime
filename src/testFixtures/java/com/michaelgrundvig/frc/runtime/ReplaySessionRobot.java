@@ -16,7 +16,6 @@ import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.AutoLogOutput;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.Joystick;
-import org.wpilib.framework.RobotBase;
 import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.tunable.TunableDouble;
@@ -72,7 +71,7 @@ final class ReplaySessionRobot extends Robot {
 
   /** Runs the session robot: {@code java com.michaelgrundvig.frc.runtime.ReplaySessionRobot}. */
   public static void main(String... args) {
-    RobotBase.startRobot(() -> new ReplaySessionRobot(SessionRecording.clock()));
+    SessionRecording.start(ReplaySessionRobot::new);
   }
 
   @Override
