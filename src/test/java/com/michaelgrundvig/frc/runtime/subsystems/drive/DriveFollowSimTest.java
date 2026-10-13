@@ -16,6 +16,7 @@ import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,6 +108,49 @@ class DriveFollowSimTest {
     assertThat(path.arrived()).isTrue();
     assertThat(openedAt).as("from pickup as it opened").isLessThan(0.1);
     assertThat(pickup.getAsBoolean()).isTrue();
+  }
+
+  /**
+   * A path built once, with its keyframe's gate, and run twice, as a button's command is. The gate
+   * was left open by the first run. In the second, the command forks the path and waits on the
+   * gate, and it waits: the gate closes in the turn the path starts again, and the command acts at
+   * the keyframe, not at once, three meters from it.
+   */
+  @Test
+  void aKeyframesGateLeftOpenByOneRunIsClosedAsTheNextStarts() {
+    DriveMove leg = drive.follow(at(1.5, 0.5, 0).named("pickup"), at(3, 0, 0));
+    Gate pickup = leg.passed("pickup");
+    List<Double> actedFromPickup = new ArrayList<>();
+    Supplier<Command> pickUp =
+        () ->
+            Command.requiring(drive)
+                .executing(
+                    co -> {
+                      co.fork(leg);
+                      co.waitUntil(pickup);
+                      actedFromPickup.add(
+                          truth().getTranslation().getDistance(new Translation2d(1.5, 0.5)));
+                      co.await(leg);
+                    })
+                .named("Pick up");
+    RobotSim.setEnabled(true);
+
+    for (int run = 0; run < 2; run++) {
+      Command command = pickUp.get();
+      harness.scheduler.schedule(command);
+      for (int i = 0;
+          i < RobotLoop.loops(8) && harness.scheduler.isScheduledOrRunning(command);
+          i++) {
+        harness.loop();
+      }
+    }
+
+    assertThat(actedFromPickup).as("it acted once in each run").hasSize(2);
+    assertThat(actedFromPickup.get(0)).as("from pickup as it acted, the first run").isLessThan(0.1);
+    assertThat(actedFromPickup.get(1))
+        .as("and the second, which starts 1.6 m away")
+        .isLessThan(0.1);
+    assertThat(pickup.getAsBoolean()).as("left open by the run that passed it").isTrue();
   }
 
   /**

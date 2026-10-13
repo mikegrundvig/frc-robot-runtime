@@ -145,6 +145,12 @@ public final class DriveMove implements Command {
   /** Whether the path has passed each keyframe in the latest run, in the keyframes' order. */
   private final boolean[] passed;
 
+  /**
+   * How many times the move has started. A keyframe's gate answers for one run, so each start is a
+   * new question to it ({@link Gate.Logic#question}).
+   */
+  private long runs;
+
   /** When the robot came to the path's end in the latest run, or empty while it is not there. */
   private OptionalLong atEndSince = OptionalLong.empty();
 
@@ -309,10 +315,10 @@ public final class DriveMove implements Command {
 
   /**
    * A gate that opens as this move's path passes a named keyframe, and stays open until the move
-   * next starts: {@code co.waitUntil(leg.passed("pickup"))}. It's the path's time that passes it,
-   * which the robot follows within centimeters. A name none of its keyframes has is refused as a
-   * joint's gate on a place not its own is ({@link Refusals#gate}): thrown as the robot starts, and
-   * once it runs, a gate that holds false saying why.
+   * next starts, when it closes in that same turn: {@code co.waitUntil(leg.passed("pickup"))}. It's
+   * the path's time that passes it, which the robot follows within centimeters. A name none of its
+   * keyframes has is refused as a joint's gate on a place not its own is ({@link Refusals#gate}):
+   * thrown as the robot starts, and once it runs, a gate that holds false saying why.
    *
    * <p>Asked for with no name at all, it is refused the same way: a keyframe without a name has no
    * gate.
@@ -337,7 +343,29 @@ public final class DriveMove implements Command {
     }
     return passedGates.computeIfAbsent(
         keyframe,
-        asked -> Gate.of(drive.getRegisteredScheduler(), "passed " + asked, () -> passed[index]));
+        asked -> new Gate(drive.getRegisteredScheduler(), "passed " + asked, passed(index)));
+  }
+
+  /**
+   * Whether the latest run has passed one keyframe. Each run is a new question. A gate made as the
+   * robot starts is worked out before the commands run, so in the loop a move starts again its
+   * answer would still be the last run's: a command that forked the move and then waited for the
+   * keyframe would not wait at all. Telling the gate of the new run has it worked out again.
+   *
+   * @param index which keyframe, in the keyframes' order
+   */
+  private Gate.Logic passed(int index) {
+    return new Gate.Logic() {
+      @Override
+      public boolean holds(Gate.Terms why) {
+        return passed[index];
+      }
+
+      @Override
+      public long question() {
+        return runs;
+      }
+    };
   }
 
   /** What a gate asked for with no keyframe's name says, with what to do about it. */
@@ -461,6 +489,7 @@ public final class DriveMove implements Command {
     ending = Optional.empty();
     endingWhy = "";
     Arrays.fill(passed, false);
+    runs++;
     atEndSince = OptionalLong.empty();
     startNanos = RobotController.getTime();
     deadlineNanos = OptionalLong.empty();
