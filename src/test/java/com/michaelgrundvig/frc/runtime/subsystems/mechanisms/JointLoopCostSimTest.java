@@ -109,7 +109,7 @@ class JointLoopCostSimTest {
   private static final com.sun.management.ThreadMXBean THREADS =
       (com.sun.management.ThreadMXBean) ManagementFactory.getThreadMXBean();
 
-  private static final RobotDefinition GUARDED =
+  static final RobotDefinition GUARDED =
       RobotDefinitionBuilder.builder(ROBOT)
           .name("guarded")
           .interlocks(
@@ -151,7 +151,7 @@ class JointLoopCostSimTest {
           .build();
 
   /** What a joint is asked each loop while it is measured. */
-  private enum Asking {
+  enum Asking {
     /**
      * The pivot is sent to "out". That is past the keep-out, which holds it at the region's edge,
      * and past the limit switch, which holds it where it tripped.
@@ -168,7 +168,7 @@ class JointLoopCostSimTest {
   }
 
   /** What one joint's loop cost, averaged over the measured loops. */
-  private record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
+  record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
           Locale.ROOT, "%-58s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
@@ -232,7 +232,7 @@ class JointLoopCostSimTest {
    * what it does with the sensors and the PDH, what it is asked, and its write. The other joints,
    * the simulated physics and the sensors' own reading are run but not measured.
    */
-  private static Cost measure(String what, RobotDefinition robot, Joint joint, Asking asking) {
+  static Cost measure(String what, RobotDefinition robot, Joint joint, Asking asking) {
     JointsSimHarness sim = new JointsSimHarness(robot);
     JointMechanism measured = sim.joints.of(joint);
     Sensors sensors = sim.joints.sensors();

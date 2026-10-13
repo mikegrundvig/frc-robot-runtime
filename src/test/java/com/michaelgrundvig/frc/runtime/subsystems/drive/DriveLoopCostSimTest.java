@@ -76,7 +76,7 @@ class DriveLoopCostSimTest {
   private static final Pose2d FAR_END = new Pose2d(5, 3, Rotation2d.CCW_90DEG);
 
   /** What drives the drivetrain while it is measured. */
-  private enum Driving {
+  enum Driving {
     /** The driver's sticks, translating and turning. It measured 4,540 bytes a loop. */
     STICKS(5_200),
     /** The sticks translating, the drivetrain facing the hub. It measured 5,380 bytes a loop. */
@@ -96,7 +96,7 @@ class DriveLoopCostSimTest {
   }
 
   /** What the drive's loop cost, averaged over the loops of the cheapest batch. */
-  private record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
+  record Cost(String what, double mostBytesALoop, double bytesALoop, double nanosALoop) {
     String shown() {
       return String.format(
           Locale.ROOT, "%-44s %8.1f bytes/loop %8.0f ns/loop", what, bytesALoop, nanosALoop);
@@ -127,7 +127,7 @@ class DriveLoopCostSimTest {
    * Runs the drivetrain as the robot does, and measures what its own part of each loop costs: its
    * read, and the scheduler's run of the one command that drives it.
    */
-  private static Cost measure(String what, Driving driving) {
+  static Cost measure(String what, Driving driving) {
     try (DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM)) {
       Drive drive = harness.drive;
       harness.simulation.place(NEAR_END);
