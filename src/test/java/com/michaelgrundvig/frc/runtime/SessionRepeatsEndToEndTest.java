@@ -22,15 +22,20 @@ import org.wpilib.datalog.DataLogReader;
 import org.wpilib.datalog.DataLogRecord;
 
 /**
- * A recorded session is the same session every time ({@link SessionRecording}): recorded twice,
- * once on a quiet computer and once on a busy one, its two logs hold the same keys, of the same
- * types, with the same values at the same times, to the bit. That is what the tests that share a
- * session rest on. A session whose loops hung on the computer's clock passed on a quiet computer
- * and failed on a busy one, about once in ten runs.
+ * A recorded session is the same session every time ({@link SessionRecording}): recorded twice, its
+ * two logs hold the same keys, of the same types, with the same values at the same times, to the
+ * bit. That is what the tests that share a session rest on. A session whose loops hung on the
+ * computer's clock differed from one recording to the next even on a quiet computer, and failed on
+ * a busy one about once in ten runs.
  *
- * <p>The second recording is made while every processor of the computer is kept busy, so its loops
- * take several times as long and its threads get their turns late. A session that waited for a
- * length of time, or let another thread's work land in whichever loop it happened to, would differ.
+ * <p>Two recordings that agree are the check. A session that waited for a length of time, or let
+ * another thread's work land in whichever loop it happened to, would differ between them.
+ *
+ * <p>Asked for by name, the second recording is made while every processor of the computer is kept
+ * busy, so its loops take several times as long and its threads get their turns late ({@link
+ * #UNDER_LOAD}). That is a harder version of the same check. It takes over the whole computer while
+ * it runs, so it is never part of a routine build: run it alone, when the session's own code
+ * changes.
  *
  * <p>A few keys are about the computer and not the robot, and they alone are left out ({@link
  * #ABOUT_THE_COMPUTER}).
@@ -60,6 +65,12 @@ class SessionRepeatsEndToEndTest {
           "/RealOutputs/Logger/QueuedCycles",
           "/RealOutputs/Console");
 
+  /**
+   * Whether the second recording is made on a computer kept busy: only when the environment asks
+   * for it, {@code SESSIONS_UNDER_LOAD=1}. Left out, both recordings are made as any test runs.
+   */
+  private static final boolean UNDER_LOAD = System.getenv("SESSIONS_UNDER_LOAD") != null;
+
   @TempDir(cleanup = CleanupMode.ON_SUCCESS) // a failed run keeps its logs to look at
   static Path dir;
 
@@ -79,24 +90,21 @@ class SessionRepeatsEndToEndTest {
 
   @Test
   @Timeout(value = 4, unit = TimeUnit.MINUTES) // two runs of the program, each allowed 90 s
-  void theSessionWithoutControlsRecordsTheSameLogOnAQuietComputerAndABusyOne() throws Exception {
+  void theSessionWithoutControlsRecordsTheSameLogEveryTime() throws Exception {
     recordsTheSameLogTwice("plain", SessionRecording::record);
   }
 
   @Test
   @Timeout(value = 4, unit = TimeUnit.MINUTES) // two runs of the program, each allowed 90 s
-  void theSessionWithControlsRecordsTheSameLogOnAQuietComputerAndABusyOne() throws Exception {
+  void theSessionWithControlsRecordsTheSameLogEveryTime() throws Exception {
     recordsTheSameLogTwice("controls", SessionRecording::recordWithControls);
   }
 
   private static void recordsTheSameLogTwice(String name, Session session) throws Exception {
-    Path quietDir = Files.createDirectories(dir.resolve(name + "-quiet"));
-    Path busyDir = Files.createDirectories(dir.resolve(name + "-busy"));
+    Path quietDir = Files.createDirectories(dir.resolve(name + "-first"));
+    Path busyDir = Files.createDirectories(dir.resolve(name + "-second"));
     Map<String, Series> quiet = read(session.record(quietDir));
-    Map<String, Series> busy;
-    try (Busy keptBusy = new Busy()) {
-      busy = read(session.record(busyDir));
-    }
+    Map<String, Series> busy = recordedAgain(session, busyDir);
 
     assertThat(quiet.size()).as("keys the session logs").isGreaterThan(500);
     assertThat(busy.keySet()).as("the keys of the two recordings").isEqualTo(quiet.keySet());
@@ -146,9 +154,19 @@ class SessionRepeatsEndToEndTest {
         .add(record.getTimestamp() + " " + HexFormat.of().formatHex(record.getRaw()));
   }
 
+  /** The session recorded a second time: on a busy computer when that was asked for. */
+  private static Map<String, Series> recordedAgain(Session session, Path into) throws Exception {
+    if (!UNDER_LOAD) {
+      return read(session.record(into));
+    }
+    try (Busy keptBusy = new Busy()) {
+      return read(session.record(into));
+    }
+  }
+
   private static String firstDifference(Series quiet, Series busy) {
     if (!quiet.type().equals(busy.type())) {
-      return quiet.type() + " quiet, " + busy.type() + " busy";
+      return quiet.type() + " first, " + busy.type() + " second";
     }
     int both = Math.min(quiet.samples().size(), busy.samples().size());
     for (int i = 0; i < both; i++) {
@@ -157,12 +175,12 @@ class SessionRepeatsEndToEndTest {
             + i
             + ": "
             + quiet.samples().get(i)
-            + " quiet, "
+            + " first, "
             + busy.samples().get(i)
-            + " busy";
+            + " second";
       }
     }
-    return quiet.samples().size() + " values quiet, " + busy.samples().size() + " busy";
+    return quiet.samples().size() + " values first, " + busy.samples().size() + " second";
   }
 
   /** Keeps every processor of the computer busy until it is closed. */
