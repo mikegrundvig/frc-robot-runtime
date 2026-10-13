@@ -794,13 +794,59 @@ status, which includes whether it stands on its start and whether it knows where
 enough to score. The Tune view changes gains while the robot runs. The World view draws the field
 in 3D with the robot where the code believes it is, and where it really is beside that. The Robot
 view draws each joint as the description says it, with what it was told and what holds it. The Sim
-view stands in for the Driver Station. You enable the robot there and drive it from the keyboard
-or a gamepad.
+view stands in for the Driver Station.
 
-The Sim view can also break things on purpose. You can unplug a camera, freeze the gyro, or shove
-the robot sideways, all while it runs. The robot's code is never told. It has to notice from its
-sensors, the way it would on the field. Failing a joint's motor or encoder is possible too, but
-today only a test can do that. The page cannot yet.
+You don't have to live in the Sim view, though. The World and Robot views are where you watch, so
+the controls come to you.
+
+**Enable and Disable are in the bar at the top**, on every view. Press Enable. Press Esc to
+disable, from anywhere on the page, even while you are typing in a field. Nothing else enables the
+robot, and no key does. On a real robot those two buttons are not there at all. The Driver Station
+enables a real robot.
+
+**Press P for the Sim panel.** It opens beside whatever view you are on and stays open as you
+change views. Press P again to close it. Drag its left edge to make it wider. It holds what you
+reach for while watching, in this order:
+
+- the mode and your alliance station
+- driving, from the keyboard or a gamepad
+- the auto to run
+- the simulator's clock: pause it, or step one new loop
+- what fails
+
+**To drive**, switch on "Drive with the keyboard" in the panel. W and S go forward and back, A and
+D go left and right, J and L (or the arrow keys) turn, and R resets the heading. The keys drive
+from any view. The bar says "Keys drive the robot" while they do, with a Switch off beside it, so
+you always know where your keys are going. Typing in a field still types.
+
+**To run an auto**, pick it in the panel and press Choose. Then press "Set autonomous and enable".
+That button does exactly what it says. Choosing an auto never enables the robot.
+
+**To break something**, find it in the panel under "What fails". Type in the filter, like `camera`
+or `slip`. The faults you used last are at the top. You can unplug a camera, freeze the gyro, or
+shove the robot sideways, all while it runs. The robot's code is never told. It has to notice from
+its sensors, the way it would on the field.
+
+Or just click the thing. In the World view, click a camera, the gyro, a wheel, or the robot's
+bumpers. The panel that opens says what you clicked and ends in its faults. Apply one there and
+undo it there. Click the bumpers to shove, hit, tilt or place the robot. "Apply where I click"
+places it at the next spot you click on the field.
+
+Failing a joint's motor or encoder is possible too, but today only a test can do that. The page
+cannot yet, so the Robot view's cards have no faults to offer.
+
+The whole page's keys:
+
+| Key | What it does |
+|---|---|
+| Esc | Disables the simulated robot if it is enabled, and stops anything running. Otherwise it drops the edit in a field, or takes the time strip back to live |
+| P | Opens and closes the Sim panel |
+| W A S D, J L, ← →, R | Drive, while keyboard driving is on |
+| ← →, Shift+← →, Space, L | Move through time on the strip, while keyboard driving is off |
+| / | Jumps to the filter in the Tune view |
+
+Esc is the robot's first. If the robot is enabled, Esc disables it and does nothing else. Press it
+again for whatever else you wanted.
 
 ### Reading what happened, in order
 
@@ -836,8 +882,9 @@ holds", it fed before the shooter was up. You found that without a print stateme
 joint's name on its card to see only that joint's events. A move that timed out or was refused
 shows as a problem, in the list and on the strip.
 
-Scrubbing only moves what the page shows. It never rewinds the robot or the simulator. The Sim
-view's Step is a different thing. It runs one new loop of a paused simulator.
+Scrubbing only moves what the page shows. It never rewinds the robot or the simulator. "Step one
+new loop", under Simulator clock in the Sim panel, is a different thing. It runs one new loop of a
+paused simulator.
 
 Tests run the whole robot the same way, with no window and no waiting. A test builds the robot,
 presses buttons, steps the clock, and checks what happened. The clock moves only when the test

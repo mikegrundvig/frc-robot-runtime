@@ -306,27 +306,39 @@ the bump one. `-Pscenario` in a program without the simulator's controls stops i
 ## The *Sim* view
 
 The page's *Sim* view, offered only in the simulator, does what the GUI did and what it couldn't,
-through the API above (`page/sim.js`, with `sim-drive.js` for driving and `sim-faults.js` for what
-fails).
+through the API above. Each of its sections is a module of the page (`sim-enable.js`,
+`sim-station.js`, `sim-auto.js`, `sim-time.js`, `sim-driving.js` over `sim-drive.js`, and
+`sim-faults.js`), and `sim-state.js` is what they read and ask.
+
+**You don't have to be in *Sim* to use them.** The same sections, compact, are the *Sim panel*,
+which opens beside any view (its button in the state bar, or P) and stays open as the views
+change: the mode and station, driving, the auto to run, the simulator's clock, and what fails with
+a filter and the faults used last first. Enable and Disable are in the state bar on every view.
+And in the World view a click on a camera, the gyro, a wheel or the bumpers ends in that part's
+faults, with "Apply where I click" to set the robot down at a place on the field. The
+[guide](guide.md#running-it-with-no-robot) walks through it, with the page's keys.
 
 **The Driver Station** is at the top, and stays there as the view scrolls: whether the robot is
 enabled (filled in) or disabled (an outline), its mode, station, and match time, with Enable and a
 large Disable. Enable needs a mode, as a real Driver Station always has one. Below are the mode,
 the alliance station, Driver Station attached, FMS attached, and the match time (set, cleared, and
 counting down while enabled, in whole seconds as a Driver Station shows it). The state bar's mode
-is filled in while the simulated robot is enabled, and leads here. Attaching the field asks first
+is filled in while the simulated robot is enabled, and leads here; beside it, in the simulator
+only, are the same Enable and Disable, on every view. Attaching the field asks first
 when values are tuned, listing them, since the field returns them to committed; the field's band
 then points back to the switch, its way out in the simulator.
 
-**Esc disables the robot** in *Sim* always, even with the focus in a field; and from any other view
-while this page drives it, with the keyboard or a gamepad, unless the focus is in a field, where
-Esc drops what was typed. Elsewhere Esc keeps its meaning: it stops a run or an action. Disabling
-there would also end the enable an experiment's next run needs, turning "stop this run" into "stop
-it, and enable again". When a disable fails, the page says so at once, wherever Esc was pressed.
+**Esc disables the robot** from any view, whatever has the focus, a field or an open dialog
+included: while the simulated robot is enabled, Esc disables it and stops whatever is running (an
+experiment's run, an action), and means nothing else. A safety action wins over a view's. Only
+with the robot disabled does Esc keep its other meanings: it stops a run or an action, drops what
+was typed in a value's field, or returns the time strip to live. No key enables. When a disable
+fails, the page says so at once, wherever Esc was pressed.
 
-**Keyboard driving is switched on explicitly** ("Drive with the keyboard"), and shows in the state
-bar while on: "⌨ Driving", or why not now. One fixed layout for this template's driving, by
-physical key, so it's where it is on any keyboard layout:
+**Keyboard driving is switched on explicitly** ("Drive with the keyboard", in *Sim* or the Sim
+panel), and then drives from whatever view is showing. The state bar says so on every view while
+it's on: "⌨ Keys drive the robot", or why not now, with Switch off beside it. One fixed layout for
+this template's driving, by physical key, so it's where it is on any keyboard layout:
 
 | Keys | Joystick 0 |
 |---|---|
@@ -378,8 +390,10 @@ suggesting side-by-side windows. Whether a gamepad keeps reaching a page that's 
 unfocused, beside AdvantageScope, is unverified: test it in Chrome and Firefox before calling the
 view a strict improvement for gamepad users.
 
-**Time:** Pause and Resume; Step, one loop, only while paused; and Stop, after asking (it lists
-the tuned values not committed, which end with the program). A paused simulator runs no loops, so
+**Simulator clock:** Pause and Resume; Step one new loop, only while paused; and, in *Sim*, Stop,
+after asking (it lists the tuned values not committed, which end with the program). The names say
+"simulator" and "new" because the time strip's Loop buttons are another thing: they look back over
+loops already run. A paused simulator runs no loops, so
 the stream goes quiet but for heartbeats: a request made while paused says it waits for a Step or
 Resume (one the loop was slow to answer, that it waits for the next loop), and that note goes once
 a loop has run. A page that opens while the simulator is paused gets no snapshot; after a second
