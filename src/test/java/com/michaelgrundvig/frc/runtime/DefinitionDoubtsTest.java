@@ -95,6 +95,27 @@ class DefinitionDoubtsTest {
         .noneMatch(note -> note.contains("grip") || note.contains("center of mass"));
   }
 
+  /**
+   * The template's roller, feeder and indexer have no mass, so the simulator turns each on its
+   * motors' rotors alone, and the note says how soon they bring it to its fastest speed. Its
+   * shooter carries a flywheel, so it has no note.
+   */
+  @Test
+  void theTemplatesRollersSayHowFastTheirRotorsAloneSpinThemUp() {
+    RobotDefinition example = ExampleRobot.COMPETITION.definition();
+    List<String> notes = Doubts.lines(Doubts.of(example), Finding.Scope.SIMULATOR);
+
+    assertThat(notes)
+        .contains(
+            "simulator: roller has no mass: roller adds nothing to roller's inertia, so its rotors"
+                + " alone bring it to intaking, 2000 rpm, in about 11 ms",
+            "simulator: feeder has no mass: feeder adds nothing to feeder's inertia, so its rotors"
+                + " alone bring it to feeding, 1000 rpm, in about 7 ms",
+            "simulator: indexer has no mass: indexer adds nothing to indexer's inertia, so its"
+                + " rotors alone bring it to feeding, 1500 rpm, in about 8 ms")
+        .noneMatch(note -> note.contains("shooter has no mass"));
+  }
+
   /** A kG written, even 0 for a counterbalanced arm, is no doubt. */
   @Test
   void aWrittenKgIsNoDoubt() {

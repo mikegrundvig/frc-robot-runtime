@@ -768,7 +768,12 @@ with 0.35 V, `withKg(0.35)`, and its arm with 0.35 V where its weight pulls hard
   fails on the other. So the guide's shooter carries its flywheel (`ExampleRobot`), 1.8 kg of
   4 in wheels and steel disks, 0.00232 kg m² about its shaft. Its two Kraken X60s, each held to
   40 A, push with 1.55 N m, so 3000 rpm takes inertia × speed / torque, 0.00235 kg m² × 314 rad/s
-  / 1.55 N m, about half a second, and the simulator's takes that.
+  / 1.55 N m, about half a second, and the simulator's takes that. The simulator's note for such
+  a roller says how soon its rotors alone bring it to its fastest named speed, worked the same way
+  at the stator limit, leaving out the back-EMF, friction and the supply limit, so it is an
+  estimate: "feeder has no mass: feeder adds nothing to feeder's inertia, so its rotors alone bring
+  it to feeding, 1000 rpm, in about 7 ms". A joint held at positions, or one that names no speed,
+  has the note without it.
 
 ### Homing
 
