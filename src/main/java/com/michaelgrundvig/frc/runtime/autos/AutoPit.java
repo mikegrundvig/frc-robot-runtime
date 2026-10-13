@@ -10,7 +10,8 @@ import java.util.Optional;
 /**
  * The autos' card on Pitwall's Pit view. It shows the auto the robot will run and where that auto
  * starts, and offers the choice of any other, in the way the venue's card offers its venues ({@code
- * VenuePit}).
+ * VenuePit}). It says it is the card of what autonomous runs, so in the simulator the page shows it
+ * beside its Driver Station too, over the press that sets autonomous and enables.
  *
  * <p>A choice is made on one of Pitwall's server threads, never in the robot loop. The robot takes
  * it at the start of a loop while it is disabled ({@link Autos#update}). The card itself is read in
@@ -26,7 +27,9 @@ public final class AutoPit {
   /** The autos' card, for {@code pitwall.devices().add(...)}. */
   public static Devices.Device device(Autos autos) {
     AutoPit pit = new AutoPit(autos);
-    return Devices.Device.named("auto", "Autonomous", pit::card).choose("auto", pit::choose);
+    return Devices.Device.named("auto", "Autonomous", pit::card)
+        .choose("auto", pit::choose)
+        .autonomous();
   }
 
   /** The card as of now: what runs, where it starts, anything wrong, and the choice. */
