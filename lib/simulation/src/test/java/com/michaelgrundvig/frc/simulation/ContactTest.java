@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.simulation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.field.Block;
@@ -46,6 +47,10 @@ class ContactTest {
   /** From its center to a corner of its bumpers. */
   private static final double TO_CORNER = HALF * Math.sqrt(2);
 
+  /** How fast a wheel's tread runs with nothing to move, at 12 V. */
+  private static final double FREE_SPEED =
+      12 * TestRobot.MOTOR.Kv / TestRobot.GEARING * TestRobot.RADIUS;
+
   private static final Material STEEL = Material.builder().name("steel").build();
   private static final Polygon2d WALLS =
       Polygon2d.rectangle(Translation2d.ZERO, new Translation2d(LENGTH, WIDTH));
@@ -80,11 +85,22 @@ class ContactTest {
 
   /** How an approach must end. */
   enum Ends {
-    /** Standing still against something, its wheels still turning. */
-    STOPPED,
+    /** Held still, its wheels held still with it: their motors push less than the carpet grips. */
+    STALLED,
+    /** Held still, its wheels broken loose and spinning against the carpet's grip. */
+    SPINNING,
     /** Still moving: sliding along something, turning, or driving free. */
     MOVING
   }
+
+  /**
+   * A stator limit under which this robot's wheels can't break loose: a wheel pushes its tread with
+   * about 2.6 N for each amp, 77 N here, and the carpet grips each wheel with 200 N.
+   */
+  private static final double GRIPS_AMPS = 30;
+
+  /** A stator limit under which they can: about 310 N at the tread against the carpet's 200 N. */
+  private static final double BREAKS_LOOSE_AMPS = 120;
 
   /**
    * One approach: where the robot starts, how it is driven and for how long, and where that must
@@ -93,7 +109,8 @@ class ContactTest {
    * @param wayDegrees which way the wheels point, in the robot's frame, when translating
    * @param endX where its center must end along x, or NaN where the row doesn't say
    * @param endY where its center must end along y, or NaN where the row doesn't say
-   * @param ends whether it must end standing still
+   * @param currentLimitAmps each drive motor's stator limit
+   * @param ends how it must end
    */
   record Approach(
       Pose2d start,
@@ -102,6 +119,7 @@ class ContactTest {
       double seconds,
       double endX,
       double endY,
+      double currentLimitAmps,
       Ends ends) {}
 
   /** What a run of an approach did. */
@@ -111,6 +129,8 @@ class ContactTest {
       double turnedRadians,
       double traveledMeters,
       double wheelsRolledMeters,
+      double wheelSpeedMetersPerSecond,
+      double currentAmps,
       double deepestInsideMeters,
       double highestMeters,
       long fingerprint) {}
@@ -130,38 +150,63 @@ class ContactTest {
     return Stream.of(
         row(
             "head-on into a wall at top speed, under the bar and over the bump",
-            new Approach(pose(1, 5, 0), Wheels.TRANSLATING, 0, 3, atFarWall, 5, Ends.STOPPED)),
+            approach(pose(1, 5, 0), 0, 3, atFarWall, 5, GRIPS_AMPS, Ends.STALLED)),
+        row(
+            "head-on into a wall, with motors that break the wheels loose",
+            approach(pose(1, 5, 0), 0, 3, atFarWall, 5, BREAKS_LOOSE_AMPS, Ends.SPINNING)),
         row(
             "head-on into the post",
-            new Approach(pose(1, 3, 0), Wheels.TRANSLATING, 0, 3, 4 - HALF, 3, Ends.STOPPED)),
+            approach(pose(1, 3, 0), 0, 3, 4 - HALF, 3, GRIPS_AMPS, Ends.STALLED)),
         row(
             "glancing off a wall, then sliding along it",
-            new Approach(
-                pose(1, 1, 0), Wheels.TRANSLATING, 60, 2.4, none, atLeftWall, Ends.MOVING)),
+            approach(pose(1, 1, 0), 60, 2.0, none, atLeftWall, BREAKS_LOOSE_AMPS, Ends.MOVING)),
+        row(
+            "glancing off a wall with motors too weak to slide the treads: it holds there",
+            approach(pose(1, 1, 0), 60, 4, none, atLeftWall, GRIPS_AMPS, Ends.STALLED)),
         row(
             "into an inside corner",
-            new Approach(
-                pose(1, 1, 0), Wheels.TRANSLATING, 60, 4, atFarWall, atLeftWall, Ends.STOPPED)),
+            approach(
+                pose(1, 1, 0), 60, 5, atFarWall, atLeftWall, BREAKS_LOOSE_AMPS, Ends.SPINNING)),
         row(
             "catching the post's face with one end of the bumpers, square on",
-            new Approach(pose(1, 2.2, 0), Wheels.TRANSLATING, 0, 3, 4 - HALF, 2.2, Ends.STOPPED)),
+            approach(pose(1, 2.2, 0), 0, 3, 4 - HALF, 2.2, GRIPS_AMPS, Ends.STALLED)),
         row(
             "glancing off the post's face, sliding off its end and on into the far corner",
-            new Approach(
-                pose(1, 1.6, 0), Wheels.TRANSLATING, 15, 6, atFarWall, atLeftWall, Ends.STOPPED)),
+            approach(
+                pose(1, 1.6, 0), 15, 6, atFarWall, atLeftWall, BREAKS_LOOSE_AMPS, Ends.SPINNING)),
         row(
             "along a wall it is touching",
-            new Approach(pose(3, HALF, 0), Wheels.TRANSLATING, 0, 0.8, none, HALF, Ends.MOVING)),
+            approach(pose(3, HALF, 0), 0, 0.8, none, HALF, GRIPS_AMPS, Ends.MOVING)),
         row(
             "backing off a wall it starts against",
-            new Approach(pose(HALF, 1, 0), Wheels.TRANSLATING, 0, 0.8, none, 1, Ends.MOVING)),
+            approach(pose(HALF, 1, 0), 0, 0.8, none, 1, GRIPS_AMPS, Ends.MOVING)),
         row(
             "a corner swinging into a wall as it spins",
-            new Approach(pose(HALF + 0.02, 3, 0), Wheels.SPINNING, 0, 2, none, 3, Ends.MOVING)),
+            new Approach(
+                pose(HALF + 0.02, 3, 0),
+                Wheels.SPINNING,
+                0,
+                2,
+                none,
+                none,
+                BREAKS_LOOSE_AMPS,
+                Ends.MOVING)),
         row(
             "turned a little, square into a wall",
-            new Approach(
-                pose(5.5, 1, 20), Wheels.TRANSLATING, -20, 2.5, none, none, Ends.STOPPED)));
+            approach(pose(5.5, 1, 20), -20, 2.5, none, none, GRIPS_AMPS, Ends.STALLED)));
+  }
+
+  /** An approach with every wheel pointed one way. */
+  private static Approach approach(
+      Pose2d start,
+      double wayDegrees,
+      double seconds,
+      double endX,
+      double endY,
+      double currentLimitAmps,
+      Ends ends) {
+    return new Approach(
+        start, Wheels.TRANSLATING, wayDegrees, seconds, endX, endY, currentLimitAmps, ends);
   }
 
   @ParameterizedTest
@@ -178,11 +223,32 @@ class ContactTest {
     if (!Double.isNaN(approach.endY())) {
       assertThat(outcome.end().getY()).as("y at the end").isCloseTo(approach.endY(), within(1e-6));
     }
-    if (approach.ends() == Ends.STOPPED) {
-      assertThat(outcome.endVelocity().getNorm()).as("speed at the end").isLessThan(1e-6);
-      assertThat(outcome.wheelsRolledMeters())
-          .as("the wheels kept turning against it")
-          .isGreaterThan(outcome.traveledMeters() + 0.5);
+    double ranAheadMeters = outcome.wheelsRolledMeters() - outcome.traveledMeters();
+    switch (approach.ends()) {
+      case STALLED -> {
+        assertThat(outcome.endVelocity().getNorm()).as("speed at the end").isLessThan(1e-6);
+        assertThat(outcome.wheelSpeedMetersPerSecond())
+            .as("the wheels' speed")
+            .isCloseTo(0, within(1e-6));
+        assertThat(ranAheadMeters)
+            .as("meters the encoders counted that it never went")
+            .isLessThan(0.1);
+        assertThat(outcome.currentAmps())
+            .as("stalled at the limit")
+            .isCloseTo(approach.currentLimitAmps(), within(0.5));
+      }
+      case SPINNING -> {
+        assertThat(outcome.endVelocity().getNorm()).as("speed at the end").isLessThan(1e-6);
+        assertThat(outcome.wheelSpeedMetersPerSecond())
+            .as("spinning, slower than free")
+            .isBetween(0.5, 0.9 * FREE_SPEED);
+        assertThat(ranAheadMeters)
+            .as("meters the encoders counted that it never went")
+            .isGreaterThan(0.5);
+        assertThat(outcome.currentAmps()).as("amps, well above running free").isGreaterThan(20);
+      }
+      // What a slide or a spin keeps doing has a test of its own, below.
+      case MOVING -> {}
     }
     assertThat(outcome.traveledMeters())
         .as("it never goes farther than its wheels rolled it")
@@ -199,16 +265,38 @@ class ContactTest {
   void aSlideKeepsMovingAndASpinKeepsTurning() {
     Outcome sliding =
         run(
-            new Approach(pose(1, 1, 0), Wheels.TRANSLATING, 60, 2.4, 0, 0, Ends.MOVING),
+            new Approach(
+                pose(1, 1, 0), Wheels.TRANSLATING, 60, 2.0, 0, 0, BREAKS_LOOSE_AMPS, Ends.MOVING),
             World.ARENA);
     Outcome spinning =
         run(
-            new Approach(pose(HALF + 0.02, 3, 0), Wheels.SPINNING, 0, 2, 0, 0, Ends.MOVING),
+            new Approach(
+                pose(HALF + 0.02, 3, 0),
+                Wheels.SPINNING,
+                0,
+                2,
+                0,
+                0,
+                BREAKS_LOOSE_AMPS,
+                Ends.MOVING),
             World.ARENA);
     Outcome overTheBump =
-        run(new Approach(pose(1, 5, 0), Wheels.TRANSLATING, 0, 3, 0, 0, Ends.STOPPED), World.ARENA);
+        run(approach(pose(1, 5, 0), 0, 3, 0, 0, GRIPS_AMPS, Ends.STALLED), World.ARENA);
 
     assertThat(sliding.endVelocity().getX()).as("along the wall, m/s").isGreaterThan(1);
+    assertThat(sliding.endVelocity().getX())
+        .as("the wall takes nothing from the tread's speed along it")
+        .isCloseTo(
+            sliding.wheelSpeedMetersPerSecond() * Math.cos(Math.toRadians(60)), within(0.05));
+    // The share of the treads' rolling that goes into the wall slides on the carpet, which loads
+    // each motor with that share of the carpet's grip.
+    double gripNewtons = 1.2 * TestRobot.BODY.mass().in(Kilograms) * Physics.STANDARD_GRAVITY / 4;
+    double loadNewtons = Math.sin(Math.toRadians(60)) * gripNewtons;
+    double ampsForThatLoad =
+        loadNewtons * TestRobot.RADIUS / (TestRobot.GEARING * TestRobot.MOTOR.Kt);
+    assertThat(sliding.currentAmps())
+        .as("amps, sliding along the wall")
+        .isCloseTo(ampsForThatLoad, within(0.03 * ampsForThatLoad));
     assertThat(sliding.endVelocity().getY()).as("into the wall, m/s").isCloseTo(0, within(1e-6));
     assertThat(spinning.turnedRadians()).as("it turned on, pushed off the wall").isGreaterThan(6);
     assertThat(spinning.end().getX())
@@ -223,9 +311,9 @@ class ContactTest {
   @Test
   void aRobotThatTouchesNothingDrivesAsInOpenSpace() {
     Approach alongTheWall =
-        new Approach(pose(3, HALF, 0), Wheels.TRANSLATING, 0, 0.8, 0, 0, Ends.MOVING);
+        new Approach(pose(3, HALF, 0), Wheels.TRANSLATING, 0, 0.8, 0, 0, GRIPS_AMPS, Ends.MOVING);
     Approach offTheWall =
-        new Approach(pose(HALF, 1, 0), Wheels.TRANSLATING, 0, 0.8, 0, 0, Ends.MOVING);
+        new Approach(pose(HALF, 1, 0), Wheels.TRANSLATING, 0, 0.8, 0, 0, GRIPS_AMPS, Ends.MOVING);
 
     for (Approach approach : List.of(alongTheWall, offTheWall)) {
       Outcome among = run(approach, World.ARENA);
@@ -234,6 +322,37 @@ class ContactTest {
       assertThat(among.end()).isEqualTo(open.end());
       assertThat(among.traveledMeters()).isGreaterThan(0.5);
     }
+  }
+
+  /**
+   * Stalled against a wall, then driven away: the wheels were held still, so the robot leaves the
+   * wall exactly as it leaves a standstill in open space.
+   */
+  @Test
+  void drivenOffAWallItWasStalledAgainstItLeavesAsFromAStandstill() {
+    KinematicPhysics pinned = TestRobot.physics();
+    KinematicPhysics open = TestRobot.physics();
+    TestRobot.Controllers controllers = new TestRobot.Controllers();
+    pinned.apply(new Disturbance.Standing(WALLS, ELEMENTS));
+    pinned.apply(new Disturbance.Placed(pose(6.5, 1, 0)));
+    controllers.volts = 12;
+    for (int step = 0; step < 500; step++) {
+      pinned.step(STEP, controllers);
+    }
+    double atTheWall = pinned.chassis().pose().getX();
+    assertThat(atTheWall).isCloseTo(LENGTH - HALF, within(1e-6));
+    assertThat(pinned.wheel(0).spinRadPerSec()).as("stalled").isCloseTo(0, within(1e-9));
+
+    controllers.volts = -12;
+    for (int step = 0; step < 50; step++) {
+      pinned.step(STEP, controllers);
+      open.step(STEP, controllers);
+    }
+
+    assertThat(pinned.chassis().pose().getX() - atTheWall)
+        .as("meters backed off in 0.2 s, as from rest in open space")
+        .isCloseTo(open.chassis().pose().getX(), within(1e-6));
+    assertThat(open.chassis().pose().getX()).isLessThan(-0.05);
   }
 
   /**
@@ -273,6 +392,7 @@ class ContactTest {
     }
     physics.apply(new Disturbance.Placed(approach.start()));
     controllers.volts = 12;
+    controllers.limitAmps = approach.currentLimitAmps();
     Translation2d[] wheels = TestRobot.wheels();
     for (int wheel = 0; wheel < wheels.length; wheel++) {
       controllers.steer[wheel] =
@@ -308,6 +428,8 @@ class ContactTest {
         physics.chassis().yawTurnedRadians(),
         traveled,
         rolled,
+        physics.wheel(0).spinRadPerSec() * TestRobot.RADIUS,
+        physics.wheel(0).driveCurrentAmps(),
         deepest,
         highest,
         fingerprint);

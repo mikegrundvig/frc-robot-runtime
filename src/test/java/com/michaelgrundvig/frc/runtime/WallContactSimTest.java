@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.simulation.SensorErrors;
@@ -54,26 +55,31 @@ class WallContactSimTest {
     return sim.robot().drive().getPose().getTranslation().getDistance(truth.getTranslation());
   }
 
-  /**
-   * Backed into the wall at about 1 m/s and held there for two seconds, wheels turning, then driven
-   * off it and stopped.
-   *
-   * <p>The wall stops the robot's bumpers on its face, and the IMU feels the stop, which the
-   * estimate takes for the collision it is. While the robot is held there its wheels keep counting,
-   * about 2.2 m in all, and the estimate runs on past the wall with them until the cameras disagree
-   * by enough to pull it back. It was 1.14 m off at worst when this was written, which is the
-   * estimator's to improve and is held here only to less than the wheels counted. Once the robot
-   * drives off the wall the estimate is back on it.
-   */
-  @Test
-  void theWallStopsTheRobotAndTheEstimateComesBackWhenItBacksOff() {
+  /** Sets the robot down with the estimate agreeing, on the season's own field, and enables it. */
+  private void startAt(Pose2d start) {
     // The season's own field, hub, walls and all: the tests' usual field has nothing standing.
     sim.build(ExampleRobot.SIM, Rebuilt::game, ControlsMaker.NONE, SensorErrors.TYPICAL);
     sim.loops(1);
-    sim.simulation().place(START);
-    sim.robot().localization().resetPose(START);
+    sim.simulation().place(start);
+    sim.robot().localization().resetPose(start);
     sim.loops(5);
     RobotSim.setEnabled(true);
+  }
+
+  /**
+   * Backed into the wall at about 1 m/s and held there for two seconds, then driven off it and
+   * stopped.
+   *
+   * <p>The wall stops the robot's bumpers on its face, and the IMU feels the stop, which the
+   * estimate takes for the collision it is. This robot's drive motors are limited to 30 A, which
+   * pushes each tread with 77 N, and the carpet grips each wheel with 200 N. So its wheels can't
+   * break loose: they stall with the robot, their encoders stop counting, and the estimate stays
+   * with the truth, 4 cm off at worst when this was written (the treads slide a few centimeters as
+   * they stop).
+   */
+  @Test
+  void theWallStopsTheRobotAndItsStalledWheelsKeepTheEstimateWithIt() {
+    startAt(START);
 
     Stretch intoTheWall = drive(-0.6, 150);
     assertThat(intoTheWall.nearestTheWall())
@@ -81,8 +87,8 @@ class WallContactSimTest {
         .isBetween(HALF_LENGTH - 1e-6, HALF_LENGTH + 0.01);
     assertThat(intoTheWall.feltACollision()).as("the IMU felt the stop").isTrue();
     assertThat(intoTheWall.worstErrorMeters())
-        .as("the estimate, while the wheels spin against the wall")
-        .isLessThan(1.5);
+        .as("the estimate, while the robot pushes on the wall")
+        .isLessThan(0.08);
 
     drive(0.6, 75);
     Stretch stopped = drive(0, 50);
@@ -90,5 +96,23 @@ class WallContactSimTest {
     assertThat(stopped.worstErrorMeters())
         .as("the estimate, once it is off the wall")
         .isLessThan(0.05);
+  }
+
+  /**
+   * Driven into the hub's near face at full stick and held there for ten seconds. The robot stands
+   * still against the face the whole time, and so does the estimate: 3 cm off at worst when this
+   * was written.
+   */
+  @Test
+  void heldAgainstTheHubForTenSecondsTheEstimateStaysPut() {
+    Pose2d beforeTheHub = new Pose2d(2.9, RobotSim.FIELD.width() / 2, Rotation2d.ZERO);
+    startAt(beforeTheHub);
+
+    Stretch intoTheHub = drive(1, 560);
+
+    Pose2d truth = sim.simulation().truePose();
+    assertThat(truth.getX()).as("against the hub's near face").isBetween(3.5, 3.6);
+    assertThat(truth.getRotation().getDegrees()).as("not turned").isCloseTo(0, within(1.0));
+    assertThat(intoTheHub.worstErrorMeters()).as("the estimate, the whole hold").isLessThan(0.08);
   }
 }
