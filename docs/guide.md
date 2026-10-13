@@ -790,10 +790,12 @@ with the motors, the gearing and the hard stops you wrote. The drivetrain moves 
 you gave it. The cameras see the tags they would see from where you mounted them.
 
 The field is solid. Drive into the hub, a trench's column, the tower or a wall, and the robot
-stops there. Come at one at an angle and it slides along. Its wheels keep spinning, though, the
-way they do against a real wall. So the encoders keep counting, and the robot's idea of where it
-is drives on without it. Watch that in the World view. The solid shape is where the code thinks
-the robot is. The dashed one is where it really is.
+stops there. Come at one at an angle and it slides along, if its motors are strong enough to
+slide the treads. This robot's are not, at 30 amps: its wheels stall against the wall, and the
+drive motors sit at their current limit. Raise the limit far enough and the wheels break loose
+and spin instead. Then the encoders count travel that never happened, and the robot's idea of
+where it is drives on without it. The World view shows both. The solid shape is where the code
+thinks the robot is. The dashed one is where it really is.
 
 Then open http://localhost:5820 in a browser. That is Pitwall. Its Pit view has the robot's
 status, which includes whether it stands on its start and whether it knows where it is well

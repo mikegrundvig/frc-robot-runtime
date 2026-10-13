@@ -430,16 +430,32 @@ out of it and loses the part of its speed that went in. So it stops against what
 and slides along what it meets at an angle. It never bounces, and it never ends up inside
 anything. A corner that swings into a wall as the robot turns pushes the robot off the wall.
 
-Its wheels keep turning. Nothing tells them the robot has stopped, so the encoders count on and
-wheel odometry runs ahead of the robot, as it does on a real robot whose wheels spin against a
-wall. The IMU reads the truth: a sharp stop at contact, then no travel. That is what the estimator
-has to work with, and the *World* view shows the gap opening: the estimate drives on into the hub
-while the dashed truth sits against its face, until the cameras pull the estimate back.
+Its wheels feel the wall through the carpet. The part of a wheel's rolling that goes into the
+surface would have to slide on the carpet, and the carpet resists that with as much force as it
+takes to stop it, up to its grip on that wheel: the wheels' coefficient of friction times the
+weight the wheel carries (less on a slick floor, the *Slipping* fault). So there are two cases, and
+the drive's current limit picks one:
+
+- **The wheels stall.** A motor that pushes its tread with less than the grip can't slide it. The
+  wheel stops with the robot, the motor sits at its current limit, and the encoder counts nothing.
+  Odometry stays right. The template's robot is here: 30 A through a Kraken at 6.75:1 on a 2 in
+  wheel pushes 77 N, and the carpet grips each wheel with 200 N. It takes 78 A to break loose.
+- **The wheels break loose.** A motor that pushes harder spins its tread against the grip as a
+  steady drag. It turns slower than it would free, draws the current that drag takes, and its
+  encoder counts travel the robot never made. The estimator then has only the IMU and the cameras
+  to tell it, and the *World* view shows the estimate driving on into the hub while the dashed
+  truth sits against its face.
+
+A wheel rolling at an angle to the surface is loaded by the share of its rolling that goes in, and
+one rolling along it or away from it is not loaded at all. The IMU reads the truth either way: a
+sharp stop at contact, then no travel. Driving away from the wall is an ordinary start.
 
 What is left out: the wall's own friction (the robot slides along it freely), the bumpers' give,
-and the load a stopped robot puts on its drive motors. Only the bumpers touch, so a robot taller
-than a trench's bar still drives under it. Something low enough to drive over is terrain, not an
-element, and the robot rides over it as before.
+and a sliding tread's lower friction (the one coefficient serves for holding and sliding). Only the
+bumpers touch, so a robot taller than a trench's bar still drives under it. Something low enough to
+drive over is terrain, not an element, and the robot rides over it as before. Away from a wall the
+wheels still never feel the floor: past the grip limit they spin up as if they carried the robot,
+and a push from outside neither turns nor loads them.
 
 A robot can't be set down inside something. Placed inside the hub, it is set down against the
 nearest face. Shoved or hit into a wall, it ends against the wall.
