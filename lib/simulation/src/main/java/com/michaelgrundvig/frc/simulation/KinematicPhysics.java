@@ -23,7 +23,7 @@ import org.wpilib.math.system.DCMotor;
  * The simulator is there to test the robot's code, not its traction or its power, and the truth
  * suite measures what this leaves out.
  *
- * <p>Each call to {@link #step} is one sub-step, in four parts:
+ * <p>Each call to {@link #step} is one sub-step, in five parts:
  *
  * <ol>
  *   <li><b>The motors turn the wheels</b> ({@link WheelMotor}). Each drive motor turns its wheel's
@@ -37,6 +37,9 @@ import org.wpilib.math.system.DCMotor;
  *   <li><b>The floor's grip limits how fast its velocity changes.</b> The robot's velocity follows
  *       what the wheels ask for no faster than μ·g. Past that, every wheel skids alike. A push from
  *       outside ({@link Disturbance.Pushed}) adds a velocity of its own.
+ *   <li><b>The robot stops at what it runs into</b> ({@link Contact}). Where its bumpers would be
+ *       inside a wall or a field element it is moved straight back out, and loses the part of its
+ *       velocity that went in, so it stops or slides along. Its wheels keep turning.
  *   <li><b>The robot settles on the ground</b> ({@link GroundPlane}). It sits on the plane that
  *       best fits the ground under its wheels, which gives its height and its attitude, unless it
  *       is tilted by hand.
@@ -45,7 +48,9 @@ import org.wpilib.math.system.DCMotor;
  * <p><b>What is left out</b>, which the truth suite keeps as known gaps (docs/simulator.md): the
  * robot's yaw inertia (it spins as if its mass sat at its wheels); weight transfer, and each
  * wheel's own load and slip; scrub between wheels that disagree (the fit splits the difference); a
- * wheel leaving the ground; and gravity along a slope.
+ * wheel leaving the ground; gravity along a slope; and, against a wall, the wall's own friction,
+ * the bumpers' give, and the load a stopped robot puts on its drive motors (they spin as if
+ * slipping).
  */
 public final class KinematicPhysics implements Physics {
   /**
@@ -67,6 +72,9 @@ public final class KinematicPhysics implements Physics {
 
   private final RigidFit fit;
   private final GroundPlane ground;
+
+  /** The robot's frame and bumpers: what touches a wall. */
+  private final Body body;
 
   /** Each wheel's load: an equal share of the robot's weight. */
   private final double wheelLoadNewtons;
@@ -99,6 +107,9 @@ public final class KinematicPhysics implements Physics {
   private double rollRadians;
 
   private Terrain terrain = Terrain.FLAT;
+
+  /** What the robot's bumpers run into: nothing, until it is given a field's walls and elements. */
+  private Contact contact = Contact.openSpace();
 
   /**
    * Whether the robot's attitude is held by hand, whatever the ground says. Otherwise it follows
@@ -155,6 +166,7 @@ public final class KinematicPhysics implements Physics {
    * @param wheelRadiusScale each wheel's true radius over the configured one, as built
    */
   public KinematicPhysics(Body body, DrivetrainGeometry drivetrain, List<Double> wheelRadiusScale) {
+    this.body = body;
     wheelPlaces = drivetrain.moduleTranslations();
     fit = new RigidFit(wheelPlaces);
     ground = new GroundPlane(wheelPlaces);
@@ -235,7 +247,7 @@ public final class KinematicPhysics implements Physics {
     // grip limit holds back how the robot's place changes, not its turn.
     Translation2d placeAfter =
         placeBefore.plus(wheelDrivenVelocity.times(seconds)).plus(pushVelocity.times(seconds));
-    truePose = new Pose2d(placeAfter, asked.getRotation());
+    truePose = clearOfEverything(new Pose2d(placeAfter, asked.getRotation()));
     settleOnTheGround();
 
     double turnedRadians = grip * rolled.turnRadians;
@@ -276,6 +288,25 @@ public final class KinematicPhysics implements Physics {
     return truePose.plus(moved.exp());
   }
 
+  /**
+   * A pose moved out of whatever its bumpers would be in there: the walls and the elements ({@link
+   * Contact}). The robot keeps its heading, and loses the part of its velocity that went into the
+   * surface, so it stops against it or slides along it. Its wheels know nothing of this and keep
+   * turning, as wheels do that spin against a wall.
+   */
+  private Pose2d clearOfEverything(Pose2d pose) {
+    boolean pushed = contact.pushOut(pose.getX(), pose.getY(), pose.getRotation().getRadians());
+    if (!pushed) {
+      return pose;
+    }
+    wheelDrivenVelocity = contact.alongTheSurface(wheelDrivenVelocity);
+    pushVelocity = contact.alongTheSurface(pushVelocity);
+    return new Pose2d(
+        pose.getX() + contact.pushedXMeters(),
+        pose.getY() + contact.pushedYMeters(),
+        pose.getRotation());
+  }
+
   @Override
   public ChassisTruth chassis() {
     return chassis;
@@ -298,6 +329,7 @@ public final class KinematicPhysics implements Physics {
       case Disturbance.Pushed pushed -> pushTarget = pushed.fieldVelocity();
       case Disturbance.TiltedByHand tilt -> tiltByHand(tilt);
       case Disturbance.Ground onGround -> setDownOn(onGround.terrain());
+      case Disturbance.Standing standing -> standAmong(standing);
       case Disturbance.Grip slick -> grip = slick.share();
       case Disturbance.TreadWorn worn -> wearTread(worn);
     }
@@ -305,11 +337,20 @@ public final class KinematicPhysics implements Physics {
 
   /**
    * Sets the robot down at a pose. The turn from where it faced counts as one the robot truly made,
-   * so its gyro feels it. Its velocity is kept.
+   * so its gyro feels it. Its velocity is kept, except what would carry it into a surface: a robot
+   * can't be set down inside a wall or an element, so it is set down at the nearest spot clear of
+   * them, and a shove into a wall ends against the wall.
    */
   private void place(Pose2d pose) {
     yawTurnedRadians += pose.getRotation().minus(truePose.getRotation()).getRadians();
-    truePose = pose;
+    truePose = clearOfEverything(pose);
+    settleOnTheGround();
+  }
+
+  /** Gives the robot what it runs into, and moves it out of anything it is standing in. */
+  private void standAmong(Disturbance.Standing standing) {
+    contact = new Contact(body, standing.walls(), standing.elements());
+    truePose = clearOfEverything(truePose);
     settleOnTheGround();
   }
 

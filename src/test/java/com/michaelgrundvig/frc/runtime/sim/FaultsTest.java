@@ -22,6 +22,10 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO.ModuleIOInputs;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.field.FieldModel;
+import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.physical.Polygon2d;
+import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -662,6 +666,32 @@ class FaultsTest {
     assertThat(world.truePose().getTranslation().getDistance(new Translation2d(5, 2)))
         .isCloseTo(0, within(1e-9));
     assertThat(read(world.drivetrain().gyro()).yaw.getDegrees()).isCloseTo(-90, within(1e-9));
+  }
+
+  /**
+   * A robot can't be set down inside something. Placed inside the hub, nearest its face toward the
+   * blue alliance wall, it is set down against that face, turned as asked.
+   */
+  @Test
+  void placedInsideAnElementSetsTheRobotDownBesideIt() {
+    Body body = RobotSim.WITHOUT_CAMERAS.definition().body();
+    FieldModel season = Rebuilt.field(body);
+    SimulatedWorld world =
+        new SimulatedWorld(season, RobotSim.WITHOUT_CAMERAS.definition(), SensorErrors.NONE);
+    worlds.add(world);
+    Polygon2d hub = season.elements().get(0).footprint();
+    double hubsNearFace =
+        hub.corners().stream().mapToDouble(Translation2d::getX).min().orElseThrow();
+    double y = season.width() / 2;
+
+    world.place(new Pose2d(hubsNearFace + 0.2, y, Rotation2d.fromDegrees(-90)));
+    step(world);
+
+    // Turned a quarter turn, its side is toward the hub: half its bumpers' width clear of the face.
+    double besideIt = hubsNearFace - body.bumperWidth().in(Meters) / 2;
+    assertThat(world.truePose().getX()).isCloseTo(besideIt, within(1e-9));
+    assertThat(world.truePose().getY()).isCloseTo(y, within(1e-9));
+    assertThat(world.truePose().getRotation().getDegrees()).isCloseTo(-90, within(1e-9));
   }
 
   /** Undoing everything: the robot as built, its sensors reading as they did. */

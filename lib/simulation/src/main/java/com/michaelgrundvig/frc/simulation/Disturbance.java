@@ -1,14 +1,17 @@
 package com.michaelgrundvig.frc.simulation;
 
+import com.michaelgrundvig.frc.world.field.Element;
 import com.michaelgrundvig.frc.world.field.Terrain;
+import com.michaelgrundvig.frc.world.physical.Polygon2d;
+import java.util.List;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Translation2d;
 
 /**
  * Something done to the physics' world from outside it ({@link Physics#apply}): the robot carried
- * somewhere, pushed, tilted by hand, the floor gone slick, a tread worn, the ground itself. Each is
- * a declared override of the kinematic physics, saying so: a push a speed the wheels skid under, a
- * slick floor a share of their rolling.
+ * somewhere, pushed, tilted by hand, the floor gone slick, a tread worn, the ground itself, and
+ * what stands on it. Each is a declared override of the kinematic physics, saying so: a push a
+ * speed the wheels skid under, a slick floor a share of their rolling.
  */
 public sealed interface Disturbance {
   /**
@@ -41,6 +44,23 @@ public sealed interface Disturbance {
    * by hand.
    */
   record Ground(Terrain terrain) implements Disturbance {}
+
+  /**
+   * What the robot runs into, from now on: the walls around the field and the elements on it. The
+   * robot's bumpers stop at them or slide along them. Until this is given the world is open space,
+   * with nothing to run into anywhere, which is what most tests drive in. A robot that is inside
+   * something when this is given is moved out of it at once.
+   *
+   * @param walls the inside faces of the walls around the field, seen from above: {@link
+   *     com.michaelgrundvig.frc.world.field.FieldModel#outline}
+   * @param elements what stands on the field: {@link
+   *     com.michaelgrundvig.frc.world.field.FieldModel#elements}
+   */
+  record Standing(Polygon2d walls, List<Element> elements) implements Disturbance {
+    public Standing {
+      elements = List.copyOf(elements);
+    }
+  }
 
   /**
    * Only this share of the wheels' rolling moves the robot, as on a slick floor or with wheels in

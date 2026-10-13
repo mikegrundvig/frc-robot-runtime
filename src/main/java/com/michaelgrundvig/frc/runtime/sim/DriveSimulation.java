@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.Physics;
 import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
@@ -36,7 +37,9 @@ import org.wpilib.math.geometry.Translation2d;
  * allows (see docs/stand-ins.md), but faults can be made: {@link #spin} slips a wheel (and a module
  * can keep spinning faster than the floor), {@link #shove} moves the robot the way a push does, at
  * once, and {@link #push} as one does over time, {@link #hit} the way a collision does, and {@link
- * #tilt} with {@link #grip} lifts it onto a bump.
+ * #tilt} with {@link #grip} lifts it onto a bump. On a field with elements ({@link #standOn}) the
+ * robot stops at them and at the walls, and each of those faults does too: a shove into a wall ends
+ * against it, and a robot placed inside a hub is set down beside it.
  */
 public final class DriveSimulation {
   /** Physics steps, and odometry readings, per robot loop: 250 Hz at a 50 Hz loop. */
@@ -164,6 +167,15 @@ public final class DriveSimulation {
     this.terrain = terrain;
     tiltedByHand = false;
     physics.apply(new Disturbance.Ground(terrain));
+  }
+
+  /**
+   * What the robot runs into from now on: the field's walls and its elements. Its bumpers stop at
+   * them or slide along them while its wheels keep turning. Until this is called the robot drives
+   * in open space, and a robot standing inside something is moved out of it at once.
+   */
+  public void standOn(FieldModel field) {
+    physics.apply(new Disturbance.Standing(field.outline(), field.elements()));
   }
 
   /** The ground the robot drives on. */

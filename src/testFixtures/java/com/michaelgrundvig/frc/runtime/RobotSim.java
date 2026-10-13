@@ -68,8 +68,19 @@ import org.wpilib.tunable.TunableRegistry;
  * sensors exactly as configured, so poses come out exact.
  */
 public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
-  /** The field the simulator's robot plays on. */
-  public static final FieldModel FIELD = Rebuilt.field(ExampleRobot.SIM.definition().body());
+  /**
+   * The field the simulator's robot plays on in tests: the season's, with nothing standing on it,
+   * so a test drives across the floor without minding where the hub is. The simulator then has no
+   * walls either ({@code SimulatedWorld}). A test of what the robot runs into builds with the
+   * season's own game ({@code Rebuilt::game}).
+   */
+  public static final FieldModel FIELD =
+      Rebuilt.field(ExampleRobot.SIM.definition().body()).withoutElements();
+
+  /** The season as tests play it: its field with nothing standing on it ({@link #FIELD}). */
+  private static Game onOpenFloor(Body body) {
+    return Rebuilt.game(body).withoutElements();
+  }
 
   /** The simulator's robot without its cameras: odometry alone. */
   public static final RobotConfig WITHOUT_CAMERAS =
@@ -175,7 +186,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   private RobotContainer build(
       RunMode mode, RobotConfig robot, SensorErrors errors, UnaryOperator<Hardware> watched) {
-    return build(mode, robot, Rebuilt::game, ControlsMaker.NONE, errors, watched);
+    return build(mode, robot, RobotSim::onOpenFloor, ControlsMaker.NONE, errors, watched);
   }
 
   private RobotContainer build(

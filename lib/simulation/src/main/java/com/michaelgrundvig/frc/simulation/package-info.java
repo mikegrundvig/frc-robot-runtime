@@ -14,7 +14,8 @@
  *       com.michaelgrundvig.frc.simulation.WheelTruth}; and a {@link
  *       com.michaelgrundvig.frc.simulation.Disturbance} acts on it from outside. Its physics is
  *       {@link com.michaelgrundvig.frc.simulation.KinematicPhysics}: the robot moves as its wheels
- *       roll.
+ *       roll, and stops at the field's walls and elements ({@link
+ *       com.michaelgrundvig.frc.simulation.Contact}).
  *   <li><b>Joints:</b> {@link com.michaelgrundvig.frc.simulation.JointPlant} moves each driven
  *       joint in closed form, from the robot's definition: its motors through its gearing, held to
  *       their current limit ({@link com.michaelgrundvig.frc.simulation.CurrentLimitedMotor}, which

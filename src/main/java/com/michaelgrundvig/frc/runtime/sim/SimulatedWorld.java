@@ -56,7 +56,7 @@ public final class SimulatedWorld implements AutoCloseable {
   private final PdhIOSim pdh;
 
   /**
-   * @param field the field, with its tags and terrain
+   * @param field the field, with its tags, its terrain, and the elements the robot runs into
    * @param definition what the robot is: its drivetrain, frame and IMUs, its cameras, its joints,
    *     its sensors and its PDH, each simulated from it
    * @param errors how the robot's wheels, sensors, and camera mounts differ from its configuration
@@ -68,6 +68,12 @@ public final class SimulatedWorld implements AutoCloseable {
     this.drivetrain = new DriveSimulation(definition.body(), definition.drivetrain(), errors, imus);
     this.hasBackupImu = imus.backup().isPresent();
     this.drivetrain.setTerrain(field.terrain());
+    // A field with nothing written to stand on it is a bare one, for a test to drive across: it is
+    // left as open space, with no walls either. A season's field has elements, and its walls.
+    boolean somethingStandsOnIt = !field.elements().isEmpty();
+    if (somethingStandsOnIt) {
+      this.drivetrain.standOn(field);
+    }
     // Each camera's noise from its own stream of the seed (Seeds).
     vision =
         new VisionSim(field, errors.tagErrors(), camera -> Seeds.camera(errors.seed(), camera));
