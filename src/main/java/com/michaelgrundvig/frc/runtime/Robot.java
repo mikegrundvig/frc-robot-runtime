@@ -19,6 +19,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.Scenarios;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.runtime.venues.VenueIO;
 import com.michaelgrundvig.frc.runtime.venues.VenueIODisk;
 import com.michaelgrundvig.frc.runtime.venues.VenuePit;
@@ -221,7 +222,10 @@ public class Robot extends LoggedRobot {
     }
     return Optional.of(
         RobotSession.of(
-            robot.definition(), RobotLoop.PERIOD_SECONDS, RobotSession.REMEMBERED_SECONDS));
+            robot.definition(),
+            RobotLoop.PERIOD_SECONDS,
+            RobotSession.REMEMBERED_SECONDS,
+            Vision.sightingWords()));
   }
 
   /**

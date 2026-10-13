@@ -21,6 +21,7 @@ import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
 import com.michaelgrundvig.frc.localization.calibration.HeadingAverage;
 import com.michaelgrundvig.frc.pitwall.Limits;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
+import com.michaelgrundvig.frc.pitwall.robot.SightingWords;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Place;
@@ -756,6 +757,14 @@ public final class Vision implements AutoCloseable {
   }
 
   // ---- After localization's update ----
+
+  /**
+   * The words for the numbers each camera's sightings are logged as: what Pitwall's session is
+   * handed, so its page says a verdict as localization does.
+   */
+  public static SightingWords sightingWords() {
+    return SightingLog.WORDS;
+  }
 
   /** Counts and logs what localization's update made of each camera's measurements. */
   public void record(List<FrameVerdict> frames) {

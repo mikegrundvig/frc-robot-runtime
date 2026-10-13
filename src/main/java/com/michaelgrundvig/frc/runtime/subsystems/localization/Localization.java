@@ -129,6 +129,9 @@ public final class Localization implements AutoCloseable {
   /** The options the localizer did not report in the last update, by name, for the log. */
   private final List<String> notReported = new ArrayList<>();
 
+  /** How often the robot has been placed, which the log counts so a placement can be found. */
+  private int placements;
+
   /** The uncertainty as {@link #describe()} last showed it. Each is empty before it has. */
   private OptionalDouble shownCentimeters = OptionalDouble.empty();
 
@@ -362,6 +365,9 @@ public final class Localization implements AutoCloseable {
    */
   public void place(Pose2d pose, PoseCovariance how, String reason) {
     service.place(new PoseReset(RobotController.getTime(), pose, how, reason));
+    placements++;
+    Logger.recordOutput("Localization/Placements", placements);
+    Logger.recordOutput("Localization/PlacedBecause", reason);
   }
 
   /** The robot is exactly here, now. */
@@ -547,6 +553,9 @@ public final class Localization implements AutoCloseable {
     Optional<PoseCovariance> uncertainty = report.covariance();
     if (uncertainty.isPresent()) {
       Logger.recordOutput("Localization/Ellipse", ellipse(pose, uncertainty.get()));
+      // The covariance itself, four numbers, which Pitwall's World view draws its ellipse from: the
+      // outline above is for AdvantageScope, at another size, and missing while it is too large.
+      Logger.recordOutput("Localization/Covariance", uncertainty.get());
     }
     if (report.mode().isPresent()) {
       Logger.recordOutput("Localization/Mode", report.mode().get().name());
@@ -564,6 +573,9 @@ public final class Localization implements AutoCloseable {
       Logger.recordOutput(
           "Localization/RecentDisagreementMeters", health.recentDisagreementMeters());
       Logger.recordOutput("Localization/Recoveries", health.recoveries());
+      Logger.recordOutput("Localization/Accepted", health.accepted());
+      Logger.recordOutput("Localization/Rejected", health.rejected());
+      Logger.recordOutput("Localization/VisionAgeSeconds", health.visionAgeSeconds());
     }
     if (scoring != Scoring.NOT_JUDGED) {
       boolean ready = scoring == Scoring.READY;

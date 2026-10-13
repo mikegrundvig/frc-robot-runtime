@@ -93,6 +93,9 @@ final class Camera implements AutoCloseable {
   private final String rejectedTagsKey;
   private final String rejectedReasonsKey;
 
+  /** What became of each of its tags, logged as facts for Pitwall's World view. */
+  private final SightingLog sightings;
+
   // ---- The alerts ----
 
   private final Alert disconnected;
@@ -214,6 +217,7 @@ final class Camera implements AutoCloseable {
     acceptedTagsKey = key + "/AcceptedTags";
     rejectedTagsKey = key + "/RejectedTags";
     rejectedReasonsKey = key + "/RejectedReasons";
+    sightings = new SightingLog(config.name(), key);
     disconnected =
         new Alert(
             "Vision", name + "Disconnected", "Camera " + name + " disconnected", Alert.Level.HIGH);
@@ -617,6 +621,7 @@ final class Camera implements AutoCloseable {
     Logger.recordOutput(acceptedTagsKey, acceptedArray);
     Logger.recordOutput(rejectedTagsKey, rejectedArray);
     Logger.recordOutput(rejectedReasonsKey, reasonsArray);
+    sightings.log(frames);
   }
 
   /**
