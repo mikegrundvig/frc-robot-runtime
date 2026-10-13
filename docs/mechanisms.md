@@ -501,7 +501,8 @@ each binding is recorded as it's made, with its button and its command's name: "
 trigger: while held: Intake", and one made with a gate, "operator right bumper and ready to shoot:
 while held: Shoot" (any other condition is "an unnamed condition": make it a gate to name it). The
 robot logs the list (`Controls/Bindings`), and each loop the bindings a press or a release started
-(`Controls/Fired`). Two commands bound to one button the same way start together, which is
+(`Controls/Fired`: which entry of the list, on which gamepad's port, on what kind of control, and
+how it starts, with the commands' names beside them in `Controls/FiredCommands`). Two commands bound to one button the same way start together, which is
 sometimes meant: the robot says so as it starts, with its other doubts (`Robot/Doubts`). A binding
 made inside a running command lives only while that command runs, and isn't in the list.
 
@@ -537,15 +538,25 @@ under `Gates/<name>`. Open them in AdvantageScope or Pitwall, and read them in t
 
 | Key | Tells you |
 |---|---|
-| `State` | `READY`, `UNHOMED`, `HOMING` toward what and for how long at most, or `FAULTED` and why: a homing that found no stop, a motor controller that didn't take its settings at startup, which nothing then drives, one that restarted on a joint assumed at rest ([Homing](#homing)), or an absolute encoder that isn't trusted, apart from its motor's count or its magnet bad ([Absolute encoders](#absolute-encoders)) |
-| `Command` | The command driving it this loop, or `idle` |
-| `HeldBy` | The interlock holding it, if one is, or the limit switch: "pivot lower limit tripped" |
-| `Goal`, `GoalName` and `At` | Where it's headed, and where it is in its names: "between in and out" |
-| `Outcome` | How its last move ended: "pivot → out: TIMED_OUT after 1.60 s, pivot at 40.3°, held: …" |
+| `State` and `Fault` | Where it stands: `READY`, `UNHOMED`, `HOMING` with what it's pushed toward and for how long at most, or `FAULTED` with which kind of fault: a homing that found no stop, a motor controller that didn't take its settings at startup, which nothing then drives, one that restarted on a joint assumed at rest ([Homing](#homing)), or an absolute encoder that isn't trusted, apart from its motor's count or its magnet bad ([Absolute encoders](#absolute-encoders)). `Fault` says the fault in words, with what to do |
+| `Owner` and `Command` | Who asked something of it this loop: a command, named in `Command`, code outside any command, or nothing (`IDLE`) |
+| `HeldBy` | What holds it, if anything does: each interlock by its number in `Robot/Names/Interlocks`, each tripped limit switch by its number in `Robot/Names/Sensors` |
+| `Goal`, `GoalName` and `At` | Where it's headed, and where it is among its named places: at one, between two, or beyond them, each by its number in `Robot/Names/Positions/<label>` |
+| `Outcome` | How its last move ended: whether it arrived, timed out, was canceled or was refused, how long it ran, where each joint was, and why. `OutcomeName` is the move's name, `OutcomeWhy` the words of a reason that has some, and `OutcomeHeldBy` what held each joint as it timed out |
 | `Rejected` | What a command asked of it this loop that isn't a number, a target divided by zero, say, and which command: no request, so it idled that loop, beneath its interlocks; the first raises an alert |
 | `FollowersConnected`, `Faults`, `Restarts` | Its devices' health, ten times a second: each follower answering, each device's faults as its vendor numbers them (a TalonFX's or CANcoder's fault field, a SPARK's faults with its warnings above), and how many times each has restarted since the robot started; the leader first, then each follower, then its CANcoder |
 
-"Why isn't it shooting?" is `Gates/ready to shoot/Blocking`: the terms that are false.
+"Why isn't it shooting?" is `Gates/ready to shoot/Blocking`: the terms that are false. A term
+that is another gate is named in `Gates/ready to shoot/BlockingText`.
+
+These keys hold facts, not sentences. A fact names a thing by its number in one of the robot's
+lists, and the robot logs each list once under `Robot/Names`, so the names are in the log beside
+the numbers. The robot's own messages say each fact as a sentence, and so can any tool that reads
+the log with the robot's description, always in the same words: a held roller reads "roller runs only when pivot at least 110°", a tripped switch "pivot
+lower limit tripped", a move "pivot → out: TIMED_OUT after 1.60 s, pivot at 40.3°, held: …", and a
+joint part way "between in and out". In code, read the facts (`move.ending()`,
+`joint.holders()`, `joint.stateRecorded()`), and the sentence where a person will read it
+(`move.reason()`, `joint.heldBy()`).
 
 An alert says the rest, each naming what to check: a motor drawing nothing on its PDH channel
 ([The PDH](#the-pdh)), a limit switch that reads tripped nowhere near where it trips, or a sensor
@@ -749,7 +760,7 @@ restart is counted in the log (`Restarts`, [Why won't it move?](#4-why-wont-it-m
 take to cross its whole range at 2 V, and half a second more, as a move's deadline is. A tall
 elevator geared slow gets the time it needs, and a quick pivot isn't left pushing for long on a
 stop it never finds. A joint that turns freely, homed to its switch, gets a turn's worth. While it
-homes, its `State` says the time ("HOMING: toward its lower stop, for at most 9.5 s"), and a fault
+homes, its `State` says the time (it reads "HOMING: toward its lower stop, for at most 9.5 s"), and a fault
 says it and where it came from: "elevator's homing found no stop in 9.5 s (its travel takes 4.5 s
 at 2.0 V), pushing toward its lower one". A joint slower than its model, one pushed up against its
 weight, say, takes a time of its own: `Homing.toHardStop(End.UPPER, Seconds.of(4))`.
@@ -942,7 +953,7 @@ robot's. A switch on the controller's own input is read through the controller, 
 lost with it. The simulator's controller stops the same way, each millisecond, from the same
 wiring, a loop before the robot's code sees the switch. And beneath every command and interlock, the robot's code stops a joint at any of its
 tripped limit switches, wherever it's wired: a move past one holds where it tripped
-(`HeldBy`: "pivot lower limit tripped"), an output toward it goes neutral, and leaving it is free.
+(`HeldBy` names the switch, which reads "pivot lower limit tripped"), an output toward it goes neutral, and leaving it is free.
 
 **A doubted switch.** A limit switch is checked against where its homed joint is. Tripped nowhere
 near where it trips, or clear well past it (a tenth of the joint's range either way, for a quarter

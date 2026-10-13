@@ -164,7 +164,7 @@ heading reset.
 
 A `Gate` is a v3 trigger. You bind it, await it, or guard a move with it. It adds two things. It
 has a name, and when it is false it logs why under `Gates/<name>/Blocking`. A gate made with
-`Gate.all` lists the terms that are false.
+`Gate.all` lists the terms that are false, by name in `Gates/<name>/BlockingText`.
 
 ```java
 Gate aimed =
@@ -355,8 +355,9 @@ live tuning and the pit's auto choice. And architecture tests fail the build if 
 library reads the clock, an unseeded random draw or shared state, since a replay would then
 decide differently.
 
-Each joint logs under `Joints/<label>/`. Read `State`, `Command`, `HeldBy`, `Goal`, `At` and
-`Outcome`, in that order, when one will not move.
+Each joint logs under `Joints/<label>/`. Read `State`, `Owner`, `HeldBy`, `Goal`, `At` and
+`Outcome`, in that order, when one will not move. Each is a fact, and reads as a sentence
+wherever a person reads it.
 
 ### Simulation
 

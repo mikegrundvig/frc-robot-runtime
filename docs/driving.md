@@ -4,8 +4,9 @@ The driver's sticks drive the robot ([with the sticks](#driving-with-the-sticks)
 hold a heading while they do. The drivetrain also has moves, as a joint does
 ([mechanisms](mechanisms.md#3-use-it)). Each move is a
 Commands v3 command that ends on its own, with an outcome (`ARRIVED`, `TIMED_OUT`,
-`CANCELED` or `REFUSED`) and a reason, logged as `Drive/Outcome`. For example: "drive → (2.00,
-1.00) 90.0°: ARRIVED in 2.04 s".
+`CANCELED` or `REFUSED`) and a reason, logged as facts under `Drive/Outcome`, with the move's name
+in `Drive/OutcomeName`. Read as a sentence (`move.reason()`), one is "drive → (2.00, 1.00) 90.0°:
+ARRIVED in 2.04 s".
 
 | Move | Does | Ends |
 |---|---|---|

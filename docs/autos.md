@@ -51,10 +51,11 @@ A mistake in the declaration stops the robot starting, as a move to a place a jo
 - **Give every wait a deadline.** A move to a place has one already: it times out and says why, so
   an auto never hangs on one. A `runUntil` has none of its own, so give it one (`.within(...)`), and
   your own waits too (`co.waitUntil(gate, Seconds.of(2))`, `command.withTimeout(...)`).
-- **It is logged.** `Auto/Chosen` is the choice, and `Auto/Outcome` how each run went, with its time:
-  "Left Double: CUT OFF after 15.00 s, as autonomous ended".
+- **It is logged.** `Auto/Chosen` is the choice, and `Auto/Outcome` how each run went, with its
+  time, as facts. `Auto/OutcomeName` is the auto's name. Read as a sentence, a run is "Left Double:
+  CUT OFF after 15.00 s, as autonomous ended".
 - **One that throws doesn't stop the robot.** An auto that throws as it is built runs nothing, says
-  why in `Auto/Outcome` and a HIGH alert, and the robot carries on. One that throws as it runs is
+  why in `Auto/OutcomeWhy` and a HIGH alert, and the robot carries on. One that throws as it runs is
   handled as any command's is: on the robot the loop carries on and reports it, and in the simulator
   the loop ends, so the bug fails its test. Either way the run is `FAILED` and the alert says why.
 

@@ -504,7 +504,9 @@ code does, and `ControlsSimTest` checks the result.
 **The press is seen.** On some pass, the Driver Station's data arrives with the trigger down. In
 the scheduler step, the binding sees that the trigger went from up to down. That change is
 what starts a command, so the binding starts `Intake`. The log records which bindings fired on
-each pass under `Controls/Fired`. This one reads "operator right trigger: while held: Intake".
+each pass under `Controls/Fired`. Each is a fact, not a sentence: which binding it is, which
+gamepad it is on, and how it starts. The robot's list of its bindings, `Controls/Bindings`, says
+each one in words. This one reads "operator right trigger: while held: Intake".
 
 **The command takes its joints.** `Intake` requires the pivot and the roller. If another command
 owned either one, that command is cancelled now. Here nothing did, so both joints were idle.
@@ -520,8 +522,9 @@ and the pivot's motor controller is sent the first point on it.
 
 **The interlock holds the roller.** The roller was asked for 2000 rpm. Before that reaches the
 motor, the roller's interlock is checked. The pivot is still inside the frame, so the roller is
-held still. The log says why under `Joints/roller/HeldBy`, in words like "roller runs only when
-pivot at least 110°". The command does not know and does not need to.
+held still. The log says which interlock holds it under `Joints/roller/HeldBy`. As a sentence,
+that interlock reads "roller runs only when pivot at least 110°". The command does not know and
+does not need to.
 
 **Every pass after that.** The scheduler gives `Intake` a turn. It is still waiting on the
 roller's move, so it pauses again at once. Underneath, the pivot's move sends the next point of
@@ -531,8 +534,9 @@ its profile, and the motor controller's own fast loop keeps the motor on it.
 `intake()` ordered that. You told two joints to move at once, and the rule in the description
 produced the right order.
 
-**The pivot arrives.** Its move ends, and the log gets one line under `Joints/pivot/Outcome`. In
-the simulator it reads "pivot → out: ARRIVED in 0.60 s". The pivot now holds at 130 degrees.
+**The pivot arrives.** Its move ends, and the log gets one record under `Joints/pivot/Outcome`.
+The record holds facts: the move arrived, it took 0.60 seconds, and where the pivot was. Read as a
+sentence, it is "pivot → out: ARRIVED in 0.60 s". The pivot now holds at 130 degrees.
 
 **It ends.** There are three ways, and the next section shows each. The beam can see a piece.
 The operator can let go of the trigger. Another command can take one of the joints. In every case
@@ -646,7 +650,8 @@ forks two things that never end by themselves. One spins the shooter toward 3000
 starts turning the robot. Then it reaches `co.waitUntil(ready)` and pauses.
 
 For the next passes nothing is fed. The shooter is still spinning up and the robot is still
-turning. The log says which half is missing under `Gates/ready to feed/Blocking`.
+turning. The log says which half is missing under `Gates/ready to feed/Blocking`, and names it
+in `Gates/ready to feed/BlockingText`.
 
 On the pass both are true, the wait ends. `joints.run(FEEDING)` runs the feeder and the indexer
 together at their feeding speeds. `FEEDING` is a configuration from the description.
