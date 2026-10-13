@@ -37,6 +37,17 @@ import org.wpilib.units.measure.Time;
  * is that the second kind costs nothing once nobody reads it, so a command can make a new gate on
  * every run without leaving anything behind.
  *
+ * <p><b>A gate on what was asked.</b> Most gates state a fact about the robot: where a joint is,
+ * what a sensor reads. Such a fact, worked out once for a loop, is true for all of that loop. A few
+ * gates instead say whether something has done what it was asked ({@code shooter.isAtGoal()}), and
+ * what it is asked can change in the middle of a loop, when a command takes it or asks something
+ * new of it. An answer worked out before that is an answer to a question nobody is asking any more.
+ * So such a gate counts its questions ({@link Logic#question}), and one that is worked out once a
+ * loop is worked out again when it is read after its question has changed. A gate made of other
+ * gates ({@link #all}, {@link #debounce}) answers a new question whenever one of them does. So a
+ * command that takes the shooter and then waits on "ready to feed" never passes on the answer for
+ * the idle shooter it took, whatever order the loop runs its parts in.
+ *
  * <p><b>A logic that throws.</b> The gate holds false while its logic throws, and its one term says
  * so ({@code aimed threw: ...}). The rest of the robot runs on. The first time, the gate reports a
  * Driver Station error with the stack, and an alert stays raised for as long as the logic throws.
@@ -55,6 +66,16 @@ public final class Gate extends Trigger {
      * @param why where to add each term that keeps the gate false
      */
     boolean holds(Terms why);
+
+    /**
+     * Which question the gate is answering now, as a count that moves on each time the question
+     * changes. A gate that states a fact about the robot answers one question for good, which is
+     * what this says unless a logic says otherwise. A gate on whether something has done what it
+     * was asked answers a new question each time it is asked something new ({@link Gate}).
+     */
+    default long question() {
+      return 0;
+    }
   }
 
   /**
@@ -269,16 +290,33 @@ public final class Gate extends Trigger {
     return new Gate(
         scheduler,
         name,
-        why -> {
-          boolean holds = true;
-          // Every term is asked, even after one is false, so that all the false ones are named.
-          for (Gate term : all) {
-            if (!term.state.getAsBoolean()) {
-              why.add(term.name);
-              holds = false;
+        new Logic() {
+          @Override
+          public boolean holds(Terms why) {
+            boolean holds = true;
+            // Every term is asked, even after one is false, so that all the false ones are named.
+            for (Gate term : all) {
+              if (!term.state.getAsBoolean()) {
+                why.add(term.name);
+                holds = false;
+              }
             }
+            return holds;
           }
-          return holds;
+
+          /**
+           * The questions its terms have answered between them. Each term's count only ever goes
+           * up, so their sum moves on whenever any one of them does.
+           */
+          @Override
+          public long question() {
+            long questions = 0;
+            // Counted by index, since a for-each over the list would make an iterator every read.
+            for (int index = 0; index < all.size(); index++) {
+              questions += all.get(index).state.question();
+            }
+            return questions;
+          }
         });
   }
 
@@ -290,6 +328,11 @@ public final class Gate extends Trigger {
    * <p>The debounced gate is logged under the same name, in place of this one. It holds nothing
    * until this gate has first held. Its time is kept in whole nanoseconds ({@link Debounce}), so a
    * time that is a whole number of loops ends on the same loop every run.
+   *
+   * <p>A debounce rides out a dip in the answer to one question. It does not carry an answer over
+   * to the next one: when this gate's question changes ({@link Logic#question}), the debounced gate
+   * starts over, as if this gate had never held. So a shot that waits on a debounced "ready to
+   * shoot" is not let through, for the debounce's time, on the answer for the idle shooter it took.
    */
   @Override
   public Gate debounce(Time time, Debouncer.DebounceType type) {
@@ -297,24 +340,44 @@ public final class Gate extends Trigger {
     GateState undebounced = state;
     undebounced.stopLogging();
     String settling = ControlSentences.settling(name);
-    Remembered everHeld = new Remembered();
     return new Gate(
         scheduler,
         name,
-        why -> {
-          boolean holdsNow = undebounced.getAsBoolean();
-          everHeld.held |= holdsNow;
-          // The debouncer is asked every loop, whatever the answer, so that its timer keeps time.
-          boolean debounced = debouncer.calculate(holdsNow);
-          if (everHeld.held && debounced) {
-            return true;
+        new Logic() {
+          /** Whether the undebounced gate has held since its question last changed. */
+          private boolean everHeld;
+
+          /** The question the undebounced gate was answering the last time this was worked out. */
+          private long debouncing = undebounced.question();
+
+          @Override
+          public boolean holds(Terms why) {
+            boolean holdsNow = undebounced.getAsBoolean();
+            long question = undebounced.question();
+            if (question != debouncing) {
+              debouncing = question;
+              debouncer.startOver();
+              everHeld = false;
+            }
+            everHeld |= holdsNow;
+            // The debouncer is asked every loop, whatever the answer, so that its timer keeps
+            // time.
+            boolean debounced = debouncer.calculate(holdsNow);
+            if (everHeld && debounced) {
+              return true;
+            }
+            if (holdsNow) {
+              why.add(SETTLING, settling);
+            } else {
+              why.addAll(undebounced.blocking());
+            }
+            return false;
           }
-          if (holdsNow) {
-            why.add(SETTLING, settling);
-          } else {
-            why.addAll(undebounced.blocking());
+
+          @Override
+          public long question() {
+            return undebounced.question();
           }
-          return false;
         });
   }
 

@@ -36,6 +36,12 @@ final class JointRequests {
   private final String label;
   private final Scheduler scheduler;
 
+  /** How near one request must be to the next to be the same request going on. */
+  private final AskBands bands;
+
+  /** Whose joint it is, which is told of each request: a new one is a new question for it. */
+  private final Tenure tenure;
+
   /** How many loops the joint has started. The first is loop 1. */
   private long loop;
 
@@ -65,10 +71,14 @@ final class JointRequests {
   /**
    * @param label the joint's label, which names it in what is logged
    * @param scheduler the command scheduler, which says which command is running
+   * @param bands how near one request must be to the next to be the same request going on
+   * @param tenure whose joint it is, which is told of each request
    */
-  JointRequests(String label, Scheduler scheduler) {
+  JointRequests(String label, Scheduler scheduler, AskBands bands, Tenure tenure) {
     this.label = label;
     this.scheduler = scheduler;
+    this.bands = bands;
+    this.tenure = tenure;
   }
 
   /** A new loop starts: nothing has been asked in it yet. */
@@ -95,11 +105,29 @@ final class JointRequests {
       reject(ask, by);
       return;
     }
+    tenure.asked(goesOn(ask, name, by));
     boolean askedBefore = request.isPresent() && request.get().isFor(ask, name, by);
     if (!askedBefore) {
       request = Optional.of(new Request(Demand.of(ask), name, by));
     }
     requestedInLoop = loop;
+  }
+
+  /**
+   * Whether a request is the last one going on: asked by the same command, by the same name, in
+   * this loop or the one after the last, for the same thing or near enough ({@link AskBands}). A
+   * command that follows a target asks for a little more or less every loop, and that is one
+   * request. Anything else is a new request, which the joint has not yet been judged against
+   * ({@link Tenure}).
+   */
+  private boolean goesOn(JointAsk ask, Optional<String> name, Optional<Command> by) {
+    if (request.isEmpty()) {
+      return false;
+    }
+    Request last = request.get();
+    boolean followsStraightOn = loop - requestedInLoop <= 1;
+    boolean sameAsker = last.by().equals(by) && last.name().equals(name);
+    return followsStraightOn && sameAsker && bands.goesOn(last.demand().ask(), ask);
   }
 
   /** What a command asked of the joint in this loop, if one did. */

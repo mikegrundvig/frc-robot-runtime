@@ -68,6 +68,15 @@ public final class Debounce {
   }
 
   /**
+   * Starts over, as a debounce just made does: the condition has not yet stayed changed for any
+   * time. For when the condition becomes one about something else.
+   */
+  public void startOver() {
+    baseline = type == DebounceType.FALLING;
+    agreedAtNanos = clock.getAsLong();
+  }
+
+  /**
    * A time as whole nanoseconds. A time that is not a number never passes, as it never does for
    * WPILib's debouncer.
    */

@@ -22,7 +22,11 @@ import org.wpilib.util.Alert;
 final class GateState implements BooleanSupplier {
   /** When a gate is worked out. */
   private enum Upkeep {
-    /** Once a loop, by the scheduler, before its bindings and commands read the gate. */
+    /**
+     * Once a loop, by the scheduler, before its bindings and commands read the gate. It is also
+     * worked out again when it is read after its question has changed ({@link
+     * Gate.Logic#question}).
+     */
     EVERY_LOOP,
     /** Each time the gate is read. Nothing runs for a gate that nobody reads any more. */
     WHEN_READ
@@ -47,6 +51,9 @@ final class GateState implements BooleanSupplier {
 
   /** The terms that kept it false the last time it was worked out. */
   private final Gate.Terms blocking = new Gate.Terms();
+
+  /** The question its logic was answering the last time it was worked out. */
+  private long answered;
 
   /**
    * Whether the gate is logged. A gate that was debounced into another is not: the debounced gate
@@ -126,10 +133,28 @@ final class GateState implements BooleanSupplier {
     return holds;
   }
 
-  /** Works the gate out now, if it is one that is worked out as it is read. */
+  /**
+   * Works the gate out now, if what it last worked out is not this moment's answer. That is so for
+   * a gate that is worked out as it is read, and for any gate whose question has changed since: a
+   * command took the joint the gate is about, say, after the scheduler worked the gate out for the
+   * loop.
+   */
   void bringUpToDate() {
-    if (upkeep == Upkeep.WHEN_READ) {
+    if (upkeep == Upkeep.WHEN_READ || question() != answered) {
       workOut();
+    }
+  }
+
+  /**
+   * Which question the gate's logic is answering now ({@link Gate.Logic#question}). A logic that
+   * throws as it is asked is answering the question it last answered: its gate is worked out again
+   * at the next loop, where the throw is caught and reported.
+   */
+  long question() {
+    try {
+      return logic.question();
+    } catch (RuntimeException e) {
+      return answered;
     }
   }
 
@@ -152,6 +177,9 @@ final class GateState implements BooleanSupplier {
     boolean threw = false;
     blocking.clear();
     try {
+      // The question is read first, so that a question that changes while the logic runs leaves
+      // the gate to be worked out again the next time it is read.
+      answered = logic.question();
       holds = logic.holds(blocking);
     } catch (RuntimeException e) {
       holdFalseAfter(e);

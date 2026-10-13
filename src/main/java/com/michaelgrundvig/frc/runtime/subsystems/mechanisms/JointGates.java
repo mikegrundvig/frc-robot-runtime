@@ -18,6 +18,15 @@ import org.wpilib.math.filter.Debouncer;
  * inside the narrower one to arrive, and may then stray as far as the wider one before it is said
  * to have left. Without that, a joint sitting at the edge of a single band would flicker in and out
  * of it. So each such gate remembers whether it held the last time it was asked.
+ *
+ * <p>Some of these state a fact about the joint, which is so whoever has the joint: where it is
+ * ({@link #at}), and whether it knows where it is ({@link #ready}). The others say whether the
+ * joint has done what it was asked: {@link #atGoal}. What a joint is asked can change in the middle
+ * of a loop, when a command takes it or asks it something new, and what its motors were last told
+ * then belongs to the question before. So such a gate holds false until the joint has been judged
+ * against the question it is under now ({@link Tenure}), and tells its {@link Gate} when the
+ * question changes ({@link Gate.Logic#question}), so that an answer worked out earlier in the loop
+ * is not handed on.
  */
 final class JointGates {
   /** What the gates need to know of what the joint is doing, which its mechanism tells them. */
@@ -30,6 +39,60 @@ final class JointGates {
 
     /** The name of what a command asked that the joint is being driven at, if it has a name. */
     Optional<String> drivenName();
+
+    /** Which question the joint is under now, as a count ({@link Tenure#question}). */
+    long question();
+
+    /**
+     * A count that moves on with each new question, and again when the joint is judged against it
+     * ({@link Tenure#standing}): whenever an answer worked out before may no longer stand.
+     */
+    long standing();
+
+    /**
+     * Whether the joint has been judged against the question it is under now: what its motors were
+     * last told is that question's ({@link Tenure#isJudged}).
+     */
+    boolean isJudged();
+  }
+
+  /**
+   * The logic of a gate on whether the joint has done what it was asked. Its question is the
+   * joint's, and what it remembers of the last time it was asked, it remembers of one question
+   * only.
+   */
+  private abstract class OfWhatWasAsked implements Gate.Logic {
+    /** Whether the gate held the last time it was worked out. */
+    private boolean held;
+
+    /** The question it was worked out for then. */
+    private long heldFor;
+
+    /**
+     * Whether the joint is doing what the gate is about, given that it has been judged against the
+     * question it is under.
+     *
+     * @param wasDoingIt whether it was the last time this was asked, of the same question
+     */
+    abstract boolean isDoingIt(boolean wasDoingIt);
+
+    @Override
+    public final boolean holds(Gate.Terms why) {
+      long question = doing.question();
+      boolean wasDoingIt = held && heldFor == question;
+      held = doing.isJudged() && isDoingIt(wasDoingIt);
+      heldFor = question;
+      return held;
+    }
+
+    /**
+     * Its gate is worked out again when it is read after the joint's question has changed, or after
+     * the joint has been judged against it: either changes the answer.
+     */
+    @Override
+    public final long question() {
+      return doing.standing();
+    }
   }
 
   /** What a gate with a band remembers between the times it is asked: whether it held last time. */
@@ -100,18 +163,23 @@ final class JointGates {
 
   /**
    * Whether the joint is where it is asked to be, whatever that is: at the goal of its profile for
-   * a position (its idle's included), within its band of a speed, running for a voltage or a share
-   * of the battery, and still for neutral.
+   * a position, within its band of a speed, running for a voltage or a share of the battery, and
+   * still for neutral.
+   *
+   * <p>What it is asked is what the command that has it asked. So a joint a command has taken is
+   * not at its goal until that command, or one it started, has asked something of it and the joint
+   * has been judged against that. A joint nobody has is asked what it does idle: to hold where it
+   * is, or to stop.
    */
   Gate.Logic atGoal() {
-    Remembered atGoal = new Remembered();
-    return why -> {
-      atGoal.held =
-          doing.enabled()
-              && isReady()
-              && doing.applied() instanceof Demand demand
-              && isDoing(demand.ask(), atGoal.held);
-      return atGoal.held;
+    return new OfWhatWasAsked() {
+      @Override
+      boolean isDoingIt(boolean wasAtGoal) {
+        return doing.enabled()
+            && isReady()
+            && doing.applied() instanceof Demand demand
+            && isDoing(demand.ask(), wasAtGoal);
+      }
     };
   }
 

@@ -454,4 +454,83 @@ class GateTest {
     assertThat(ready.getAsBoolean()).isTrue();
     assertThat(ran[0]).as("the binding saw it rise").isTrue();
   }
+
+  /** A logic whose answer and whose question a test sets: a gate on what something was asked. */
+  private static final class Asked implements Gate.Logic {
+    boolean done;
+    long question;
+
+    @Override
+    public boolean holds(Gate.Terms why) {
+      return done;
+    }
+
+    @Override
+    public long question() {
+      return question;
+    }
+  }
+
+  /**
+   * A gate made as the robot starts is worked out once a loop, and its answer stands for the loop:
+   * a fact does not change under the commands. A gate on what something was asked is worked out
+   * again when it is read after its question has changed, so the answer to the old question is
+   * never handed on. So are the gates made of it.
+   */
+  @Test
+  void aGateIsWorkedOutAgainWhenItsQuestionHasChangedSinceTheLoopBegan() {
+    Asked shooter = new Asked();
+    shooter.done = true;
+    Gate atGoal = new Gate(scheduler, "shooter at goal", shooter);
+    Gate ready = Gate.all("ready", atGoal, Gate.of(scheduler, "aimed", () -> true));
+    loop();
+    boolean[] idle = {atGoal.getAsBoolean(), ready.getAsBoolean()};
+
+    shooter.done = false;
+    boolean[] sameQuestion = {atGoal.getAsBoolean(), ready.getAsBoolean()};
+    shooter.question++;
+    boolean[] newQuestion = {ready.getAsBoolean(), atGoal.getAsBoolean()};
+    List<String> why = ready.blocking();
+
+    assertThat(idle).containsExactly(true, true);
+    assertThat(sameQuestion).as("worked out once for the loop").containsExactly(true, true);
+    assertThat(newQuestion)
+        .as("worked out again for the new question")
+        .containsExactly(false, false);
+    assertThat(why).containsExactly("shooter at goal");
+  }
+
+  /**
+   * A falling debounce rides out a dip in the answer to one question, and starts over on a new one:
+   * the answer about the idle shooter is not held, for the debounce's time, for the command that
+   * has just asked the shooter to spin up. Once the shooter is up, a dip is ridden out as ever.
+   */
+  @Test
+  void aDebounceStartsOverWhenTheQuestionChanges() {
+    Asked shooter = new Asked();
+    shooter.done = true;
+    Gate ready =
+        new Gate(scheduler, "ready", shooter)
+            .debounce(Milliseconds.of(80), Debouncer.DebounceType.FALLING);
+    loop();
+    boolean idle = ready.getAsBoolean();
+
+    shooter.done = false;
+    shooter.question++;
+    boolean asked = ready.getAsBoolean();
+    loop();
+    boolean spinningUp = ready.getAsBoolean();
+    shooter.done = true;
+    loop();
+    boolean up = ready.getAsBoolean();
+    shooter.done = false;
+    loop();
+    boolean dipping = ready.getAsBoolean();
+
+    assertThat(idle).isTrue();
+    assertThat(asked).as("in the turn the question changed").isFalse();
+    assertThat(spinningUp).as("and for as long as the new answer is no").isFalse();
+    assertThat(up).isTrue();
+    assertThat(dipping).as("a dip in the answer to the same question").isTrue();
+  }
 }

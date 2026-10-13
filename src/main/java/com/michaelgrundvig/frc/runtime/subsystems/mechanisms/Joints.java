@@ -21,18 +21,23 @@ import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
+import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.command3.SchedulerEvent;
 import org.wpilib.util.Alert;
 
 /**
@@ -126,6 +131,13 @@ public final class Joints implements AutoCloseable {
 
   /** The command scheduler its mechanisms and gates are registered with. */
   private final Scheduler scheduler;
+
+  /**
+   * The commands that have had a turn and have not ended, each one itself and not another equal to
+   * it. A command is looked at once, on its first turn, for the joints it takes ({@link
+   * #tellItsJoints}); on every later turn finding it here is all that is done.
+   */
+  private final Set<Command> begun = Collections.newSetFromMap(new IdentityHashMap<>());
 
   /**
    * The sensors with no wiring in the definition, by label: on a robot an alert of their own says
@@ -230,6 +242,63 @@ public final class Joints implements AutoCloseable {
       JointMechanism restricted = enforced(interlock.joint());
       Optional<JointView> other = interlock.other().map(this::enforced).map(JointMechanism::view);
       restricted.restrict(interlock, other, index);
+    }
+    scheduler.addEventListener(this::heard);
+  }
+
+  /**
+   * Hears everything the scheduler does, to tell each joint when a command takes it and when a
+   * command that may have had it ends. A joint's gates answer for what the command that has it
+   * asked ({@link Tenure}), and only the scheduler knows which command that is before the command
+   * has asked anything.
+   */
+  private void heard(SchedulerEvent event) {
+    switch (event) {
+      case SchedulerEvent.Mounted turn -> tellItsJoints(turn.command());
+      case SchedulerEvent.Completed done -> tellEveryJointItEnded(done.command());
+      case SchedulerEvent.CompletedWithError failed -> tellEveryJointItEnded(failed.command());
+      case SchedulerEvent.Canceled canceled -> tellEveryJointItEnded(canceled.command());
+      default -> {}
+    }
+  }
+
+  /**
+   * Tells each joint a command requires that the command has it, on the command's first turn. A
+   * joint is its command's from that turn, and not from when the command was scheduled: a command
+   * that is scheduled may still be put aside for another before it runs.
+   */
+  private void tellItsJoints(Command command) {
+    boolean hadATurnBefore = !begun.add(command);
+    if (hadATurnBefore) {
+      return;
+    }
+    for (JointMechanism joint : joints) {
+      if (command.requires(joint)) {
+        joint.takenBy(holderOf(joint, command));
+      }
+    }
+  }
+
+  /**
+   * The command that has a joint, given one that requires it: that command, or the one furthest out
+   * of those that started it and require the joint too. A shot that requires the shooter and forks
+   * the command that spins it up has the shooter, before the fork and after the spin-up ends.
+   */
+  private Command holderOf(JointMechanism joint, Command command) {
+    Command holder = command;
+    for (Command up = scheduler.getParentOf(command); up != null; up = scheduler.getParentOf(up)) {
+      if (up.requires(joint)) {
+        holder = up;
+      }
+    }
+    return holder;
+  }
+
+  /** Tells every joint that a command has ended, which lets go of each joint it had. */
+  private void tellEveryJointItEnded(Command command) {
+    begun.remove(command);
+    for (JointMechanism joint : joints) {
+      joint.endedFor(command);
     }
   }
 

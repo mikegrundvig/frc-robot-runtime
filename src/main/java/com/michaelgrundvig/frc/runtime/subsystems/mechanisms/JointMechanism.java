@@ -41,6 +41,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
+import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.units.Measure;
@@ -292,6 +293,12 @@ public final class JointMechanism implements Mechanism {
   /** What its commands ask of it, loop by loop. */
   private final JointRequests requests;
 
+  /**
+   * Whose joint it is and whether it has been judged against what they asked, which its gates on
+   * "has it done what it was asked" answer by.
+   */
+  private final Tenure tenure = new Tenure();
+
   /** What the joint's motors were told in the last loop that was written. */
   private Applied applied = Applied.Undriven.NOTHING;
 
@@ -421,7 +428,6 @@ public final class JointMechanism implements Mechanism {
     label = joint.label();
     String key = "Joints/" + label;
     log = new JointLog(key);
-    requests = new JointRequests(label, scheduler);
     // A stand-in's joint has no control and no motors. Nothing about how it is driven is worked
     // out, since nothing drives it.
     boolean isDriven = standsIn.isEmpty();
@@ -453,6 +459,12 @@ public final class JointMechanism implements Mechanism {
     MechanismControl.Bands kindBands = joint instanceof Joint.Revolute ? ANGLE_BANDS : LENGTH_BANDS;
     positionBands = holdsPositions ? control.bands().orElse(kindBands) : kindBands;
     speedBands = holdsPositions ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
+    requests =
+        new JointRequests(
+            label,
+            scheduler,
+            new AskBands(positionBands.enter(), speedBands.enter(), freeSpeed),
+            tenure);
 
     idle = new Idle(jointIndex, holdsPositions);
     interlocks = new Interlocks(travel);
@@ -519,6 +531,21 @@ public final class JointMechanism implements Mechanism {
               @Override
               public Optional<String> drivenName() {
                 return drivenName;
+              }
+
+              @Override
+              public long question() {
+                return tenure.question();
+              }
+
+              @Override
+              public long standing() {
+                return tenure.standing();
+              }
+
+              @Override
+              public boolean isJudged() {
+                return tenure.isJudged();
               }
             });
 
@@ -888,8 +915,23 @@ public final class JointMechanism implements Mechanism {
 
   /**
    * Whether it's where it's asked to be: at its goal, within its band, with its profile there, for
-   * a position (its idle's included); within its band of the speed, for a speed; running, for a
-   * voltage or a duty cycle; still, stopped. "shooter at goal".
+   * a position; within its band of the speed, for a speed; running, for a voltage or a duty cycle;
+   * still, stopped. "shooter at goal".
+   *
+   * <p><b>Asked by whom.</b> By the command that has it. A joint nobody has is asked what it does
+   * idle, so idle it's at its goal holding where it is, or stopped. From the turn a command takes
+   * it, it isn't at its goal until that command, or one it started, has asked something of it and
+   * the joint has been judged against that. A command that requires the shooter and forks its
+   * spin-up, then waits on this gate, waits for the spin-up: it's never handed the answer for the
+   * stopped shooter it took.
+   *
+   * <p><b>Judged.</b> A joint is judged against what it's asked when its own step at the end of the
+   * loop takes that as what it tells its motors. Until then what its motors were last told belongs
+   * to whatever came before, and this holds false. So does it in the turn the joint is asked
+   * something new, even something it happens to be doing already, until that loop's end. A target a
+   * command follows that moves less than the joint's band from one loop to the next is one request,
+   * not a new one each loop. When the command that has it ends, the joint is asked what it does
+   * idle, and is judged against that at the end of that loop.
    */
   public Gate isAtGoal() {
     return gate(label + " at goal", gates::atGoal);
@@ -915,6 +957,21 @@ public final class JointMechanism implements Mechanism {
    */
   void ask(JointAsk ask, Optional<String> name) {
     requests.ask(ask, name);
+  }
+
+  /**
+   * A command that requires the joint has its first turn, so the joint is its from now ({@link
+   * Tenure#takenBy}). {@link Joints} hears of it from the scheduler.
+   *
+   * @param holder the command that has the joint, all the way out among those that require it
+   */
+  void takenBy(Command holder) {
+    tenure.takenBy(holder);
+  }
+
+  /** A command has ended, which lets go of the joint if it had it ({@link Tenure#endedFor}). */
+  void endedFor(Command command) {
+    tenure.endedFor(command);
   }
 
   /** What it was asked this loop that isn't a number, by whom, as logged: empty for nothing. */
@@ -1333,6 +1390,8 @@ public final class JointMechanism implements Mechanism {
    * unless its homing has something for it to do.
    */
   void write() {
+    letGoIfItsHolderIsOver();
+    tenure.wrote(requests.thisLoop().isPresent());
     if (mayBeDriven()) {
       // What the joint was told is what was decided, unless that would have sent its motor
       // controller something that isn't a number: the output then says what it did instead.
@@ -1341,6 +1400,19 @@ public final class JointMechanism implements Mechanism {
       applied = writeUndriven();
     }
     log();
+  }
+
+  /**
+   * Lets go of the joint if the command that has it is no longer running. The scheduler says when
+   * each command ends, and {@link Joints} passes that on, so this finds nothing to do. It is here
+   * because a joint left with a holder that is gone would never be at its goal again, and asking
+   * the scheduler costs one lookup.
+   */
+  private void letGoIfItsHolderIsOver() {
+    Command holder = tenure.holder();
+    if (holder != null && !scheduler.isRunning(holder)) {
+      tenure.endedFor(holder);
+    }
   }
 
   /**
