@@ -60,6 +60,20 @@ final class DriveOutput {
   /** Whether the robot is enabled this loop. It is taken as disabled until the first loop says. */
   private boolean enabled;
 
+  /** What the log has of what the wheels are asked. */
+  private enum Logged {
+    NOTHING,
+    SETPOINTS,
+    NO_SETPOINTS
+  }
+
+  /**
+   * What was last logged. A disabled robot's wheels are asked nothing loop after loop, and that is
+   * logged once, as the robot is disabled: the log keeps a value until another replaces it, and
+   * each write makes a new value and builds the key's full name.
+   */
+  private Logged logged = Logged.NOTHING;
+
   DriveOutput(Module[] modules, RobotDefinition robot, SwerveDriveKinematics kinematics) {
     this.modules = modules;
     this.kinematics = kinematics;
@@ -156,6 +170,7 @@ final class DriveOutput {
           shareOfForceLeftNewtons + torqueNewtonMeters * at.getX() / sumOfSquaredWheelDistances;
       told[i] = modules[i].runSetpoint(setpoints[i], forceForwardNewtons, forceLeftNewtons);
     }
+    logged = Logged.SETPOINTS;
     Logger.recordOutput("Drive/Setpoints", setpoints);
     Logger.recordOutput("Drive/SetpointsOptimized", told);
   }
@@ -201,6 +216,10 @@ final class DriveOutput {
     for (Module module : modules) {
       module.stop();
     }
+    if (logged == Logged.NO_SETPOINTS) {
+      return;
+    }
+    logged = Logged.NO_SETPOINTS;
     Logger.recordOutput("Drive/Setpoints", NO_SETPOINTS);
     Logger.recordOutput("Drive/SetpointsOptimized", NO_SETPOINTS);
   }

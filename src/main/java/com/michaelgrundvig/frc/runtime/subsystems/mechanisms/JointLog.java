@@ -26,7 +26,9 @@ import org.littletonrobotics.junction.Logger;
  *
  * <p>A record is logged in the loop it changes and not again until it changes: a logged value stays
  * in the log until another replaces it, and logging a record costs an allocation each time. A
- * steady joint therefore logs none.
+ * steady joint therefore logs none. The joint's own numbers and texts are logged the same way
+ * ({@link LoggedNumber}, {@link LoggedText}): AdvantageKit makes a new value, and builds the key's
+ * full name, on every call, about 200 bytes each, whether or not the value is the one it has.
  */
 final class JointLog {
   private static final Holder[] NOTHING_HOLDS = new Holder[0];
@@ -34,18 +36,18 @@ final class JointLog {
   private final String stateKey;
   private final String faultKey;
   private final String ownerKey;
-  private final String commandKey;
-  private final String goalKey;
-  private final String goalNameKey;
+  private final LoggedText command;
+  private final LoggedNumber goal;
+  private final LoggedText goalName;
   private final String atKey;
   private final String heldByKey;
-  private final String setpointKey;
-  private final String setpointVelocityKey;
+  private final LoggedNumber setpoint;
+  private final LoggedNumber setpointVelocity;
   private final String outcomeKey;
   private final String outcomeNameKey;
   private final String outcomeWhyKey;
   private final String outcomeHeldByKey;
-  private final String rejectedKey;
+  private final LoggedText rejected;
   private final String absoluteAtKey;
   private final String switchDoubtsKey;
   private final String pdhCurrentKey;
@@ -61,24 +63,81 @@ final class JointLog {
   private Optional<MoveEnding> outcome = Optional.empty();
 
   /**
+   * A number the joint logs under one key, written to the log only when it is not the number the
+   * log already has there. The log keeps a value until another replaces it, so a number that stays
+   * the same loop after loop is written once.
+   *
+   * <p>Two numbers are the same when their bits are, as the log's own writers compare them: NaN is
+   * the same as NaN, so a number that is not there is written once and not every loop, and 0.0 is
+   * not -0.0.
+   */
+  private static final class LoggedNumber {
+    /** What the log has under the key. */
+    private enum Has {
+      NOTHING,
+      A_NUMBER
+    }
+
+    private final String key;
+    private Has has = Has.NOTHING;
+    private long bits;
+
+    LoggedNumber(String key) {
+      this.key = key;
+    }
+
+    void log(double value) {
+      long valueBits = Double.doubleToLongBits(value);
+      if (has == Has.A_NUMBER && bits == valueBits) {
+        return;
+      }
+      has = Has.A_NUMBER;
+      bits = valueBits;
+      Logger.recordOutput(key, value);
+    }
+  }
+
+  /**
+   * A text the joint logs under one key, written to the log only when it is not the text the log
+   * already has there. A text is the same as the last when it is the same object, which a name
+   * handed over loop after loop is, or reads the same; {@code equals} looks at both, in that order.
+   */
+  private static final class LoggedText {
+    private final String key;
+    private Optional<String> has = Optional.empty();
+
+    LoggedText(String key) {
+      this.key = key;
+    }
+
+    void log(String value) {
+      if (has.isPresent() && has.get().equals(value)) {
+        return;
+      }
+      has = Optional.of(value);
+      Logger.recordOutput(key, value);
+    }
+  }
+
+  /**
    * @param key where the joint logs, {@code Joints/<label>}
    */
   JointLog(String key) {
     stateKey = key + "/State";
     faultKey = key + "/Fault";
     ownerKey = key + "/Owner";
-    commandKey = key + "/Command";
-    goalKey = key + "/Goal";
-    goalNameKey = key + "/GoalName";
+    command = new LoggedText(key + "/Command");
+    goal = new LoggedNumber(key + "/Goal");
+    goalName = new LoggedText(key + "/GoalName");
     atKey = key + "/At";
     heldByKey = key + "/HeldBy";
-    setpointKey = key + "/Setpoint";
-    setpointVelocityKey = key + "/SetpointVelocity";
+    setpoint = new LoggedNumber(key + "/Setpoint");
+    setpointVelocity = new LoggedNumber(key + "/SetpointVelocity");
     outcomeKey = key + "/Outcome";
     outcomeNameKey = key + "/OutcomeName";
     outcomeWhyKey = key + "/OutcomeWhy";
     outcomeHeldByKey = key + "/OutcomeHeldBy";
-    rejectedKey = key + "/Rejected";
+    rejected = new LoggedText(key + "/Rejected");
     absoluteAtKey = key + "/AbsoluteAt";
     switchDoubtsKey = key + "/SwitchDoubts";
     pdhCurrentKey = key + "/PdhCurrentAmps";
@@ -99,9 +158,9 @@ final class JointLog {
       this.owner = Optional.of(owner);
       Logger.recordOutput(ownerKey, owner);
     }
-    Logger.recordOutput(commandKey, command);
-    Logger.recordOutput(goalNameKey, goalName);
-    Logger.recordOutput(rejectedKey, rejected);
+    this.command.log(command);
+    this.goalName.log(goalName);
+    this.rejected.log(rejected);
   }
 
   /**
@@ -116,7 +175,7 @@ final class JointLog {
    */
   void did(JointState state, String fault, double goal, JointPlace at, List<Holder> heldBy) {
     stood(state, fault);
-    Logger.recordOutput(goalKey, goal);
+    this.goal.log(goal);
     boolean movedToAnotherPlace = this.at.isEmpty() || this.at.get() != at;
     if (movedToAnotherPlace) {
       this.at = Optional.of(at);
@@ -162,8 +221,8 @@ final class JointLog {
 
   /** Where the joint's profile has it this loop, and how fast. */
   void setpoint(double position, double velocity) {
-    Logger.recordOutput(setpointKey, position);
-    Logger.recordOutput(setpointVelocityKey, velocity);
+    setpoint.log(position);
+    setpointVelocity.log(velocity);
   }
 
   /** Where the joint's absolute encoder says the joint is. */

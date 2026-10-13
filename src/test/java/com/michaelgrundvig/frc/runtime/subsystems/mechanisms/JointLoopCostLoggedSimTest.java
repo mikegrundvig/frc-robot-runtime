@@ -24,8 +24,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * {@link JointLoopCostSimTest}, which runs with the logger off. Off, {@code Logger.recordOutput}
  * returns at once and the bytes the log costs are not seen there. Running, every call makes a log
  * value and builds the key's full name, about 200 bytes a call, whether or not the value changed.
- * The joint logs a fact (its state, its place, what holds it) only in the loop it changes, because
- * of this cost, and this is the test that shows what is left.
+ * The joint logs a fact (its state, its place, what holds it), a number or a text only in the loop
+ * it changes, because of this cost, and this is the test that shows what is left.
  *
  * <p>Each scenario is a steady state: the same thing is asked loop after loop, and the joint idles,
  * is held by an interlock, or has arrived or runs at its speed. The bound on each is a little above
@@ -35,9 +35,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
  *
  * <p>When it was written, a joint allocated about 4,650 bytes a loop in every scenario, of which
  * about 3,400 were its IO's inputs (eighteen values AdvantageKit's {@code processInputs} writes
- * each loop) and about 1,220 the six keys the joint writes each loop whether they changed or not:
- * {@code Command}, {@code GoalName} and {@code Rejected} (192 bytes each), {@code Goal} (200),
- * {@code Setpoint} (216) and {@code SetpointVelocity} (232).
+ * each loop, as a replay needs) and 1,224 the six keys the joint then wrote each loop whether they
+ * changed or not: {@code Command}, {@code GoalName} and {@code Rejected} (192 bytes each), {@code
+ * Goal} (200), {@code Setpoint} (216) and {@code SetpointVelocity} (232). Since 2026-10-13 those
+ * six are written only when they change, and a steady joint allocates about 3,420 to 3,450: its
+ * inputs, and a few bytes of its own.
  *
  * <p>It runs in a JVM of its own ({@link InItsOwnJvm}), which also keeps the logger, that starts
  * once and is never stopped, out of every other test's JVM. The numbers are printed and written to
@@ -48,10 +50,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @ExtendWith(RobotSim.class)
 class JointLoopCostLoggedSimTest {
   /** The most the pivot may allocate a loop, on average, in any of its scenarios. */
-  private static final double MOST_BYTES_A_LOOP_PIVOT = 4_800;
+  private static final double MOST_BYTES_A_LOOP_PIVOT = 3_550;
 
   /** The most the roller may allocate a loop: it has a longer input than the pivot's. */
-  private static final double MOST_BYTES_A_LOOP_ROLLER = 4_850;
+  private static final double MOST_BYTES_A_LOOP_ROLLER = 3_600;
 
   /** One scenario, with the most a joint may allocate a loop in it. */
   private record Row(

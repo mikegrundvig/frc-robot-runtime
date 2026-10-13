@@ -63,6 +63,20 @@ final class GateState implements BooleanSupplier {
   /** Whether the terms have been logged yet. A gate logs them the first time whatever they are. */
   private boolean termsLogged;
 
+  /** What this gate last logged of whether it holds. */
+  private enum Answer {
+    NONE_YET,
+    HOLDS,
+    DOES_NOT_HOLD
+  }
+
+  /**
+   * The answer as it was last logged. It is logged again only when it is another: the log keeps a
+   * value until another replaces it, and each write makes a new value and builds the key's full
+   * name, for a gate that is worked out every loop, or every time it is read.
+   */
+  private Answer answerLogged = Answer.NONE_YET;
+
   /**
    * The alert of every gate name whose logic has thrown, by that name. Gates of one name share one
    * alert, because an alert's name can be taken only once, and a command may make a gate of the
@@ -200,7 +214,11 @@ final class GateState implements BooleanSupplier {
   }
 
   private void log() {
-    Logger.recordOutput(key, holds);
+    Answer answer = holds ? Answer.HOLDS : Answer.DOES_NOT_HOLD;
+    if (answer != answerLogged) {
+      answerLogged = answer;
+      Logger.recordOutput(key, holds);
+    }
     List<String> reads = blocking.shown();
     if (termsLogged && shown.equals(reads)) {
       return;
