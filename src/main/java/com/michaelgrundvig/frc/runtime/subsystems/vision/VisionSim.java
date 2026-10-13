@@ -28,6 +28,8 @@ import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.interpolation.TimeInterpolatableBuffer;
 import org.wpilib.system.RobotController;
+import org.wpilib.vision.camera.VideoSink;
+import org.wpilib.vision.stream.CameraServer;
 
 /**
  * The simulator's cameras. This is PhotonVision's own simulation, rendering each camera's view of
@@ -112,16 +114,37 @@ public final class VisionSim implements AutoCloseable {
    *
    * <p>With nothing publishing a topic any more, NetworkTables forgets its value, and the next
    * camera starts with none.
+   *
+   * <p>It also does not serve video. PhotonVision's camera starts two video servers, a raw stream
+   * and a processed one, on the next free ports from 1181 up, listening on every address of the
+   * computer. The streams are switched off here ({@link #camera}), so nobody could watch them, and
+   * every simulated robot a test run built took two more ports, past three hundred in a run. The
+   * servers are closed as soon as the camera is made.
    */
   private static final class OwnTopicsCameraSim extends PhotonCameraSim {
     OwnTopicsCameraSim(PhotonCamera camera, SimCameraProperties properties, Field layout) {
       super(camera, properties, layout);
+      closeVideoServers(camera.getName());
     }
 
     @Override
     public void close() {
       super.close();
       ts.removeEntries();
+    }
+  }
+
+  /**
+   * Closes the two video servers PhotonVision's simulation of a camera starts, which are named for
+   * the camera and its stream. {@link VisionSim} does so for the cameras it adds; a test that makes
+   * a {@code PhotonCameraSim} of its own does it for that.
+   */
+  public static void closeVideoServers(String camera) {
+    for (String stream : List.of("-raw", "-processed")) {
+      String name = "serve_" + camera + stream;
+      VideoSink server = CameraServer.getServer(name);
+      CameraServer.removeServer(name);
+      server.close();
     }
   }
 
