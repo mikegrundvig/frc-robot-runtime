@@ -20,14 +20,14 @@ import org.wpilib.math.filter.Debouncer;
  * of it. So each such gate remembers whether it held the last time it was asked.
  *
  * <p>Some of these state a fact about the joint, which is so whoever has the joint: where it is
- * ({@link #at}), and whether it knows where it is ({@link #ready}). The others say whether the
- * joint has done what it was asked: {@link #atGoal}, and for an output {@link #runningAt}, which is
- * as much about what the joint is asked for as about how fast it turns. What a joint is asked can
- * change in the middle of a loop, when a command takes it or asks it something new, and what its
- * motors were last told then belongs to the question before. So each of these holds false until the
- * joint has been judged against the question it is under now ({@link Tenure}), and tells its {@link
- * Gate} when the question changes ({@link Gate.Logic#question}), so that an answer worked out
- * earlier in the loop is not handed on.
+ * ({@link #at}), whether it knows where it is ({@link #ready}), and whether it is driven and not
+ * moving ({@link #stalled}). The others say whether the joint has done what it was asked: {@link
+ * #atGoal}, and for an output {@link #runningAt}, which is as much about what the joint is asked
+ * for as about how fast it turns. What a joint is asked can change in the middle of a loop, when a
+ * command takes it or asks it something new, and what its motors were last told then belongs to the
+ * question before. So each of these holds false until the joint has been judged against the
+ * question it is under now ({@link Tenure}), and tells its {@link Gate} when the question changes
+ * ({@link Gate.Logic#question}), so that an answer worked out earlier in the loop is not handed on.
  */
 final class JointGates {
   /** What the gates need to know of what the joint is doing, which its mechanism tells them. */

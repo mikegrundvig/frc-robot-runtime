@@ -298,7 +298,7 @@ can ask what happened and react. A worked example further down does that.
 
 A gate is a yes or no question with a name. Each joint has a few. `pivot.isAt(PIVOT_OUT)` asks
 whether the pivot is at its "out" place. `shooter.isAtGoal()` asks whether the shooter is at the
-speed it was told to reach. You can wait on a gate, bind a button to one, or combine several.
+speed its command told it to reach. You can wait on a gate, bind a button to one, or combine several.
 When a gate is false it logs why, so "why isn't it shooting?" has an answer you can read.
 
 ### Refusals and doubts
@@ -648,6 +648,11 @@ On the pass the trigger goes down, `Shoot` takes the drivetrain, the shooter, th
 indexer. Stick driving was the drivetrain's default command, and it gives way. The coroutine
 forks two things that never end by themselves. One spins the shooter toward 3000 rpm. The other
 starts turning the robot. Then it reaches `co.waitUntil(ready)` and pauses.
+
+It pauses even if the robot was already facing the hub. A moment ago the shooter was stopped with
+nothing asking it for anything, and that counted as at its goal. Now `Shoot` has the shooter, so
+`shooter.isAtGoal()` is about what `Shoot` asked for, which is 3000 rpm. A gate never hands you
+the answer to the last command's question.
 
 For the next passes nothing is fed. The shooter is still spinning up and the robot is still
 turning. The log says which half is missing under `Gates/ready to feed/Blocking`, and names it

@@ -181,7 +181,7 @@ DriveMove leg = drive.follow(
 
 A named keyframe is something code can wait for. `leg.passed("pickup")` is a
 [gate](mechanisms.md#gates-wait-for-things-and-know-why-not): it opens when the path passes the
-keyframe, and stays open until the move starts again. `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/PickUp.java`
+keyframe, and stays open until the move starts again, when it closes in that same turn. `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/PickUp.java`
 has it whole:
 
 ```java fragment

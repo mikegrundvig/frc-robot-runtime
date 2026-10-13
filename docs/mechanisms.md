@@ -382,10 +382,43 @@ guard a move. Every joint has gates already:
 | Gate | True when |
 |---|---|
 | `pivot.isAt(PIVOT_OUT)` | It's within its band of one of its positions, or runs at one of its outputs |
-| `shooter.isAtGoal()` | It's where it's asked to be: at its position, or within its band of its speed |
+| `shooter.isAtGoal()` | It's where the command that has it asked it to be: at its position, or within its band of its speed. Idle, it's holding where it is, or stopped |
 | `pivot.isReady()` | It knows where it is, and its motor controllers answer |
 | `indexer.isStalled()` | It's run at an output but has moved slower than a tenth of it for a quarter second |
 | `joints.isAt(STOWED)` | Every joint of a configuration is at its place |
+
+**"At goal" is about what was asked, and by whom.** `isAtGoal()` answers for the command that has
+the joint. A joint nobody has is asked what it does idle, so a pivot holding where it is and a
+stopped shooter are both at their goals. From the turn a command takes a joint, the joint isn't at
+its goal until that command, or one it forked, has asked something of it and the joint has been
+judged against that. So the guide's shot waits for the spin-up, though the shooter it took was
+stopped, and "at its goal", a moment before:
+
+```java fragment
+Gate ready = Gate.all("ready to feed", aim.aimed(), shooter.isAtGoal());
+...
+co.fork(shooter.follow(() -> RPM.of(3000)));
+...
+co.waitUntil(ready); // false from the turn Shoot took the shooter, until it's at 3000 rpm
+```
+
+A joint is judged against what it's asked when its own step at the end of the loop takes that as
+what it tells its motors. So the gate is false from the moment the asking changes to the end of that
+loop, and answers for the new request from then on. That goes for a second request too: ask a joint
+for something new and it isn't at its goal in that turn, even if it happens to be doing it already.
+A target you `follow` that moves less than the joint's band from one loop to the next is one
+request, not a new one each loop; one that jumps is new. When the command ends, the joint is
+nobody's, and it's judged as an idle joint at the end of that loop.
+
+One more gate is about what was asked, and goes by the same rule. A roller is "at intaking",
+`isAt(INTAKING)`, while it's asked for intaking and turns at it, so a command that takes the roller
+isn't told so on the strength of the command before. The rest state facts, true whoever has the
+joint: where it is (`isAt(PIVOT_OUT)`, `joints.gate(...)`), that it knows where (`isReady()`), and
+that it's driven and not moving (`isStalled()`).
+
+A debounced gate goes by it as well. A debounce rides out a dip in the answer about one request,
+and starts over on the next, so the `readyToShoot` below isn't held true for its 80 ms on the answer
+for the idle shooter.
 
 Make your own from anything:
 
