@@ -749,6 +749,13 @@ minutes of it. So Pitwall reads the model: the runtime hands it the robot's defi
 holds a joint is the robot's own logged fact, which the page resolves against the model and words
 with the model's own sentences.
 
+Live is too fast to see the order things happened in, so the view has a timeline over those five
+minutes. A strip of time marks every loop in which something changed: a binding fired, a command
+took a joint, a move ended, a gate fell. The page scrubs back through them and goes loop by loop,
+the cards mark what changed in each loop, and a list says what happened in order, so a feeder that
+ran before its shooter was up is read off the page. Scrubbing moves what the page shows and never
+the robot.
+
 **Why.** The class of bug is a tuned value that lives somewhere other than the code. The code in
 the repository is then not what ran. A swapped motor controller loses the value, and a redeploy
 keeps a stale one. Here a match always runs the committed configuration. The page also needs no
@@ -775,10 +782,9 @@ saw it work in the pit. The page is not reachable through the field network, on 
 tuned on the field. Pitwall can no longer be used without the model, and a change to the keys the
 runtime logs has to be made in Pitwall's list of them too.
 
-**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places. A
-timeline of the session, to scrub and step through the five minutes Pitwall remembers, with the
-World view following it: the Robot view shows the newest loop only. Opening a saved log stays
-AdvantageScope's job.
+**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places. The
+World view following the Robot view's timeline: it shows the present only, and says so while the
+Robot view shows an earlier loop. Opening a saved log stays AdvantageScope's job.
 
 **What would change our mind.** A pit crew that keeps losing tuned values at the paste step. Or a
 dashboard teams already know that does the same job and shows the change to commit.

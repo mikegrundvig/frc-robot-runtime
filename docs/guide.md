@@ -784,7 +784,8 @@ you gave it. The cameras see the tags they would see from where you mounted them
 Then open http://localhost:5820 in a browser. That is Pitwall. Its Pit view has the robot's
 status, which includes whether it stands on its start and whether it knows where it is well
 enough to score. The Tune view changes gains while the robot runs. The World view draws the field
-in 3D with the robot where the code believes it is, and where it really is beside that. The Sim
+in 3D with the robot where the code believes it is, and where it really is beside that. The Robot
+view draws each joint as the description says it, with what it was told and what holds it. The Sim
 view stands in for the Driver Station. You enable the robot there and drive it from the keyboard
 or a gamepad.
 
@@ -792,6 +793,43 @@ The Sim view can also break things on purpose. You can unplug a camera, freeze t
 the robot sideways, all while it runs. The robot's code is never told. It has to notice from its
 sensors, the way it would on the field. Failing a joint's motor or encoder is possible too, but
 today only a test can do that. The page cannot yet.
+
+### Reading what happened, in order
+
+Live is too fast. An intake is out in half a second, and you can't see from the cards whether the
+roller ran before the pivot was clear. Pitwall's Robot view remembers the last five minutes, loop
+by loop, so you can go back and look.
+
+Hold the operator's right trigger for two seconds, then let go. Along the bottom of the Robot view
+is a strip of time, with a mark for everything that happened. Drag along it, or press Shift+Left
+to go back one event at a time. The cards now show the robot as it was in that loop, and the rows
+that changed in that loop are marked. Left and Right go one loop, which is 20 ms. Esc goes back to
+live.
+
+Beside the strip is the list of events, in order, with their times:
+
+```text
+1.78 s  operator right trigger: while held: Intake
+1.78 s  pivot owned by Intake
+1.78 s  pivot told out, 130°
+1.78 s  roller owned by Intake
+1.78 s  roller told intaking, 2000 rpm
+1.78 s  roller held: roller runs only when pivot at least 110°
+2.18 s  roller no longer held
+2.40 s  pivot → out: ARRIVED in 0.62 s
+```
+
+Read it top to bottom. The roller was told to run in the same loop as the pivot, the interlock
+held it, and it was let go 0.4 s later, as the pivot passed 110°. That is the order you wanted,
+and the description enforced it.
+
+A wrong order reads the same way. If your shot shows "feeder told feeding" above "shooter at goal
+holds", it fed before the shooter was up. You found that without a print statement. Click a
+joint's name on its card to see only that joint's events. A move that timed out or was refused
+shows as a problem, in the list and on the strip.
+
+Scrubbing only moves what the page shows. It never rewinds the robot or the simulator. The Sim
+view's Step is a different thing. It runs one new loop of a paused simulator.
 
 Tests run the whole robot the same way, with no window and no waiting. A test builds the robot,
 presses buttons, steps the clock, and checks what happened. The clock moves only when the test
