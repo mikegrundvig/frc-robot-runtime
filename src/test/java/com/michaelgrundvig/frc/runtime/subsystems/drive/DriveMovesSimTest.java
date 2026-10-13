@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.drive;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Seconds;
@@ -11,6 +12,8 @@ import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.world.path.Keyframe;
+import com.michaelgrundvig.frc.world.record.DriveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Supplier;
@@ -66,7 +69,7 @@ class DriveMovesSimTest {
     double took = runToEnd(left, 3);
 
     assertThat(left.arrived()).isTrue();
-    assertThat(left.reason()).matches("drive → 90\\.0°: ARRIVED in 0\\.\\d\\d s");
+    ended(left).named("drive → 90.0°").arrived().inBetween(0, 1);
     assertThat(heading()).isCloseTo(90, within(2.0));
     assertThat(took).as("its 0.83 s profile, tracked").isLessThan(0.95);
   }
@@ -107,7 +110,7 @@ class DriveMovesSimTest {
     }
 
     assertThat(there.arrived()).isTrue();
-    assertThat(there.reason()).startsWith("drive → (2.00, 1.00) 90.0°: ARRIVED in ");
+    ended(there).named("drive → (2.00, 1.00) 90.0°").arrived();
     Pose2d truth = harness.simulation.truePose();
     assertThat(truth.getTranslation().getDistance(target.getTranslation())).isLessThan(0.03);
     assertThat(truth.getRotation().getDegrees()).isCloseTo(90, within(2.5));
@@ -168,10 +171,11 @@ class DriveMovesSimTest {
     runToEnd(far, 1);
 
     assertThat(far.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(far.reason())
-        .matches(
-            "drive → \\(8\\.00, 0\\.00\\) 0\\.0°: TIMED_OUT after 0\\.50 s, at \\(0\\.\\d\\d, -?0\\.00\\)"
-                + " facing -?0\\.0°");
+    ended(far).named("drive → (8.00, 0.00) 0.0°").timedOut().after(0.50).forNoReason();
+    DriveOutcome gotTo = far.ending().orElseThrow();
+    assertThat(gotTo.x()).as("part of the first meter").isBetween(0.0, 1.0);
+    assertThat(gotTo.y()).isCloseTo(0, within(0.005));
+    assertThat(Math.toDegrees(gotTo.headingRadians())).isCloseTo(0, within(0.05));
   }
 
   /** Driving until a gate opens ends the loop it does, having driven that far. */
@@ -202,7 +206,7 @@ class DriveMovesSimTest {
 
     assertThat(took).as("it never ended in 6 s").isNaN();
     assertThat(drive.getPose().getX()).as("still driving at 0.2 m/s").isGreaterThan(1.0);
-    assertThat(out.reason()).isEqualTo("drive until bumped: CANCELED after 5.98 s");
+    ended(out).named("drive until bumped").canceled().after(5.98).forNoReason();
   }
 
   /** Given a deadline, a gate that never opens times out the move at it, saying why. */
@@ -214,8 +218,12 @@ class DriveMovesSimTest {
     runToEnd(brief, 2);
 
     assertThat(brief.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(brief.reason())
-        .isEqualTo("drive until bumped: TIMED_OUT after 1.00 s: bumped is false");
+    ended(brief)
+        .named("drive until bumped")
+        .timedOut()
+        .after(1.00)
+        .because(MoveReason.CONDITION_NEVER_HELD)
+        .saying("bumped is false");
   }
 
   /** One of each kind of move, by name, made new each time it's asked for. */
@@ -348,6 +356,6 @@ class DriveMovesSimTest {
     harness.scheduler.cancel(out);
 
     assertThat(out.outcome()).contains(Outcome.CANCELED);
-    assertThat(out.reason()).startsWith("drive until never: CANCELED after 0.");
+    ended(out).named("drive until never").canceled().inBetween(0, 1);
   }
 }

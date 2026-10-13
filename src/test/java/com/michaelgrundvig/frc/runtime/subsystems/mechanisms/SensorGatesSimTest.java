@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER;
@@ -15,6 +16,8 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.GateTerm;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
@@ -86,9 +89,8 @@ class SensorGatesSimTest {
 
     assertThat(intake.name()).isEqualTo("roller: intaking until coral in claw");
     assertThat(intake.arrived()).isTrue();
-    assertThat(intake.reason())
-        .as("the loop it trips, 25 loops on")
-        .isEqualTo("roller: intaking until coral in claw: ARRIVED in 0.50 s");
+    // The loop it trips, 25 loops on.
+    ended(intake).named("roller: intaking until coral in claw").arrived().in(0.50);
   }
 
   /**
@@ -107,12 +109,18 @@ class SensorGatesSimTest {
 
     assertThat(coralIn.getAsBoolean()).isFalse();
     assertThat(clear.getAsBoolean()).isFalse();
+    assertThat(coralIn.blockingRecorded())
+        .as("the log names the lost sensor by where it is among the robot's")
+        .containsExactly(
+            new GateTerm(GateTerm.Kind.SENSOR_LOST, ROBOT.everySensor().indexOf(CLAW_BEAM)));
+    assertThat(coralIn.blockingText()).as("no term of it is text").isEmpty();
     assertThat(coralIn.blocking()).containsExactly("claw beam lost");
     assertThat(sensors.lost()).containsExactly("claw beam");
-    assertThat(intake.reason())
-        .isEqualTo(
-            "roller: intaking until coral in claw: TIMED_OUT after 3.00 s: coral in claw is false:"
-                + " claw beam lost");
+    ended(intake)
+        .timedOut()
+        .after(3.00)
+        .because(MoveReason.CONDITION_NEVER_HELD)
+        .saying("coral in claw is false: claw beam lost");
   }
 
   /**

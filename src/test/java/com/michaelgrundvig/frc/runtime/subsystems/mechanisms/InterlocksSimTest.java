@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_DOWN;
@@ -96,14 +97,14 @@ class InterlocksSimTest {
     Move intaking = roller.run(ROLLER_INTAKING);
     sim.run(intaking, 0.5);
     double waiting = sim.simulation.velocity(ROLLER);
-    String heldBy = roller.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(roller);
 
     sim.run(sim.joints.goTo(DEPLOYED), 2);
 
     assertThat(waiting).isCloseTo(0, within(0.5));
-    assertThat(heldBy).isEqualTo("roller runs only when pivot at least run");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
     assertThat(intaking.outcome()).as("still running").isEmpty();
-    assertThat(roller.heldBy()).isEmpty();
+    assertThat(roller.holders()).isEmpty();
     assertThat(sim.simulation.velocity(ROLLER))
         .isCloseTo(RPM.of(1500).baseUnitMagnitude(), within(0.03 * 157.08));
   }
@@ -113,7 +114,7 @@ class InterlocksSimTest {
     sim.run(roller.follow(() -> RPM.of(1000)), 0.5);
 
     assertThat(sim.simulation.velocity(ROLLER)).isCloseTo(0, within(0.5));
-    assertThat(roller.heldBy()).isEqualTo("roller runs only when pivot at least run");
+    assertThat(Held.interlocksHolding(roller)).containsExactly(ROLLER_ONLY_WHEN_OUT);
   }
 
   /**
@@ -153,9 +154,8 @@ class InterlocksSimTest {
     sim.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(out.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(out.reason())
-        .startsWith("pivot → out: TIMED_OUT after 1.6")
-        .endsWith(", held: pivot keeps out of 40° to 80° while elevator at most clear");
+    ended(out).timedOut().inBetween(1.6, 1.7);
+    assertThat(Held.interlocksThatHeld(ended(out).facts())).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(pivotDegrees()).isCloseTo(40, within(1.5));
   }
 
@@ -174,7 +174,7 @@ class InterlocksSimTest {
 
     assertThat(unguarded).as("a fifth of its 8 rad/s").isCloseTo(1.6, within(0.1));
     assertThat(guarded).isCloseTo(unguarded, within(1e-9));
-    assertThat(pivot.heldBy()).isEmpty();
+    assertThat(pivot.holders()).isEmpty();
     assertThat(pivotDegrees()).isCloseTo(30, within(1.0));
   }
 
@@ -233,8 +233,7 @@ class InterlocksSimTest {
     assertThat(furthest).as("it overshot the edge into the region").isGreaterThan(41);
     assertThat(furthest).as("and never crossed it").isLessThan(80);
     assertThat(out.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(out.reason())
-        .endsWith("held: pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(Held.interlocksThatHeld(ended(out).facts())).containsExactly(PIVOT_CLEARS_ELEVATOR);
   }
 
   /**
@@ -269,11 +268,10 @@ class InterlocksSimTest {
 
     assertThat(deploy.arrived()).isTrue();
     assertThat(down.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(down.reason())
-        .endsWith("held: elevator keeps out of 0 m to 0.3 m while pivot at least 90°");
+    assertThat(Held.interlocksThatHeld(ended(down).facts()))
+        .containsExactly(elevatorUpWhilePivotOut);
     assertThat(in.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(in.reason())
-        .endsWith("held: pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(Held.interlocksThatHeld(ended(in).facts())).containsExactly(PIVOT_CLEARS_ELEVATOR);
     assertThat(Math.toDegrees(both.simulation.position(PIVOT))).isCloseTo(80, within(2.0));
     assertThat(downAgain.arrived()).as("the pivot's hold let the elevator go").isTrue();
     assertThat(both.simulation.position(ELEVATOR)).isCloseTo(0, within(0.02));
@@ -299,7 +297,7 @@ class InterlocksSimTest {
     blocks.run(held.run(ROLLER_INTAKING), 0.5);
 
     assertThat(blocks.simulation.velocity(ROLLER)).isCloseTo(0, within(0.5));
-    assertThat(held.heldBy()).isEqualTo("roller runs only when pivot at least run");
+    assertThat(Held.interlocksHolding(held)).hasSize(1).isEqualTo(Held.interlocksOn(held));
   }
 
   /**
@@ -321,12 +319,12 @@ class InterlocksSimTest {
 
     spun.run(0.5);
     double waiting = Math.toDegrees(spun.simulation.position(PIVOT));
-    String heldBy = held.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(held);
     spun.scheduler.schedule(spun.joints.of(ROLLER).run(ROLLER_INTAKING));
     spun.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(waiting).isCloseTo(1.5, within(1.0));
-    assertThat(heldBy).startsWith("pivot runs only when roller at least 1000");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
     assertThat(out.arrived()).isTrue();
     assertThat(Math.toDegrees(spun.simulation.position(PIVOT))).isCloseTo(130, within(2.0));
   }
@@ -368,7 +366,7 @@ class InterlocksSimTest {
     }
 
     assertThat(held).as("where it's stuck").isCloseTo(0.3, within(0.03));
-    assertThat(lift.heldBy()).isEqualTo("elevator runs only when pivot at least run");
+    assertThat(Held.interlocksHolding(lift)).hasSize(1).isEqualTo(Held.interlocksOn(lift));
     assertThat(highest).as("no further than where it's held").isCloseTo(held, within(0.01));
   }
 
@@ -392,7 +390,7 @@ class InterlocksSimTest {
     sim.scheduler.schedule(sim.joints.of(ELEVATOR).goTo(ELEVATOR_DOWN));
     sim.runUntil(() -> !pivot.heldBy().isEmpty(), 2);
     double held = Math.toDegrees(pivot.goal());
-    String heldBy = pivot.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(pivot);
     sim.simulation.jam(PIVOT, false);
     double lowest = Double.POSITIVE_INFINITY;
     for (int i = 0; i < RobotLoop.loops(1); i++) {
@@ -401,7 +399,7 @@ class InterlocksSimTest {
     }
 
     assertThat(held).as("inside, where it's stuck").isBetween(40.0, 80.0);
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
     assertThat(lowest).as("no deeper than where it's held").isCloseTo(held, within(1.0));
   }
 
@@ -460,27 +458,27 @@ class InterlocksSimTest {
   void aJointPushedAtAVoltageIsHeldAtTheRegionsEdgeUntilItOpens() {
     double held = furthest(sim, PIVOT, pivot.run(PIVOT_PUSH), 1);
     double stays = pivotDegrees();
-    String heldBy = pivot.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(pivot);
     sim.scheduler.schedule(sim.joints.of(ELEVATOR).goTo(ELEVATOR_CLEAR));
     sim.run(1.5);
 
     assertThat(held).as("at the region's edge").isCloseTo(40, within(0.1));
     assertThat(stays).as("and held there, pushing on").isCloseTo(40, within(0.1));
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
     assertThat(pivotDegrees()).as("through the open region").isGreaterThan(80);
-    assertThat(pivot.heldBy()).isEmpty();
+    assertThat(pivot.holders()).isEmpty();
   }
 
   /** The same chasing a speed, on its velocity loop: at the edge. */
   @Test
   void aJointChasingASpeedIsHeldAtTheRegionsEdgeUntilItOpens() {
     double held = furthest(sim, PIVOT, pivot.follow(() -> DegreesPerSecond.of(90)), 1.5);
-    String heldBy = pivot.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(pivot);
     sim.scheduler.schedule(sim.joints.of(ELEVATOR).goTo(ELEVATOR_CLEAR));
     sim.run(1.5);
 
     assertThat(held).as("at the region's edge").isCloseTo(40, within(0.1));
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
     assertThat(pivotDegrees()).as("through the open region").isGreaterThan(80);
   }
 
@@ -511,12 +509,12 @@ class InterlocksSimTest {
     JointMechanism held = nudged.joints.of(NUDGED);
 
     double furthest = furthest(nudged, NUDGED, held.run(PIVOT_NUDGE), 1);
-    String heldBy = held.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(held);
     nudged.scheduler.schedule(nudged.joints.of(ELEVATOR).goTo(ELEVATOR_CLEAR));
     nudged.run(1.5);
 
     assertThat(furthest).as("at the region's edge").isCloseTo(40, within(0.1));
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
     assertThat(Math.toDegrees(nudged.simulation.position(NUDGED)))
         .as("through the open region")
         .isGreaterThan(80);
@@ -545,8 +543,7 @@ class InterlocksSimTest {
     double furthest = furthest(strong, PIVOT, chasing.follow(() -> RadiansPerSecond.of(5)), 1);
 
     assertThat(furthest).as("at the region's edge").isCloseTo(40, within(0.5));
-    assertThat(chasing.heldBy())
-        .isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(Held.interlocksHolding(chasing)).hasSize(1).isEqualTo(Held.interlocksOn(chasing));
   }
 
   /**
@@ -560,7 +557,7 @@ class InterlocksSimTest {
     double furthest = furthest(sim, PIVOT, pivot.run(PIVOT_PUSH), 1);
 
     assertThat(furthest).as("up to its stop").isGreaterThan(130);
-    assertThat(pivot.heldBy()).isEmpty();
+    assertThat(pivot.holders()).isEmpty();
   }
 
   /** A harness on a robot whose joints' IO a test can silence, each by its joint. */
@@ -620,7 +617,7 @@ class InterlocksSimTest {
       watched.loop();
       furthest = Math.max(furthest, Math.toDegrees(watched.simulation.position(PIVOT)));
     }
-    String heldBy = chased.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(chased);
     target[0] = 30;
     watched.run(1.5);
 
@@ -631,7 +628,7 @@ class InterlocksSimTest {
                 + " check how Aim works it out");
     assertThat(during).isCloseTo(before, within(0.5));
     assertThat(furthest).as("never past the edge").isLessThan(40.1);
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(chased));
     assertThat(chased.rejected()).as("a loop's").isEmpty();
     assertThat(io(ios, PIVOT).notNumbers).isEmpty();
     assertThat(pivotDegrees(watched)).as("the next target").isCloseTo(30, within(0.5));
@@ -680,12 +677,12 @@ class InterlocksSimTest {
     silent.scheduler.schedule(out);
     silent.run(1.5);
     double waiting = Math.toDegrees(silent.simulation.position(PIVOT));
-    String heldBy = held.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(held);
     io(ios, ELEVATOR).silent = false;
     silent.runUntil(() -> out.outcome().isPresent(), 2);
 
     assertThat(waiting).as("at the region's edge").isBetween(38.0, 41.0);
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
     assertThat(out.arrived()).as("let go").isTrue();
   }
 
@@ -706,12 +703,12 @@ class InterlocksSimTest {
     stale.run(0.2);
     io(ios, ELEVATOR).stale = true;
     stale.loop();
-    String heldBy = held.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(held);
     boolean refused = elevator.fault().orElse(null) != null;
     io(ios, ELEVATOR).stale = false;
     stale.runUntil(() -> out.outcome().isPresent(), 2);
 
-    assertThat(heldBy).isEqualTo("pivot keeps out of 40° to 80° while elevator at most clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
     assertThat(refused).as("its moves refused").isFalse();
     assertThat(out.arrived()).as("let go").isTrue();
   }
@@ -743,14 +740,14 @@ class InterlocksSimTest {
     double stopped = Math.toDegrees(spun.simulation.position(PIVOT));
     spun.run(0.5);
     double still = Math.toDegrees(spun.simulation.position(PIVOT));
-    String heldBy = held.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(held);
     io(ios, ROLLER).silent = false;
     spun.scheduler.schedule(roller.run(ROLLER_INTAKING));
     spun.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(stopped).as("held on its way out").isBetween(5.0, 125.0);
     assertThat(still).as("where it stopped").isCloseTo(stopped, within(0.5));
-    assertThat(heldBy).startsWith("pivot runs only when roller at least 1000");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(held));
     assertThat(out.arrived()).as("let go").isTrue();
   }
 
@@ -830,9 +827,10 @@ class InterlocksSimTest {
       assertThat(Math.toDegrees(kept.simulation.position(TURRET)))
           .as(how)
           .isCloseTo(180, within(1.0));
-      assertThat(held.heldBy())
+      assertThat(Held.interlocksHolding(held))
           .as(how)
-          .isEqualTo("turret keeps out of 180° to 360° while elevator at most clear");
+          .hasSize(1)
+          .isEqualTo(Held.interlocksOn(held));
     }
   }
 

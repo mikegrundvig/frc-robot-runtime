@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.drive;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
@@ -11,6 +12,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.world.path.Keyframe;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -73,8 +75,7 @@ class DriveFollowSimTest {
       }
     }
 
-    assertThat(path.reason())
-        .startsWith("drive → (2.00, 1.00) → (4.00, 0.00) → (6.00, 1.50) 180.0°: ARRIVED in ");
+    ended(path).named("drive → (2.00, 1.00) → (4.00, 0.00) → (6.00, 1.50) 180.0°").arrived();
     for (int k = 0; k < 2; k++) {
       assertThat(nearest[k]).as("keyframe %d passed within", k).isLessThan(0.05);
       assertThat(facingThere[k]).as("keyframe %d faced to", k).isCloseTo(0, within(3.0));
@@ -170,10 +171,11 @@ class DriveFollowSimTest {
     harness.loop();
 
     assertThat(nowhere.outcome()).contains(Outcome.REFUSED);
-    assertThat(nowhere.reason())
-        .isEqualTo(
-            "drive → (0.02, 0.00) 90.0°: REFUSED: (0.02, 0.00) is within 5 cm of where the robot"
-                + " starts");
+    ended(nowhere)
+        .named("drive → (0.02, 0.00) 90.0°")
+        .refused()
+        .because(MoveReason.PATH_NOT_PLANNED)
+        .saying("(0.02, 0.00) is within 5 cm of where the robot starts");
   }
 
   /**
@@ -236,10 +238,16 @@ class DriveFollowSimTest {
     }
 
     assertThat(moves.get(0).outcome()).contains(Outcome.REFUSED);
-    assertThat(moves.get(0).reason())
-        .isEqualTo("drive → a path: REFUSED: a path needs a keyframe: give one, Keyframe.at(pose)");
-    assertThat(moves.get(1).reason())
-        .isEqualTo("drive → a → a 0.0°: REFUSED: two keyframes are named a: name each once");
+    ended(moves.get(0))
+        .named("drive → a path")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("a path needs a keyframe: give one, Keyframe.at(pose)");
+    ended(moves.get(1))
+        .named("drive → a → a 0.0°")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("two keyframes are named a: name each once");
     assertThat(gates.get(0).getAsBoolean()).isFalse();
     assertThat(gates.get(0).why())
         .isEqualTo(

@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
@@ -15,6 +16,7 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
@@ -183,9 +185,9 @@ class EncoderLoopSimTest {
             + " motor says until the encoder answers";
     assertThat(lost).isEqualTo(JointMechanism.State.FAULTED);
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason()).isEqualTo("pivot → out: REFUSED: can't go on: " + why);
+    ended(out).refused().partWay().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(refused.outcome()).contains(Outcome.REFUSED);
-    assertThat(refused.reason()).isEqualTo("pivot → run: REFUSED: " + why);
+    ended(refused).refused().beforeItBegan().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(Math.toDegrees(stopped)).as("stopped on its way out").isBetween(60.0, 130.0);
     assertThat(Math.toDegrees(held))
         .as("held where it stopped, not sagging")

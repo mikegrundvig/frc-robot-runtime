@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.INTAKING;
@@ -29,6 +30,9 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveTarget;
 import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -53,6 +57,9 @@ import org.wpilib.math.geometry.Translation3d;
  */
 @ExtendWith(RobotSim.class)
 class JointMovesSimTest {
+  /** A speed in a joint's units, radians a second, as revolutions a minute. */
+  private static final double RPM_PER_RADIAN_A_SECOND = 60 / (2 * Math.PI);
+
   private final JointsSimHarness sim = new JointsSimHarness(ROBOT);
   private final JointMechanism pivot = sim.joints.of(PIVOT);
   private final JointMechanism roller = sim.joints.of(ROLLER);
@@ -86,7 +93,7 @@ class JointMovesSimTest {
 
     assertThat(out.outcome()).contains(Outcome.ARRIVED);
     assertThat(out.arrived()).isTrue();
-    assertThat(out.reason()).matches("pivot → out: ARRIVED in 0\\.\\d\\d s");
+    ended(out).named("pivot → out").arrived().inBetween(0, 1);
     assertThat(pivot.lastOutcome()).isEqualTo(out.reason());
     assertThat(took).as("the profile's 0.55 s, and settling").isLessThan(0.8);
     assertThat(pivotDegrees()).isCloseTo(130, within(2.0));
@@ -157,8 +164,11 @@ class JointMovesSimTest {
     sim.run(0.5);
 
     assertThat(tooFar.outcome()).contains(Outcome.REFUSED);
-    assertThat(tooFar.reason())
-        .isEqualTo("pivot → 140°: REFUSED: 140° is outside pivot's limits, 0° to 135°");
+    ended(tooFar)
+        .named("pivot → 140°")
+        .refused()
+        .because(MoveReason.TARGET_UNREACHABLE)
+        .saying("140° is outside pivot's limits, 0° to 135°");
     assertThat(pivotDegrees()).as("it holds where it was").isCloseTo(1.5, within(1.0));
   }
 
@@ -181,8 +191,10 @@ class JointMovesSimTest {
     double took = stuck.runUntil(() -> clear.outcome().isPresent(), 3);
 
     assertThat(clear.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(clear.reason())
-        .isEqualTo("elevator → clear: TIMED_OUT after 1.66 s, elevator at 0 m");
+    ended(clear).named("elevator → clear").timedOut().after(1.66).forNoReason();
+    assertThat(ended(clear).partOf(ELEVATOR).position())
+        .as("still down, in meters")
+        .isCloseTo(0, within(0.00005));
     assertThat(took).isCloseTo(1.68, within(0.001));
     assertThat(lift.goal()).as("it holds where it stopped").isCloseTo(0, within(0.005));
   }
@@ -194,7 +206,8 @@ class JointMovesSimTest {
     double took = runToEnd(out, 2);
 
     assertThat(out.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(out.reason()).startsWith("pivot → out: TIMED_OUT after 0.20 s, pivot at ");
+    ended(out).timedOut().after(0.20);
+    assertThat(ended(out).partOf(PIVOT).position()).as("it says where the pivot was").isFinite();
     assertThat(took).isCloseTo(0.22, within(0.001));
   }
 
@@ -223,7 +236,8 @@ class JointMovesSimTest {
             3);
 
     assertThat(out.outcome()).contains(Outcome.CANCELED);
-    assertThat(out.reason()).startsWith("pivot → out: CANCELED after 0.30 s, pivot at ");
+    ended(out).canceled().after(0.30);
+    assertThat(ended(out).partOf(PIVOT).position()).as("it says where the pivot was").isFinite();
     assertThat(in.arrived()).isTrue();
     assertThat(took).isLessThan(1);
     assertThat(speed).as("still moving out when taken over").isGreaterThan(5);
@@ -280,7 +294,7 @@ class JointMovesSimTest {
 
     assertThat(running).isCloseTo(RPM.of(1500).baseUnitMagnitude(), within(0.03 * 157.08));
     assertThat(intaking.outcome()).contains(Outcome.CANCELED);
-    assertThat(intaking.reason()).isEqualTo("roller: intaking: CANCELED after 0.98 s");
+    ended(intaking).named("roller: intaking").canceled().after(0.98).forNoReason();
     assertThat(sim.simulation.velocity(ROLLER)).isCloseTo(0, within(0.5));
   }
 
@@ -306,7 +320,7 @@ class JointMovesSimTest {
 
     assertThat(fast.name()).isEqualTo("roller: intaking until");
     assertThat(fast.arrived()).isTrue();
-    assertThat(fast.reason()).startsWith("roller: intaking until: ARRIVED in 0.");
+    ended(fast).named("roller: intaking until").arrived().inBetween(0, 1);
     assertThat(took).isLessThan(0.5);
   }
 
@@ -325,7 +339,7 @@ class JointMovesSimTest {
 
     assertThat(took).as("it never ended in 10 s").isNaN();
     assertThat(stillIntaking).isCloseTo(RPM.of(1500).baseUnitMagnitude(), within(0.03 * 157.08));
-    assertThat(never.reason()).isEqualTo("roller: intaking until: CANCELED after 9.98 s");
+    ended(never).named("roller: intaking until").canceled().after(9.98).forNoReason();
   }
 
   /** Given a deadline, a run-until whose condition never holds times out at it. */
@@ -336,7 +350,7 @@ class JointMovesSimTest {
     double took = runToEnd(brief, 2);
 
     assertThat(brief.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(brief.reason()).isEqualTo("roller: intaking until: TIMED_OUT after 1.00 s");
+    ended(brief).named("roller: intaking until").timedOut().after(1.00).forNoReason();
     assertThat(took).isCloseTo(1.02, within(0.001));
   }
 
@@ -404,14 +418,16 @@ class JointMovesSimTest {
     sim.scheduler.cancel(rising);
 
     assertThat(spinning.name()).isEqualTo("roller follows a target");
-    assertThat(spinning.reason())
-        .matches(
-            "roller follows a target: CANCELED after 2\\.48 s, roller at (9\\d\\d|10\\d\\d) rpm,"
-                + " its target 1000 rpm");
-    assertThat(rising.reason())
-        .matches(
-            "elevator follows a target: CANCELED after 1\\.48 s, elevator at 0\\.(5|49\\d*|50\\d*) m,"
-                + " its target 0\\.5 m");
+    ended(spinning).named("roller follows a target").canceled().after(2.48);
+    MoveOutcome spun = ended(spinning).partOf(ROLLER);
+    assertThat(spun.target()).isEqualTo(MoveTarget.SPEED);
+    assertThat(spun.targetNumber() * RPM_PER_RADIAN_A_SECOND).isCloseTo(1000, within(0.5));
+    assertThat(spun.velocity() * RPM_PER_RADIAN_A_SECOND).isBetween(900.0, 1100.0);
+    ended(rising).named("elevator follows a target").canceled().after(1.48);
+    MoveOutcome risen = ended(rising).partOf(ELEVATOR);
+    assertThat(risen.target()).isEqualTo(MoveTarget.NUMBER);
+    assertThat(risen.targetNumber()).isCloseTo(0.5, within(0.00005));
+    assertThat(risen.position()).isBetween(0.49, 0.51);
   }
 
   /**
@@ -458,13 +474,16 @@ class JointMovesSimTest {
 
     assertThat(built).hasSize(2);
     assertThat(built.get(0).outcome()).contains(Outcome.REFUSED);
-    assertThat(built.get(0).reason())
-        .isEqualTo(
-            "pivot → clear: REFUSED: pivot has no position clear at 0.4 m: it has in, run, out");
-    assertThat(built.get(1).reason())
-        .isEqualTo(
-            "roller: push: REFUSED: roller has no output push: it has intaking, outtaking,"
-                + " ejecting, and stopped");
+    ended(built.get(0))
+        .named("pivot → clear")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("pivot has no position clear at 0.4 m: it has in, run, out");
+    ended(built.get(1))
+        .named("roller: push")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("roller has no output push: it has intaking, outtaking, ejecting, and stopped");
     assertThat(later.outcome()).as("outside a command, once it runs").contains(Outcome.REFUSED);
     assertThat(pivot.lastOutcome()).isEqualTo(later.reason());
     assertThat(sim.simulation.position(PIVOT)).isCloseTo(Math.toRadians(1.5), within(0.01));
@@ -477,10 +496,11 @@ class JointMovesSimTest {
     runToEnd(wrong, 1);
 
     assertThat(wrong.outcome()).contains(Outcome.REFUSED);
-    assertThat(wrong.reason())
-        .isEqualTo(
-            "pivot follows a target: REFUSED: pivot can't follow 1.0 Meter: it takes an angle or an"
-                + " angular velocity");
+    ended(wrong)
+        .named("pivot follows a target")
+        .refused()
+        .because(MoveReason.TARGET_WRONG_KIND)
+        .saying("pivot can't follow 1.0 Meter: it takes an angle or an angular velocity");
   }
 
   /** At -170°, "back" at 180° is 10° away the short way round, not 350° the long way. */
@@ -547,7 +567,7 @@ class JointMovesSimTest {
     assertThat(intaking.requirements()).containsExactlyInAnyOrder(pivot, roller, elevator);
     assertThat(intaking.arrived()).isTrue();
     assertThat(intaking.name()).isEqualTo("pivot, roller and elevator → intaking");
-    assertThat(intaking.reason()).startsWith("pivot, roller and elevator → intaking: ARRIVED in ");
+    ended(intaking).named("pivot, roller and elevator → intaking").arrived();
     assertThat(took).isLessThan(1);
     assertThat(pivotDegrees()).isCloseTo(130, within(2.0));
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0.4, within(0.01));
@@ -558,7 +578,10 @@ class JointMovesSimTest {
     assertThat(intaking.arrivals().get(ROLLER))
         .as("the roller's speed, before the pivot swings out")
         .isLessThan(intaking.arrivals().get(PIVOT));
-    assertThat(intaking.reason()).contains("(pivot ").contains(", roller ").contains(", elevator ");
+    assertThat(ended(intaking).facts().parts())
+        .as("it says when each of the three arrived")
+        .hasSize(3)
+        .allMatch(MoveOutcome::cameInsideItsBand);
   }
 
   @Test
@@ -584,10 +607,12 @@ class JointMovesSimTest {
     sim.scheduler.cancel(run);
 
     assertThat(run.name()).isEqualTo("pivot, roller and elevator: intaking");
-    assertThat(run.reason())
-        .matches(
-            "pivot, roller and elevator: intaking: CANCELED after 1\\.98 s, pivot at 130(\\.\\d+)?°,"
-                + " elevator at 0\\.\\d+ m");
+    ended(run).named("pivot, roller and elevator: intaking").canceled().after(1.98);
+    assertThat(Math.toDegrees(ended(run).partOf(PIVOT).position())).isBetween(129.995, 131.0);
+    assertThat(ended(run).partOf(ELEVATOR).position()).isBetween(0.00005, 1.0);
+    assertThat(ended(run).partOf(ROLLER).ranAtAnOutput())
+        .as("a joint run at an output has no place to say")
+        .isTrue();
     assertThat(roller.lastOutcome()).isEqualTo(run.reason());
   }
 
@@ -676,8 +701,11 @@ class JointMovesSimTest {
         .isEqualTo("open can't run: hatch has no mechanism: nothing drives it");
     assertThat(Joints.cantRun(withHatch, INTAKING)).isNull();
     assertThat(opening.outcome()).contains(Outcome.REFUSED);
-    assertThat(opening.reason())
-        .isEqualTo("pivot and hatch → open: REFUSED: hatch has no mechanism: nothing drives it");
+    ended(opening)
+        .named("pivot and hatch → open")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("hatch has no mechanism: nothing drives it");
     assertThat(opening.requirements()).containsExactly(hatched.joints.of(PIVOT));
     assertThat(hatched.simulation.position(PIVOT)).isCloseTo(before, within(1e-3));
     assertThat(hatched.joints.isAt(open).getAsBoolean()).isFalse();
@@ -705,7 +733,10 @@ class JointMovesSimTest {
     hatched.run(shutting, 0.1);
 
     assertThat(shutting.requirements()).isEmpty();
-    assertThat(shutting.reason())
-        .isEqualTo("hatch → shut: REFUSED: hatch has no mechanism: nothing drives it");
+    ended(shutting)
+        .named("hatch → shut")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("hatch has no mechanism: nothing drives it");
   }
 }

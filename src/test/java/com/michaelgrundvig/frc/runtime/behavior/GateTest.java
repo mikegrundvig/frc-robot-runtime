@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.world.record.GateTerm;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -75,6 +76,8 @@ class GateTest {
 
     loop();
     List<String> both = ready.blocking();
+    List<GateTerm> bothRecorded = ready.blockingRecorded();
+    List<String> bothText = ready.blockingText();
     fast[0] = true;
     loop();
     List<String> one = ready.blocking();
@@ -82,6 +85,9 @@ class GateTest {
     loop();
 
     assertThat(both).containsExactly("shooter at goal", "aimed");
+    // A term that is another gate is a team's own text: the log holds where each text is.
+    assertThat(bothRecorded).containsExactly(GateTerm.text(0), GateTerm.text(1));
+    assertThat(bothText).containsExactly("shooter at goal", "aimed");
     assertThat(one).containsExactly("aimed");
     assertThat(ready.getAsBoolean()).isTrue();
     assertThat(ready.blocking()).isEmpty();

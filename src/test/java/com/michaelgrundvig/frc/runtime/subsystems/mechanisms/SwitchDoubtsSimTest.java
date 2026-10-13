@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_IN;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
@@ -54,7 +55,7 @@ class SwitchDoubtsSimTest {
     Move in = pivot.goTo(PIVOT_IN);
     sim.scheduler.schedule(in);
     sim.runUntil(() -> in.outcome().isPresent(), 3);
-    assertThat(in.reason()).contains("held: pivot down tripped");
+    assertThat(Held.switchesThatHeld(ended(in).facts())).containsExactly(PIVOT_DOWN);
   }
 
   /**

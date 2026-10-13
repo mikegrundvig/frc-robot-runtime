@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.INTAKING;
@@ -22,6 +23,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -201,7 +203,7 @@ class RefusalsSimTest {
       switch (built.get(i)) {
         case Move move -> {
           assertThat(move.outcome()).as(why).contains(Outcome.REFUSED);
-          assertThat(move.reason()).isEqualTo(move.name() + ": REFUSED: " + why);
+          ended(move).refused().because(MoveReason.REFUSED_AS_BUILT).saying(why);
         }
         case Gate gate -> {
           assertThat(gate.getAsBoolean()).as(why).isFalse();
@@ -218,10 +220,16 @@ class RefusalsSimTest {
     for (Move move : standIns) {
       assertThat(move.outcome()).contains(Outcome.REFUSED);
     }
-    assertThat(standIns.get(0).reason())
-        .isEqualTo("hatch → out: REFUSED: hatch has no mechanism: nothing drives it");
-    assertThat(standIns.get(5).reason())
-        .isEqualTo("stranger → out: REFUSED: stranger isn't one of joints' joints");
+    ended(standIns.get(0))
+        .named("hatch → out")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("hatch has no mechanism: nothing drives it");
+    ended(standIns.get(5))
+        .named("stranger → out")
+        .refused()
+        .because(MoveReason.REFUSED_AS_BUILT)
+        .saying("stranger isn't one of joints' joints");
     assertThat(standInGates).allMatch(gate -> !gate.getAsBoolean());
     assertThat(standInGates.get(1).why())
         .isEqualTo("hatch ready is false: hatch has no mechanism: nothing drives it");

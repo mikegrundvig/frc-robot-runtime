@@ -5,7 +5,9 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.record.BindingFired;
 import com.michaelgrundvig.frc.world.record.BindingStart;
+import com.michaelgrundvig.frc.world.record.Identity;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -189,6 +191,7 @@ class BindingsTest {
     operatorPad.notifyNewData();
     loop();
     List<Binding> released = bindings.fired();
+    List<BindingFired> releasedFacts = bindings.firedRecorded();
 
     assertThat(atStart)
         .as("released as the robot starts, as v3 takes it")
@@ -198,7 +201,35 @@ class BindingsTest {
     assertThat(intaking).isTrue();
     assertThat(held).as("only the loop it's pressed").isEmpty();
     assertThat(released).extracting(Binding::command).containsExactly("Hold", "Both");
+    // What the log holds of the two: each by its place in the list of bindings, on the operator's
+    // port, the first on a trigger and the second on buttons together, with how each starts.
+    assertThat(releasedFacts)
+        .containsExactly(
+            new BindingFired(
+                1, 1, BindingFired.Control.RIGHT_TRIGGER, Identity.NONE, BindingStart.ON_RELEASE),
+            new BindingFired(
+                2, 1, BindingFired.Control.COMBINED, Identity.NONE, BindingStart.ON_PRESS));
     assertThat(scheduler.isRunning(intake)).isFalse();
+  }
+
+  /** A binding on one button says which button, as WPILib's gamepad numbers its buttons. */
+  @Test
+  void aBindingOnAButtonIsLoggedWithTheButtonsNumber() {
+    GamepadSim driverPad = new GamepadSim(0);
+    driver.faceDown().onTrue(named("Stow"));
+    loop();
+
+    press(driverPad, true);
+    loop();
+
+    assertThat(bindings.firedRecorded())
+        .containsExactly(
+            new BindingFired(
+                0,
+                0,
+                BindingFired.Control.BUTTON,
+                Gamepad.Button.FACE_DOWN.value,
+                BindingStart.ON_PRESS));
   }
 
   /** A binding made inside a running command lives only as long as it, and isn't recorded. */

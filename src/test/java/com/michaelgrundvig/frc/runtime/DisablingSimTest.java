@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.FEEDER;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.PIVOT;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.PIVOT_OUT;
@@ -161,9 +162,8 @@ class DisablingSimTest {
     sim.run(1);
 
     assertThat(whereItWasLeft).isBetween(20.0, 60.0);
-    assertThat(out.reason())
-        .as("the rest of the way, where the whole swing takes 0.60 s")
-        .matches("pivot → out: ARRIVED in 0\\.5\\d s");
+    // The rest of the way, where the whole swing takes 0.60 s.
+    ended(out).arrived().inBetween(0.5, 0.6);
     assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
   }
 
@@ -191,8 +191,8 @@ class DisablingSimTest {
     assertThat(endedWhileDisabled)
         .as("disabled far longer than either deadline, twice a profile and half a second")
         .isFalse();
-    assertThat(out.reason()).isEqualTo("pivot → out: ARRIVED in 0.60 s");
-    assertThat(ahead.reason()).matches("drive → .*: ARRIVED in \\d\\.\\d\\d s");
+    ended(out).arrived().in(0.60);
+    ended(ahead).arrived().inBetween(0, 10);
     assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
     assertThat(metersFrom(stood)).isCloseTo(1, within(0.05));
   }
@@ -435,8 +435,11 @@ class DisablingSimTest {
     assertThat(runningInTeleop).containsExactly("Drive with the sticks");
     assertThat(sim.autos().lastRun().orElseThrow().describe())
         .isEqualTo("Grab and shoot: CUT OFF after 1.00 s, as autonomous ended");
-    assertThat(sim.joints().of(ROLLER).lastOutcome())
-        .isEqualTo("roller: intaking until piece in: CANCELED after 0.98 s");
+    ended(sim.joints().of(ROLLER))
+        .named("roller: intaking until piece in")
+        .canceled()
+        .after(0.98)
+        .forNoReason();
     assertThat(truth.velocity(ROLLER)).as("idle, it stops").isCloseTo(0, within(1.0));
     assertThat(degrees(truth.position(PIVOT))).as("idle, it holds out").isCloseTo(130, within(2.0));
   }
@@ -462,8 +465,11 @@ class DisablingSimTest {
     assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
     assertThat(sim.autos().lastRun().orElseThrow().describe())
         .isEqualTo("Grab and shoot: CUT OFF after 1.00 s, as autonomous ended");
-    assertThat(sim.joints().of(ROLLER).lastOutcome())
-        .isEqualTo("roller: intaking until piece in: CANCELED after 0.98 s");
+    ended(sim.joints().of(ROLLER))
+        .named("roller: intaking until piece in")
+        .canceled()
+        .after(0.98)
+        .forNoReason();
     assertThat(running()).containsExactly("Drive with the sticks");
     assertThat(truth.velocity(ROLLER)).as("idle, it stays stopped").isCloseTo(0, within(1.0));
   }
@@ -493,10 +499,13 @@ class DisablingSimTest {
 
     assertThat(runningInUtility).contains("Intake", "roller: intaking until piece in");
     assertThat(intakingInUtility).isCloseTo(2000 * RPM, within(20.0));
-    assertThat(sim.joints().of(ROLLER).lastOutcome())
-        .as("the move to in took the pivot from Intake, as it would in teleop")
-        .isEqualTo("roller: intaking until piece in: CANCELED after 2.50 s");
-    assertThat(in.reason()).isEqualTo("pivot → in: ARRIVED in 0.60 s");
+    // The move to in took the pivot from Intake, as it would in teleop.
+    ended(sim.joints().of(ROLLER))
+        .named("roller: intaking until piece in")
+        .canceled()
+        .after(2.50)
+        .forNoReason();
+    ended(in).arrived().in(0.60);
   }
 
   /**

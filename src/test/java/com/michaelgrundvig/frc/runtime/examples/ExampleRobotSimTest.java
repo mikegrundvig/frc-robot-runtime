@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ARM;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.CLAW_BEAM;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.ELEVATOR;
@@ -435,8 +436,7 @@ class ExampleRobotSimTest {
     assertThat(running).as("intaking, 2000 rpm").isCloseTo(2000 * 2 * Math.PI / 60, within(20.0));
     assertThat(stillRunning).isTrue();
     assertThat(sim.scheduler.isRunning(intakeOne)).isFalse();
-    assertThat(roller.lastOutcome())
-        .startsWith("roller: intaking until coral in claw: ARRIVED in ");
+    ended(roller).named("roller: intaking until coral in claw").arrived();
     assertThat(sim.simulation.velocity(ROLLER)).as("idle, it stops").isCloseTo(0, within(1.0));
   }
 }

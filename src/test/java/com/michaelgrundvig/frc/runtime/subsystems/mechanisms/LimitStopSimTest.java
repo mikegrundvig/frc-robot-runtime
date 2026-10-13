@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROLLER;
@@ -58,7 +59,7 @@ class LimitStopSimTest {
     sim.runUntil(() -> back.outcome().isPresent(), 5);
 
     assertThat(back.outcome()).contains(Outcome.TIMED_OUT);
-    assertThat(back.reason()).contains("held: turret right tripped");
+    assertThat(Held.switchesThatHeld(ended(back).facts())).containsExactly(TURRET_RIGHT);
     assertThat(turretDegrees()).as("stopped past 90°, braking").isBetween(90.0, 100.0);
 
     Move front = turret.goTo(TURRET_FRONT);
@@ -88,7 +89,7 @@ class LimitStopSimTest {
     sim.run(push, 3);
 
     assertThat(turretDegrees()).isBetween(90.0, 92.0);
-    assertThat(turret.heldBy()).isEqualTo("turret right tripped");
+    assertThat(Held.switchesHolding(turret)).containsExactly(TURRET_RIGHT);
   }
 
   /** A turret run at shares of the battery, either way, its own switch at 90° on its right. */
@@ -153,7 +154,7 @@ class LimitStopSimTest {
 
     assertThat(Math.toDegrees(spun.simulation.position(SPUN))).isCloseTo(95, within(0.5));
     assertThat(spun.simulation.velocity(SPUN)).isCloseTo(0, within(0.01));
-    assertThat(turret.heldBy()).isEqualTo("turret right tripped");
+    assertThat(Held.switchesHolding(turret)).containsExactly(SPUN_RIGHT);
   }
 
   /**
@@ -169,6 +170,6 @@ class LimitStopSimTest {
     spun.run(pushed.toward(turret, false), 0.5);
 
     assertThat(Math.toDegrees(spun.simulation.position(SPUN))).isLessThan(50);
-    assertThat(turret.heldBy()).isEmpty();
+    assertThat(turret.holders()).isEmpty();
   }
 }

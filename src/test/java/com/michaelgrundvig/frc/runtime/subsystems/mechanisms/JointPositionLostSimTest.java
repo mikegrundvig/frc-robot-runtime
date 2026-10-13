@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
@@ -16,6 +17,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Position;
@@ -200,13 +202,7 @@ class JointPositionLostSimTest {
           .isGreaterThan(0.01);
       assertThat(moving).isEqualTo(new Did(List.of(""), List.of()));
       assertThat(there.outcome()).contains(Outcome.REFUSED);
-      assertThat(there.reason())
-          .isEqualTo(
-              there.name()
-                  + ": REFUSED: can't go on: "
-                  + label
-                  + "'s position stopped being a number: check its encoder and its motor"
-                  + " controller's settings");
+      ended(there).refused().partWay().because(MoveReason.POSITION_LOST).about(label);
       assertThat(lostFor)
           .as("neutral with nowhere to hold")
           .isEqualTo(new Did(List.of(label + "'s position isn't a number"), List.of(doubt)));

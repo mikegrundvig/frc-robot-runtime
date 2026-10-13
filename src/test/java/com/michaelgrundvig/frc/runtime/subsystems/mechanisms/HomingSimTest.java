@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ELEVATOR_CLEAR;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
@@ -17,6 +18,9 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveOutcome;
+import com.michaelgrundvig.frc.world.record.MoveReason;
+import com.michaelgrundvig.frc.world.record.MoveTarget;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
@@ -139,7 +143,7 @@ class HomingSimTest {
 
     assertThat(waitingOn).isEqualTo(JointMechanism.State.HOMING);
     assertThat(clear.outcome()).contains(Outcome.CANCELED);
-    assertThat(clear.reason()).startsWith("elevator → clear: CANCELED after 0.18 s");
+    ended(clear).canceled().after(0.18);
   }
 
   /**
@@ -165,7 +169,7 @@ class HomingSimTest {
 
     String why = "elevator's homing found no stop in 0.3 s, pushing toward its lower one";
     assertThat(clear.outcome()).contains(Outcome.REFUSED);
-    assertThat(clear.reason()).isEqualTo("elevator → clear: REFUSED: " + why);
+    ended(clear).refused().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(home.arrived()).isTrue();
     assertThat(took).isCloseTo(0.30, within(0.03));
     assertThat(elevator.state()).isEqualTo(JointMechanism.State.READY);
@@ -247,8 +251,10 @@ class HomingSimTest {
     sim.scheduler.cancel(follow);
 
     assertThat(waitingOn).isEqualTo(JointMechanism.State.HOMING);
-    assertThat(follow.reason())
-        .matches("elevator follows a target: CANCELED after 0\\.08 s, elevator at -?0(\\.\\d+)? m");
+    ended(follow).named("elevator follows a target").canceled().after(0.08);
+    MoveOutcome followed = ended(follow).partOf(ELEVATOR);
+    assertThat(followed.target()).as("it had chased nothing yet").isEqualTo(MoveTarget.NONE);
+    assertThat(Math.abs(followed.position())).as("still at its stop, in meters").isLessThan(1);
   }
 
   /**
@@ -277,12 +283,12 @@ class HomingSimTest {
     double bounded = sim.runUntil(() -> preset.outcome().isPresent(), 2);
 
     String why = "elevator's homing found no stop in 0.3 s, pushing toward its lower one";
-    assertThat(clear.reason()).isEqualTo("elevator → clear: REFUSED: " + why);
+    ended(clear).refused().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(waited).isCloseTo(0.32, within(0.03));
-    assertThat(home.reason()).isEqualTo("elevator homes: REFUSED: " + why);
+    ended(home).named("elevator homes").refused().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(homed).isCloseTo(0.32, within(0.03));
     assertThat(canceled.outcome()).contains(Outcome.CANCELED);
-    assertThat(preset.reason()).isEqualTo("elevator → clear: REFUSED: " + why);
+    ended(preset).refused().because(MoveReason.JOINT_FAULTED).saying(why);
     assertThat(bounded).as("its homing's 0.3 s").isCloseTo(0.32, within(0.03));
   }
 
@@ -317,7 +323,7 @@ class HomingSimTest {
 
     sim.run(home, 0.1);
 
-    assertThat(home.reason()).isEqualTo("pivot homes: ARRIVED in 0.00 s");
+    ended(home).named("pivot homes").arrived().in(0.00);
   }
 
   /**
@@ -342,13 +348,13 @@ class HomingSimTest {
     sim.run(0.1);
     JointMechanism.State homing = pivot.state();
     double whileHoming = sim.simulation.velocity(ROLLER);
-    String heldBy = roller.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(roller);
     String unknown = run.why();
     sim.run(1.5);
 
     assertThat(homing).isEqualTo(JointMechanism.State.HOMING);
     assertThat(whileHoming).isCloseTo(0, within(0.5));
-    assertThat(heldBy).isEqualTo("roller runs only when pivot at least run");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
     assertThat(unknown).isEqualTo("pivot at least run is false: pivot doesn't know where it is");
     assertThat(run.getAsBoolean()).as("known past run, once homed").isTrue();
     assertThat(pivot.state()).isEqualTo(JointMechanism.State.READY);

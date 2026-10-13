@@ -67,7 +67,7 @@ class SensorInterlocksSimTest {
     sim.sensors.trip(CLAW_BEAM, true);
     sim.run(1);
     double tripped = sim.simulation.velocity(ROLLER);
-    String heldBy = roller.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(roller);
 
     sim.sensors.trip(CLAW_BEAM, false);
     sim.sensors.silence(CLAW_BEAM, true);
@@ -75,7 +75,7 @@ class SensorInterlocksSimTest {
 
     assertThat(running).as("1500 rpm through 3:1, in rad/s").isGreaterThan(40);
     assertThat(tripped).isCloseTo(0, within(1.0));
-    assertThat(heldBy).isEqualTo("roller runs only when claw beam clear");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(roller));
     assertThat(sim.simulation.velocity(ROLLER)).as("lost: held").isCloseTo(0, within(1.0));
   }
 
@@ -90,14 +90,13 @@ class SensorInterlocksSimTest {
     sim.scheduler.schedule(out);
     sim.run(1.5);
     double waiting = Math.toDegrees(sim.simulation.position(PIVOT));
-    String heldBy = pivot.heldBy();
+    List<Interlock> heldBy = Held.interlocksHolding(pivot);
 
     sim.sensors.see(REEF, Meters.of(0.8));
     sim.runUntil(() -> out.outcome().isPresent(), 3);
 
     assertThat(waiting).as("at the band's edge").isCloseTo(60, within(2.0));
-    assertThat(heldBy)
-        .isEqualTo("pivot keeps out of 60° to 90° while reef range nearer than 0.300 m");
+    assertThat(heldBy).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
     assertThat(out.arrived()).isTrue();
   }
 
@@ -128,8 +127,7 @@ class SensorInterlocksSimTest {
     assertThat(Math.toDegrees(held)).as("inside the band").isBetween(60.0, 90.0);
     assertThat(goals).as("one point, worked out once").containsOnly(held);
     assertThat(sim.simulation.position(PIVOT)).isCloseTo(held, within(Math.toRadians(1)));
-    assertThat(pivot.heldBy())
-        .isEqualTo("pivot keeps out of 60° to 90° while reef range nearer than 0.300 m");
+    assertThat(Held.interlocksHolding(pivot)).hasSize(1).isEqualTo(Held.interlocksOn(pivot));
   }
 
   /** An interlock on a sensor the robot doesn't have is refused as the definition is built. */

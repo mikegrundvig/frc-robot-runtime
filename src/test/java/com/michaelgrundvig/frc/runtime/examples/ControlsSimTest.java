@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.CLAW_BEAM;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.FEEDER;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.INDEXER;
@@ -86,8 +87,7 @@ class ControlsSimTest {
     sim.run(1);
 
     assertThat(intaking).as("intaking").isCloseTo(2000 * RPM, within(20.0));
-    assertThat(sim.joints().of(ROLLER).lastOutcome())
-        .startsWith("roller: intaking until piece in: ARRIVED in ");
+    ended(sim.joints().of(ROLLER)).named("roller: intaking until piece in").arrived();
     assertThat(truth.velocity(ROLLER)).as("idle, it stops").isCloseTo(0, within(1.0));
     assertThat(truth.position(PIVOT)).as("held out").isCloseTo(Math.toRadians(130), within(0.03));
   }
@@ -109,10 +109,9 @@ class ControlsSimTest {
     sim.run(1.5);
 
     assertThat(intaking).as("intaking").isCloseTo(2000 * RPM, within(20.0));
-    assertThat(sim.joints().of(ROLLER).lastOutcome())
-        .startsWith("roller: intaking until piece in: CANCELED after ");
+    ended(sim.joints().of(ROLLER)).named("roller: intaking until piece in").canceled();
     assertThat(truth.velocity(ROLLER)).as("idle, it stops").isCloseTo(0, within(1.0));
-    assertThat(sim.joints().of(PIVOT).lastOutcome()).startsWith("pivot → in: ARRIVED in ");
+    ended(sim.joints().of(PIVOT)).named("pivot → in").arrived();
     assertThat(truth.position(PIVOT)).isCloseTo(Math.toRadians(1.5), within(0.03));
   }
 
@@ -138,7 +137,7 @@ class ControlsSimTest {
     sim.run(1);
 
     assertThat(timedOut).startsWith("pivot → out: TIMED_OUT after ").contains("pivot at ");
-    assertThat(pivot.lastOutcome()).startsWith("pivot → in: ARRIVED in ");
+    ended(pivot).named("pivot → in").arrived();
     assertThat(truth.position(PIVOT)).isCloseTo(Math.toRadians(1.5), within(0.03));
   }
 

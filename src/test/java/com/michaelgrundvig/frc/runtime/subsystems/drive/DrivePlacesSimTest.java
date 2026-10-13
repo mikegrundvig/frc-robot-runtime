@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.drive;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
@@ -11,6 +12,7 @@ import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -76,7 +78,7 @@ class DrivePlacesSimTest {
 
       run(go);
 
-      assertThat(go.reason()).startsWith("drive → Mark: ARRIVED in ");
+      ended(go).named("drive → Mark").arrived();
       assertAt(MARK.on(RobotSim.FIELD, alliance));
     }
     assertThat(MARK.on(RobotSim.FIELD, Alliance.RED).getX())
@@ -98,7 +100,7 @@ class DrivePlacesSimTest {
 
     assertThat(onBlue.getX()).as("started as blue").isCloseTo(6.8, within(0.03));
     assertThat(truth().getX()).as("the same move again, started as red").isGreaterThan(9.7);
-    assertThat(go.reason()).startsWith("drive → Mark: ARRIVED in ");
+    ended(go).named("drive → Mark").arrived();
   }
 
   /** With the alliance unknown when it starts, it is refused, saying so, and the robot stays. */
@@ -113,9 +115,17 @@ class DrivePlacesSimTest {
     run(path);
 
     assertThat(go.outcome()).contains(Outcome.REFUSED);
-    assertThat(go.reason()).isEqualTo("drive → Mark: REFUSED: alliance unknown");
+    ended(go)
+        .named("drive → Mark")
+        .refused()
+        .because(MoveReason.PATH_NOT_PLANNED)
+        .saying("alliance unknown");
     assertThat(path.outcome()).contains(Outcome.REFUSED);
-    assertThat(path.reason()).isEqualTo("drive → Ahead → Mark: REFUSED: alliance unknown");
+    ended(path)
+        .named("drive → Ahead → Mark")
+        .refused()
+        .because(MoveReason.PATH_NOT_PLANNED)
+        .saying("alliance unknown");
     assertThat(truth().getTranslation().getDistance(MIDDLE.getTranslation())).isLessThan(0.01);
   }
 
@@ -130,7 +140,7 @@ class DrivePlacesSimTest {
 
       run(path);
 
-      assertThat(path.reason()).startsWith("drive → ahead → mark: ARRIVED in ");
+      ended(path).named("drive → ahead → mark").arrived();
       assertAt(MARK.on(RobotSim.FIELD, alliance));
     }
   }

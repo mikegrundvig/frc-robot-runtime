@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
@@ -10,6 +11,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -81,8 +83,7 @@ class JointFaultsSimTest {
     loopUntil(() -> out.outcome().isPresent());
 
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason())
-        .isEqualTo("pivot → out: REFUSED: pivot isn't answering: its motor controllers are silent");
+    ended(out).refused().beforeItBegan().because(MoveReason.JOINT_NOT_ANSWERING);
 
     simulation.silence(PIVOT, false);
     Move again = pivot.goTo(PIVOT_OUT);
@@ -107,10 +108,7 @@ class JointFaultsSimTest {
     loopUntil(() -> out.outcome().isPresent());
 
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason())
-        .isEqualTo(
-            "pivot → out: REFUSED: can't go on: pivot isn't answering: its motor controllers are"
-                + " silent");
+    ended(out).refused().partWay().because(MoveReason.JOINT_NOT_ANSWERING);
     assertThat(Math.toDegrees(simulation.position(PIVOT)))
         .as("it was not driven toward out, at 130°")
         .isLessThan(5);
@@ -131,10 +129,11 @@ class JointFaultsSimTest {
 
     assertThat(pivot.state()).isEqualTo(JointMechanism.State.FAULTED);
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason())
-        .isEqualTo(
-            "pivot → out: REFUSED: pivot's motor 11 didn't take its settings: check its CAN ID and"
-                + " wiring, then restart the robot");
+    ended(out)
+        .refused()
+        .because(MoveReason.JOINT_FAULTED)
+        .saying(
+            "pivot's motor 11 didn't take its settings: check its CAN ID and wiring, then restart the robot");
   }
 
   @Test
@@ -149,10 +148,7 @@ class JointFaultsSimTest {
     loopUntil(() -> out.outcome().isPresent());
 
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason())
-        .isEqualTo(
-            "pivot → out: REFUSED: can't go on: pivot isn't answering: its motor controllers are"
-                + " silent");
+    ended(out).refused().partWay().because(MoveReason.JOINT_NOT_ANSWERING);
   }
 
   /** One loop, with the robot enabled or not. */

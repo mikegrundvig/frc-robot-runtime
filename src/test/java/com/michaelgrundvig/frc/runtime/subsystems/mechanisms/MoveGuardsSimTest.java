@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT_OUT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.ROBOT;
@@ -13,6 +14,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -32,7 +34,7 @@ class MoveGuardsSimTest {
     sim.run(out, 0.5);
 
     assertThat(out.outcome()).contains(Outcome.REFUSED);
-    assertThat(out.reason()).isEqualTo("pivot → out: REFUSED: intake clear is false");
+    ended(out).refused().because(MoveReason.GATE_FALSE).saying("intake clear is false");
     assertThat(Math.toDegrees(sim.simulation.position(PIVOT))).isCloseTo(1.5, within(1.0));
   }
 
@@ -65,9 +67,11 @@ class MoveGuardsSimTest {
 
     assertThat(feeding).isGreaterThan(100);
     assertThat(feed.outcome()).contains(Outcome.CANCELED);
-    assertThat(feed.reason())
-        .startsWith("roller: intaking: CANCELED after 0.5")
-        .endsWith(": ready to shoot is false: shooter at goal");
+    ended(feed)
+        .canceled()
+        .inBetween(0.5, 0.6)
+        .because(MoveReason.GATE_FELL)
+        .saying("ready to shoot is false: shooter at goal");
     assertThat(sim.simulation.velocity(ROLLER)).isCloseTo(0, within(0.5));
   }
 
@@ -78,7 +82,7 @@ class MoveGuardsSimTest {
     sim.run(feed, 0.2);
 
     assertThat(feed.outcome()).contains(Outcome.REFUSED);
-    assertThat(feed.reason()).isEqualTo("roller: intaking: REFUSED: intake clear is false");
+    ended(feed).refused().because(MoveReason.GATE_FALSE).saying("intake clear is false");
   }
 
   @Test

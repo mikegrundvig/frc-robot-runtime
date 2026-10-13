@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
+import static com.michaelgrundvig.frc.runtime.Ended.ended;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.PIVOT;
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.TURRET_FRONT;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,6 +11,7 @@ import static org.wpilib.units.Units.Radians;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
+import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.Position;
@@ -148,10 +150,11 @@ class TurretTurnsSimTest {
     assertThat(wrapped.arrived()).isTrue();
     assertThat(first).isCloseTo(-160, within(2.0));
     assertThat(outside.outcome()).contains(Outcome.REFUSED);
-    assertThat(outside.reason())
-        .isEqualTo(
-            "turret → 165°: REFUSED: 165°, at every turn of it, is outside turret's limits,"
-                + " -190° to 160°");
+    ended(outside)
+        .named("turret → 165°")
+        .refused()
+        .because(MoveReason.TARGET_UNREACHABLE)
+        .saying("165°, at every turn of it, is outside turret's limits, -190° to 160°");
     assertThat(degrees(limited)).isCloseTo(160, within(2.0));
   }
 
@@ -184,7 +187,10 @@ class TurretTurnsSimTest {
     runToEnd(sim, far, 1);
 
     assertThat(far.outcome()).contains(Outcome.REFUSED);
-    assertThat(far.reason())
-        .isEqualTo("pivot → 370°: REFUSED: 370° is outside pivot's limits, 0° to 135°");
+    ended(far)
+        .named("pivot → 370°")
+        .refused()
+        .because(MoveReason.TARGET_UNREACHABLE)
+        .saying("370° is outside pivot's limits, 0° to 135°");
   }
 }
