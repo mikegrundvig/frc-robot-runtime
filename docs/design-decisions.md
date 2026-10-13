@@ -762,6 +762,12 @@ keeps a stale one. Here a match always runs the committed configuration. The pag
 install and no layout file, and it is the same in the simulator, so a student can learn it before
 the robot exists.
 
+The World view is drawn the same way since 2026-10-13: from the log, by Pitwall, as a function of
+the robot's definition, the field and one loop's record. Before that the runtime drew it from its
+own live objects, so it showed the present only, and the two views could not show the same moment.
+Now both follow one cursor. The cost is in the log: the covariance, the estimator's tally, a count
+of placements, and each camera's tags as facts with their measurements beside them.
+
 The Robot view is there because a simulator is of little use unless you can see what the simulated
 robot is doing, and the model's geometry is boxes, which say little in 3D. A view of what the
 program believes and why, drawn from the model, says more: "the roller is waiting for the pivot" is
@@ -774,7 +780,8 @@ several top teams' public code tunes live through logged tunable numbers and sav
 robot. The page has never been used in a real pit, and what its web server costs the loop on a
 Systemcore has not been measured. The Robot view's part is measured in the simulator and nowhere
 else: taking a loop of the log costs about 25 microseconds on the log's own thread and allocates
-nothing, and the five minutes it keeps take 12 MB for a robot with eight joints.
+nothing while the robot's facts stand, and the five minutes it keeps take 22 MB for a robot with
+eight joints and four cameras, of which 10 MB is where the robot was and what its cameras saw.
 
 **What it costs.** It is one more tool, and no other team uses it. The paste step can be forgotten,
 and the change is then gone when the field connects. That is safe, and it will surprise someone who
@@ -782,9 +789,8 @@ saw it work in the pit. The page is not reachable through the field network, on 
 tuned on the field. Pitwall can no longer be used without the model, and a change to the keys the
 runtime logs has to be made in Pitwall's list of them too.
 
-**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places. The
-World view following the Robot view's timeline: it shows the present only, and says so while the
-Robot view shows an earlier loop. Opening a saved log stays AdvantageScope's job.
+**Not built yet.** Live tuning of a joint's feedforward, its profile and its named places. Opening
+a saved log stays AdvantageScope's job.
 
 **What would change our mind.** A pit crew that keeps losing tuned values at the paste step. Or a
 dashboard teams already know that does the same job and shows the change to commit.

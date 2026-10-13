@@ -88,6 +88,7 @@ a log and the simulator connected this way name every value alike.
 | Its uncertainty | `Localization/Ellipse`: the 99.9% ellipse (3.72 standard deviations, where the consistency study's "outside the ellipse" begins), a closed outline of 17 poses; nothing while it's wider than the field |
 | The truth (simulator only) | `Sim/TruePose`, and `Sim/TruePose3d`, raised and tilted as the robot really is |
 | Each camera's tags | `Vision/<camera>/AcceptedTags` and `RejectedTags`: this loop's tags where the field's layout has them, by what became of their images; `RejectedReasons`, why each refused one was, in the same order |
+| What Pitwall's World view is drawn from, at any loop | `Localization/Pose3d`, `Covariance` (the position's covariance and the heading's variance: xx, xy, yy, heading), `Mode`, `Accepted`, `Rejected`, `VisionAgeSeconds`, `Recoveries`, `Placements` and `PlacedBecause`; `Drive/ModuleVelocities`; `Sim/TruePose3d`; and for each camera `Vision/<camera>/Sightings`, its tags as facts (the tag, which image, what became of it, and its verdict and solver by their numbers in localization's lists), written when they change, with `SightingNumbers` beside them: seven numbers for each tag of this loop (the verdict's value and its limit, the innovation, χ², and the measured pose's x, y and heading), empty in a loop without an image |
 | The wheels | `Drive/ModulePoses`: each wheel's center in the robot's frame, turned to its measured angle, which turns the model's wheels |
 | The slip check | `Localization/SlipMetersPerSecond`, `TurnSlipMetersPerSecond`, `SpeedSlipMetersPerSecond`, `SlideMetersPerSecond`, `TurnApartDegrees`, `CollisionShare` |
 
@@ -411,10 +412,12 @@ Pitwall's *World* view (http://localhost:5820/#world) draws what the robot progr
 what the simulator knows: the robot where localization puts it, its uncertainty as a dashed
 ellipse, and the truth as a dashed ghost, so the gap a fault opens shows as it opens. Each camera's
 sight lines to the tags it saw are solid where the estimator accepted the measurement and dashed
-where it refused it; a click on one says why (the verdict, the innovation, χ², the distance), and
-*Hold* freezes the drawing so a line that came and went can still be clicked. *Follow* keeps the
-robot in view; *Top* is the map, *3D* turns around it. The same view works on a robot, without the
-truth. How it's built, and how to add to it: [pitwall/README.md](../pitwall/README.md).
+where it refused it; a click on one says why (the verdict, the innovation, χ², the distance). The
+view follows the page's cursor, as the Robot view does: the time strip under it goes back through
+the last five minutes, loop by loop or event by event (a refused measurement, the estimate lost, a
+recovery), so a line that came and went is found again and clicked. The legend beside the drawing
+says what each mark means and switches each layer. *Follow* keeps the robot in view; *Top* is the
+map, *3D* turns around it. The same view works on a robot, without the truth. How it's built, and how to add to it: [pitwall/README.md](../pitwall/README.md).
 
 ## How it's built
 
