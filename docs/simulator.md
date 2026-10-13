@@ -257,12 +257,12 @@ nothing undoes it. The robot's code is never told: it finds out from its sensors
 | | Worn tread: its wheel's true radius over the configured one | lasts | scale |
 | | Slips: spins without moving the robot | happens | turns |
 | | Spinning: its wheel keeps spinning faster than the floor moves it, as one losing its grip does | lasts | speed (m/s) |
-| Robot | Shoved, without its wheels turning; only its gyro feels a turn | happens | forward, left (m), turn (°) |
+| Robot | Shoved, without its wheels turning; only its gyro feels a turn. It stops at a wall or an element | happens | forward, left (m), turn (°) |
 | | Pushed, its wheels skidding: they never see it, and its IMU feels the push get going and stop (3 m/s²) | lasts | forward, left (m/s) |
 | | Hit, with a 4 g jolt its IMU feels | happens | forward, left (m) |
 | | Tilted by hand, whatever the ground | lasts | pitch, roll (°) |
 | | Slipping: only a share of its wheels' rolling moves it | lasts | grip |
-| | Placed, as the drive team carries it | happens | x, y (m), heading (°) |
+| | Placed, as the drive team carries it. Inside an element, it is set down beside it | happens | x, y (m), heading (°) |
 | | Carried to the nearest bump, facing across it | happens | |
 | Field | Tag moved: one tag, from where the field was built; moving another puts it back. The robot's code and the cameras' multi-tag solves still believe the layout | lasts | tag (its ID), x, y, up (in), in the field's frame |
 
@@ -420,6 +420,36 @@ reader is free.
 **Changes show a loop later:** the robot program sees a Driver Station change as its next loop
 begins, as with a real Driver Station; *Sim* shows the simulator's answer.
 
+## The robot stops at things
+
+A season's field has walls and elements (the hub, the trenches' columns, the tower, an outpost's
+face), and the simulated robot stops at them. Each physics step, the robot's bumper outline is
+checked against the field's outline and against the footprint of every element that reaches into
+the height of its bumpers. Where the bumpers would be inside one, the robot is moved straight back
+out of it and loses the part of its speed that went in. So it stops against what it meets head on
+and slides along what it meets at an angle. It never bounces, and it never ends up inside
+anything. A corner that swings into a wall as the robot turns pushes the robot off the wall.
+
+Its wheels keep turning. Nothing tells them the robot has stopped, so the encoders count on and
+wheel odometry runs ahead of the robot, as it does on a real robot whose wheels spin against a
+wall. The IMU reads the truth: a sharp stop at contact, then no travel. That is what the estimator
+has to work with, and the *World* view shows the gap opening: the estimate drives on into the hub
+while the dashed truth sits against its face, until the cameras pull the estimate back.
+
+What is left out: the wall's own friction (the robot slides along it freely), the bumpers' give,
+and the load a stopped robot puts on its drive motors. Only the bumpers touch, so a robot taller
+than a trench's bar still drives under it. Something low enough to drive over is terrain, not an
+element, and the robot rides over it as before.
+
+A robot can't be set down inside something. Placed inside the hub, it is set down against the
+nearest face. Shoved or hit into a wall, it ends against the wall.
+
+A field with no elements is open space, with no walls either. The tests' harness (`RobotSim`)
+plays on the season's field with nothing standing on it (`FieldModel.withoutElements()`), so a test
+drives across the floor without minding where the hub is. A test of what the robot runs into
+builds with the season's own game (`sim.build(robot, Rebuilt::game, controls, errors)`). What an element is, and how a season's field writes
+them: the model's README.
+
 ## Seeing it: the *World* view
 
 Pitwall's *World* view (http://localhost:5820/#world) draws what the robot program believes, beside
@@ -430,7 +460,9 @@ where it refused it; a click on one says why (the verdict, the innovation, χ²,
 view follows the page's cursor, as the Robot view does: the time strip under it goes back through
 the last five minutes, loop by loop or event by event (a refused measurement, the estimate lost, a
 recovery), so a line that came and went is found again and clicked. The legend beside the drawing
-says what each mark means and switches each layer. *Follow* keeps the robot in view; *Top* is the
+says what each mark means and switches each layer. What stands on the field is drawn solid, and each
+AprilTag shows the side it is read from: a dark face with a tick standing out of it, and a faint
+back. *Follow* keeps the robot in view; *Top* is the
 map, *3D* turns around it. The same view works on a robot, without the truth. How it's built, and how to add to it: [pitwall/README.md](../pitwall/README.md).
 
 ## How it's built
@@ -475,7 +507,7 @@ start of each what drives each wheel over it; `chassis()` and `wheel(i)` are the
 velocities, every turn the robot made, and each wheel's turn, spin, angle, radius, current, load,
 and contact); `apply` does something to the world from outside it. Its physics,
 `KinematicPhysics`, is the simulator as it has always run: the robot moves as the best fit of its
-wheels' travel, each wheel turning its share of the robot's mass on its own motor (WPILib's
+wheels' travel, stopped at the field's walls and elements (`Contact`), each wheel turning its share of the robot's mass on its own motor (WPILib's
 `DCMotorSim`, worked to the bit, whose matrix exponential, worked once for each length of step, is
 WPILib's native math: the library's tests load it as the robot program's do), within the tread's
 grip, on the plane through its wheels' ground. Putting it behind the interface changed no recorded run by a bit.

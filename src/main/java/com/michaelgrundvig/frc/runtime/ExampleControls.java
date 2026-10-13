@@ -43,7 +43,7 @@ import org.wpilib.math.geometry.Rotation2d;
  */
 public final class ExampleControls {
   // @start region=constructor
-  private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
+  private static final Place PICKUP = Place.at("Pickup", new Pose2d(2, 6, Rotation2d.ZERO));
   private static final Place SHOT = Place.at("Shot", new Pose2d(3, 3, Rotation2d.ZERO));
 
   private final JointMechanism pivot, roller, shooter, feeder, indexer;

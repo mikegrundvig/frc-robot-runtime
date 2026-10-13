@@ -706,7 +706,7 @@ The drivetrain can also drive itself. `drive.goTo(place)` drives to a spot and s
 the two spots the guide's controls use:
 
 ```java
-private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
+private static final Place PICKUP = Place.at("Pickup", new Pose2d(2, 6, Rotation2d.ZERO));
 private static final Place SHOT = Place.at("Shot", new Pose2d(3, 3, Rotation2d.ZERO));
 ```
 
@@ -754,10 +754,10 @@ blue, in the order the moves ended:
 
 ```text
 pivot → out: ARRIVED in 0.60 s
-drive → Pickup: ARRIVED in 2.22 s
-roller: intaking until piece in: CANCELED after 2.22 s
+drive → Pickup: ARRIVED in 2.14 s
+roller: intaking until piece in: CANCELED after 2.14 s
 pivot → in: ARRIVED in 0.60 s
-drive → Shot: ARRIVED in 2.36 s
+drive → Shot: ARRIVED in 2.40 s
 shooter follows a target: CANCELED after 3.00 s, shooter at 3008 rpm, its target 3000 rpm
 feeder and indexer: feeding: CANCELED after 2.38 s
 ```
@@ -788,6 +788,12 @@ The simulator runs the same program on your laptop:
 Nothing in your code changes for the simulator. The joints are simulated from the description,
 with the motors, the gearing and the hard stops you wrote. The drivetrain moves with the weight
 you gave it. The cameras see the tags they would see from where you mounted them.
+
+The field is solid. Drive into the hub, a trench's column, the tower or a wall, and the robot
+stops there. Come at one at an angle and it slides along. Its wheels keep spinning, though, the
+way they do against a real wall. So the encoders keep counting, and the robot's idea of where it
+is drives on without it. Watch that in the World view. The solid shape is where the code thinks
+the robot is. The dashed one is where it really is.
 
 Then open http://localhost:5820 in a browser. That is Pitwall. Its Pit view has the robot's
 status, which includes whether it stands on its start and whether it knows where it is well

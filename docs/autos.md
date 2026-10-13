@@ -12,7 +12,7 @@ the auto's command. This is the guide's robot ([mechanisms](mechanisms.md#where-
 its first auto, from `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleControls.java`:
 
 ```java fragment
-private static final Place PICKUP = Place.at("Pickup", new Pose2d(6, 3, Rotation2d.ZERO));
+private static final Place PICKUP = Place.at("Pickup", new Pose2d(2, 6, Rotation2d.ZERO));
 autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
 
 /** Drives to the pickup with the intake running, then brings the intake in. */
@@ -82,14 +82,16 @@ var results = AutoCheck.check(sim, ExampleRobot.COMPETITION, ExampleControls::ne
 
 It fails, with each run reported, if an auto throws, if any drive or joint move in it ends `REFUSED`,
 if the robot leaves the field, or if the auto can't start: the alliance is unknown, or the placement
-check doesn't read ready on its start. Each run reports where the robot ended and each move's outcome
+check doesn't read ready on its start. The check runs on the season's field with nothing
+standing on it, so it judges the auto's own moves. In the simulator you drive, the hub is solid:
+a move that runs into it ends `TIMED_OUT`, and its outcome line says so. Each run reports where the robot ended and each move's outcome
 line, so a failure reads without a debugger:
 
 ```
-Grab one on RED: ended at (10.53, 5.07) 180.0°, Grab one: COMPLETED in 2.82 s
+Grab one on RED: ended at (14.54, 2.07) 180.0°, Grab one: COMPLETED in 2.74 s
     pivot → out: ARRIVED in 0.60 s
-    drive → Pickup: ARRIVED in 2.22 s
-    roller: intaking until piece in: CANCELED after 2.22 s
+    drive → Pickup: ARRIVED in 2.14 s
+    roller: intaking until piece in: CANCELED after 2.14 s
     pivot → in: ARRIVED in 0.60 s
 ```
 
