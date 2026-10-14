@@ -428,53 +428,56 @@ public final class ExampleRobot {
           .build();
 
   /**
-   * Four cameras as a 2026 competition robot mounted them: two facing forward and out at 23
-   * degrees, two facing backward, all near the frame's sides about 21 in up and tilted up 8 to 12.5
-   * degrees. Positions as that team's 2026 code gives them, from the robot's origin on the floor.
+   * Four cameras, one at each corner of the frame, each facing diagonally outward: 45 degrees from
+   * straight ahead at the front corners, 135 at the back ones. Between them they look all the way
+   * round the robot, so whichever way it faces, some camera has the field's tags in front of it,
+   * and each one looks out past its own corner, away from the rest of the robot. Each lens sits
+   * 11.75 in from the center both ways, 2 in inside the 27.5 in frame's edges, where a camera can
+   * bolt to the frame, 21 in up, level, and tilted up 10 degrees towards the tags.
    */
   private static final List<CameraConfig> CAMERAS =
       List.of(
           CameraConfig.builder()
               .name("front-left")
-              .forward(Inches.of(-7.75))
-              .left(Inches.of(12.25))
+              .forward(Inches.of(11.75))
+              .left(Inches.of(11.75))
               .up(Inches.of(21))
               .roll(Degrees.of(0))
               .tiltUp(Degrees.of(10))
-              .yaw(Degrees.of(23.162))
+              .yaw(Degrees.of(45))
               .sensor(APRILTAG_CAMERA)
               .noiseScale(1.0)
               .build(),
           CameraConfig.builder()
               .name("front-right")
-              .forward(Inches.of(-8.625))
-              .left(Inches.of(-12.25))
-              .up(Inches.of(20.875))
+              .forward(Inches.of(11.75))
+              .left(Inches.of(-11.75))
+              .up(Inches.of(21))
               .roll(Degrees.of(0))
-              .tiltUp(Degrees.of(8.2))
-              .yaw(Degrees.of(-23.162))
+              .tiltUp(Degrees.of(10))
+              .yaw(Degrees.of(-45))
               .sensor(APRILTAG_CAMERA)
               .noiseScale(1.0)
               .build(),
           CameraConfig.builder()
               .name("back-left")
-              .forward(Inches.of(-10.5))
-              .left(Inches.of(12))
+              .forward(Inches.of(-11.75))
+              .left(Inches.of(11.75))
               .up(Inches.of(21))
-              .roll(Degrees.of(-2))
+              .roll(Degrees.of(0))
               .tiltUp(Degrees.of(10))
-              .yaw(Degrees.of(180.985))
+              .yaw(Degrees.of(135))
               .sensor(APRILTAG_CAMERA)
               .noiseScale(1.0)
               .build(),
           CameraConfig.builder()
               .name("back-right")
-              .forward(Inches.of(-11.6875))
-              .left(Inches.of(-12))
-              .up(Inches.of(20.705))
+              .forward(Inches.of(-11.75))
+              .left(Inches.of(-11.75))
+              .up(Inches.of(21))
               .roll(Degrees.of(0))
-              .tiltUp(Degrees.of(12.5))
-              .yaw(Degrees.of(180.985))
+              .tiltUp(Degrees.of(10))
+              .yaw(Degrees.of(-135))
               .sensor(APRILTAG_CAMERA)
               .noiseScale(1.0)
               .build());
