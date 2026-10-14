@@ -492,7 +492,9 @@ the last five minutes, loop by loop or event by event (a refused measurement, th
 recovery), so a line that came and went is found again and clicked. The legend beside the drawing
 says what each mark means and switches each layer. What stands on the field is drawn solid, and each
 AprilTag shows the side it is read from: a dark face with a tick standing out of it, and a faint
-back. *Follow* keeps the robot in view; *Top* is the
+back. Where a robot may start is drawn too, for both alliances: its bumpers as a dashed
+outline on the floor, with the start's name. Click a start for its pose, and *Place the robot here*
+sets the simulated robot down on it, as the *Placed* fault does (a robot's code is not told: its cameras find it). *Follow* keeps the robot in view; *Top* is the
 map, *3D* turns around it. The same view works on a robot, without the truth. How it's built, and how to add to it: [pitwall/README.md](../pitwall/README.md).
 
 ## How it's built
