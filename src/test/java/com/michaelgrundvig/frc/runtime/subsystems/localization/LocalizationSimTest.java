@@ -147,11 +147,15 @@ class LocalizationSimTest {
     }
   }
 
-  /** Knocked 60 cm sideways: the camera disagrees, then keeps disagreeing, and wins. */
+  /**
+   * Knocked 60 cm sideways, unfelt: the camera, reading two tags, disagrees, then keeps
+   * disagreeing, and wins. Two tags agreeing are what tell a shove from a misread, which is of one
+   * tag.
+   */
   @Test
   void aShoveIsCaughtAndTheEstimateRecovers() {
     DriveSimHarness robot = robot(SensorErrors.TYPICAL);
-    robot.watchWith(camera(robot));
+    robot.watchWith(camera(robot).seeing(List.of(26, 27)));
     robot.drive(1.0, 0.3, 0, 0);
 
     robot.simulation.shove(new Transform2d(0, 0.6, Rotation2d.ZERO));

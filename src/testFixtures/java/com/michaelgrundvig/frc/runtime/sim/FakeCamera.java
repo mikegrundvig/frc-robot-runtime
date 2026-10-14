@@ -26,6 +26,7 @@ public final class FakeCamera {
   private final ArrayDeque<VisionMeasurement> inFlight = new ArrayDeque<>();
   private long lastFrameNanos = Long.MIN_VALUE;
   private Transform2d nextLie = Transform2d.ZERO;
+  private List<Integer> tags = List.of(26);
 
   public FakeCamera(
       DriveSimulation robot,
@@ -38,6 +39,15 @@ public final class FakeCamera {
     latencyNanos = Math.round(latencySeconds * 1e9);
     frameNanos = Math.round(1e9 / framesPerSecond);
     noise = new Random(seed);
+  }
+
+  /**
+   * From now on, every result says it was solved from these tags; one tag, the 26th, unless told.
+   * Two tags read rightly are two independent fixes, which a recovery needs from one camera.
+   */
+  public FakeCamera seeing(List<Integer> seen) {
+    tags = List.copyOf(seen);
+    return this;
   }
 
   /** The next picture's result will be off by this much, however sure it claims to be. */
@@ -70,7 +80,7 @@ public final class FakeCamera {
               // on it, as no real camera's heading-constrained solve does.
               VisionMeasurement.Lever.NONE,
               "fake",
-              List.of(26),
+              tags,
               VisionMeasurement.Solver.HEADING_CONSTRAINED));
     }
     List<VisionMeasurement> arrived = new ArrayList<>();
