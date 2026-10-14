@@ -179,6 +179,18 @@ public final class VisionSim implements AutoCloseable {
    */
   private final Map<String, Long> clockOffsets = new LinkedHashMap<>();
 
+  /** The field, which says what stands between a camera and a tag. */
+  private final FieldModel field;
+
+  /**
+   * Whether anything stands on the field to hide a tag. On a field with nothing standing, every
+   * image is taken exactly as it was before elements could hide tags.
+   */
+  private final boolean somethingStandsOnTheField;
+
+  /** A tag's face looks out along its pose's x axis. */
+  private static final Translation3d OUT_OF_A_TAGS_FACE = new Translation3d(1, 0, 0);
+
   /** The field's tags as the cameras see them, by ID, and where each was as the world was built. */
   private final Map<Integer, VisionTargetSim> tags = new LinkedHashMap<>();
 
@@ -213,6 +225,8 @@ public final class VisionSim implements AutoCloseable {
       Noise noise) {
     this.noise = noise;
     this.cameraSeeds = cameraSeeds;
+    this.field = field;
+    somethingStandsOnTheField = !field.elements().isEmpty();
     layout = field.toField();
     List<FieldTag> asBuilt = new ArrayList<>();
     for (FieldTag tag : layout.getTags()) {
@@ -479,11 +493,51 @@ public final class VisionSim implements AutoCloseable {
     long takenNanos = arrivedNanos - Math.round(latencyMillis * NANOS_PER_MILLI);
     Pose3d robotThen = truths.getSample(sinceStart(takenNanos)).orElse(truthNow);
     Pose3d cameraThen = robotThen.plus(mountAt(name, added, takenNanos));
-    PhotonPipelineResult image = camera.process(latencyMillis, cameraThen, targets);
+    List<VisionTargetSim> inSight = targets;
+    if (somethingStandsOnTheField) {
+      inSight = notHidden(cameraThen.getTranslation(), targets);
+    }
+    PhotonPipelineResult image = camera.process(latencyMillis, cameraThen, inSight);
     // A camera whose clock is off the robot's stamps its image as its own clock had it.
     image.metadata.captureTimestampNanos = takenNanos + clockOffsets.getOrDefault(name, 0L);
     image.metadata.publishTimestampNanos = arrivedNanos;
     camera.submitProcessedFrame(image, arrivedNanos);
+  }
+
+  /**
+   * The tags no field element hides from a camera, in the order they were given. PhotonVision's own
+   * simulation then decides which of them the camera sees: in its view, facing it, near enough.
+   *
+   * @param eye where the camera's lens is, in the field frame
+   */
+  List<VisionTargetSim> notHidden(Translation3d eye, List<VisionTargetSim> targets) {
+    List<VisionTargetSim> inSight = new ArrayList<>(targets.size());
+    for (VisionTargetSim target : targets) {
+      if (!isHidden(eye, target)) {
+        inSight.add(target);
+      }
+    }
+    return inSight;
+  }
+
+  /**
+   * Whether a field element hides any of a tag from a camera: its middle or one of its four
+   * corners. A detector finds a tag by its whole black border, so a tag with a corner behind a post
+   * is not found, and PhotonVision reports no part of it. The field model owns the geometry ({@link
+   * FieldModel#hidesOnAFace}); this only asks.
+   */
+  private boolean isHidden(Translation3d eye, VisionTargetSim tag) {
+    Pose3d pose = tag.getPose();
+    Translation3d outOfItsFace = OUT_OF_A_TAGS_FACE.rotateBy(pose.getRotation());
+    if (field.hidesOnAFace(eye, pose.getTranslation(), outOfItsFace)) {
+      return true;
+    }
+    for (Translation3d corner : tag.getFieldVertices()) {
+      if (field.hidesOnAFace(eye, corner, outOfItsFace)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
