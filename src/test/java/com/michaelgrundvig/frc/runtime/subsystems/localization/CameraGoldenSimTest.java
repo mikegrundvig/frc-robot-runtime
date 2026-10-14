@@ -46,8 +46,11 @@ import org.wpilib.system.RobotController;
 class CameraGoldenSimTest {
   static final String GOLDEN = "camera-golden.csv";
 
-  /** In front of the blue hub's near face (tags 25 and 26), facing it. */
-  private static final Pose2d START = new Pose2d(2.5, 4.1, Rotation2d.fromDegrees(10));
+  /**
+   * In front of the blue hub's near face (tags 25 and 26), turned so that the front-right camera,
+   * at its corner and facing 45° out, has the face before it.
+   */
+  private static final Pose2d START = new Pose2d(2.5, 4.1, Rotation2d.fromDegrees(35));
 
   private static final String HEADER =
       "L,loop,x,y,heading,mode,accepted,rejected / I,camera,taken,solved,outcome,x,y,heading,xx,yy,"

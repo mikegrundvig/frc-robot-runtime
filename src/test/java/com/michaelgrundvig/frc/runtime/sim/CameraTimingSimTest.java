@@ -38,7 +38,11 @@ class CameraTimingSimTest {
   /** How fast the robot is carried along the field, m/s: a loop late would be 4 cm. */
   private static final double SPEED = 2.0;
 
-  private static final Pose2d START = new Pose2d(1.5, 4.0, Rotation2d.ZERO);
+  /**
+   * Before blue's hub, turned 45° so that two of the robot's corner cameras look along the field:
+   * one back at the tags on blue's wall, one ahead at the hub's.
+   */
+  private static final Pose2d START = new Pose2d(1.5, 4.0, Rotation2d.fromDegrees(45));
 
   /** Where the robot is carried to, this long after it set off. */
   private static Pose2d carried(long nanos) {

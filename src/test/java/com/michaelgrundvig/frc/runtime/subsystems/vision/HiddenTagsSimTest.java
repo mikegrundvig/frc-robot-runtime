@@ -31,10 +31,10 @@ import org.wpilib.math.geometry.Rotation2d;
 
 /**
  * What stands on the field hides tags from the simulated cameras. The template's robot is taken
- * across the far side of blue's hub, facing away from blue's wall, so that its back-right camera
- * looks back at the two tags on the tower's wall: past the hub on one side, into the hub, and past
- * it on the other. On the season's field with nothing standing on it, the same camera sees both
- * tags the whole way.
+ * across the far side of blue's hub, turned so that its back-right camera, at its corner and facing
+ * 45° out, looks straight back at the two tags on the tower's wall: past the hub on one side, into
+ * the hub, and past it on the other. On the season's field with nothing standing on it, the same
+ * camera sees both tags the whole way.
  */
 @SimulationTest
 class HiddenTagsSimTest {
@@ -56,6 +56,9 @@ class HiddenTagsSimTest {
 
   /** How far from blue's wall the robot crosses: two meters beyond the hub's far face. */
   private static final double CROSSING_X = 6.6;
+
+  /** The heading that points the back-right camera, 135° to the robot's right, at blue's wall. */
+  private static final Rotation2d BACK_RIGHT_TO_BLUES_WALL = Rotation2d.fromDegrees(-45);
 
   /** The tags one camera reports from a pose, with exact cameras, once its images have come. */
   private static Set<Integer> seen(FieldModel field, CameraConfig config, Pose2d robot) {
@@ -88,13 +91,13 @@ class HiddenTagsSimTest {
             "before the hub, to the drivers' right of it", 2.5, TowerTags.IN_SIGHT),
         Arguments.argumentSet("behind the hub", 4.0, TowerTags.BEHIND_THE_HUB),
         Arguments.argumentSet("still behind it", 4.5, TowerTags.BEHIND_THE_HUB),
-        Arguments.argumentSet("past the hub, to the drivers' left of it", 6.0, TowerTags.IN_SIGHT));
+        Arguments.argumentSet("past the hub, to the drivers' left of it", 5.7, TowerTags.IN_SIGHT));
   }
 
   @ParameterizedTest
   @MethodSource("alongTheCrossing")
   void theHubHidesTheTowersTagsWhileItIsBetweenThemAndTheCamera(double y, TowerTags towerTags) {
-    Pose2d robot = new Pose2d(CROSSING_X, y, Rotation2d.ZERO);
+    Pose2d robot = new Pose2d(CROSSING_X, y, BACK_RIGHT_TO_BLUES_WALL);
 
     assertThat(seen(RobotSim.FIELD, BACK_RIGHT, robot))
         .as("with nothing standing on the field")
@@ -107,24 +110,64 @@ class HiddenTagsSimTest {
   }
 
   /**
-   * What each camera reports from each of the season's starts, on blue: the same as on the open
-   * floor but for one tag. From the Center start, the tower's own upright stands between the
-   * back-left camera and tag 32 on the tower's wall.
+   * The tags one camera sees from one of the season's starts, on blue.
+   *
+   * @param start the start's name
+   * @param camera the camera's name
+   * @param onOpenFloor the tags it sees with nothing standing on the field
+   * @param onTheSeasonsField the tags it sees with the season's elements standing
    */
+  private record Sight(
+      String start, String camera, Set<Integer> onOpenFloor, Set<Integer> onTheSeasonsField) {
+    /** A camera that sees the same tags on both fields: nothing stands in its way. */
+    static Sight clear(String start, String camera, Integer... tags) {
+      return new Sight(start, camera, Set.of(tags), Set.of(tags));
+    }
+
+    /** A camera whose tags all have something standing before them on the season's field. */
+    static Sight hidden(String start, String camera, Integer... tags) {
+      return new Sight(start, camera, Set.of(tags), Set.of());
+    }
+  }
+
+  /**
+   * What the cameras see from the starts. A camera with no row sees no tag from that start on
+   * either field.
+   *
+   * <p>The back cameras look back at blue's wall with nothing in the way: the tower's and the
+   * outpost's tags, the same on both fields. Each front camera would see one tag across the field,
+   * on the hub's side or on a trench, and a trench stands before every one of them.
+   */
+  private static final List<Sight> FROM_THE_STARTS =
+      List.of(
+          Sight.hidden("Left", "front-right", 21), // behind the left trench
+          Sight.clear("Left", "back-right", 30, 31, 32),
+          Sight.hidden("Center", "front-left", 23), // on the left trench, seen from behind it
+          Sight.hidden("Center", "front-right", 28), // on the right trench, the same
+          Sight.clear("Center", "back-right", 29, 30),
+          Sight.hidden("Right", "front-left", 18), // behind the right trench
+          Sight.clear("Right", "back-left", 31, 32));
+
+  private static Sight sightFrom(String start, String camera) {
+    return FROM_THE_STARTS.stream()
+        .filter(sight -> sight.start().equals(start) && sight.camera().equals(camera))
+        .findFirst()
+        .orElse(Sight.clear(start, camera));
+  }
+
   @Test
-  void fromTheStartsOnlyTheTowersOwnUprightHidesATag() {
+  void fromTheStartsTheTrenchesHideWhatTheFrontCamerasWouldSee() {
     for (Place start : Rebuilt.starts(ExampleRobot.SIM.definition().body()).all()) {
       Pose2d robot = start.on(SEASON, Alliance.BLUE);
       for (CameraConfig camera : CAMERAS) {
-        Set<Integer> open = seen(RobotSim.FIELD, camera, robot);
-        Set<Integer> real = seen(SEASON, camera, robot);
-        boolean theOneHidden = start.name().equals("Center") && camera.name().equals("back-left");
-        if (theOneHidden) {
-          assertThat(open).containsExactly(31, 32);
-          assertThat(real).containsExactly(31);
-        } else {
-          assertThat(real).as(start.name() + ", " + camera.name()).isEqualTo(open);
-        }
+        Sight expected = sightFrom(start.name(), camera.name());
+        String from = start.name() + ", " + camera.name();
+        assertThat(seen(RobotSim.FIELD, camera, robot))
+            .as(from + ", with nothing standing on the field")
+            .isEqualTo(expected.onOpenFloor());
+        assertThat(seen(SEASON, camera, robot))
+            .as(from + ", on the season's field")
+            .isEqualTo(expected.onTheSeasonsField());
       }
     }
   }
@@ -136,7 +179,7 @@ class HiddenTagsSimTest {
    */
   @Test
   void drivenAcrossBehindTheHubTheEstimateStaysWithTheTruth() {
-    Pose2d start = new Pose2d(CROSSING_X, 2.5, Rotation2d.ZERO);
+    Pose2d start = new Pose2d(CROSSING_X, 2.5, BACK_RIGHT_TO_BLUES_WALL);
     sim.build(ExampleRobot.SIM, Rebuilt::game, ControlsMaker.NONE, SensorErrors.TYPICAL);
     sim.loops(1);
     sim.placeAt(start);

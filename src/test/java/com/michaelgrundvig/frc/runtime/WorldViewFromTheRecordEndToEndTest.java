@@ -23,9 +23,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -41,12 +43,13 @@ import org.littletonrobotics.junction.wpilog.WPILOGReader;
  * has it, the ghost where the simulator had the robot, the wheels as the drivetrain measured them,
  * and a sight line for each tag the estimator weighed, drawn as it fared.
  *
- * <p>The session is the guide's robot driven about the field, two of its cameras blinded, and then
- * shoved ({@link SessionRecording#recordTheWorld}), in a process of its own. Every loop it logs
- * what its own objects say, as a witness, beside the loop's record. Here each loop's record is
- * handed to Pitwall's own receiver, the view is drawn from the moment that makes, and the drawing
- * is held to the witness. The view is drawn from the log's keys alone, so a key the runtime stopped
- * writing, or wrote another way, fails here.
+ * <p>The session is the guide's robot driven about the field, its cameras blinded for a while as it
+ * drives, then two of them blinded for good, and then shoved ({@link
+ * SessionRecording#recordTheWorld}), in a process of its own. Every loop it logs what its own
+ * objects say, as a witness, beside the loop's record. Here each loop's record is handed to
+ * Pitwall's own receiver, the view is drawn from the moment that makes, and the drawing is held to
+ * the witness. The view is drawn from the log's keys alone, so a key the runtime stopped writing,
+ * or wrote another way, fails here.
  *
  * <p>It is the check that stood between the view's two implementations while there were two: the
  * runtime's layers, which read those objects live, said the same in every loop of this session,
@@ -113,10 +116,13 @@ class WorldViewFromTheRecordEndToEndTest {
   private static double farthestApartMeters;
   private static int recoveries;
 
-  /** The size of each patch the page was sent, by the loop it was sent in. */
-  private static final Map<Integer, Integer> patchBytes = new HashMap<>();
+  /** Each patch the page was sent, by the loop it was sent in. */
+  private static final Map<Integer, String> patches = new TreeMap<>();
 
-  private static final List<String> patches = new ArrayList<>();
+  /** A patch that only turns the uncertainty ellipse: its frame's x, y and turn, nothing else. */
+  private static final Pattern ONLY_THE_ELLIPSE =
+      Pattern.compile("\\{\"frames\":\\{\"uncertainty\":\\[[-0-9., ]+]}}");
+
   private static int descriptionBytes;
 
   @BeforeAll
@@ -139,8 +145,7 @@ class WorldViewFromTheRecordEndToEndTest {
       Map<String, ?> patch = live.patch();
       if (!patch.isEmpty()) {
         String sent = JSON.toJson(patch);
-        patches.add(sent);
-        patchBytes.put(loop, sent.getBytes(StandardCharsets.UTF_8).length);
+        patches.put(loop, sent);
       }
       Map<String, LogTable.LogValue> logged = table.getAll(false);
       if (logged.containsKey(WITNESS + "Estimate")) {
@@ -295,27 +300,30 @@ class WorldViewFromTheRecordEndToEndTest {
   }
 
   /**
-   * What the view costs to send, live, on this robot: its description once, nothing while the robot
-   * stands still, and while it drives at most 20 patches a second, far under the 250 kbps the
-   * design allows a scene.
+   * What the view costs to send, live, on this robot: its description once, and while it drives at
+   * most 20 patches a second, far under the 250 kbps the design allows a scene. While the robot
+   * stands still nothing of it moves, and the one thing sent is the uncertainty ellipse turning:
+   * two cameras take turns measuring, the ellipse is nearly round, and its long axis swings half a
+   * degree from one image to the next, which the view sends to a tenth of a degree.
    */
   @Test
-  void liveTheViewCostsLittleToSendAndNothingWhenStill() {
+  void liveTheViewCostsLittleToSendAndOnlyTheEllipseTurnsWhenStill() {
     int[] driving = {30, 190};
     int[] still = {440, 479};
     int patchesDriving = 0;
-    int patchesStill = 0;
+    List<String> patchesStill = new ArrayList<>();
     long bytesDriving = 0;
-    for (Map.Entry<Integer, Integer> sent : patchBytes.entrySet()) {
+    for (Map.Entry<Integer, String> sent : patches.entrySet()) {
       int loop = sent.getKey();
       if (loop >= driving[0] && loop < driving[1]) {
         patchesDriving++;
-        bytesDriving += sent.getValue();
+        bytesDriving += sent.getValue().getBytes(StandardCharsets.UTF_8).length;
       }
       if (loop >= still[0] && loop < still[1]) {
-        patchesStill++;
+        patchesStill.add(sent.getValue());
       }
     }
+    double secondsStill = (still[1] - still[0]) * RobotLoop.PERIOD_SECONDS;
     double seconds = (driving[1] - driving[0]) * RobotLoop.PERIOD_SECONDS;
     double kbps = bytesDriving * 8 / seconds / 1000;
     System.out.printf(
@@ -326,13 +334,18 @@ class WorldViewFromTheRecordEndToEndTest {
         patchesDriving,
         seconds,
         kbps,
-        patchesStill,
+        patchesStill.size(),
         still[1] - still[0]);
     assertThat(descriptionBytes).as("the scene's description, once").isLessThan(60_000);
-    assertThat(patchesStill).as("patches while the robot stood still").isZero();
+    assertThat(patchesStill)
+        .as("patches while the robot stood still: the ellipse turning, and nothing else")
+        .allMatch(patch -> ONLY_THE_ELLIPSE.matcher(patch).matches());
+    assertThat(patchesStill.size() / secondsStill)
+        .as("patches a second while it stood still")
+        .isLessThanOrEqualTo(20);
     assertThat(patchesDriving).as("patches while driving").isGreaterThan(20);
     assertThat(patchesDriving / seconds).as("patches a second").isLessThanOrEqualTo(20);
     assertThat(kbps).as("kbps while driving").isLessThan(250);
-    assertThat(patches).anyMatch(patch -> patch.contains("\"sight-lines\":"));
+    assertThat(patches.values()).anyMatch(patch -> patch.contains("\"sight-lines\":"));
   }
 }

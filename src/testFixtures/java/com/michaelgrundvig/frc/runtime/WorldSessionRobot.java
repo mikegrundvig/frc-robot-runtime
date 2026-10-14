@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -26,9 +27,10 @@ import org.wpilib.math.kinematics.SwerveModuleVelocity;
  * The guide's robot driven about the field in the simulator, then shoved, for the check that the
  * World view drawn from the record shows what the robot's own objects said ({@link
  * SessionRecording#recordTheWorld}). It drives so its cameras see tags and the estimate follows
- * them. Then two of its cameras go blind and something shoves it most of a meter sideways, into the
- * field, which its wheels never feel: the estimate and the truth part, the cameras' measurements
- * are refused, and the estimate recovers.
+ * them, but for a second and a half of the drive with every camera unplugged, when the estimate
+ * rests on the wheels and the gyro alone. Then its two back cameras go blind and something shoves
+ * it most of a meter sideways, into the field, which its wheels never feel: the estimate and the
+ * truth part, the cameras' measurements are refused, and the estimate recovers.
  *
  * <p>Every loop it logs, beside the loop's record, what the robot's own objects say at the end of
  * that loop ({@code Witness/World}): localization's pose and how sure it is, the simulator's true
@@ -162,6 +164,18 @@ final class WorldSessionRobot extends Robot {
     simulator().requestFault(Setting.of(FaultCatalog.camera(camera), FaultCatalog.UNPLUGGED));
   }
 
+  /** Undoes {@link #unplug}: the camera sends images again. */
+  private void plugBackIn(String camera) {
+    simulator().requestUndo(FaultCatalog.camera(camera), FaultCatalog.UNPLUGGED);
+  }
+
+  /** The names of the robot's cameras. */
+  private static List<String> cameras() {
+    return ExampleRobot.COMPETITION.definition().cameras().stream()
+        .map(CameraConfig::name)
+        .toList();
+  }
+
   /** The session, by loop. */
   private void script(int loop) {
     switch (loop) {
@@ -174,10 +188,15 @@ final class WorldSessionRobot extends Robot {
                           .withMode(RobotMode.TELEOPERATED)
                           .withEnabled(true));
       case 30 -> simulator().joystick(DRIVER, driving(0.5, 0, 0), null);
+      // Every camera is unplugged for a second and a half of the drive, so the estimate rests on
+      // the wheels and the gyro alone (cameras at the four corners see a tag from anywhere on
+      // this drive), and then they see again.
+      case 50 -> cameras().forEach(this::unplug);
       case 110 -> simulator().joystick(DRIVER, driving(0, 0.4, 0.3), null);
+      case 125 -> cameras().forEach(this::plugBackIn);
       case 190 -> simulator().joystick(DRIVER, null, null);
-      // The two cameras facing backward go blind, so the ones that still see agree against the
-      // estimate once the robot is shoved, and none of them is believed at once.
+      // The two back cameras go blind, so the front two, which still see, agree against the
+      // estimate once the robot is shoved, and neither is believed at once.
       case 200 -> {
         unplug("back-left");
         unplug("back-right");

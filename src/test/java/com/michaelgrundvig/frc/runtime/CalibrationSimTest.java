@@ -122,7 +122,7 @@ class CalibrationSimTest {
     RobotSim.setEnabled(true);
     sim.scheduler().schedule(procedure);
 
-    // Stop at spots in view of the hub's tags, nearer and farther, turned a little each time.
+    // Stop at spots in view of tags, nearer and farther, turned a little each time.
     double[][] moves = {
       {1.0, -0.5, 0, 0.1},
       {1.0, -0.5, 0.3, 0},
@@ -147,7 +147,14 @@ class CalibrationSimTest {
     sim.driver().setLeftX(0);
     sim.driver().setRightX(0);
     sim.driver().notifyNewData();
-    sim.run(0.5);
+    // The camera sees tags from some of the stops, not all: the procedure takes its whole twenty
+    // seconds, a second and a half more.
+    for (int loop = 0; loop < RobotLoop.loops(3.0); loop++) {
+      if (!sim.scheduler().isScheduledOrRunning(procedure)) {
+        break;
+      }
+      sim.loops(1);
+    }
 
     String report = sim.robot().calibration().lastResult();
     assertThat(report)
@@ -155,12 +162,12 @@ class CalibrationSimTest {
         .contains("In Robots, the front-left camera's mount: .forward(Inches.of(");
     String line = report.substring(report.indexOf(".forward("));
     double[] mount = numbers(line);
-    // Configured at (-7.75, 12.25, 21) in, roll 0, tilted up 10, turned 23.162: really 4 in lower.
-    assertThat(mount[0]).as("forward").isCloseTo(-7.75, within(0.4));
-    assertThat(mount[1]).as("left").isCloseTo(12.25, within(0.4));
+    // Configured at (11.75, 11.75, 21) in, roll 0, tilted up 10, turned 45: really 4 in lower.
+    assertThat(mount[0]).as("forward").isCloseTo(11.75, within(0.4));
+    assertThat(mount[1]).as("left").isCloseTo(11.75, within(0.4));
     assertThat(mount[2]).as("up").isCloseTo(17.0, within(0.4));
     assertThat(mount[4]).as("tilted up").isCloseTo(10, within(0.5));
-    assertThat(mount[5]).as("turned").isCloseTo(23.162, within(0.5));
+    assertThat(mount[5]).as("turned").isCloseTo(45, within(0.5));
     assertThat(numbers(report)[0]).as("tags landed off, cm").isGreaterThan(5);
     assertThat(numbers(report)[1]).as("and with the mount found").isLessThan(3);
   }

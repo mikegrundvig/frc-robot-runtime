@@ -291,16 +291,16 @@ class VisionSimTest {
   }
 
   /**
-   * The promises each way of correcting the heading keeps for a camera turned 4°, as measured. Each
-   * keeps the first two: the camera is out of calibration and counts for less, and the back cameras
-   * are never doubted. The full update keeps the other two as well: it doubts the camera by 15 cm,
-   * and the last lap is 0.5 cm off, against 1.3 cm with it trusted as before. Both are far closer
-   * than before the estimator watched its cameras itself (3.7 cm and 4.5), since its watch takes
-   * off the turned camera's miss whatever the mount check is told to allow. Leaving the heading to
-   * measurements with a heading of their own breaks the other two: a turned camera's headings pull
-   * the estimate's heading its way, and its neighbour's tags land off too. It's doubted by 5.7 cm,
-   * and the last lap is 4.8 cm off, against 4.9 trusted as before; adding the doubt to what each
-   * camera repeats, 5.7 cm and 4.9. This test shows which; it changes when one does, either way.
+   * The promises each way of correcting the heading keeps for a camera turned 4°, as measured, with
+   * the cameras at the frame's corners. Each keeps the first three: the camera is out of
+   * calibration and counts for less, the back cameras are never doubted, and it is doubted by 19
+   * cm. Leaving the heading to measurements with a heading of their own keeps the fourth as well:
+   * the last lap is 0.5 cm off, against 0.7 cm with the camera trusted as before; adding the doubt
+   * to what each camera repeats, 0.4 cm against 0.7. The full update breaks it: its last lap is 0.5
+   * cm off too, but trusted as before it is 0.5 cm already, so counting the camera for less brings
+   * it no fifth closer. Every one of these is within a centimeter, since the estimator's own watch
+   * on its cameras takes off the turned camera's miss whatever the mount check is told to allow.
+   * This test shows which; it changes when one does, either way.
    */
   @ParameterizedTest
   @EnumSource(EstimatorConfig.HeadingCorrection.class)
@@ -308,9 +308,9 @@ class VisionSimTest {
     List<String> broken = turnedFourDegrees(heading).stream().map(VisionSimTest::promise).toList();
 
     if (heading == EstimatorConfig.HeadingCorrection.EVERY_FIX) {
-      assertThat(broken).as("the promises broken").isEmpty();
+      assertThat(broken).as("the promises broken").containsExactly("last lap");
     } else {
-      assertThat(broken).as("the promises broken").containsExactly("doubted", "last lap");
+      assertThat(broken).as("the promises broken").isEmpty();
     }
   }
 
@@ -326,9 +326,9 @@ class VisionSimTest {
 
   /**
    * A camera turned 2° stands out in its tag residuals, more than 1.4 times its worst neighbour's,
-   * however the heading is corrected, and most when every fix corrects it (2.5). Otherwise its
-   * headings pull the estimate's heading partway its way, and its neighbour's tags land off too: it
-   * stands out less (1.7).
+   * however the heading is corrected. With the cameras at the frame's corners it stands out most
+   * when the heading is left to measurements with a heading of their own (2.2), and less when every
+   * fix corrects it (1.5).
    */
   @ParameterizedTest
   @EnumSource(EstimatorConfig.HeadingCorrection.class)
@@ -336,9 +336,9 @@ class VisionSimTest {
     double standsOut = turnedTwoDegrees(heading);
 
     if (heading == EstimatorConfig.HeadingCorrection.EVERY_FIX) {
-      assertThat(standsOut).isGreaterThan(2);
-    } else {
       assertThat(standsOut).as("stands out, less").isBetween(1.4, 2.0);
+    } else {
+      assertThat(standsOut).isGreaterThan(2);
     }
   }
 }
