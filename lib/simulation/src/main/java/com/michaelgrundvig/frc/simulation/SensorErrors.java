@@ -35,6 +35,8 @@ import org.wpilib.math.geometry.Translation3d;
  * @param backupGyro the backup IMU's errors (Systemcore's own), read once a loop
  * @param accelerometer how the gyro's accelerometer reads: its errors, and the part's limits
  * @param backupAccelerometer the same for the backup IMU's
+ * @param cornerNoise how far the simulated cameras' tag corners land from where a perfect camera
+ *     would put them: the same for every camera, each drawing its own noise
  * @param cameraMountErrors by camera name, how each camera is really mounted off its configured
  *     mount, in the robot's frame: a camera knocked 4 in low, or turned 2 degrees
  * @param tagErrors by tag ID, how far each tag really sits from where the field's layout says, in
@@ -51,6 +53,7 @@ public record SensorErrors(
     GyroErrors backupGyro,
     AccelErrors accelerometer,
     AccelErrors backupAccelerometer,
+    CornerNoise cornerNoise,
     @RecordBuilder.Initializer(value = "of", source = Map.class)
         Map<String, Transform3d> cameraMountErrors,
     @RecordBuilder.Initializer(value = "of", source = Map.class)
@@ -67,6 +70,7 @@ public record SensorErrors(
           .backupGyro(GyroErrors.EXACT)
           .accelerometer(AccelErrors.IDEAL)
           .backupAccelerometer(AccelErrors.IDEAL)
+          .cornerNoise(CornerNoise.TYPICAL)
           .seed(1)
           .build();
 
@@ -95,8 +99,35 @@ public record SensorErrors(
                   .build())
           .accelerometer(AccelErrors.PIGEON_2)
           .backupAccelerometer(AccelErrors.PIGEON_2)
+          .cornerNoise(CornerNoise.TYPICAL)
           .seed(1)
           .build();
+
+  /**
+   * How far a simulated camera's tag corners land from where a perfect camera would put them. It
+   * stands for lens-calibration error and a soft image, and it is most of what scatters a camera's
+   * positions.
+   *
+   * @param meanPixels how far each corner lands from the perfect one, on average
+   * @param stdDevPixels and that distance's spread
+   */
+  @ConfigRecord
+  public record CornerNoise(double meanPixels, double stdDevPixels) {
+    /** PhotonVision's simulation example, which VisionSim's constants repeat. */
+    public static final CornerNoise TYPICAL = builder().meanPixels(0.25).stdDevPixels(0.08).build();
+
+    public CornerNoise {
+      Checks.on(CornerNoise.class)
+          .field("meanPixels", meanPixels, nonNegative())
+          .field("stdDevPixels", stdDevPixels, nonNegative())
+          .orThrow();
+    }
+
+    /** Starts describing the corners' noise, one named value at a time. */
+    public static SensorErrorsCornerNoiseBuilder.MeanPixelsStage builder() {
+      return SensorErrorsCornerNoiseBuilder.builder();
+    }
+  }
 
   /**
    * How a gyro's readings differ from the truth.
@@ -274,6 +305,11 @@ public record SensorErrors(
   /** The same errors, with the backup IMU reading like this. */
   public SensorErrors withBackupGyro(GyroErrors backup) {
     return SensorErrorsBuilder.builder(this).backupGyro(backup).build();
+  }
+
+  /** The same errors, with every camera's tag corners landing off like this. */
+  public SensorErrors withCornerNoise(CornerNoise noise) {
+    return SensorErrorsBuilder.builder(this).cornerNoise(noise).build();
   }
 
   /** The same errors, with one camera mounted off its configuration. */

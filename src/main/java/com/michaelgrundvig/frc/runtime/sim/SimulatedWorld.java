@@ -75,8 +75,14 @@ public final class SimulatedWorld implements AutoCloseable {
       this.drivetrain.standOn(field);
     }
     // Each camera's noise from its own stream of the seed (Seeds).
+    VisionSim.Noise noise =
+        new VisionSim.Noise(
+            errors.cornerNoise().meanPixels(),
+            errors.cornerNoise().stdDevPixels(),
+            VisionSim.LATENCY_STD_DEV_MILLIS);
     vision =
-        new VisionSim(field, errors.tagErrors(), camera -> Seeds.camera(errors.seed(), camera));
+        new VisionSim(
+            field, errors.tagErrors(), camera -> Seeds.camera(errors.seed(), camera), noise);
     this.cameras = new CameraIOSim[cameras.size()];
     camerasOnJoints = cameras.stream().filter(camera -> camera.joint().isPresent()).toList();
     for (int i = 0; i < cameras.size(); i++) {

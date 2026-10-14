@@ -268,7 +268,10 @@ nothing undoes it. The robot's code is never told: it finds out from its sensors
 
 Carrying the robot to a bump is declared only on a field with bumps. A world can also be built
 with its tags a little off the layout (`SensorErrors.tagErrors`), as the consistency study builds
-it; undoing a moved tag puts it back there.
+it; undoing a moved tag puts it back there. A world's cameras can scatter their tag corners wider than
+PhotonVision's example (`SensorErrors.cornerNoise`, a quarter pixel by default) and be mounted off
+their configuration (`SensorErrors.cameraMountErrors`), for a study to see whether a result hangs on
+the simulator's kind cameras.
 
 ### What the simulator can't make fail yet
 

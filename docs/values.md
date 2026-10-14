@@ -1445,6 +1445,17 @@ One gyro's errors. TYPICAL gives the gyro and the backup IMU each their own; EXA
 | `driftDegreesPerMinute` | characterized | guess | [Gyro drift and noise](characterization.md#gyro-drift-and-noise), a typical run. The backup's is unknown until measured. |
 | `noiseDegrees` | characterized | guess | [Gyro drift and noise](characterization.md#gyro-drift-and-noise), a typical run. |
 
+### `SensorErrors.CornerNoise`
+
+How far the simulated cameras' tag corners land from where a perfect camera would put them, the same
+for every camera. TYPICAL (and NONE) give PhotonVision's simulation example; a study widens it to
+see whether a result hangs on the simulator's kind cameras.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `meanPixels` | characterized | datasheet (PhotonVision's simulation example, 0.25 px) | [Camera noise](characterization.md#camera-noise): the average distance of a corner from the mean of its readings, standing still. |
+| `stdDevPixels` | characterized | datasheet (PhotonVision's simulation example, 0.08 px) | As `meanPixels`: the spread of that distance. |
+
 ### `SensorErrors.AccelErrors`
 
 How one simulated accelerometer reads: its errors, and the part's own limits. TYPICAL gives the gyro

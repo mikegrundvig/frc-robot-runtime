@@ -39,6 +39,9 @@ class SensorErrorsTest {
                     .build())
         .hasMessage("GyroErrors.driftDegreesPerMinute: NaN must be a finite number");
     assertThatThrownBy(
+            () -> SensorErrors.CornerNoise.builder().meanPixels(-0.1).stdDevPixels(0).build())
+        .hasMessage("CornerNoise.meanPixels: -0.1 must be zero or more");
+    assertThatThrownBy(
             () ->
                 SensorErrorsAccelErrorsBuilder.builder(SensorErrors.AccelErrors.IDEAL)
                     .rangeMetersPerSecSq(0)
@@ -63,6 +66,8 @@ class SensorErrorsTest {
             .withGyro(drifting)
             .withBackupGyro(SensorErrors.GyroErrors.EXACT)
             .withAccelerometer(SensorErrors.AccelErrors.PIGEON_2)
+            .withCornerNoise(
+                SensorErrors.CornerNoise.builder().meanPixels(0.6).stdDevPixels(0.2).build())
             .withCameraMountError("front", knocked)
             .withTagErrors(Map.of(7, new Translation3d(0.01, 0, 0)));
 
@@ -72,6 +77,8 @@ class SensorErrorsTest {
     assertThat(errors.backupGyro()).isEqualTo(SensorErrors.GyroErrors.EXACT);
     assertThat(errors.accelerometer()).isEqualTo(SensorErrors.AccelErrors.PIGEON_2);
     assertThat(errors.backupAccelerometer()).isEqualTo(SensorErrors.AccelErrors.IDEAL);
+    assertThat(errors.cornerNoise())
+        .isEqualTo(SensorErrors.CornerNoise.builder().meanPixels(0.6).stdDevPixels(0.2).build());
     assertThat(errors.cameraMountError("front")).isEqualTo(knocked);
     assertThat(errors.cameraMountError("back")).isEqualTo(Transform3d.ZERO);
     assertThat(errors.tagErrors()).containsOnlyKeys(7);
