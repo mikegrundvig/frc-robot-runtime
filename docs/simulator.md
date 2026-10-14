@@ -457,6 +457,17 @@ drive over is terrain, not an element, and the robot rides over it as before. Aw
 wheels still never feel the floor: past the grip limit they spin up as if they carried the robot,
 and a push from outside neither turns nor loads them.
 
+**Elements hide tags.** Before a simulated camera takes an image, each tag is checked against the
+field's elements, from the camera's lens to the tag's middle and to each of its four corners. A
+tag with any of the five behind an element isn't in the image at all, because a real detector
+finds a tag by its whole border and reports nothing of one it sees part of. So the hub hides the
+tower's tags from a robot beyond it, a trench's column hides the trench's tags from the side, and
+the tower's own uprights hide a tag on its wall from some angles. PhotonVision's simulation
+already refused a tag seen from behind, and still does. What still hides nothing: the robot's own
+frame and mechanisms, game pieces, other robots, and terrain. On a field with no elements, images
+are taken exactly as before. The check costs about 12 µs an image on the 2026 field (32 tags
+against 28 blocks), measured once on a development laptop.
+
 A robot can't be set down inside something. Placed inside the hub, it is set down against the
 nearest face. Shoved or hit into a wall, it ends against the wall.
 

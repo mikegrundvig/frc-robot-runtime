@@ -787,7 +787,8 @@ The simulator runs the same program on your laptop:
 
 Nothing in your code changes for the simulator. The joints are simulated from the description,
 with the motors, the gearing and the hard stops you wrote. The drivetrain moves with the weight
-you gave it. The cameras see the tags they would see from where you mounted them.
+you gave it. The cameras see the tags they would see from where you mounted them, and not the
+ones the hub or a tower stands in front of.
 
 The field is solid. Drive into the hub, a trench's column, the tower or a wall, and the robot
 stops there. Come at one at an angle and it slides along, if its motors are strong enough to
