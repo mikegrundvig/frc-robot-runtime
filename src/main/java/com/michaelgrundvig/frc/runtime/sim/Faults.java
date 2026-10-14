@@ -13,6 +13,7 @@ import static com.michaelgrundvig.frc.simulation.FaultCatalog.MODULES;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.NOISE;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.OFFSET;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.PITCH;
+import static com.michaelgrundvig.frc.simulation.FaultCatalog.PLACED;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.ROBOT;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.ROLL;
 import static com.michaelgrundvig.frc.simulation.FaultCatalog.SCALE;
@@ -28,6 +29,7 @@ import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Inches;
 
 import com.michaelgrundvig.frc.pitwall.Limits;
+import com.michaelgrundvig.frc.pitwall.scene.Inspection;
 import com.michaelgrundvig.frc.pitwall.simulator.Component;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Fault;
@@ -41,6 +43,7 @@ import com.michaelgrundvig.frc.world.field.Surface;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
@@ -129,6 +132,19 @@ public final class Faults {
       @Override
       public Optional<String> robot() {
         return Optional.of(ROBOT);
+      }
+
+      @Override
+      public Optional<Inspection.FaultOffer> placingTheRobotAt(Pose2d pose) {
+        // The robot's own Placed fault, with the pose's numbers: meters rounded to a millimeter,
+        // so a pose written as a computation stays inside the field's limits.
+        Map<String, Double> values =
+            Map.of(
+                X, Math.round(pose.getX() * 1000) / 1000.0,
+                Y, Math.round(pose.getY() * 1000) / 1000.0,
+                HEADING, Math.round(pose.getRotation().getDegrees() * 10) / 10.0 + 0.0);
+        return Optional.of(
+            new Inspection.FaultOffer("Place the robot here", ROBOT, PLACED, values));
       }
     };
   }
