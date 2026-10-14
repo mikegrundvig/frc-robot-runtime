@@ -221,11 +221,12 @@ What it found, in simulation only:
 - In clean driving the two are roughly equal. Both hold the pose to about a centimeter.
 - The default localizer is better against wheels that slip, against being carried while disabled,
   and against tags that sit off the field's layout.
-- Against bad camera data it depends on what the other cameras see. The default localizer refuses
-  a single misread tag, and a camera that keeps taking a tag's two poses the wrong way round. But
-  on the example robot, whose corner cameras never see the same tag at once, a camera that
-  misread a tag 60 images running, where no other camera had a tag in view, took the estimate 2.65
-  m away for 0.6 s. WPILib's behind its filter stayed within 20 cm.
+- Against bad camera data the default localizer refuses a single misread tag, a camera that keeps
+  taking a tag's two poses the wrong way round, and a camera that misreads a tag 60 images running
+  where no other camera has a tag in view (1.3 cm against 1.2 cm). It moves the estimate against
+  odometry only on agreement from independent sources: two cameras, two tags, or a camera and a
+  sign from the IMU or the robot's state that it was moved. Before that rule, the long misread
+  took its estimate 2.65 m away for 0.6 s.
 - With the gyro's scale off, the two are within a centimeter of each other: the default localizer
   estimates the gyro's scale and drift. With a camera knocked or turned on its mount, or its
   clock off, WPILib's is closer on the example robot (1.4 cm against 2.6 cm for a knocked camera, 2.4
@@ -233,7 +234,7 @@ What it found, in simulation only:
   ones, so these are the results to trust least.
 - WPILib's estimator, behind the kind of vision filter strong teams write for it, moves more
   smoothly. The default localizer corrects a wrong estimate in one step, which can be tens of
-  centimeters after a shove.
+  centimeters after a shove, or after the cameras were blind while the wheels slipped.
 - Most of each difference comes from how images are solved and filtered, not from the estimator.
   Fed the very same measurements, the two estimators are close in most scenarios.
 - The study did not measure a robot that chose `WpilibLocalizer`. Such a robot's images are solved

@@ -554,13 +554,14 @@ teams solve each image with the gyro's heading.
 **What this does.** Localization is behind one interface with two implementations, in a repository
 of its own, and a team picks one. The first is the runtime's own estimator. It applies a late
 camera measurement at the time its image was taken, gates each measurement statistically against
-the estimate, recovers when several rejected measurements agree with each other, and lowers its
-trust in the wheels when they slip. It solves nearly every image with the gyro's heading, and it
-estimates what the gyro gets wrong: its scale and its steady drift, from the cameras as the robot
-drives and from the gyro itself while the robot stands still. It watches each camera against the
-others, and takes off what a camera knocked on its mount or stamped late puts its measurements
-off by. The second is WPILib's estimator, handed the same measurements from the same
-image-solving pipeline. You choose it with one line in the robot's configuration, and
+the estimate, recovers when several rejected measurements agree with each other for independent
+reasons (two cameras, two tags, or a camera and a sign from the IMU that the robot was moved), and
+lowers its trust in the wheels when they slip. It solves nearly every image with the gyro's
+heading, and it estimates what the gyro gets wrong: its scale and its steady drift, from the
+cameras as the robot drives and from the gyro itself while the robot stands still. It watches
+each camera against the others, and takes off what a camera knocked on its mount or stamped late
+puts its measurements off by. The second is WPILib's estimator, handed the same measurements from
+the same image-solving pipeline. You choose it with one line in the robot's configuration, and
 [localizers.md](localizers.md) has the contract a localizer of your own is checked against.
 
 **Why.** We built the custom estimator on a design argument. Then we compared it with WPILib's,
@@ -616,18 +617,30 @@ set, ours was 1.7 cm off against 0.8 cm: too small a turn for its watch to act o
 
 **The same study with other cameras.** The example robot's cameras have since moved to the
 corners of its frame, each facing 45° out, and the field's hub, trenches and towers now stand and
-hide tags. Run again, with the estimator unchanged, the study counts ours ahead in 32 of the
+hide tags. Run again, with the estimator unchanged, the study counted ours ahead in 32 of the
 first set's 195 comparisons, the same in 147 and behind in 16 (it was 50, 136 and 9), and in the
-second set 10, 66 and 11 of 87 (it was 17, 69 and 1). WPILib's gained from cameras that see tags
-from nearly everywhere: a clean match went from 1.4 cm to 0.8, a frozen camera from 13.7 cm to
-0.7. Ours is still ahead on slipping wheels, on being carried while disabled, and on tags that sit
-off the layout. It is now behind where one camera is wrong and no other sees the same tags: a
-camera that misreads a tag 60 images running takes its estimate 2.65 m away for 0.6 s (32 cm RMS
-against 1.2 cm), a camera turned 6° leaves it 16.9 cm off against 2.4 cm, and a knocked camera 2.6
-cm against 1.4 cm. With cameras at the corners no two ever see the same tag at once. Both the
-cameras and the field changed between the two runs, so the study does not say how much of this is
-each one's. The [estimator study](../../docs/estimator-comparison.md#what-it-found) has the
-tables.
+second set 10, 66 and 11 of 87 (it was 17, 69 and 1). A run with the old cameras on the new field
+(47, 138 and 10; 18, 65 and 4) put nearly all of that on the cameras, little on the field.
+WPILib's gained from cameras that see tags from nearly everywhere: a clean match went from 1.4 cm
+to 0.8, a frozen camera from 13.7 cm to 0.7. Ours is still ahead on slipping wheels, on being
+carried while disabled, and on tags that sit off the layout. With cameras at the corners no two
+ever see the same tag at once, and ours fell behind where one camera is wrong and alone with its
+tags.
+
+The worst of those was a recovery's doing. A camera that misread a tag 60 images running, with no
+other camera seeing a tag, took the estimate 2.65 m away for 0.6 s (32 cm RMS against 1.2 cm):
+its first three misread images were rejected, agreed with each other, and were taken for a shove.
+A misread puts every image off by the same distance, in the same direction, and that offset moves
+with the robot as a shove's would, so one camera's images cannot tell the two apart. A recovery
+now needs agreement for independent reasons: two cameras, two tags, or a sign from the IMU or the
+robot's state that it may have been moved where its wheels could not see (a jolt, a slide, a tilt,
+being disabled or just placed). The misread is now 1.3 cm against 1.2 cm, nothing else in the
+study changed, and the counts are 33, 149 and 13, and 10, 66 and 11. Still behind: a camera
+turned 6° leaves the estimate 16.9 cm off against 2.4 cm (its heading measurements pass the gate
+and pull the heading, and no other camera's heading is there to hold it), a knocked camera 2.6 cm
+against 1.4 cm, and a tilted robot's estimate steps 44 cm when the cameras see a tag again after
+half a second blind. The [estimator study](../../docs/estimator-comparison.md#what-it-found) has
+the tables.
 
 Read these with care.
 

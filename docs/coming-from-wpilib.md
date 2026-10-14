@@ -231,8 +231,10 @@ What differs in the default estimator:
   only correct its slow drift.
 - Every camera measurement is gated against the estimate before it is applied. A misread tag is
   rejected and does not move the pose.
-- When several rejected measurements agree with each other, the estimator decides odometry was
-  wrong and recovers to them. That is its answer to a collision.
+- When several rejected measurements agree with each other, from independent sources (two
+  cameras, two tags, or a camera and an IMU that felt the robot hit or slide), the estimator
+  decides odometry was wrong and recovers to them. That is its answer to a collision. One camera
+  repeating one tag's answer is not enough: a misread tag repeats itself too.
 - Wheel slip, judged from the modules' disagreement and the accelerometer, lowers the wheels'
   trust for that step.
 - A late measurement is applied in order. The estimator rewinds, applies it and replays, so
@@ -262,8 +264,7 @@ pose, and camera mounts are not checked.
 
 A study in the template compares the two in simulation. In clean driving they are roughly equal.
 The default one is better against wheel slip and tags that sit off the layout. WPILib's, behind
-a strong team's vision filter, is better when a camera has been knocked or turned on its mount,
-or keeps misreading a tag where no other camera sees one.
+a strong team's vision filter, is better when a camera has been knocked or turned on its mount.
 [localizers.md](localizers.md) has the contract, both estimators, and how to write and test your
 own.
 
