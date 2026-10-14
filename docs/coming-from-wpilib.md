@@ -261,8 +261,9 @@ pit page says "not reported" where it would show those, the scoring gate does no
 pose, and camera mounts are not checked.
 
 A study in the template compares the two in simulation. In clean driving they are roughly equal.
-The default one is better against bad camera data and wheel slip. WPILib's, behind a strong
-team's vision filter, is better when the gyro reads wrong or a camera has been knocked.
+The default one is better against wheel slip and tags that sit off the layout. WPILib's, behind
+a strong team's vision filter, is better when a camera has been knocked or turned on its mount,
+or keeps misreading a tag where no other camera sees one.
 [localizers.md](localizers.md) has the contract, both estimators, and how to write and test your
 own.
 

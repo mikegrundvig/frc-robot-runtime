@@ -301,21 +301,23 @@ it shows what a run says and how to read it. The default run, seed 1:
 | 2 | ahead and back, 24 in up, tilted 10° | 70 | none (93% measured) | 72.1% | 47.2% |
 | 3 | front corners splayed 30°, and back, 16 in up, tilted 20° | 29 | 3.3 cm | 84.4% | 81.8% |
 | 4 | ahead, back, left, right, 16 in up, tilted 20° | 1 | 2.5 cm | 91.3% | 96.3% |
-| 4 | the template robot's own | 19 | 2.9 cm | 87.6% | 94.7% |
+| 4 | the template robot's own | 12 | 2.7 cm | 89.8% | 95.3% |
 
 One or two cameras leave more than 5% of the field without a measurement. The third brings the 95%
 error to 3.3 cm, and the fourth to 2.5 cm, with nearly every spot seen by two cameras. The top ten
 are all four cameras, 2.5 to 2.6 cm: cameras on the four sides, or at the corners splayed 30° or
-45°, at any of the three heights, tilted up 10° to 20°. The template robot's own layout is 4 mm
+45°, at any of the three heights, tilted up 10° to 20°. The template robot's own layout is one of
+that kind, a camera at each corner splayed 45°, 21 in up and tilted 10°, and is a millimeter
 behind them. REBUILT has 32 tags, many in mid-field on the hubs; a field with fewer tags spreads
 the layouts further apart.
 
 With `--robust` (12 trials, 8 to 9 minutes), the errors grow and the layouts spread apart: the
 most robust, four cameras on the sides, 16 in up, tilted 10°, has 5.5 cm in its worst trial (4.5
 cm median), and the tenth 6.8 cm. The ranking keeps its shape (rank correlation 0.94 with the
-nominal one): the robust top ten all ranked in the nominal top 21, the nominal best is 12th, and
-the template robot's own moves from 19th to 25th (7.9 cm in its worst trial). Three cameras' best
-is 9.8 cm; one or two leave too much of the field unmeasured in every trial.
+nominal one): the robust top ten all ranked in the nominal top 21, and the nominal best is 12th.
+Three cameras' best is 9.8 cm; one or two leave too much of the field unmeasured in every trial.
+(The robust run was made before the template robot's cameras moved to its corners, so it has no
+figure for the robot's own layout as it is now.)
 
 **How far to trust the robust ranking.** Twelve trials are a small sample of the conditions, so
 the robust ranking moves more between seeds than the nominal one. Over seeds 1, 2, and 3, the

@@ -219,13 +219,18 @@ is in the template's [docs/estimator-comparison.md](../../docs/estimator-compari
 What it found, in simulation only:
 
 - In clean driving the two are roughly equal. Both hold the pose to about a centimeter.
-- The default localizer is better against bad camera data, such as a camera that keeps misreading
-  a tag, and against wheels that slip.
-- With the gyro reading wrong, or a camera knocked on its mount or stamped late, the two are
-  within a centimeter of each other. The default localizer used to lose there. It now estimates
-  the gyro's scale and drift, and takes off what a knocked or late camera puts its measurements
-  off by. The simulator's gyro and cameras are simpler than real ones, so this is the result to
-  trust least.
+- The default localizer is better against wheels that slip, against being carried while disabled,
+  and against tags that sit off the field's layout.
+- Against bad camera data it depends on what the other cameras see. The default localizer refuses
+  a single misread tag, and a camera that keeps taking a tag's two poses the wrong way round. But
+  on the example robot, whose corner cameras never see the same tag at once, a camera that
+  misread a tag 60 images running, where no other camera had a tag in view, took the estimate 2.65
+  m away for 0.6 s. WPILib's behind its filter stayed within 20 cm.
+- With the gyro's scale off, the two are within a centimeter of each other: the default localizer
+  estimates the gyro's scale and drift. With a camera knocked or turned on its mount, or its
+  clock off, WPILib's is closer on the example robot (1.4 cm against 2.6 cm for a knocked camera, 2.4
+  cm against 16.9 cm for one turned 6°). The simulator's gyro and cameras are simpler than real
+  ones, so these are the results to trust least.
 - WPILib's estimator, behind the kind of vision filter strong teams write for it, moves more
   smoothly. The default localizer corrects a wrong estimate in one step, which can be tens of
   centimeters after a shove.

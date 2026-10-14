@@ -582,7 +582,9 @@ its gyro misreads.
 left alone. That is WPILib's estimator as a good team runs it, which is the fair opponent. It is
 not the second localizer as it ships: that one sits behind our pipeline, and a robot running it
 was not what the study measured. The figures are position error, RMS over the run. "Before" is
-ours before it corrected its gyro and watched its cameras.
+ours before it corrected its gyro and watched its cameras. The robot then had all four cameras in
+the rear half of its frame, two facing forward and two straight back, on a field with nothing
+standing on it.
 
 | Scenario | Ours before | Ours | WPILib's |
 |---|---|---|---|
@@ -597,21 +599,35 @@ ours before it corrected its gyro and watched its cameras.
 | A camera's clock 20 ms off | 2.3 cm | 0.8 cm | 0.8 cm |
 | A match with several faults in a row | 5.9 cm | 4.3 cm | 4.0 cm |
 
-In clean driving the two are the same for any practical purpose, since a centimeter is below what
-the simulator can resolve. Ours does better against bad camera data and wheel slip. With the gyro
-or a camera mount off, the two are now within a centimeter of each other, where ours lost before.
-With the gyro 3% high its heading error is 0.1° against 0.5°, where it was 2.0°.
+In clean driving the two were the same for any practical purpose, since a centimeter is below what
+the simulator can resolve. Ours did better against bad camera data and wheel slip. With the gyro
+or a camera mount off, the two came within a centimeter of each other, where ours lost before.
+With the gyro 3% high its heading error was 0.1° against 0.5°, where it had been 2.0°.
 
 A second set of 19 scenarios was written before the estimator was changed and looked at only
 twice, before and after. It varies what the first set tested: other sizes of gyro and mount
 error, two faults at once, fewer cameras. Over its 87 comparisons with WPILib's, ours was behind
-in 25 before the changes and in 1 after. The
-[estimator study](../../docs/estimator-comparison.md#what-it-found) has both tables.
+in 25 before the changes and in 1 after.
 
-WPILib's is still ahead in two ways. Ours moves the estimate in one step when it decides the
-estimate is wrong, 60 cm after a shove where WPILib's largest step is 11 cm, and an auto-align
+WPILib's was still ahead in two ways. Ours moves the estimate in one step when it decides the
+estimate is wrong, 60 cm after a shove where WPILib's largest step was 11 cm, and an auto-align
 that follows the estimate feels it. And with a camera turned 1.5° on its mount, in the second
 set, ours was 1.7 cm off against 0.8 cm: too small a turn for its watch to act on.
+
+**The same study with other cameras.** The example robot's cameras have since moved to the
+corners of its frame, each facing 45° out, and the field's hub, trenches and towers now stand and
+hide tags. Run again, with the estimator unchanged, the study counts ours ahead in 32 of the
+first set's 195 comparisons, the same in 147 and behind in 16 (it was 50, 136 and 9), and in the
+second set 10, 66 and 11 of 87 (it was 17, 69 and 1). WPILib's gained from cameras that see tags
+from nearly everywhere: a clean match went from 1.4 cm to 0.8, a frozen camera from 13.7 cm to
+0.7. Ours is still ahead on slipping wheels, on being carried while disabled, and on tags that sit
+off the layout. It is now behind where one camera is wrong and no other sees the same tags: a
+camera that misreads a tag 60 images running takes its estimate 2.65 m away for 0.6 s (32 cm RMS
+against 1.2 cm), a camera turned 6° leaves it 16.9 cm off against 2.4 cm, and a knocked camera 2.6
+cm against 1.4 cm. With cameras at the corners no two ever see the same tag at once. Both the
+cameras and the field changed between the two runs, so the study does not say how much of this is
+each one's. The [estimator study](../../docs/estimator-comparison.md#what-it-found) has the
+tables.
 
 Read these with care.
 
@@ -625,11 +641,11 @@ Read these with care.
 - One family of scenarios, with tags sitting off the field layout, favoured ours by a wide margin.
   The study could not check that size against real data, so we do not quote it.
 - When WPILib's filter was fed the measurements our pipeline produces, it came within a centimeter
-  of ours in 35 of the 41 scenarios. Most of the difference is in how an image is solved and
-  gated, not in the filter.
+  of ours in 34 of the 41 scenarios, and in 35 with the cameras at the corners. Most of the
+  difference is in how an image is solved and gated, not in the filter.
 - Ours is still surer of itself than it should be in some scenarios. With every camera mount off
   by twice what the configuration allows, its heading was outside its own 95% bound in a quarter
-  of the loops.
+  of the loops; with the cameras at the corners, a knocked camera puts it outside in a fifth.
 
 None of this says anything about a real robot.
 

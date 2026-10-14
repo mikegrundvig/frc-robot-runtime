@@ -425,8 +425,33 @@ Below it, two more tables:
 `loops.csv` has each run's NEES, error, and claimed spread loop by loop, averaged over the seeds,
 for a spreadsheet: it shows when a run goes wrong (during the turns, or standing after them).
 
-What to expect, today (12 matched seeds, the heading corrected by measurements with a heading of
-their own, the default):
+What to expect, today (12 matched seeds, the estimator as configured, a camera at each corner of
+the robot's frame facing 45° out):
+
+| Run | NEES (2) | Heading NEES (1) | Outside the ellipse | Past 3.72 σ | Mean error | Heading error |
+|---|---|---|---|---|---|---|
+| driving | 0.86 | 0.56 | 0 | 0 | 1.4 cm | 0.17° |
+| standing | 0.92 | 0.26 | 0 | 0 | 1.5 cm | 0.14° |
+| turning | 1.02 | 0.60 | 0 | 0 | 2.1 cm | 0.29° |
+| gyro-scale | 1.19 | 0.71 | 0 | 0 | 2.3 cm | 0.31° |
+| collision | 1.38 | 0.43 | 0.29% | 0.29% | 1.6 cm | 0.16° |
+| gyro-lost | 1.09 | 0.57 | 0 | 0 | 2.1 cm | 0.30° |
+| camera-low | 0.73 | 0.68 | 0 | 0 | 1.2 cm | 0.17° |
+| camera-turned | 3.47 | 6.23 | 5.35% | 4.73% | 2.6 cm | 0.52° |
+| camera-turned-4 | 9.39 | 13.73 | 23.43% | 21.22% | 4.6 cm | 0.77° |
+| tag-moved | 0.74 | 0.65 | 0 | 0 | 1.3 cm | 0.16° |
+
+The calibrated runs are timid, as before: none is outside its ellipse but in the loops of the
+collision. A camera turned 2° or 4° still leaves the estimate surer than it is. The mount check
+doubts the camera turned 4° in 9 of 12 seeds (by 5.6 cm) and its front-right neighbour in 4 (1.7
+cm), and neither back camera in any run; turned 2°, it doubts the turned camera in none and its
+neighbour in one.
+
+The rest of this section is the record of how the estimator came to be honest, and its tables are
+from the runs of the time: an earlier estimator, with the robot's four cameras in the rear half
+of its frame, two facing forward and two straight back. Where it names the tags a camera saw, or
+the camera a check blamed, it is that robot's. That run's table, with the heading corrected by
+measurements with a heading of their own:
 
 | Run | NEES (2) | Heading NEES (1) | Outside the ellipse | Past 3.72 σ | Mean error | Heading error |
 |---|---|---|---|---|---|---|
@@ -644,21 +669,31 @@ drives the same sticks along another path, and the comparison turned over: which
 mount check blames depends on how the robot drives as much as on what corrects the heading.
 
 `VisionSimTest`'s mount-check tests run under each, on one route with one seed. For a camera
-turned 4°, all three keep two of the original promises (out of calibration and counting for less,
-the back cameras never doubted) and break two (doubted by more than 8 cm, the last lap a fifth
-closer than trusting it as before): `every` doubts it by 6.5 cm, its last lap 3.7 cm off against
-4.5 cm trusted as before; `measurements` and `doubt` by 3.0 and 3.1 cm, their last laps 4.1 and
-4.3 cm off against 4.2. With the seed's noise drawn as offsets from the seed (before its streams
-were its own), `measurements` and `doubt` never doubted it, and `every` by 5.7 cm: on one seed,
-whether they call it out at all hangs on its draws.
-A camera turned 2° stands out in its tag residuals under all three, most under `every` (2.5 times
-its worst neighbour's, against 1.7). Each test says which, and changes when one does. One route
-is a narrow look: before the simulated drivetrain carried the robot's mass, the robot drove the
-same sticks 75% quicker off the line, and `every` doubted the 4° camera by 9.2 cm, `measurements`
-by 5.5, and the 2° camera stood out only under `every`; on the same route, while the estimate
-still doubted a quarter of the wheels' travel whenever the drive motors were at their current
-limit, `every` doubted it by 2.6 cm, and `doubt` brought the last lap to 5.4 cm; and while the
-wheels' disagreement counted as slip only where one wheel alone explained it (since reverted),
+turned 4°, all three keep three of the original promises: it is out of calibration and counts for
+less, the back cameras are never doubted, and it is doubted by more than 8 cm (19 cm under each).
+`measurements` and `doubt` keep the fourth too, the last lap a fifth closer than trusting it as
+before: 0.5 and 0.4 cm off, against 0.7. `every` breaks it: 0.5 cm off, against 0.5 trusted as
+before. Every one of those laps is within a centimeter, because the estimator's own watch on its
+cameras takes off a turned camera's miss whatever the mount check is told to allow.
+A camera turned 2° stands out in its tag residuals under all three, most under `measurements` and
+`doubt` (2.2 times its worst neighbour's, against 1.5 under `every`). Each test says which, and
+changes when one does.
+
+One route is a narrow look, and where the cameras sit counts as much as what corrects the heading.
+The numbers above are with a camera at each corner of the frame, facing 45° out. With all four in
+the rear half of the frame, two facing forward and two straight back, and before the estimator
+watched its cameras itself, all three kept the first two promises and broke the other two: `every`
+doubted the camera by 6.5 cm, its last lap 3.7 cm off against 4.5 cm trusted as before;
+`measurements` and `doubt` by 3.0 and 3.1 cm, their last laps 4.1 and 4.3 cm off against 4.2. With
+the seed's noise drawn as offsets from the seed (before its streams were its own), `measurements`
+and `doubt` never doubted it, and `every` by 5.7 cm: on one seed, whether they call it out at all
+hangs on its draws. There the 2° camera stood out most under `every` (2.5 times its worst
+neighbour's, against 1.7). Before the simulated drivetrain carried the robot's mass, the robot drove
+the same sticks 75% quicker off the line, and `every` doubted the 4° camera by 9.2 cm,
+`measurements` by 5.5, and the 2° camera stood out only under `every`; on the same route, while the
+estimate still doubted a quarter of the wheels' travel whenever the drive motors were at their
+current limit, `every` doubted it by 2.6 cm, and `doubt` brought the last lap to 5.4 cm; and while
+the wheels' disagreement counted as slip only where one wheel alone explained it (since reverted),
 `doubt` kept the first two promises and `every` none.
 
 #### The simulator's late stamps

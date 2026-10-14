@@ -153,8 +153,8 @@ pose is known within 5 cm. It stops after twenty seconds, or 600 sightings.
 The procedure finds the mount that puts every tag the camera saw at its real place. The report says
 how far the tags landed off (across the camera's line of sight, where it sees them sharply) before
 and after, how sure it is, and the camera's mount as the builder calls to put in its entry in
-`Robots`: `.forward(Inches.of(-7.61)).left(Inches.of(12.06)).up(Inches.of(16.97))
-.roll(Degrees.of(0.0)).tiltUp(Degrees.of(10.0)).yaw(Degrees.of(23.2))`. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
+`Robots`: `.forward(Inches.of(11.75)).left(Inches.of(11.77)).up(Inches.of(17.00))
+.roll(Degrees.of(0.0)).tiltUp(Degrees.of(10.0)).yaw(Degrees.of(45.0))`. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
 down 2° put a tag 3 m away in the same wrong place, and only tags at different distances tell them
 apart.
 
