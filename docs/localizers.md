@@ -89,8 +89,9 @@ When any option is missing, the log's `Localization/NotReported` names the ones 
 **The default localizer** (`DefaultLocalizer`) is the library's own estimator. It gates every
 measurement against the estimate, recovers when the cameras agree against odometry, lowers the
 wheels' trust when they slip, and keeps an honest uncertainty. It estimates the gyro's scale and
-drift, and watches each camera against the others for one knocked on its mount or stamped late.
-It reports every option.
+drift, learns each camera's turn on its mount as the robot drives (starting as unsure as the
+camera's `mountTolerance`), and watches each camera against the others for one knocked on its
+mount or stamped late. It reports every option.
 [coming-from-wpilib.md](coming-from-wpilib.md#pose-estimation-and-vision) says how it differs
 from what you know.
 
@@ -228,10 +229,14 @@ What it found, in simulation only:
   sign from the IMU or the robot's state that it was moved. Before that rule, the long misread
   took its estimate 2.65 m away for 0.6 s.
 - With the gyro's scale off, the two are within a centimeter of each other: the default localizer
-  estimates the gyro's scale and drift. With a camera knocked or turned on its mount, or its
-  clock off, WPILib's is closer on the example robot (1.4 cm against 2.6 cm for a knocked camera, 2.4
-  cm against 16.9 cm for one turned 6°). The simulator's gyro and cameras are simpler than real
-  ones, so these are the results to trust least.
+  estimates the gyro's scale and drift. With a camera knocked or turned on its mount they are
+  level too, since it learns each camera's turn (1.4 cm against 1.4 cm for a knocked camera, 1.7
+  cm against 2.3 cm for one turned 6°, where it was 2.6 cm and 16.9 cm before). With a camera's
+  clock off WPILib's is still closer. The simulator's gyro and cameras are simpler than real ones,
+  so these are the results to trust least.
+- With worse cameras than the simulator's (corners twice as noisy, tags seen to 5 m, each mount up
+  to 5 mm and 1° off), the default localizer is ahead in clean driving (1.1 cm against 1.3 cm) and
+  its heading's uncertainty stays honest.
 - WPILib's estimator, behind the kind of vision filter strong teams write for it, moves more
   smoothly. The default localizer corrects a wrong estimate in one step, which can be tens of
   centimeters after a shove, or after the cameras were blind while the wheels slipped.

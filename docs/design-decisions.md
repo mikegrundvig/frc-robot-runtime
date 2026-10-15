@@ -642,6 +642,22 @@ against 1.4 cm, and a tilted robot's estimate steps 44 cm when the cameras see a
 half a second blind. The [estimator study](../../docs/estimator-comparison.md#what-it-found) has
 the tables.
 
+**Each camera's turn, learned.** Both of those losses came from taking each camera's turn on its
+mount as known to a quarter degree. The estimator now keeps each turn in its state, starting as
+unsure as the camera's mount tolerance in the robot's description, and learns it as the robot
+drives. No single image tells a camera's turn from a heading error, but the gyro carries the
+heading from one camera's images to the next's, so the cameras' turns are learned relative to one
+another. What they share only the wheels could tell from the heading, and a wheel zeroed off says
+the same thing wrongly: learning it that way left the heading 0.3° off with one module's encoder
+zeroed 5° off, against 0.06° for WPILib's. So that is carried at the mounts' tolerance, never
+corrected. A camera whose headings turn all at once has its turn opened up and learned anew. The
+camera turned 6° is now 1.7 cm off against 2.3 cm, the knocked camera 1.4 cm against 1.4 cm, and
+the counts are 33, 153 and 9, and 11, 70 and 6. The study also ran with worse cameras
+(`--cameras=pessimistic`: corners twice as noisy, tags seen to 5 m, each mount up to 5 mm and 1°
+off). There ours had been half a centimeter behind in ordinary driving and claimed about half the
+heading doubt a camera turned a degree costs; it is now ahead (58, 129 and 8; 19, 65 and 3) and
+its heading's bound holds. It costs 14 µs a loop, against 10 µs before.
+
 Read these with care.
 
 - The slip and collision models are the simulator author's, and the custom slip handling was
@@ -656,9 +672,11 @@ Read these with care.
 - When WPILib's filter was fed the measurements our pipeline produces, it came within a centimeter
   of ours in 34 of the 41 scenarios, and in 35 with the cameras at the corners. Most of the
   difference is in how an image is solved and gated, not in the filter.
-- Ours is still surer of itself than it should be in some scenarios. With every camera mount off
-  by twice what the configuration allows, its heading was outside its own 95% bound in a quarter
-  of the loops; with the cameras at the corners, a knocked camera puts it outside in a fifth.
+- Ours is still surer of itself than it should be in some scenarios: with every camera reading
+  range long its position is outside its own 95% bound in 70% of the loops, and with a camera
+  turned six times its mount's tolerance its heading is in a fifth. Where the cameras' mounts are
+  within their tolerance it is now less sure than it needs to be, its heading almost never
+  outside its bound.
 
 None of this says anything about a real robot.
 

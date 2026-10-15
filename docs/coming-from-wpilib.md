@@ -263,8 +263,10 @@ pit page says "not reported" where it would show those, the scoring gate does no
 pose, and camera mounts are not checked.
 
 A study in the template compares the two in simulation. In clean driving they are roughly equal.
-The default one is better against wheel slip and tags that sit off the layout. WPILib's, behind
-a strong team's vision filter, is better when a camera has been knocked or turned on its mount.
+The default one is better against wheel slip and tags that sit off the layout, and learns each
+camera's turn on its mount as the robot drives, so a camera knocked or turned on its mount costs
+it no more than WPILib's behind a strong team's vision filter. WPILib's is better when a camera's
+clock is off.
 [localizers.md](localizers.md) has the contract, both estimators, and how to write and test your
 own.
 
