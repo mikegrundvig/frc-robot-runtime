@@ -355,10 +355,11 @@ Each seed draws its own: noise in every camera and IMU, an error for each camera
 and about each axis), one for each tag (along each axis: the cameras see a tag where it is, the
 robot believes the layout), and the gyro's and the backup IMU's scales. Each kind of error, and
 each camera and tag, draws from its own stream of the seed, so no two seeds share a draw. They're
-drawn from Gaussians at the spread the estimator's configuration claims (`EstimatorConfig`'s
-`cameraTurnStdDevDegrees`, `tagPlacementStdDevMeters`, `headingStdDevDegreesPerTurn`,
-`backupHeadingStdDevDegreesPerTurn`), each mount 3 mm off along each axis, within the 5 mm of
-`cameraShiftStdDevMeters` (a stop-gap that also covers a single tag's solve coming out short:
+drawn from Gaussians at the spread the estimator's configuration claims (each camera's turn at its
+`mountTolerance`'s spread, 0.58° by default, and `EstimatorConfig`'s `tagPlacementStdDevMeters`,
+`headingStdDevDegreesPerTurn`, `backupHeadingStdDevDegreesPerTurn`), each mount 3 mm off along
+each axis, within the 5 mm of the mount's tolerance and `cameraShiftStdDevMeters` together (a
+stop-gap that also covers a single tag's solve coming out short:
 [below](#what-the-simulated-cameras-repeat)), and the vision noise model halved, a little wider than
 the simulated cameras' noise: an estimator honest about its own claims reads a NEES near its number
 of dimensions, or a little below. Wider or narrower errors than it claims show it over- or
@@ -369,7 +370,7 @@ under-confident, which is what the options are for.
 | `--runs=A,B` | all | Which runs |
 | `--seeds=N` | 12 | Runs of each, each with its own draws |
 | `--seed=N` | 1 | The first seed |
-| `--mount-error-mm=M`, `--mount-error-degrees=D` | 3, `cameraTurnStdDevDegrees` | Each camera's mount off along and about each axis (standard deviations) |
+| `--mount-error-mm=M`, `--mount-error-degrees=D` | 3, the mount tolerance's spread (0.58) | Each camera's mount off along and about each axis (standard deviations) |
 | `--tag-error-mm=M` | `tagPlacementStdDevMeters` | Each tag off the layout along each axis; 0 for an exact field |
 | `--gyro-scale-error=F`, `--backup-scale-error=F` | `headingStdDevDegreesPerTurn` / 360, `backupHeadingStdDevDegreesPerTurn` / 360 | Each IMU's scale off by this share |
 | `--noise-scale=F` | 0.5 | The vision noise model scaled; 1 is the model as shipped. The simulated cameras are quieter than half: at a quarter, the calibrated runs read a position NEES of 1.3 to 2.5, and still a heading NEES within its band |
@@ -517,10 +518,11 @@ The collision's exceedances are the loops of the hit, before the jolt is read, a
 it while the cameras pull the estimate back across a knock of 0.6 m, more than the 25 cm
 `collisionStdDevMeters` allows. A tag 4 in off the layout, ten times what
 `tagPlacementStdDevMeters` allows, stays within the allowance: one tag among several in view. A
-camera turned 2° is eight times what `cameraTurnStdDevDegrees` allows, and 4° sixteen: the
-estimator can't tell either from a heading error, so its heading grows sure of a wrong value.
-Catching that is the mount check's job; how well it does depends on what may correct the heading,
-below.
+camera turned 2° was eight times what the estimator then allowed a camera's turn, and 4° sixteen:
+it couldn't tell either from a heading error, so its heading grew sure of a wrong value. It now
+learns each camera's turn as the robot drives, relative to the other cameras' (the localization
+README says how); this run, and the comparison of what may correct the heading below, are from
+before.
 
 #### What the simulated cameras repeat
 

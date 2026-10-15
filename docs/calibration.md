@@ -161,10 +161,34 @@ apart.
 When: after mounting, bumping, or remounting a camera, and whenever the robot says a camera is out
 of calibration.
 
+How sure the mount is goes in the camera's entry too, as `.mountTolerance(...)`: the most it may
+still be off along and about each axis. Left out, it's 5 mm and 1°, the end of what a mount
+measured from CAD and checked lands within. After the procedure, run it five times from the same
+spots and give three times the spread of what they find. The default localizer starts each
+camera's turn on its mount as unsure as this and learns the rest while the robot drives
+([below](#what-the-localizer-learns-of-a-mount)), so a mount a little off costs the pose little;
+the procedure is still what puts a camera right, and a tolerance smaller than the truth makes the
+localizer trust a camera more than it should.
+
 A camera on a joint, a turret's say, has no action here, and the robot doesn't judge its mount:
 where it is depends on the joint, so its mount is measured from the joint's frame in CAD, and the
 joint's own position does the rest. Localization solves each of its images from where the joint had
 carried it when the image was taken.
+
+### What the localizer learns of a mount
+
+The default localizer learns each camera's turn on its mount, about the vertical, from the
+camera's own images as the robot drives: a camera turned a degree puts every tag a degree round,
+5 cm at 3 m, the same way in every image, and its headings a degree off. The gyro carries the
+heading from one camera's images to another's, so what one camera's turn is beside the others' is
+found within some tens of seconds of driving. What every camera's turn shares can't be told from a
+heading error by the cameras, and the localizer leaves it as unsure as the mounts' tolerances
+allow: the wheels could say, but a wheel zeroed a few degrees off says the same thing wrongly. A
+camera whose headings all turn at once, as a knocked camera's do, has its turn opened up again
+and relearned, once it has given a few seconds of headings of its own.
+
+It learns only the turn: a camera shifted on its mount, or tilted, still puts the robot off by
+what that does, as before. And it doesn't tell you to recalibrate: the check below does that.
 
 ### How the robot notices a camera that moved
 
