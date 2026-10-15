@@ -471,8 +471,21 @@ they aren't said.
 | `tiltUp` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `yaw` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `noiseScale` | calibrated | guess (every camera typical) | How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
-| `mountTolerance` | calibrated | math (left out, `MountTolerance.MEASURED`: 5 mm along and 1° about each axis, the end of what a mount measured from CAD and checked lands within, as the [camera placement study's robustness](camera-placement.md#robustness) has it) | How far the camera may really sit from the values above, as a bound along and about each axis. The default localizer starts the camera's turn on its mount as unsure as an error drawn evenly within it (1° is 0.58° as a standard deviation) and learns the turn from the camera's images as the robot drives; its shift adds to `cameraShiftStdDevMeters`. After [a camera's mount](calibration.md#a-cameras-mount), set it to what the procedure leaves: the spread of what five runs from the same spots find, three of them as a bound. Too small, and a camera off by more is trusted as if it weren't. |
 | `joint` | as built | none | What the camera rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
+
+### `CameraConfig.MountTolerance`
+
+How far a camera may really sit from its configured mount, as a bound along and about each axis.
+Per camera, in `Robots`, as `.mountTolerance(...)`; left out, `MountTolerance.MEASURED`. The default
+localizer starts the camera's turn on its mount as unsure as an error drawn evenly within it (1° is
+0.58° as a standard deviation) and learns the turn from the camera's images as the robot drives;
+the offset adds to `cameraShiftStdDevMeters`. Too small, and a camera off by more is trusted as if
+it weren't.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `along` | calibrated | math (5 mm, the end of what a mount measured from CAD and checked lands within, as the [camera placement study's robustness](camera-placement.md#robustness) has it) | After [a camera's mount](calibration.md#a-cameras-mount), five runs from the same spots: three times the spread of where they put the lens. |
+| `about` | calibrated | math (1°, as `along`) | As `along`, for the camera's angles. |
 
 ### `CameraConfig.Sensor`
 
