@@ -28,6 +28,7 @@ import com.michaelgrundvig.frc.runtime.dashboard.Dashboard;
 import com.michaelgrundvig.frc.runtime.dashboard.RobotStatus;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.hardware.RobotHardware;
+import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.lib.timing.LoopMonitor;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimulation;
@@ -223,6 +224,8 @@ public final class RobotContainer implements AutoCloseable {
    * here is the order they appear in. And the command scheduler runs its periodic tasks in the
    * order they were added: the bindings add theirs before any gate that the team's controls make.
    *
+   * @param runsOn the computer the program runs on: a laptop driving real devices opens only those
+   *     on its CANivore
    * @param scheduler runs every command: the controls', and the Pitwall page's actions
    * @param robot the robot: its frame, wiring, and cameras
    * @param field the field the robot plays on, with its official layout
@@ -240,6 +243,7 @@ public final class RobotContainer implements AutoCloseable {
    */
   RobotContainer(
       RunMode mode,
+      RunsOn runsOn,
       Scheduler scheduler,
       RobotConfig robot,
       FieldModel field,
@@ -268,7 +272,7 @@ public final class RobotContainer implements AutoCloseable {
 
     // What the robot reads and drives.
     world = simulatedWorld(mode, field, simulatedErrors);
-    hardware = watched.apply(hardware(mode, definition, world));
+    hardware = watched.apply(hardware(mode, runsOn, definition, world));
 
     // Localization comes before the drivetrain, which asks it where the robot is.
     localization = new Localization(localizationService(field, robot));
@@ -370,16 +374,18 @@ public final class RobotContainer implements AutoCloseable {
 
   /**
    * What the robot reads and drives, for the mode the program runs in. In the simulator it is the
-   * simulated world's. On a robot it is the devices that the definition's wiring names. In a replay
-   * it is nothing, because a replay reads the log.
+   * simulated world's. On a robot it is the devices that the definition's wiring names, and on a
+   * laptop driving real devices those of them it reaches, on its CANivore. In a replay it is
+   * nothing, because a replay reads the log.
    *
+   * @param runsOn the computer the program runs on
    * @param world the simulated world, in the simulator
    */
   static Hardware hardware(
-      RunMode mode, RobotDefinition definition, Optional<SimulatedWorld> world) {
+      RunMode mode, RunsOn runsOn, RobotDefinition definition, Optional<SimulatedWorld> world) {
     return switch (mode) {
       case SIM -> new SimulatedHardware(world.orElseThrow());
-      case REAL -> new RobotHardware(definition);
+      case REAL -> new RobotHardware(definition, runsOn);
       case REPLAY -> Hardware.replay(definition);
     };
   }

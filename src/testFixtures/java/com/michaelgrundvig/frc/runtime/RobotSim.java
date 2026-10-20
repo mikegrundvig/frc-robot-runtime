@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
+import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.lib.timing.LoopMonitor;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimulation;
@@ -164,6 +165,22 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
   }
 
   /**
+   * Builds a robot, in place of any built before, as {@link Robot} does on the computer given: a
+   * laptop ({@link RunsOn#DESKTOP}) in {@code REAL} mode is one driving real devices through CTRE's
+   * hardware-attached simulation, opening only those on its CANivore.
+   */
+  public RobotContainer build(RunMode mode, RunsOn runsOn, RobotConfig robot, SensorErrors errors) {
+    return build(
+        mode,
+        runsOn,
+        robot,
+        RobotSim::onOpenFloor,
+        ControlsMaker.NONE,
+        errors,
+        UnaryOperator.identity());
+  }
+
+  /**
    * Builds a robot in the simulator, its hardware handed through a test's own on its way to the
    * robot's mechanisms: to record what each part is told, as {@code Monkey} does.
    */
@@ -181,16 +198,19 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
       Function<Body, Game> season,
       ControlsMaker<?> controls,
       SensorErrors errors) {
-    return build(RunMode.SIM, robot, season, controls, errors, UnaryOperator.identity());
+    return build(
+        RunMode.SIM, RunsOn.DESKTOP, robot, season, controls, errors, UnaryOperator.identity());
   }
 
   private RobotContainer build(
       RunMode mode, RobotConfig robot, SensorErrors errors, UnaryOperator<Hardware> watched) {
-    return build(mode, robot, RobotSim::onOpenFloor, ControlsMaker.NONE, errors, watched);
+    return build(
+        mode, computerFor(mode), robot, RobotSim::onOpenFloor, ControlsMaker.NONE, errors, watched);
   }
 
   private RobotContainer build(
       RunMode mode,
+      RunsOn runsOn,
       RobotConfig robot,
       Function<Body, Game> season,
       ControlsMaker<?> controls,
@@ -204,6 +224,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
     container =
         Robot.assemble(
             mode,
+            runsOn,
             scheduler(),
             robot,
             season,
@@ -214,6 +235,18 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
             Optional.empty(),
             watched);
     return container;
+  }
+
+  /**
+   * The computer a test's mode stands for: {@link RunMode#REAL} is a robot's, as the tests that
+   * build one mean it, its every device opened; the simulator and a replay run on a laptop. The
+   * laptop driving real devices is tested on its own ({@code HardwareAttachedTest}).
+   */
+  private static RunsOn computerFor(RunMode mode) {
+    if (mode == RunMode.REAL) {
+      return RunsOn.SYSTEMCORE;
+    }
+    return RunsOn.DESKTOP;
   }
 
   /** The robot, built as the simulator's robot on first use unless the test built another. */

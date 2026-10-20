@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
+import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
@@ -89,6 +90,7 @@ public final class SimulatedRobot implements AutoCloseable {
     container =
         Robot.assemble(
             RunMode.SIM,
+            RunsOn.DESKTOP,
             scheduler,
             robot,
             Rebuilt::game,

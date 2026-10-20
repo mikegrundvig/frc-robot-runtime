@@ -15,6 +15,8 @@ import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
 import com.michaelgrundvig.frc.runtime.dashboard.DashboardStream;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
+import com.michaelgrundvig.frc.runtime.hardware.PhoenixBuses;
+import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.Scenarios;
@@ -119,6 +121,12 @@ public class Robot extends LoggedRobot {
   /** What the program runs as: on a robot, in the simulator, or replaying a log. */
   private final RunMode mode = RunMode.current();
 
+  /**
+   * The computer it runs on: a robot's Systemcore, or a laptop. A laptop in {@link RunMode#REAL}
+   * drives real devices through CTRE's hardware-attached simulation ({@link HardwareAttached}).
+   */
+  private final RunsOn runsOn = RunsOn.current();
+
   /** Whether the loop keeps up, and its log with it. */
   private final LoopHealth loopHealth = new LoopHealth();
 
@@ -169,21 +177,29 @@ public class Robot extends LoggedRobot {
           "Simulator: scenario " + scenario.get().name() + ": " + scenario.get().description());
     }
     RobotConfig robot = program.robot().get();
+    boolean hardwareAttached = HardwareAttached.applies(mode, runsOn);
+    if (hardwareAttached) {
+      // Before anything else is opened: real motors are about to be, from a laptop.
+      HardwareAttached.banner(robot.definition()).forEach(System.out::println);
+      Logger.recordMetadata("HardwareAttached", "real devices driven from a laptop");
+    }
     Optional<RobotSession> session = sessionFor(mode, robot);
     chooseWhereTheLogGoes(session);
     Logger.start();
     debugDeploy.set(
         mode == RunMode.REAL
+            && runsOn == RunsOn.SYSTEMCORE
             && startedForDebugger(ManagementFactory.getRuntimeMXBean().getInputArguments()));
 
     if (session.isPresent()) {
-      pitwall = Pitwall.start(robot.name(), session.get());
+      pitwall = Pitwall.start(robot.name(), session.get(), HardwareAttached.pitwallKind(mode));
     } else {
       pitwall = Pitwall.start(robot.name());
     }
     container =
         assemble(
             mode,
+            runsOn,
             Scheduler.getDefault(),
             robot,
             program.season(),
@@ -192,8 +208,14 @@ public class Robot extends LoggedRobot {
             // In the simulator, the sensors err as a season-worn robot's do.
             SensorErrors.TYPICAL,
             loopHealth,
-            venueStore(mode),
+            venueStore(mode, runsOn),
             UnaryOperator.identity());
+    if (hardwareAttached) {
+      // Once the devices are opened: whether the laptop sees each CANivore they're on.
+      HardwareAttached.canivores(robot.definition()).stream()
+          .map(PhoenixBuses::status)
+          .forEach(line -> System.out.println("Hardware-attached: " + line));
+    }
     // The scenario's sensor faults are applied now, before the first loop, through the simulator's
     // controls, so the Pitwall page shows them and can undo them. Its events wait until the robot
     // is enabled.
@@ -239,10 +261,14 @@ public class Robot extends LoggedRobot {
       case REAL -> {
         // On a robot the log goes to the USB drive, and is streamed to dashboards. On the field the
         // stream is thinned, because the radio's bandwidth is capped and the drive keeps
-        // everything anyway.
+        // everything anyway. On a laptop driving real devices, AdvantageKit's writer puts it in
+        // logs/, as in the simulator (it asks WPILib, which says simulation there), and there's no
+        // USB drive to watch.
         Logger.addDataReceiver(new WPILOGWriter());
         Logger.addDataReceiver(new DashboardStream(new NT4Publisher()));
-        loopHealth.watchLogDrive(new File(LOG_DRIVE));
+        if (runsOn == RunsOn.SYSTEMCORE) {
+          loopHealth.watchLogDrive(new File(LOG_DRIVE));
+        }
       }
       case SIM -> {
         // In the simulator the log is streamed to AdvantageScope, and every session is also kept
@@ -269,20 +295,28 @@ public class Robot extends LoggedRobot {
   }
 
   /**
-   * Where venues are kept. On a robot that is the robot's disk. In the simulator it is the
-   * simulator's own folder, {@code build/venues/}. A replay has none, because it takes the venue
-   * from the log. Tests have none either: they use the official layout unless they say otherwise.
+   * Where venues are kept. On a robot that is the robot's disk. On a laptop, in the simulator or
+   * driving real devices, it is the program's own folder, {@code build/venues/}. A replay has none,
+   * because it takes the venue from the log. Tests have none either: they use the official layout
+   * unless they say otherwise.
    */
-  static Optional<VenueStore> venueStore(RunMode mode) {
+  static Optional<VenueStore> venueStore(RunMode mode, RunsOn runsOn) {
     if (mode == RunMode.REPLAY) {
       return Optional.empty();
     }
-    Path stored = VenueStore.ROBOT_FOLDER;
-    if (mode == RunMode.SIM) {
-      stored = Filesystem.getOperatingDirectory().toPath().resolve("build/venues");
-    }
     Path committed = Filesystem.getDeployDirectory().toPath().resolve("venues");
-    return Optional.of(new VenueStore(stored, committed));
+    return Optional.of(new VenueStore(venueFolder(runsOn), committed));
+  }
+
+  /**
+   * Where the pit's venues are kept on this computer: on a robot, its disk; on a laptop, the
+   * program's own folder, {@code build/venues/}, whether it simulates or drives real devices.
+   */
+  static Path venueFolder(RunsOn runsOn) {
+    if (runsOn == RunsOn.SYSTEMCORE) {
+      return VenueStore.ROBOT_FOLDER;
+    }
+    return Filesystem.getOperatingDirectory().toPath().resolve("build/venues");
   }
 
   /**
@@ -291,6 +325,8 @@ public class Robot extends LoggedRobot {
    * value takes effect at once. Tests build the robot here too ({@code RobotSim}), so they test the
    * robot that the robot program runs.
    *
+   * @param runsOn the computer the program runs on: a laptop driving real devices opens only those
+   *     on its CANivore
    * @param season this season's field and venues, for a robot of this robot's body
    * @param controls what the robot does, made once its mechanisms are built
    * @param simulatedErrors in the simulator, how the robot's wheels and sensors differ from its
@@ -302,6 +338,7 @@ public class Robot extends LoggedRobot {
    */
   static RobotContainer assemble(
       RunMode mode,
+      RunsOn runsOn,
       Scheduler scheduler,
       RobotConfig robot,
       Function<Body, Game> season,
@@ -319,6 +356,7 @@ public class Robot extends LoggedRobot {
     RobotContainer container =
         new RobotContainer(
             mode,
+            runsOn,
             scheduler,
             robot,
             game.officialField(),

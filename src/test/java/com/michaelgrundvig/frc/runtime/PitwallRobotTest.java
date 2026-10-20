@@ -148,42 +148,98 @@ class PitwallRobotTest {
   }
 
   /**
-   * On a robot, Pitwall has no simulator controls: nothing answers at their routes, so nothing can
-   * write the Driver Station's state, and the page's event stream has none of their sections. The
-   * Driver Station is the robot's safety switch.
+   * Where the program runs, and what it drives, as {@link Robot} starts Pitwall for each: the
+   * computer as WPILib's HAL says it, and the mode.
+   *
+   * @param computer how the row reads
+   * @param halRuntime the HAL's runtime type: the simulation on a laptop, Systemcore on a robot
+   * @param mode the program's mode: on a laptop, {@code REAL} is real devices driven through CTRE's
+   *     hardware-attached simulation ({@code -PhwSim})
+   * @param pageDrivesIt whether the page has the simulator's controls, Enable among them
+   * @param tuningStartsOn whether tuning starts switched on
    */
-  @Test
-  void aRealRobotHasNoSimulatorControls() throws Exception {
-    pitwall.close();
-    SimHooks.setHALRuntimeType(HALUtil.RUNTIME_SYSTEMCORE);
-    try {
-      pitwall = Pitwall.start(ExampleRobot.SIM.name(), 0);
+  private record Where(
+      String computer,
+      int halRuntime,
+      RunMode mode,
+      PageDrives pageDrivesIt,
+      TuningStarts tuningStartsOn) {}
 
-      var enable = patch("/api/simulator", "{\"enabled\": true}");
-      for (int i = 0; i < 5; i++) {
-        pitwall.periodic(); // loops that would apply it, if anything had queued it
-        DriverStationSim.notifyNewData();
-      }
-      String snapshot = snapshot();
-
-      assertThat(pitwall.simulator()).isEmpty();
-      assertThat(enable.statusCode()).isEqualTo(404);
-      assertThat(DriverStationSim.getEnabled()).isFalse();
-      assertThat(snapshot)
-          .contains("\"robot\":{")
-          .doesNotContain("\"simulator\":{")
-          .doesNotContain("\"components\":{")
-          .doesNotContain("\"scenarios\":{");
-    } finally {
-      SimHooks.setHALRuntimeType(HALUtil.RUNTIME_SIMULATION);
-    }
+  /** Whether the page can drive the robot: enable it, disable it, and work its joysticks. */
+  private enum PageDrives {
+    YES,
+    NO
   }
 
-  /** In the simulator, the same page has them. */
+  /** How tuning starts. */
+  private enum TuningStarts {
+    ON,
+    OFF
+  }
+
+  private static final List<Where> EVERYWHERE =
+      List.of(
+          new Where(
+              "the simulator, on a laptop",
+              HALUtil.RUNTIME_SIMULATION,
+              RunMode.SIM,
+              PageDrives.YES,
+              TuningStarts.ON),
+          new Where(
+              "real devices driven from a laptop (-PhwSim)",
+              HALUtil.RUNTIME_SIMULATION,
+              RunMode.REAL,
+              PageDrives.NO,
+              TuningStarts.OFF),
+          new Where(
+              "a robot",
+              HALUtil.RUNTIME_SYSTEMCORE,
+              RunMode.REAL,
+              PageDrives.NO,
+              TuningStarts.OFF));
+
+  /**
+   * Pitwall never drives real motors: on a robot, and on a laptop driving real devices, which
+   * WPILib can't tell from its simulation, it has no simulator controls. Nothing answers at their
+   * routes, so nothing can write the Driver Station's state, the page's event stream has none of
+   * their sections, and the bar says ROBOT. The Driver Station, or on a laptop WPILib's simulator
+   * GUI, is the safety switch. Tuning starts off for real motors, and on for a simulated robot.
+   */
   @Test
-  void theSimulatorHasSimulatorControls() throws Exception {
-    assertThat(pitwall.simulator()).isPresent();
-    assertThat(snapshot()).contains("\"simulator\":{").contains("\"components\":{");
+  void thePageDrivesASimulatedRobotOnlyAndTunesItFromTheStart() throws Exception {
+    for (Where where : EVERYWHERE) {
+      pitwall.close();
+      SimHooks.setHALRuntimeType(where.halRuntime());
+      try {
+        pitwall =
+            Pitwall.start(ExampleRobot.SIM.name(), 0, HardwareAttached.pitwallKind(where.mode()));
+        boolean drives = where.pageDrivesIt() == PageDrives.YES;
+
+        var enable = patch("/api/simulator", "{\"enabled\": true}");
+        for (int i = 0; i < 5; i++) {
+          pitwall.periodic(); // loops that would apply it, if anything had queued it
+          DriverStationSim.notifyNewData();
+        }
+        String snapshot = snapshot();
+
+        assertThat(pitwall.simulator().isPresent()).as(where.computer()).isEqualTo(drives);
+        assertThat(enable.statusCode()).as(where.computer()).isEqualTo(drives ? 200 : 404);
+        if (!drives) {
+          assertThat(DriverStationSim.getEnabled()).as(where.computer()).isFalse();
+          assertThat(enable.body()).contains("a robot has no simulator controls");
+        }
+        assertThat(snapshot.contains("\"simulator\":{")).as(where.computer()).isEqualTo(drives);
+        assertThat(snapshot.contains("\"components\":{")).as(where.computer()).isEqualTo(drives);
+        assertThat(snapshot).as(where.computer()).contains("\"simulated\":" + drives);
+        assertThat(pitwall.tuning().isEnabled())
+            .as(where.computer())
+            .isEqualTo(where.tuningStartsOn() == TuningStarts.ON);
+      } finally {
+        SimHooks.setHALRuntimeType(HALUtil.RUNTIME_SIMULATION);
+        DriverStationSim.setEnabled(false);
+        DriverStationSim.notifyNewData();
+      }
+    }
   }
 
   /** The page's event stream's first event, its snapshot, as the robot loop sends it. */

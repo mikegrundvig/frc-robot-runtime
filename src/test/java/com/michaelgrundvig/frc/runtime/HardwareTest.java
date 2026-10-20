@@ -13,6 +13,7 @@ import static org.wpilib.units.Units.Rotations;
 import com.ctre.phoenix6.SignalLogger;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.hardware.RobotHardware;
+import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedHardware;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIOPort;
@@ -25,6 +26,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -133,7 +135,8 @@ class HardwareTest {
   @Test
   void aRobotsHardwareIsTheDevicesItsWiringNames() {
     Map<String, Sensor.Placed> sensors = sensors();
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, Optional.empty());
+    try (Hardware hardware =
+            RobotContainer.hardware(RunMode.REAL, RunsOn.SYSTEMCORE, ROBOT, Optional.empty());
         AbsoluteEncoderIOPort encoder = (AbsoluteEncoderIOPort) hardware.absoluteEncoder(PIVOT);
         SensorIOPort lower =
             (SensorIOPort)
@@ -163,7 +166,8 @@ class HardwareTest {
    */
   @Test
   void aRobotsPartWithNoWiringGetsNothingAndAnAlertSaysSo() {
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REAL, ROBOT, Optional.empty())) {
+    try (Hardware hardware =
+        RobotContainer.hardware(RunMode.REAL, RunsOn.SYSTEMCORE, ROBOT, Optional.empty())) {
       assertThat(hardware.drive().modules())
           .allMatch(module -> module.getClass().isAnonymousClass());
       assertThat(hardware.joint(ROLLER).getClass().isAnonymousClass()).isTrue();
@@ -183,13 +187,77 @@ class HardwareTest {
   }
 
   /**
+   * On a laptop driving real devices (CTRE's hardware-attached simulation), only what's on its
+   * CANivore is opened. Systemcore's own CAN port, its I/O ports and the PDH aren't there, so a
+   * part on them gets nothing, as an unwired part does, and one alert names them all; a SPARK is on
+   * Systemcore's port too, and REV has no way to hardware from a laptop anyway. The same joint and
+   * sensor on a CANivore open as on a robot.
+   */
+  @Test
+  void aLaptopOpensOnlyWhatsOnItsCanivore() {
+    Map<String, Sensor.Placed> sensors = sensors();
+    try (Hardware hardware =
+        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, ROBOT, Optional.empty())) {
+      assertThat(hardware).isInstanceOf(RobotHardware.class);
+      List<Object> made = new ArrayList<>();
+      made.add(hardware.joint(PIVOT));
+      made.add(hardware.joint(ARM));
+      made.add(hardware.absoluteEncoder(PIVOT));
+      made.add(hardware.sensor(Objects.requireNonNull(sensors.get("pivot lower limit"))));
+      made.add(hardware.sensor(BEAM));
+      made.add(hardware.sensor(HOPPER));
+      made.add(hardware.pdh());
+      assertThat(made).allMatch(io -> io.getClass().isAnonymousClass());
+      List<CameraIO> cameras = hardware.cameras();
+      assertThat(cameras).allMatch(camera -> camera instanceof CameraIOPhotonVision);
+      cameras.forEach(CameraIO::close);
+
+      assertThat(activeAlerts())
+          .contains(
+              "Not on this laptop's CANivore, so not opened: pivot, arm, pivot's absolute encoder,"
+                  + " pivot lower limit, claw beam, hopper, the PDH. Only a robot reaches them.");
+    }
+    assertThat(activeAlerts())
+        .as("closed with it")
+        .noneMatch(text -> text.startsWith("Not on this laptop's CANivore"));
+
+    CanBus canivore = CanBus.canivore("bench");
+    Joint.Revolute onTheCanivore =
+        Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+            .range(Range.degrees(0, 135))
+            .rest(Degrees.of(0))
+            .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(canivore, 11)))
+            .control(
+                MechanismControl.position(30)
+                    .withKg(0)
+                    .withHoming(MechanismControl.Homing.assumeAtRest()));
+    Sensor.Rangefinder hopper =
+        Sensor.Rangefinder.of("hopper", Part.CHASSIS, Meters.of(1.3), Degrees.of(27))
+            .on(CANRANGE.can(canivore, 31));
+    RobotDefinition benched =
+        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
+            .name("benched")
+            .joints(List.of(onTheCanivore))
+            .sensors(List.of(hopper))
+            .build();
+    try (Hardware hardware =
+        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, benched, Optional.empty())) {
+      assertThat(hardware.joint(onTheCanivore)).isInstanceOf(JointIOTalon.class);
+      assertThat(hardware.sensor(hopper)).isInstanceOf(SensorIOCanRange.class);
+      assertThat(activeAlerts())
+          .noneMatch(text -> text.startsWith("Not on this laptop's CANivore"));
+    }
+  }
+
+  /**
    * In the simulator, each part is the simulated world's, wired or not, built from the definition
    * with the world: the joints, their encoders and the sensors whatever order they're asked for in.
    */
   @Test
   void theSimulatorsHardwareIsTheWorlds() {
     try (SimulatedWorld world = new SimulatedWorld(RobotSim.FIELD, ROBOT, SensorErrors.NONE);
-        Hardware hardware = RobotContainer.hardware(RunMode.SIM, ROBOT, Optional.of(world))) {
+        Hardware hardware =
+            RobotContainer.hardware(RunMode.SIM, RunsOn.DESKTOP, ROBOT, Optional.of(world))) {
       assertThat(hardware).isInstanceOf(SimulatedHardware.class);
       assertThat(hardware.drive().modules())
           .containsExactlyElementsOf(world.drivetrainHardware().modules());
@@ -211,7 +279,8 @@ class HardwareTest {
   /** In a replay, nothing: every reading comes from the log. */
   @Test
   void aReplaysHardwareIsNothing() {
-    try (Hardware hardware = RobotContainer.hardware(RunMode.REPLAY, ROBOT, Optional.empty())) {
+    try (Hardware hardware =
+        RobotContainer.hardware(RunMode.REPLAY, RunsOn.DESKTOP, ROBOT, Optional.empty())) {
       List<Object> made = new ArrayList<>(hardware.drive().modules());
       made.add(hardware.drive().gyro());
       made.add(hardware.joint(PIVOT));
