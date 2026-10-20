@@ -123,6 +123,7 @@ template does: a path such as `runtime/src/main/java/...` is from that program's
 - [Autos](docs/autos.md): declaring, choosing, running and checking autos
 - [Testing](docs/testing.md): the tests, and how to write one against the simulator
 - [The simulator](docs/simulator.md): its faults and scenarios, and how far to trust it
+- [Bench](docs/bench.md): drive real CTRE hardware from a laptop, before the robot has its Systemcore
 - [Values](docs/values.md): every configuration value, what it means, and how to find yours
 - [Calibration](docs/calibration.md) and [characterization](docs/characterization.md): measuring the real robot
 - [Camera placement](docs/camera-placement.md): where to mount the cameras
