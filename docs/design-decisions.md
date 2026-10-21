@@ -853,8 +853,9 @@ read the same model. **Pitwall** is the pit page. It reads the model, to draw a 
 the model says them, and knows nothing of the runtime or of any team's robot: the program hands it
 the robot's definition and its data. The **runtime** is the program every robot shares, and an architecture test fails if
 it names a class of the team's. A **team's program** is `Main`, the robots' descriptions and
-`Controls`. It takes the other three as git submodules, built from source in one build, with no
-version numbers. Localization is a fifth, a library the runtime reads, as section 13 says.
+`Controls`. It takes the others as published libraries, from their own Maven repository, at one
+dated version for all of them (since 2026-10-20; before, they were git submodules built from
+source in one build). Localization is a fifth, a library the runtime reads, as section 13 says.
 
 **Why.** The project began as one repository, for its first stretch of development. With everything
 in one place the boundaries were conventions, and they were crossed. Splitting it made the
@@ -864,9 +865,9 @@ The runtime cannot name a team's class. A team's repository holds only what the 
 **Evidence, and how strong it is.** Experience. We did it the other way first and unwound it. That
 is one project's experience and not a measurement, and no census class bears on it.
 
-**What it costs.** A change that crosses a boundary is two or three commits in order, with a
-submodule pin moved each time. A student who wants to change the runtime has to learn what a
-submodule is. The team's build checks that its WPILib and vendor versions match the runtime's, and
+**What it costs.** A change that crosses a boundary is two or three commits in order, and a release
+of the libraries before a team's program sees it (or a build from the clones, `-PlocalLibs`). The
+team's build checks that its WPILib and vendor versions match what the runtime was built with, and
 that is one more thing that can fail.
 
 **What would change our mind.** Paired commits that slow down fixes in a build season more than the

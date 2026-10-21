@@ -326,13 +326,9 @@ tasks.register("ci") {
     dependsOn "spotlessCheck", "build", "javadoc"
     // From the top of the build, every project's checks.
     dependsOn project.subprojects.collect { it.path + ":ci" }
-    // And, when this is the build that runs (settings.gradle), the robot model's, localization's and
-    // Pitwall's own, and the plugins' (build-logic/); a robot program that includes this build runs
-    // them itself.
+    // And, when this is the build that runs (settings.gradle), the plugins' (build-logic/); a robot
+    // program that includes this build runs them itself.
     if (project == rootProject && gradle.parent == null) {
-        dependsOn gradle.includedBuild("model").task(":ci")
-        dependsOn gradle.includedBuild("localization").task(":ci")
-        dependsOn gradle.includedBuild("pitwall").task(":ci")
         dependsOn gradle.includedBuild("build-logic").task(":ci")
     }
 }

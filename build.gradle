@@ -20,9 +20,12 @@ plugins {
     alias(libs.plugins.errorprone)
 }
 
-// What a build that includes this one asks for (settings.gradle, includeBuild): the runtime is
-// com.michaelgrundvig.frc:frc-robot-runtime.
+// Published as com.michaelgrundvig.frc:frc-robot-runtime (gradle/publishing.gradle, at the end).
 group = "com.michaelgrundvig.frc"
+
+// GradleRIO's repositories give WPILib and the vendor libraries; the FRC libraries' own repository
+// gives the robot model, localization and Pitwall, at this release's version.
+apply from: file("gradle/frc-maven.gradle")
 
 java {
     toolchain {
@@ -31,16 +34,20 @@ java {
 }
 
 dependencies {
-    // The libraries the runtime is made of appear in its signatures.
-    api "com.michaelgrundvig.frc:frc-robot-model"
-    api "com.michaelgrundvig.frc:frc-localization"
-    api project(":simulation")
-    api "com.michaelgrundvig.frc:frc-pitwall"
+    // The libraries the runtime is made of appear in its signatures: the model, localization and
+    // Pitwall at this release's version (the catalog's frc-libs), and the simulation, this build's.
+    api libs.frc.robot.model
+    api libs.frc.localization
+    api project(":frc-robot-simulation")
+    api libs.frc.pitwall
     api libs.jspecify
 
     // WPILib, and the vendor libraries in vendordeps/ (Commands v3, AdvantageKit, Phoenix, REVLib,
     // PhotonLib), exactly as GradleRIO gives them to a robot program. The robot program has them
-    // at run time; here they compile the runtime, its fixtures and its tests.
+    // at run time; here they compile the runtime, its fixtures and its tests. compileOnly keeps
+    // them out of what's published: a program's own GradleRIO and vendordeps decide its versions,
+    // and the jar says which this runtime was built with (builtWith, below), for the program's
+    // build to compare.
     compileOnly wpi.java.deps.wpilib()
     compileOnly wpi.java.vendor.java()
     testFixturesCompileOnly wpi.java.deps.wpilib()
@@ -68,7 +75,7 @@ dependencies {
     compileOnly libs.recordbuilder.core
     compileOnly libs.errorprone.annotations
     annotationProcessor libs.recordbuilder.processor
-    annotationProcessor "com.michaelgrundvig.frc:docs-processor"
+    annotationProcessor libs.frc.docs.processor
     testFixturesCompileOnly libs.recordbuilder.core
     testFixturesCompileOnly libs.errorprone.annotations
     testFixturesAnnotationProcessor libs.recordbuilder.processor
@@ -89,9 +96,9 @@ dependencies {
     // A test that must not share its JVM is run in one of its own by JUnit's launcher (InItsOwnJvm).
     testFixturesImplementation "org.junit.platform:junit-platform-launcher"
     // The truth suite's known gaps, which the simulator's tests share with its library's.
-    testFixturesApi testFixtures(project(":simulation"))
+    testFixturesApi testFixtures(project(":frc-robot-simulation"))
     // The localizer contract's conformance suite, for a team that writes a localizer of its own.
-    testFixturesApi testFixtures("com.michaelgrundvig.frc:frc-localization")
+    testFixturesApi testFixtures(libs.frc.localization)
 
     testImplementation platform(libs.junit.bom)
     testImplementation "org.junit.jupiter:junit-jupiter"
@@ -117,21 +124,78 @@ tasks.withType(Test).configureEach { jvmArgs "-Xmn32m" }
 // GradleRIO extracts, and the JVM options it sets for its tests.
 wpi.java.configureTestTasks(test)
 
-// The folders of the robot model, of localization and of Pitwall that this build compiles against:
-// its own submodules when it is the build that runs, and those of the build that includes it
-// otherwise (settings.gradle includes them only in the first case).
-def includedBuildDir = { String name ->
+// What this runtime was built with: GradleRIO's version and the vendor libraries in vendordeps/,
+// written into the jar as META-INF/frc-robot-runtime/built-with.json. A robot program runs the
+// runtime with its own WPILib and vendor libraries, which must be these versions; its build reads
+// this file from the runtime it resolved and fails when they differ (the template's
+// gradle/runtime-versions.gradle). The file travels in the jar, so the check needs nothing of this
+// repository but the published runtime.
+def builtWithDir = layout.buildDirectory.dir("generated/built-with")
+def builtWith = tasks.register("builtWith") {
+    description = "Write the GradleRIO and vendor library versions the runtime is built with into its jar."
+    def gradleRio = libs.versions.gradlerio.get()
+    def vendordeps = fileTree("vendordeps") { include "*.json" }
+    inputs.property("gradlerio", gradleRio)
+    inputs.files(vendordeps).withPropertyName("vendordeps").withPathSensitivity(PathSensitivity.NAME_ONLY)
+    outputs.dir(builtWithDir)
+    doLast {
+        def slurper = new groovy.json.JsonSlurper()
+        def libraries = vendordeps.files.sort { it.name }.collect { File f ->
+            def json = slurper.parse(f)
+            [file: f.name, name: json.name, uuid: json.uuid, version: json.version]
+        }
+        def out = builtWithDir.get().file("META-INF/frc-robot-runtime/built-with.json").asFile
+        out.parentFile.mkdirs()
+        out.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson([gradlerio: gradleRio, vendordeps: libraries])) + "\n"
+    }
+}
+sourceSets.main.resources.srcDir(builtWith)
+
+// The robot model's, localization's and Pitwall's sources, which the guides' examples test reads
+// (DocExamplesTest): a library's own clone when it's built from source (-PlocalLibs,
+// settings.gradle; or the robot program's, when it builds this one so), and otherwise what its
+// published jars hold, unpacked under build/library-sources/<library>: the sources jar (its main
+// sources, and its README) and the test sources jar (its tests' and test fixtures' sources).
+def includedLibrary = { String name ->
     for (def g = gradle; g != null; g = g.parent) {
         def found = g.includedBuilds.find { it.name == name }
         if (found != null) {
             return found.projectDir
         }
     }
-    throw new GradleException("No build named ${name} is included: the runtime needs the robot model, localization and Pitwall")
+    return null
 }
-def modelDir = includedBuildDir("model")
-def localizationDir = includedBuildDir("localization")
-def pitwallDir = includedBuildDir("pitwall")
+def librarySourceDirs = [:]
+def unpackLibraries = []
+[model: "frc-robot-model", localization: "frc-localization", pitwall: "frc-pitwall"].each { name, artifact ->
+    def local = includedLibrary(name)
+    if (local != null) {
+        librarySourceDirs[name] = local
+        return
+    }
+    def coordinates = "com.michaelgrundvig.frc:${artifact}:${libs.versions.frc.libs.get()}"
+    def sources = configurations.detachedConfiguration(dependencies.create("${coordinates}:sources@jar"))
+    def testSources = configurations.detachedConfiguration(dependencies.create("${coordinates}:test-sources@jar"))
+    def dir = layout.buildDirectory.dir("library-sources/${name}")
+    unpackLibraries << tasks.register("${name}Sources", Sync) {
+        description = "Unpack ${artifact}'s published sources, for the guides' examples test."
+        from({ zipTree(sources.singleFile) }) {
+            exclude "META-INF/**", "README.md"
+            into "src/main/java"
+        }
+        from({ zipTree(sources.singleFile) }) {
+            include "README.md"
+        }
+        from({ zipTree(testSources.singleFile) }) {
+            exclude "META-INF/**"
+        }
+        into dir
+    }
+    librarySourceDirs[name] = dir.get().asFile
+}
+def modelDir = librarySourceDirs.model
+def localizationDir = librarySourceDirs.localization
+def pitwallDir = librarySourceDirs.pitwall
 
 tasks.named("test") {
     useJUnitPlatform()
@@ -154,8 +218,9 @@ tasks.named("test") {
     // on them: the values register (docs/values.md, ValuesRegisterTest) and the guides' examples of
     // code (DocExamplesTest), read as text with the sources they're found in. A quick build
     // (-Pquick) skips tests whose inputs haven't changed, so an undeclared file would let a change
-    // to it pass untested. The model's, localization's and Pitwall's are the submodules of this
-    // build, or, when a robot program includes this build, the program's own (settings.gradle).
+    // to it pass untested. The model's, localization's and Pitwall's are their published sources,
+    // unpacked (above).
+    dependsOn unpackLibraries
     systemProperty "frc.modelDir", modelDir.absolutePath
     systemProperty "frc.localizationDir", localizationDir.absolutePath
     systemProperty "frc.pitwallDir", pitwallDir.absolutePath
@@ -218,3 +283,18 @@ tasks.configureEach { task ->
 }
 
 apply from: "gradle/quality.gradle" // formatting, static analysis, coverage, the ci task
+
+ext.published = [
+    artifactId: "frc-robot-runtime",
+    name: "FRC robot runtime",
+    description: "The robot program every robot shares, which no team writes: the loop, the drivetrain, the mechanisms built from a robot's definition, vision and localization's wiring, autos, the simulator's adapters, and the harness a team tests its own robot with.",
+    repository: "frc-robot-runtime",
+    license: "BSD 3-Clause License",
+]
+apply from: "gradle/publishing.gradle"
+// The plugin (build-logic/) is published with the runtime, when this is the build that runs.
+if (gradle.parent == null) {
+    tasks.named("publishToFrcMaven") {
+        dependsOn gradle.includedBuild("build-logic").task(":publishToFrcMaven")
+    }
+}

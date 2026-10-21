@@ -38,15 +38,16 @@ class DocExamplesTest {
       Path.of(System.getProperty("frc.projectDir", ".")).toAbsolutePath().normalize();
 
   /**
-   * Where the model's, localization's and Pitwall's sources are: this project's own submodules, or,
-   * when a robot program's build includes this one, the folders of its own (build.gradle says
-   * which).
+   * Where the model's, localization's and Pitwall's sources are: the published ones, unpacked under
+   * build/library-sources/ (their sources and test sources jars, and the README in the first), or
+   * each library's own clone when it's built from source (-PlocalLibs). build.gradle says which.
    */
-  private static final Path MODEL = located("frc.modelDir", "model");
+  private static final Path MODEL = located("frc.modelDir", "build/library-sources/model");
 
-  private static final Path LOCALIZATION = located("frc.localizationDir", "localization");
+  private static final Path LOCALIZATION =
+      located("frc.localizationDir", "build/library-sources/localization");
 
-  private static final Path PITWALL = located("frc.pitwallDir", "pitwall");
+  private static final Path PITWALL = located("frc.pitwallDir", "build/library-sources/pitwall");
 
   /**
    * The sources an example is looked for in: the runtime's (the guide's robot and its examples

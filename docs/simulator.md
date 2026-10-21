@@ -496,7 +496,7 @@ AprilTag shows the side it is read from: a dark face with a tick standing out of
 back. Where a robot may start is drawn too, for both alliances: its bumpers as a dashed
 outline on the floor, with the start's name. Click a start for its pose, and *Place the robot here*
 sets the simulated robot down on it, as the *Placed* fault does (a robot's code is not told: its cameras find it). *Follow* keeps the robot in view; *Top* is the
-map, *3D* turns around it. The same view works on a robot, without the truth. How it's built, and how to add to it: [pitwall/README.md](../pitwall/README.md).
+map, *3D* turns around it. The same view works on a robot, without the truth. How it's built, and how to add to it: [Pitwall's README](https://github.com/mikegrundvig/frc-pitwall/blob/main/README.md).
 
 ## How it's built
 

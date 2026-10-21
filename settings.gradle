@@ -1,6 +1,7 @@
 // The runtime: the robot program every robot shares, which no team writes, with the simulation it
-// runs and the harness a team tests its own robot with. A robot program's build includes this one
-// (includeBuild) and asks for com.michaelgrundvig.frc:frc-robot-runtime.
+// runs and the harness a team tests its own robot with. Published as
+// com.michaelgrundvig.frc:frc-robot-runtime (gradle/publishing.gradle), which a robot program asks
+// for by its version.
 
 pluginManagement {
     repositories {
@@ -16,30 +17,49 @@ plugins {
 rootProject.name = "frc-robot-runtime"
 
 // The simulation, a project of its own, which blocks a dependency: it reads the model, and nothing
-// of the runtime, localization, or Pitwall.
-include "simulation"
-project(":simulation").projectDir = file("lib/simulation")
+// of the runtime, localization, or Pitwall. Named for what it's published as, so its test fixtures
+// are found by that name too.
+include "frc-robot-simulation"
+project(":frc-robot-simulation").projectDir = file("lib/simulation")
 
-// What this build is made of, each a repository of its own and a git submodule here: the robot
-// model (model/), localization (localization/), Pitwall (pitwall/), and the build's Gradle plugin
-// for AdvantageScope's robot assets (build-logic/, which stays in this repository).
+// The robot model, localization and Pitwall, each a repository of its own, come from the FRC
+// libraries' Maven repository at this release's version (build.gradle, gradle/frc-maven.gradle).
 //
-// They are included only when this is the build that runs. A robot program that includes this one
-// has its own model/, localization/ and Pitwall, and Gradle refuses two builds that provide the
-// same module, so it provides them (and applies the plugin from runtime/build-logic) and this build
-// asks for what it finds. Localization reads the model too, and uses this build's.
+// Developing them together: -PlocalLibs=<folder> builds those found in that folder's model/,
+// localization/ and pitwall/ (each a clone of its repository) from their source, in place of the
+// published versions, so a change to one is seen here before it's published. Off unless asked for.
+// Only the build that runs reads it: a robot program that includes this build decides for both.
+def localLibs = providers.gradleProperty("localLibs").orNull
+if (localLibs != null && gradle.parent == null) {
+    def folder = new File(localLibs.startsWith("~") ? System.getProperty("user.home") + localLibs.substring(1) : localLibs)
+    folder = folder.absolute ? folder : new File(settingsDir, localLibs)
+    if (!folder.directory) {
+        throw new GradleException("-PlocalLibs=${localLibs} isn't a folder: name the one holding model/, localization/ and pitwall/")
+    }
+    [
+        "model",
+        "localization",
+        "pitwall"
+    ].each { name ->
+        def library = new File(folder, name)
+        if (new File(library, "settings.gradle").exists()) {
+            logger.lifecycle("Building ${name} from ${library} (-PlocalLibs)")
+            includeBuild(library) {
+                if (name == "model") {
+                    // Its processor's project is docs-processor; it's published as frc-docs-processor.
+                    dependencySubstitution {
+                        substitute module("com.michaelgrundvig.frc:frc-docs-processor") using project(":docs-processor")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The build's Gradle plugin for AdvantageScope's robot assets (build-logic/), an included build of
+// its own, built, tested and published with this one when this is the build that runs. A robot
+// program that builds this one from source (-PlocalLibs) includes build-logic itself, through its
+// plugin management, to apply the plugin.
 if (gradle.parent == null) {
-    if (!file("model/settings.gradle").exists()) {
-        throw new GradleException("The robot model isn't checked out (model/ is empty). Run: git submodule update --init")
-    }
-    if (!file("localization/settings.gradle").exists()) {
-        throw new GradleException("Localization isn't checked out (localization/ is empty). Run: git submodule update --init")
-    }
-    if (!file("pitwall/settings.gradle").exists()) {
-        throw new GradleException("Pitwall isn't checked out (pitwall/ is empty). Run: git submodule update --init")
-    }
-    includeBuild("model")
-    includeBuild("localization")
-    includeBuild("pitwall")
     includeBuild("build-logic")
 }

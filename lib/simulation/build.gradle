@@ -20,20 +20,25 @@ java {
     }
 }
 
-// com.michaelgrundvig.frc:simulation, beside the runtime's own coordinates (the runtime's build asks for
-// it as a project).
+// Published as com.michaelgrundvig.frc:frc-robot-simulation, beside the runtime (the runtime's build
+// asks for it as a project).
 group = "com.michaelgrundvig.frc"
 
 base {
-    archivesName = "simulation"
+    archivesName = "frc-robot-simulation"
 }
 
-// WPILib's libraries, from wherever GradleRIO finds them for the robot program.
+// WPILib's libraries, from wherever GradleRIO finds them for the robot program, and the FRC
+// libraries' own repository, for the robot model.
 apply from: rootProject.file("gradle/wpilib-repositories.gradle")
+apply from: rootProject.file("gradle/frc-maven.gradle")
 
 dependencies {
-    // The field and the robot's definition appear in its signatures.
-    api "com.michaelgrundvig.frc:frc-robot-model"
+    // The field and the robot's definition appear in its signatures. The model compiles against
+    // WPILib and brings none of it (a robot program has its own); the tests have WPILib's
+    // libraries as the runtime's do, from GradleRIO.
+    api libs.frc.robot.model
+    testImplementation rootProject.wpi.java.deps.wpilib()
 
     // Configuration records are built by name, through builders generated as they compile.
     compileOnly libs.recordbuilder.core
@@ -41,7 +46,7 @@ dependencies {
     annotationProcessor libs.recordbuilder.processor
     // Writes the configuration records' Javadoc into the jar, so Pitwall's page can say what each
     // value means. It runs in the compiler only: the simulation never sees Pitwall.
-    annotationProcessor "com.michaelgrundvig.frc:docs-processor"
+    annotationProcessor libs.frc.docs.processor
 
     errorprone libs.errorprone.core
     errorprone libs.nullaway
@@ -78,6 +83,15 @@ tasks.named("test") {
 
 apply from: rootProject.file("gradle/quality.gradle")
 
+ext.published = [
+    artifactId: "frc-robot-simulation",
+    name: "FRC robot simulation",
+    description: "The simulated world's physics, the models of the sensors that read it, the errors those sensors make, the catalog of what can go wrong, and the truth suite that checks them.",
+    repository: "frc-robot-runtime",
+    license: "BSD 3-Clause License",
+]
+apply from: rootProject.file("gradle/publishing.gradle")
+
 // Mutation testing: PIT changes the simulation's compiled code a little at a time (a comparison
 // turned round, a returned value emptied, a call removed) and runs the tests that cover each
 // change. A change no test notices is a line the tests run without checking. Coverage says which
@@ -89,7 +103,7 @@ pitest {
     pitestVersion = libs.versions.pitest.core.get()
     junit5PluginVersion = libs.versions.pitest.junit5.get()
     // All of the simulation, or the classes -PpitClasses names, for a shorter run while working on
-    // one: ./gradlew :runtime:simulation:pitest -PpitClasses='com.michaelgrundvig.frc.simulation.RigidFit*'
+    // one: ./gradlew :frc-robot-simulation:pitest -PpitClasses='com.michaelgrundvig.frc.simulation.RigidFit*'
     targetClasses = [
         project.findProperty("pitClasses") ?: "com.michaelgrundvig.frc.simulation.*"
     ]

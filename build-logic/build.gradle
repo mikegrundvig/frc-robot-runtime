@@ -5,7 +5,14 @@
 
 plugins {
     id "java-gradle-plugin"
+    id "maven-publish"
 }
+
+// Published with the runtime, at its version: com.michaelgrundvig.frc:frc-gradle-plugins, with a
+// marker for each plugin id (frc.advantagescope-assets), which is how a build's plugins block finds it
+// in the FRC libraries' repository.
+group = "com.michaelgrundvig.frc"
+version = libs.versions.frc.libs.get()
 
 java {
     toolchain {
@@ -48,6 +55,77 @@ tasks.named("test") {
     // Gradle TestKit's own Gradle home: under build/, on disk, not in the system's temporary
     // folder (in memory on some systems).
     systemProperty "frc.testkit.dir", layout.buildDirectory.dir("testkit").get().asFile.absolutePath
+}
+
+// Publishing, as the runtime's gradle/publishing.gradle does for the libraries: sources and Javadoc
+// beside the jar, a POM that says what it is, into the frc-maven clone beside the runtime's
+// (-PfrcMavenDir, or ../frc-maven from the runtime's folder).
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+tasks.named("javadoc", Javadoc) {
+    // Broken references fail it, as the compiler's check does; a missing comment doesn't.
+    options.addBooleanOption("Xdoclint:reference", true)
+    options.quiet()
+}
+def frcMavenDir = providers.gradleProperty("frcMavenDir")
+        .map { String path -> new File(path.startsWith("~") ? System.getProperty("user.home") + path.substring(1) : path) }
+        .orElse(layout.projectDirectory.dir("../../frc-maven").asFile)
+        .get()
+publishing {
+    publications {
+        // The plugins' jar; java-gradle-plugin adds a marker publication for each plugin id.
+        pluginMaven(MavenPublication) {
+            artifactId = "frc-gradle-plugins"
+        }
+        withType(MavenPublication).configureEach {
+            pom {
+                name = "FRC tool-config Gradle plugins"
+                description = "Gradle plugins that generate a tool's files from a robot program's configuration and check them against what's committed: AdvantageScope's robot assets (frc.advantagescope-assets)."
+                url = "https://github.com/mikegrundvig/frc-robot-runtime"
+                licenses {
+                    license {
+                        name = "BSD 3-Clause License"
+                        url = "https://github.com/mikegrundvig/frc-robot-runtime/blob/main/LICENSE"
+                        distribution = "repo"
+                    }
+                }
+                developers {
+                    developer {
+                        id = "mikegrundvig"
+                        name = "Michael Grundvig"
+                        email = "1361573+mikegrundvig@users.noreply.github.com"
+                    }
+                }
+                scm {
+                    url = "https://github.com/mikegrundvig/frc-robot-runtime"
+                    connection = "scm:git:https://github.com/mikegrundvig/frc-robot-runtime.git"
+                    developerConnection = "scm:git:ssh://git@github.com/mikegrundvig/frc-robot-runtime.git"
+                }
+            }
+        }
+    }
+    repositories {
+        maven {
+            name = "frcMaven"
+            url = frcMavenDir.toURI()
+        }
+    }
+}
+tasks.register("publishToFrcMaven") {
+    group = "publishing"
+    description = "Run the plugins' checks, then publish them into the frc-maven clone."
+    dependsOn "ci", "publishAllPublicationsToFrcMavenRepository"
+}
+tasks.named("publishAllPublicationsToFrcMavenRepository") {
+    mustRunAfter "ci"
+    def dir = frcMavenDir
+    doFirst {
+        if (!new File(dir, ".git").exists()) {
+            throw new GradleException("${dir} isn't a clone of github.com/mikegrundvig/frc-maven: clone it there, or name yours with -PfrcMavenDir=<folder>")
+        }
+    }
 }
 
 // What the root build's ci runs here.

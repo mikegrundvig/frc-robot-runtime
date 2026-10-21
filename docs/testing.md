@@ -16,20 +16,23 @@ they are the build's own, and `:runtime:` goes away.
 | Rerun the fast tests on every save while you work | `./gradlew test -Pquick --continuous` |
 | Rerun only the tests you're working on, on every save | `./gradlew test -Pquick --continuous --tests '*Arm*'` |
 | One of your test classes | `./gradlew test --tests frc.robot.ArchitectureTest` |
-| One of the runtime's, whatever its kind | `./gradlew :runtime:test --tests com.michaelgrundvig.frc.runtime.RobotContainerSimTest` |
-| A package's tests | `./gradlew :runtime:test --tests 'com.michaelgrundvig.frc.runtime.subsystems.drive.*'` |
-| One project's tests: your robot program's, the runtime's, the simulation's | `./gradlew :test`, `:runtime:test`, `:runtime:simulation:test` |
-| The model's, localization's and Pitwall's tests | `./gradlew :model:test`, `:localization:test`, `:pitwall:test` |
+| One of the runtime's, whatever its kind (in the runtime's clone; from your program, with `-PlocalLibs`, `:runtime:test`) | `./gradlew test --tests com.michaelgrundvig.frc.runtime.RobotContainerSimTest` |
+| A package's tests | `./gradlew test --tests 'com.michaelgrundvig.frc.runtime.subsystems.drive.*'` |
+| One project's tests: the runtime's, the simulation's (in the runtime's clone) | `./gradlew :test`, `:frc-robot-simulation:test` |
+| The model's, localization's and Pitwall's tests | `./gradlew test` in each one's clone; from a program built with `-PlocalLibs`, `:model:test`, `:localization:test`, `:pitwall:test` |
 | Your robot program's tests, with the coverage report | `./gradlew test` |
 | Every check CI runs, in every project | `./gradlew ci` |
 
-`--tests` finds what it names in the build it is run in: your robot program (`frc.robot`) from the
-program's root, and in front of `:runtime:test`, the runtime (`com.michaelgrundvig.frc.runtime`),
-and its simulation's (`:runtime:simulation:test`, `com.michaelgrundvig.frc.simulation`).
+The runtime and the libraries are repositories of their own, which a robot program takes by their
+published version: their tests run in their own clones, or from the program when it builds them
+from source (`-PlocalLibs`, the template's docs/upgrading.md), in front of their names
+(`:runtime:test`). `--tests` finds what it names in the build it is run in: your robot program
+(`frc.robot`) from the program's root, the runtime (`com.michaelgrundvig.frc.runtime`) and its
+simulation's (`:frc-robot-simulation:test`, `com.michaelgrundvig.frc.simulation`) from the runtime's.
 `frc.robot.ArchitectureTest` is yours, `com.michaelgrundvig.frc.runtime.ArchitectureTest` the
 runtime's. A project with none of it passes; if no project has any, the build fails, naming what
 you asked for, so a misspelled name can't pass unnoticed. A project's name in front
-(`:runtime:simulation:test`) runs only its tests. Localization is a build of its own, like the
+(`:frc-robot-simulation:test`) runs only its tests. Localization is a build of its own, like the
 model: `:localization:test --tests ...` runs its tests (`com.michaelgrundvig.frc.localization`).
 
 `-Pquick` leaves out the slow tests (below) unless `--tests` names what to run, and skips the static

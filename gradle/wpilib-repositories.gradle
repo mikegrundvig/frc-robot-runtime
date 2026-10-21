@@ -10,6 +10,9 @@ rootProject.repositories.withType(MavenArtifactRepository).each { source ->
     if (source.url.host != null && source.url.host ==~ centralHost) {
         return // declared once, below
     }
+    if (source.name == "frcMaven") {
+        return // the FRC libraries' own, which a project applies itself (gradle/frc-maven.gradle)
+    }
     repositories.maven {
         name = source.name
         url = source.url
