@@ -6,6 +6,7 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import java.util.List;
@@ -23,7 +24,11 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 class AutoCheckSimTest {
   @RegisterExtension final RobotSim sim = new RobotSim();
 
-  private static final Place LEFT = Rebuilt.starts(ExampleRobot.SIM.definition().body()).left();
+  private static final Start LEFT = Rebuilt.STARTS.left();
+
+  /** The left start as a place to drive to: where the simulator's robot stands on it. */
+  private static final Place ON_LEFT =
+      Place.at("Left", LEFT.poseFor(ExampleRobot.SIM.definition().body().bumpers()));
 
   private List<AutoCheck.Result> run(ControlsMaker<?> controls) {
     return AutoCheck.run(sim, ExampleRobot.SIM, controls);
@@ -71,7 +76,7 @@ class AutoCheckSimTest {
                   "Nowhere",
                   LEFT,
                   () ->
-                      Command.noRequirements(co -> co.await(drive.follow(Keyframe.at(LEFT))))
+                      Command.noRequirements(co -> co.await(drive.follow(Keyframe.at(ON_LEFT))))
                           .named("Nowhere"));
               return autos;
             });
@@ -130,7 +135,7 @@ class AutoCheckSimTest {
   /** A start needn't be one of the field's: the placement check reads an auto's own too. */
   @Test
   void anAutoStartsFromAStartOfItsOwn() {
-    Place elsewhere = Place.at("Elsewhere", new Pose2d(6, 3, Rotation2d.ZERO));
+    Start elsewhere = Start.at("Elsewhere", new Pose2d(6, 3, Rotation2d.ZERO));
     List<AutoCheck.Result> results =
         run(
             (scheduler, robot, joints, drive, driver, operator, autos) -> {

@@ -261,7 +261,7 @@ public final class Monkey {
             this::blind,
             !definition.cameras().isEmpty(),
             robot.config().estimator());
-    field = Rebuilt.field(definition.body());
+    field = Rebuilt.field();
     for (Binding binding : sim.bindings().all()) {
       bound(binding);
     }

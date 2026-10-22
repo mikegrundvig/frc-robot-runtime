@@ -5,7 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
 import com.michaelgrundvig.frc.runtime.RobotSim;
-import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.field.Start;
 import java.io.IOException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ class AutoPitTest {
   AutoPitTest() {
     autos.add(
         "Left",
-        Place.at("Left start", new Pose2d(3.6, 7.4, Rotation2d.ZERO)),
+        Start.at("Left start", new Pose2d(3.6, 7.4, Rotation2d.ZERO)),
         () -> Command.noRequirements(coroutine -> {}).named("Left"));
   }
 

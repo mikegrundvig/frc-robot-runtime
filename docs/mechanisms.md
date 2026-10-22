@@ -505,7 +505,7 @@ public final class ExampleControls {
     operator.rightTrigger().whileTrue(intake());
     operator.faceRight().onTrue(pivot.goTo(PIVOT_IN));
 
-    autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
+    autos.add("Grab one", Rebuilt.STARTS.center(), this::grabOne);
   }
 
   /** Deploy, and roll until a piece is in. The interlock holds the roller until 110°. */

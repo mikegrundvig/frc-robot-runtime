@@ -29,13 +29,11 @@ import com.michaelgrundvig.frc.runtime.venues.VenueStore;
 import com.michaelgrundvig.frc.runtime.venues.Venues;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.game.Game;
-import com.michaelgrundvig.frc.world.robot.Body;
 import java.io.File;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
@@ -202,7 +200,7 @@ public class Robot extends LoggedRobot {
             runsOn,
             Scheduler.getDefault(),
             robot,
-            program.season(),
+            program.game(),
             program.controls(),
             pitwall,
             // In the simulator, the sensors err as a season-worn robot's do.
@@ -327,7 +325,7 @@ public class Robot extends LoggedRobot {
    *
    * @param runsOn the computer the program runs on: a laptop driving real devices opens only those
    *     on its CANivore
-   * @param season this season's field and venues, for a robot of this robot's body
+   * @param game this season's field and venues
    * @param controls what the robot does, made once its mechanisms are built
    * @param simulatedErrors in the simulator, how the robot's wheels and sensors differ from its
    *     configuration
@@ -341,14 +339,13 @@ public class Robot extends LoggedRobot {
       RunsOn runsOn,
       Scheduler scheduler,
       RobotConfig robot,
-      Function<Body, Game> season,
+      Game game,
       ControlsMaker<?> controls,
       Pitwall pitwall,
       SensorErrors simulatedErrors,
       LoopHealth loopHealth,
       Optional<VenueStore> venueStore,
       UnaryOperator<Hardware> watched) {
-    Game game = season.apply(robot.definition().body());
     Optional<VenueIODisk> disk = venueStore.map(VenueIODisk::new);
     // Without a store nothing is ever selected, so the robot stays on the official layout.
     VenueIO selection = disk.isPresent() ? disk.get() : new VenueIO() {};

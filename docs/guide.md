@@ -80,7 +80,7 @@ There are three kinds of file.
 ```java
 RobotProgram.start(
     () -> ExampleRobot.COMPETITION, // which robot this is
-    Rebuilt::game, // this season's field and venues
+    Rebuilt.GAME, // this season's field and venues
     ExampleControls::new); // what it does
 ```
 
@@ -455,8 +455,8 @@ public ExampleControls(
   operator.faceDown().onTrue(deploy());
   driver.rightTrigger().whileTrue(shoot());
 
-  autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
-  autos.add("Grab and shoot", Rebuilt.starts(robot.body()).center(), this::grabAndShoot);
+  autos.add("Grab one", Rebuilt.STARTS.center(), this::grabOne);
+  autos.add("Grab and shoot", Rebuilt.STARTS.center(), this::grabAndShoot);
 }
 ```
 

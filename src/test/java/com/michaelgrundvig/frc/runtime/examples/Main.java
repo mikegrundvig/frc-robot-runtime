@@ -15,7 +15,7 @@ final class Main {
   static void main(String... args) {
     RobotProgram.start(
         () -> ExampleRobot.COMPETITION, // which robot this is
-        Rebuilt::game, // this season's field and venues
+        Rebuilt.GAME, // this season's field and venues
         ExampleControls::new); // what it does
   }
 }

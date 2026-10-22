@@ -52,10 +52,7 @@ final class ControlsSessionRobot extends Robot {
   ControlsSessionRobot(Optional<SessionClock> clock) {
     super(
         new RobotProgram(
-            () -> ExampleRobot.COMPETITION,
-            Rebuilt::game,
-            ExampleControls::new,
-            BuildInfo.UNKNOWN));
+            () -> ExampleRobot.COMPETITION, Rebuilt.GAME, ExampleControls::new, BuildInfo.UNKNOWN));
     this.clock = clock;
     if (clock.isPresent()) {
       // A loop follows the last at once: the session's clock says the time, not the computer's.

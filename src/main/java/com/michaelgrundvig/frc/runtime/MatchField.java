@@ -5,8 +5,10 @@ import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.field.Placement;
+import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.field.Zone;
 import com.michaelgrundvig.frc.world.field.ZoneTrigger;
+import com.michaelgrundvig.frc.world.physical.Bumpers;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +57,9 @@ final class MatchField implements AutoCloseable {
   /** The field the robot believes it plays on: the official layout, or the venue selected. */
   private FieldModel field;
 
+  /** The robot's bumpers, which stand it on a start. */
+  private final Bumpers bumpers;
+
   private final Map<Zone, ZoneTrigger> zones = new LinkedHashMap<>();
 
   /** The robot's autos. The chosen one names the start. */
@@ -84,7 +89,7 @@ final class MatchField implements AutoCloseable {
   private OptionalInt station = OptionalInt.empty();
 
   /** The start chosen for the match. */
-  private Optional<Place> start = Optional.empty();
+  private Optional<Start> start = Optional.empty();
 
   /** Where the chosen start is on the field for the robot's alliance. */
   private Optional<Pose2d> startPose = Optional.empty();
@@ -96,11 +101,13 @@ final class MatchField implements AutoCloseable {
 
   /**
    * @param field the field the robot plays on, with its official layout
+   * @param bumpers the robot's, which stand it on its start
    * @param mode what the program runs as. Only the simulator shows the field view.
    * @param autos the robot's autos, whose chosen one names the start
    */
-  MatchField(FieldModel field, RunMode mode, Autos autos) {
+  MatchField(FieldModel field, Bumpers bumpers, RunMode mode, Autos autos) {
     this.field = field;
+    this.bumpers = bumpers;
     this.autos = autos;
     for (Zone zone : field.zones()) {
       zones.put(zone, new ZoneTrigger(zone, ZONE_LOOKAHEAD_SECONDS, ZONE_EXIT_MARGIN_METERS));
@@ -124,8 +131,9 @@ final class MatchField implements AutoCloseable {
   Optional<Pose2d> read(boolean enabled) {
     alliance = MatchState.getAlliance().map(MatchField::alliance);
     station = MatchState.getLocation();
-    Optional<Place> chosen = chosenStart();
-    Optional<Pose2d> chosenPose = alliance.flatMap(ours -> chosen.map(s -> s.on(field, ours)));
+    Optional<Start> chosen = chosenStart();
+    Optional<Pose2d> chosenPose =
+        alliance.flatMap(ours -> chosen.map(s -> s.on(field, ours, bumpers)));
 
     boolean startMoved = !chosenPose.equals(startPose);
     boolean mayBePlaced = !enabled || !hasBeenEnabled;
@@ -143,15 +151,15 @@ final class MatchField implements AutoCloseable {
    * then the Driver Station's station chooses: stations 1, 2 and 3 are the field's first, second
    * and third start.
    */
-  private Optional<Place> chosenStart() {
-    Optional<Place> autosStart = autos.chosen().start();
+  private Optional<Start> chosenStart() {
+    Optional<Start> autosStart = autos.chosen().start();
     if (autosStart.isPresent()) {
       return autosStart;
     }
     if (station.isEmpty()) {
       return Optional.empty();
     }
-    List<Place> starts = field.starts();
+    List<Start> starts = field.starts();
     int number = station.getAsInt();
     boolean hasAStart = number >= 1 && number <= starts.size();
     if (!hasAStart) {
@@ -165,7 +173,7 @@ final class MatchField implements AutoCloseable {
    * start".
    */
   String placedOn() {
-    return "placed on " + start.map(Place::name).orElse("its start");
+    return "placed on " + start.map(Start::name).orElse("its start");
   }
 
   // ---- Each loop, once localization has the pose ----
@@ -183,6 +191,7 @@ final class MatchField implements AutoCloseable {
     placement =
         Placement.check(
             field,
+            bumpers,
             alliance,
             pose,
             start.orElse(null),

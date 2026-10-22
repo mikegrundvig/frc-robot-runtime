@@ -32,7 +32,7 @@ class ExampleAutosOnTheFieldSimTest {
   @RegisterExtension final RobotSim sim = new RobotSim();
 
   private static final Body BODY = ExampleRobot.COMPETITION.definition().body();
-  private static final FieldModel FIELD = Rebuilt.field(BODY);
+  private static final FieldModel FIELD = Rebuilt.field();
 
   /** How near its last place an auto ends, in meters. */
   private static final double ENDS_WITHIN = 0.08;
@@ -61,7 +61,7 @@ class ExampleAutosOnTheFieldSimTest {
   void theAutoRunsCleanAmongWhatStandsOnTheField(
       String auto, Alliance alliance, Translation2d lastForBlue) {
     RobotSim.setEnabled(false);
-    sim.build(ExampleRobot.COMPETITION, Rebuilt::game, ExampleControls::new, SensorErrors.NONE);
+    sim.build(ExampleRobot.COMPETITION, Rebuilt.GAME, ExampleControls::new, SensorErrors.NONE);
     RobotSim.station(alliance == Alliance.RED ? AllianceStationID.RED_2 : AllianceStationID.BLUE_2);
     sim.autos().choose(auto);
     sim.loops(5);

@@ -93,7 +93,7 @@ public final class SimulatedRobot implements AutoCloseable {
             RunsOn.DESKTOP,
             scheduler,
             robot,
-            Rebuilt::game,
+            Rebuilt.GAME,
             ControlsMaker.NONE,
             pitwall,
             errors,

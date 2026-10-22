@@ -22,12 +22,10 @@ import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Placement;
 import com.michaelgrundvig.frc.world.game.Game;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
-import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.extension.AfterEachCallback;
@@ -73,15 +71,12 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
    * The field the simulator's robot plays on in tests: the season's, with nothing standing on it,
    * so a test drives across the floor without minding where the hub is. The simulator then has no
    * walls either ({@code SimulatedWorld}). A test of what the robot runs into builds with the
-   * season's own game ({@code Rebuilt::game}).
+   * season's own game ({@code Rebuilt.GAME}).
    */
-  public static final FieldModel FIELD =
-      Rebuilt.field(ExampleRobot.SIM.definition().body()).withoutElements();
+  public static final FieldModel FIELD = Rebuilt.field().withoutElements();
 
   /** The season as tests play it: its field with nothing standing on it ({@link #FIELD}). */
-  private static Game onOpenFloor(Body body) {
-    return Rebuilt.game(body).withoutElements();
-  }
+  private static final Game ON_OPEN_FLOOR = Rebuilt.GAME.withoutElements();
 
   /** The simulator's robot without its cameras: odometry alone. */
   public static final RobotConfig WITHOUT_CAMERAS =
@@ -171,13 +166,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
    */
   public RobotContainer build(RunMode mode, RunsOn runsOn, RobotConfig robot, SensorErrors errors) {
     return build(
-        mode,
-        runsOn,
-        robot,
-        RobotSim::onOpenFloor,
-        ControlsMaker.NONE,
-        errors,
-        UnaryOperator.identity());
+        mode, runsOn, robot, ON_OPEN_FLOOR, ControlsMaker.NONE, errors, UnaryOperator.identity());
   }
 
   /**
@@ -191,28 +180,25 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   /**
    * Builds a robot in the simulator as a team's {@code Main} hands it to the runtime: with its
-   * season's field and venues and its controls ({@code Rebuilt::game}, {@code Controls::new}).
+   * season's field and venues and its controls ({@code Rebuilt.GAME}, {@code Controls::new}).
    */
   public RobotContainer build(
-      RobotConfig robot,
-      Function<Body, Game> season,
-      ControlsMaker<?> controls,
-      SensorErrors errors) {
+      RobotConfig robot, Game game, ControlsMaker<?> controls, SensorErrors errors) {
     return build(
-        RunMode.SIM, RunsOn.DESKTOP, robot, season, controls, errors, UnaryOperator.identity());
+        RunMode.SIM, RunsOn.DESKTOP, robot, game, controls, errors, UnaryOperator.identity());
   }
 
   private RobotContainer build(
       RunMode mode, RobotConfig robot, SensorErrors errors, UnaryOperator<Hardware> watched) {
     return build(
-        mode, computerFor(mode), robot, RobotSim::onOpenFloor, ControlsMaker.NONE, errors, watched);
+        mode, computerFor(mode), robot, ON_OPEN_FLOOR, ControlsMaker.NONE, errors, watched);
   }
 
   private RobotContainer build(
       RunMode mode,
       RunsOn runsOn,
       RobotConfig robot,
-      Function<Body, Game> season,
+      Game game,
       ControlsMaker<?> controls,
       SensorErrors errors,
       UnaryOperator<Hardware> watched) {
@@ -227,7 +213,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
             runsOn,
             scheduler(),
             robot,
-            season,
+            game,
             controls,
             page,
             errors,

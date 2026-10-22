@@ -108,7 +108,7 @@ class RobotContainerSimTest {
         .filter(start -> start.name().equals(name))
         .findFirst()
         .orElseThrow()
-        .on(FIELD, alliance);
+        .on(FIELD, alliance, ExampleRobot.SIM.definition().body().bumpers());
   }
 
   @Test

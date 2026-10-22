@@ -675,7 +675,7 @@ class FaultsTest {
   @Test
   void placedInsideAnElementSetsTheRobotDownBesideIt() {
     Body body = RobotSim.WITHOUT_CAMERAS.definition().body();
-    FieldModel season = Rebuilt.field(body);
+    FieldModel season = Rebuilt.field();
     SimulatedWorld world =
         new SimulatedWorld(season, RobotSim.WITHOUT_CAMERAS.definition(), SensorErrors.NONE);
     worlds.add(world);

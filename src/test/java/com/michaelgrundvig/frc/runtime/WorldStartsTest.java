@@ -27,12 +27,12 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The starting positions on the World view's 2026 field, for the example robot: where each alliance
- * starts, as the robot's size sets it, and what a click on one offers in the simulator and on a
- * robot.
+ * starts, the robot standing on each by its bumpers, and what a click on one offers in the
+ * simulator and on a robot.
  */
 class WorldStartsTest {
   private static final RobotDefinition ROBOT = ExampleRobot.COMPETITION.definition();
-  private static final FieldModel FIELD = Rebuilt.field(ROBOT.body());
+  private static final FieldModel FIELD = Rebuilt.field();
   private static final JsonType<Object> JSON = Jsonb.builder().build().type(Object.class);
 
   /** The 2026 field's three starts, left to right as the drivers see them. */
@@ -72,7 +72,7 @@ class WorldStartsTest {
   void theSceneCarriesTheFieldsStartsForBothAlliancesAndAClickNamesEach() {
     onAPage(SimulatedParts.NONE);
     String described = JSON.toJson(scenes.descriptions());
-    double lineX = Rebuilt.starts(ROBOT.body()).left().on(FIELD, Alliance.BLUE).getX();
+    double lineX = Rebuilt.STARTS.left().on(FIELD, Alliance.BLUE, ROBOT.body().bumpers()).getX();
     double length = FIELD.length();
     double width = FIELD.width();
 
@@ -81,7 +81,8 @@ class WorldStartsTest {
     assertThat(lineX + ROBOT.body().bumperLength().in(Meters) / 2).isEqualTo(4.022, offset(1e-9));
     for (int index = 0; index < NAMES.size(); index++) {
       String name = NAMES.get(index);
-      double blueY = FIELD.starts().get(index).on(FIELD, Alliance.BLUE).getY();
+      double blueY =
+          FIELD.starts().get(index).on(FIELD, Alliance.BLUE, ROBOT.body().bumpers()).getY();
       assertThat(described)
           .contains("\"text\":\"Blue " + name.toLowerCase(Locale.ROOT) + "\"")
           .contains("\"text\":\"Red " + name.toLowerCase(Locale.ROOT) + "\"");

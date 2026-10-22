@@ -6,8 +6,8 @@ import static org.assertj.core.api.Assertions.within;
 
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.world.field.Alliance;
-import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.field.Placement;
+import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,10 +28,10 @@ class AutosSimTest {
   @RegisterExtension final RobotSim sim = new RobotSim();
 
   /** The simulator's robot's left start, for autos that need one, and where it is for blue. */
-  private static final Place LEFT_PLACE =
-      Rebuilt.starts(ExampleRobot.SIM.definition().body()).left();
+  private static final Start LEFT_START = Rebuilt.STARTS.left();
 
-  private static final Pose2d LEFT = LEFT_PLACE.on(RobotSim.FIELD, Alliance.BLUE);
+  private static final Pose2d LEFT =
+      LEFT_START.on(RobotSim.FIELD, Alliance.BLUE, ExampleRobot.SIM.definition().body().bumpers());
 
   private Autos autos() {
     return sim.robot().autos();
@@ -86,8 +86,8 @@ class AutosSimTest {
   void declaredAutosFollowDoNothingAndItStaysTheDefault() {
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("B", LEFT_PLACE, new Counting()::make);
-          autos.add("A", LEFT_PLACE, new Counting()::make);
+          autos.add("B", LEFT_START, new Counting()::make);
+          autos.add("A", LEFT_START, new Counting()::make);
           return autos;
         });
     sim.loops(3);
@@ -105,8 +105,8 @@ class AutosSimTest {
             () ->
                 sim.controls(
                     (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add("Left", LEFT_PLACE, new Counting()::make);
-                      autos.add("Left", LEFT_PLACE, new Counting()::make);
+                      autos.add("Left", LEFT_START, new Counting()::make);
+                      autos.add("Left", LEFT_START, new Counting()::make);
                       return autos;
                     }))
         .isInstanceOf(IllegalArgumentException.class)
@@ -115,7 +115,7 @@ class AutosSimTest {
             () ->
                 sim.controls(
                     (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add(" ", LEFT_PLACE, new Counting()::make);
+                      autos.add(" ", LEFT_START, new Counting()::make);
                       return autos;
                     }))
         .hasMessage("an auto needs a name");
@@ -123,7 +123,7 @@ class AutosSimTest {
             () ->
                 sim.controls(
                     (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add(Autos.DO_NOTHING, LEFT_PLACE, new Counting()::make);
+                      autos.add(Autos.DO_NOTHING, LEFT_START, new Counting()::make);
                       return autos;
                     }))
         .hasMessage("two autos are named Do nothing: name each once");
@@ -134,8 +134,8 @@ class AutosSimTest {
   void anAutoDeclaredWhileTheRobotRunsIsLeftOutAndSaid() {
     sim.loops(2);
 
-    autos().add("Late", LEFT_PLACE, new Counting()::make);
-    autos().add("Late", LEFT_PLACE, new Counting()::make);
+    autos().add("Late", LEFT_START, new Counting()::make);
+    autos().add("Late", LEFT_START, new Counting()::make);
 
     assertThat(autos().names()).containsExactly("Do nothing", "Late");
     assertThat(autos().refusal())
@@ -148,7 +148,7 @@ class AutosSimTest {
     Counting counting = new Counting();
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_PLACE, counting::make);
+          autos.add("Left", LEFT_START, counting::make);
           return autos;
         });
     autos().choose("Left");
@@ -173,7 +173,7 @@ class AutosSimTest {
     Counting counting = new Counting();
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Forever", LEFT_PLACE, counting::make);
+          autos.add("Forever", LEFT_START, counting::make);
           return autos;
         });
     autos().choose("Forever");
@@ -197,7 +197,7 @@ class AutosSimTest {
   void aChoiceWaitsForTheRobotToBeDisabled() {
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_PLACE, new Counting()::make);
+          autos.add("Left", LEFT_START, new Counting()::make);
           return autos;
         });
     sim.loops(2);
@@ -225,11 +225,11 @@ class AutosSimTest {
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
           autos.add(
               "Broken",
-              LEFT_PLACE,
+              LEFT_START,
               () -> {
                 throw new IllegalStateException("no path named Left 9");
               });
-          autos.add("Fine", LEFT_PLACE, after::make);
+          autos.add("Fine", LEFT_START, after::make);
           return autos;
         });
     autos().choose("Broken");
@@ -261,7 +261,7 @@ class AutosSimTest {
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
           autos.add(
               "Throws",
-              LEFT_PLACE,
+              LEFT_START,
               () ->
                   Command.noRequirements(
                           co -> {
@@ -291,7 +291,7 @@ class AutosSimTest {
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
           autos.add(
               "Throws",
-              LEFT_PLACE,
+              LEFT_START,
               () ->
                   Command.noRequirements(
                           co -> {
@@ -316,7 +316,7 @@ class AutosSimTest {
   void theAutosStartIsWhereTheRobotIsPlacedAndTheCheckReadsIt() {
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_PLACE, new Counting()::make);
+          autos.add("Left", LEFT_START, new Counting()::make);
           return autos;
         });
     autos().choose("Left");
@@ -351,7 +351,7 @@ class AutosSimTest {
   void thePitChoosesThroughItsCard() throws Exception {
     sim.controls(
         (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_PLACE, new Counting()::make);
+          autos.add("Left", LEFT_START, new Counting()::make);
           return autos;
         });
     var chooser = sim.pitwall().devices().named("auto").orElseThrow().chooser("auto").orElseThrow();

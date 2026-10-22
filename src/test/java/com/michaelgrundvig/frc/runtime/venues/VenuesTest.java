@@ -4,10 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
-import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
-import com.michaelgrundvig.frc.world.robot.Body;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -21,8 +19,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 class VenuesTest {
-  private static final Body BODY = ExampleRobot.COMPETITION.definition().body();
-
   /** The season's welded layout, as WPILib ships it. */
   private static final String WELDED = resource("org/wpilib/fields/frc/2026-rebuilt-welded.json");
 
@@ -71,7 +67,7 @@ class VenuesTest {
   }
 
   private Venues venues(VenueIO disk) {
-    Venues made = new Venues(Rebuilt.game(BODY), disk);
+    Venues made = new Venues(Rebuilt.GAME, disk);
     venues = made;
     return made;
   }
@@ -98,7 +94,7 @@ class VenuesTest {
     Venues venues = venues(disk);
     Optional<FieldModel> field = venues.update(true, false);
     assertThat(field).isPresent();
-    double official = Rebuilt.field(BODY).tag(26).orElseThrow().getX();
+    double official = Rebuilt.field().tag(26).orElseThrow().getX();
     assertThat(field.get().tag(26).orElseThrow().getX()).isEqualTo(official + 0.03);
     assertThat(venues.active()).isEqualTo("Test venue");
     assertThat(venues.update(true, false)).as("only once").isEmpty();
@@ -141,7 +137,7 @@ class VenuesTest {
     Optional<FieldModel> field = venues.update(true, true);
     assertThat(venues.practiceOnField()).isTrue();
     assertThat(field).isPresent();
-    assertThat(field.get().tag(26)).isEqualTo(Rebuilt.field(BODY).tag(26));
+    assertThat(field.get().tag(26)).isEqualTo(Rebuilt.field().tag(26));
     assertThat(venues.active()).isEqualTo("2026 FRC Rebuilt Welded");
   }
 
@@ -220,7 +216,7 @@ class VenuesTest {
   void thePitKeepsAtMost32Venues(@TempDir Path stored, @TempDir Path git) throws IOException {
     VenueStore store = new VenueStore(stored, git);
     VenueIODisk disk = new VenueIODisk(store);
-    VenuePit pit = new VenuePit(store, disk, venues(disk), Rebuilt.game(BODY));
+    VenuePit pit = new VenuePit(store, disk, venues(disk), Rebuilt.GAME);
     for (int i = 1; i <= VenueStore.MOST_STORED; i++) {
       store.save(venue("event", 0.0005 * i));
     }
@@ -243,7 +239,7 @@ class VenuesTest {
     VenueStore store = new VenueStore(stored, git);
     VenueIODisk disk = new VenueIODisk(store);
     Venues venues = venues(disk);
-    VenuePit pit = new VenuePit(store, disk, venues, Rebuilt.game(BODY));
+    VenuePit pit = new VenuePit(store, disk, venues, Rebuilt.GAME);
     assertThat(pit.card().choices().get(0).options())
         .extracting(Devices.Option::value)
         .containsExactly(VenuePit.OFFICIAL);
@@ -270,7 +266,7 @@ class VenuesTest {
       throws IOException {
     VenueStore store = new VenueStore(stored, git);
     VenueIODisk disk = new VenueIODisk(store);
-    VenuePit pit = new VenuePit(store, disk, venues(disk), Rebuilt.game(BODY));
+    VenuePit pit = new VenuePit(store, disk, venues(disk), Rebuilt.GAME);
     assertThatThrownBy(() -> pit.upload(venue("event", 0.5).getBytes(StandardCharsets.UTF_8)))
         .isInstanceOf(Devices.Refused.class)
         .hasMessageContaining("tag 26 sits 0.500 m");

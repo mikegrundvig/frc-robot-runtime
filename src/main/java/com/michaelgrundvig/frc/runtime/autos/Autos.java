@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.runtime.autos;
 
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
-import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.record.AutoOutcome;
 import com.michaelgrundvig.frc.world.record.MoveSentences;
 import java.util.List;
@@ -182,11 +182,12 @@ public final class Autos implements AutoCloseable {
    * constructor, such as a mechanism or a gate, is shared between runs.
    *
    * @param name what the pit and the log call it. Not blank, and not the name of another auto.
-   * @param start where the robot starts, as a place written for blue
+   * @param start where the robot starts: one of the season's ({@code Rebuilt.STARTS.center()}), or
+   *     an auto's own ({@code Start.at(name, pose)}), written for blue
    * @param command makes the auto's command, a new one on every call
    * @throws IllegalArgumentException as the robot starts, for a blank name or two autos of one name
    */
-  public void add(String name, Place start, Supplier<Command> command) {
+  public void add(String name, Start start, Supplier<Command> command) {
     Optional<String> refusal = Refusals.asBuilt(scheduler, whyNotDeclared(name));
     if (refusal.isPresent()) {
       refused.setText("An auto was left out: " + refusal.get());

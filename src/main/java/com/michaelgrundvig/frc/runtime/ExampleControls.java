@@ -73,8 +73,8 @@ public final class ExampleControls {
     operator.faceDown().onTrue(deploy());
     driver.rightTrigger().whileTrue(shoot());
 
-    autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
-    autos.add("Grab and shoot", Rebuilt.starts(robot.body()).center(), this::grabAndShoot);
+    autos.add("Grab one", Rebuilt.STARTS.center(), this::grabOne);
+    autos.add("Grab and shoot", Rebuilt.STARTS.center(), this::grabAndShoot);
   }
 
   // @end

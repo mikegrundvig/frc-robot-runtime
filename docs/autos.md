@@ -7,13 +7,13 @@ when autonomous begins.
 ## Declare one
 
 `Controls` gets the robot's `Autos` list. Add an auto with `autos.add(name, start, factory)`. The start
-is one of the field's starts, written for blue like any place; the factory is a method that returns
-the auto's command. This is the guide's robot ([mechanisms](mechanisms.md#where-behavior-goes)), with
+is one of the field's starts, written for blue; the factory is a method that returns the auto's
+command. This is the guide's robot ([mechanisms](mechanisms.md#where-behavior-goes)), with
 its first auto, from `runtime/src/main/java/com/michaelgrundvig/frc/runtime/ExampleControls.java`:
 
 ```java fragment
 private static final Place PICKUP = Place.at("Pickup", new Pose2d(2, 6, Rotation2d.ZERO));
-autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
+autos.add("Grab one", Rebuilt.STARTS.center(), this::grabOne);
 
 /** Drives to the pickup with the intake running, then brings the intake in. */
 Command grabOne() {
@@ -28,8 +28,10 @@ Command grabOne() {
 
 It is written once and is right on both alliances: `drive.goTo(PICKUP)` finds the place for the
 robot's alliance when the move starts ([driving](driving.md#places-for-either-alliance)), and the
-start is found the same way. `Rebuilt.starts(robot.body())` gives the field's three starts for this
-robot, `.left()`, `.center()` and `.right()`.
+start is found the same way. `Rebuilt.STARTS` is the field's three starts, `.left()`, `.center()` and
+`.right()`. A start is written without the robot, as the manual words it (front bumper on the
+starting line), and the runtime stands your robot on it by its own bumpers. An auto that starts
+somewhere else gives its own: `Start.at("By the wall", pose)` puts the robot's center at `pose`.
 
 A mistake in the declaration stops the robot starting, as a move to a place a joint doesn't have does
 ([outcomes](mechanisms.md#outcomes)): a blank name, or two autos of one name.

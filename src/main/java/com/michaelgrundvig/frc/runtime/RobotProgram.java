@@ -1,8 +1,6 @@
 package com.michaelgrundvig.frc.runtime;
 
 import com.michaelgrundvig.frc.world.game.Game;
-import com.michaelgrundvig.frc.world.robot.Body;
-import java.util.function.Function;
 import java.util.function.Supplier;
 import org.wpilib.framework.RobotBase;
 
@@ -15,25 +13,21 @@ import org.wpilib.framework.RobotBase;
  * <pre>{@code
  * RobotProgram.start(
  *     Robots::current,   // which robot this is
- *     Rebuilt::game,     // this season's field and venues
+ *     Rebuilt.GAME,      // this season's field and venues
  *     Controls::new);    // what it does
  * }</pre>
  *
  * @param robot which robot this is
- * @param season this season's field and venues, for a robot of this body: the model's class for the
- *     season, or a {@code Game} the program defines
+ * @param game this season's field and venues, the same for every robot: the model's own for the
+ *     season ({@code Rebuilt.GAME}), or a {@code Game} the program defines
  * @param controls what the robot does, and the drive team's buttons for it
  * @param build which code this is, for the log
  */
 public record RobotProgram(
-    Supplier<RobotConfig> robot,
-    Function<Body, Game> season,
-    ControlsMaker<?> controls,
-    BuildInfo build) {
+    Supplier<RobotConfig> robot, Game game, ControlsMaker<?> controls, BuildInfo build) {
   /** Starts the robot program, with no build information. */
-  public static void start(
-      Supplier<RobotConfig> robot, Function<Body, Game> season, ControlsMaker<?> controls) {
-    start(robot, season, controls, BuildInfo.UNKNOWN);
+  public static void start(Supplier<RobotConfig> robot, Game game, ControlsMaker<?> controls) {
+    start(robot, game, controls, BuildInfo.UNKNOWN);
   }
 
   /**
@@ -41,11 +35,8 @@ public record RobotProgram(
    * its own startup is done.
    */
   public static void start(
-      Supplier<RobotConfig> robot,
-      Function<Body, Game> season,
-      ControlsMaker<?> controls,
-      BuildInfo build) {
-    RobotProgram program = new RobotProgram(robot, season, controls, build);
+      Supplier<RobotConfig> robot, Game game, ControlsMaker<?> controls, BuildInfo build) {
+    RobotProgram program = new RobotProgram(robot, game, controls, build);
     RobotBase.startRobot(() -> new Robot(program));
   }
 }

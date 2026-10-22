@@ -478,7 +478,7 @@ nearest face. Shoved or hit into a wall, it ends against the wall.
 A field with no elements is open space, with no walls either. The tests' harness (`RobotSim`)
 plays on the season's field with nothing standing on it (`FieldModel.withoutElements()`), so a test
 drives across the floor without minding where the hub is. A test of what the robot runs into
-builds with the season's own game (`sim.build(robot, Rebuilt::game, controls, errors)`). What an element is, and how a season's field writes
+builds with the season's own game (`sim.build(robot, Rebuilt.GAME, controls, errors)`). What an element is, and how a season's field writes
 them: the model's README.
 
 ## Seeing it: the *World* view

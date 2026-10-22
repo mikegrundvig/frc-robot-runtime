@@ -58,7 +58,7 @@ class WallContactSimTest {
   /** Sets the robot down with the estimate agreeing, on the season's own field, and enables it. */
   private void startAt(Pose2d start) {
     // The season's own field, hub, walls and all: the tests' usual field has nothing standing.
-    sim.build(ExampleRobot.SIM, Rebuilt::game, ControlsMaker.NONE, SensorErrors.TYPICAL);
+    sim.build(ExampleRobot.SIM, Rebuilt.GAME, ControlsMaker.NONE, SensorErrors.TYPICAL);
     sim.loops(1);
     sim.simulation().place(start);
     sim.robot().localization().resetPose(start);

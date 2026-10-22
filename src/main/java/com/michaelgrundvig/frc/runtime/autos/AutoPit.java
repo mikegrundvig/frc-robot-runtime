@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.runtime.autos;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
-import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.field.Start;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -37,7 +37,7 @@ public final class AutoPit {
     Auto chosen = autos.chosen();
     List<Devices.Line> lines = new ArrayList<>();
     lines.add(new Devices.Line("Runs", chosen.name(), Devices.Level.OK));
-    String startsOn = chosen.start().map(Place::name).orElse("wherever the Driver Station says");
+    String startsOn = chosen.start().map(Start::name).orElse("wherever the Driver Station says");
     lines.add(new Devices.Line("Starts on", startsOn, Devices.Level.NOTE));
 
     Optional<String> failure = autos.failure();

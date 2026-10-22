@@ -133,7 +133,7 @@ as a process carries `@EndToEndTest`. Quick mode leaves both out.
 `RobotSim` gives each test the same start, whatever ran before it: the clock stopped, the Driver
 Station attached and disabled on the blue alliance's station 2, and fresh dashboards. It builds the
 robot exactly as `Robot` does (with no controls bound, unless the test gives it yours:
-`sim.build(robot, Rebuilt::game, Controls::new, errors)` is your `Main`'s call), and `loop()` runs
+`sim.build(robot, Rebuilt.GAME, Controls::new, errors)` is your `Main`'s call), and `loop()` runs
 exactly the loop `Robot` runs. Afterwards it
 closes and resets everything, so nothing leaks into the next test.
 

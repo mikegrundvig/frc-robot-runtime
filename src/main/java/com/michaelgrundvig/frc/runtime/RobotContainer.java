@@ -265,7 +265,7 @@ public final class RobotContainer implements AutoCloseable {
     // The match, and the drive team's gamepads.
     autos = new Autos(scheduler);
     disabling = new Disabling(scheduler);
-    matchField = new MatchField(field, mode, autos);
+    matchField = new MatchField(field, definition.body().bumpers(), mode, autos);
     bindings = new Bindings(scheduler, RobotState::isEnabled);
     driver = bindings.gamepad("driver", DRIVER_PORT);
     operator = bindings.gamepad("operator", OPERATOR_PORT);

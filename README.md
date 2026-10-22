@@ -35,7 +35,7 @@ this season's field, and what the robot does. The runtime never names a team cla
 ```java fragment
 RobotProgram.start(
     () -> ExampleRobot.COMPETITION, // which robot this is
-    Rebuilt::game, // this season's field and venues
+    Rebuilt.GAME, // this season's field and venues
     ExampleControls::new); // what it does
 ```
 
@@ -63,8 +63,8 @@ repositories {
     }
 }
 dependencies {
-    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.10.20"
-    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.10.20")
+    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.10.21"
+    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.10.21")
 }
 ```
 
@@ -96,7 +96,7 @@ pluginManagement {
 
 // build.gradle
 plugins {
-    id "frc.advantagescope-assets" version "2026.10.20"
+    id "frc.advantagescope-assets" version "2026.10.21"
 }
 ```
 

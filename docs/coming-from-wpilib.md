@@ -292,7 +292,7 @@ gives a gate, `leg.passed("name")`, which replaces event markers.
 An auto is a name, a start place and a command factory:
 
 ```java fragment
-autos.add("Grab one", Rebuilt.starts(robot.body()).center(), this::grabOne);
+autos.add("Grab one", Rebuilt.STARTS.center(), this::grabOne);
 co.awaitAny(drive.goTo(PICKUP), intake());
 co.await(pivot.goTo(PIVOT_IN));
 ```

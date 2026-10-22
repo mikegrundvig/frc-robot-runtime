@@ -60,7 +60,7 @@ final class ReplaySessionRobot extends Robot {
   ReplaySessionRobot(Optional<SessionClock> clock) {
     super(
         new RobotProgram(
-            () -> ExampleRobot.COMPETITION, Rebuilt::game, ControlsMaker.NONE, BuildInfo.UNKNOWN));
+            () -> ExampleRobot.COMPETITION, Rebuilt.GAME, ControlsMaker.NONE, BuildInfo.UNKNOWN));
     this.clock = clock;
     if (clock.isPresent()) {
       // A loop follows the last at once: the session's clock says the time, not the computer's.

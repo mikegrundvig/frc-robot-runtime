@@ -10,7 +10,7 @@ import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
-import com.michaelgrundvig.frc.world.field.Place;
+import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.List;
@@ -43,7 +43,7 @@ class HiddenTagsSimTest {
   private static final List<CameraConfig> CAMERAS = ExampleRobot.SIM.definition().cameras();
 
   /** The season's own field, with its hub, trenches, towers and outposts standing. */
-  private static final FieldModel SEASON = Rebuilt.field(ExampleRobot.SIM.definition().body());
+  private static final FieldModel SEASON = Rebuilt.field();
 
   /** The camera that looks back at the tower past the hub, and the tower's two tags. */
   private static final CameraConfig BACK_RIGHT =
@@ -157,8 +157,9 @@ class HiddenTagsSimTest {
 
   @Test
   void fromTheStartsTheTrenchesHideWhatTheFrontCamerasWouldSee() {
-    for (Place start : Rebuilt.starts(ExampleRobot.SIM.definition().body()).all()) {
-      Pose2d robot = start.on(SEASON, Alliance.BLUE);
+    for (Start start : Rebuilt.STARTS.all()) {
+      Pose2d robot =
+          start.on(SEASON, Alliance.BLUE, ExampleRobot.SIM.definition().body().bumpers());
       for (CameraConfig camera : CAMERAS) {
         Sight expected = sightFrom(start.name(), camera.name());
         String from = start.name() + ", " + camera.name();
@@ -180,7 +181,7 @@ class HiddenTagsSimTest {
   @Test
   void drivenAcrossBehindTheHubTheEstimateStaysWithTheTruth() {
     Pose2d start = new Pose2d(CROSSING_X, 2.5, BACK_RIGHT_TO_BLUES_WALL);
-    sim.build(ExampleRobot.SIM, Rebuilt::game, ControlsMaker.NONE, SensorErrors.TYPICAL);
+    sim.build(ExampleRobot.SIM, Rebuilt.GAME, ControlsMaker.NONE, SensorErrors.TYPICAL);
     sim.loops(1);
     sim.placeAt(start);
     sim.loops(5);
