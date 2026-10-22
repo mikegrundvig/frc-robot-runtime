@@ -102,21 +102,26 @@ to write. `Main`, a description and `Controls` are the whole of a team's code.
 
 ### The body and the drivetrain
 
-The body is the frame, the bumpers, the height and the weight. This is the guide's robot:
+The body is the frame, the bumpers, the overall height and, once the robot is weighed, the weight.
+This is the guide's robot:
 
 ```java fragment
 Body.builder()
     .frameLength(Inches.of(27.5))
     .frameWidth(Inches.of(27.5))
-    .height(Inches.of(30))
+    .overallHeight(Inches.of(30))
     // ... the bumpers ...
-    .weight(WEIGHT)
+    .build();
 ```
+
+Until it's weighed the weight is left out, and the program takes the season's maximum and says so
+at startup. Weighed, it's one more line, `.weight(Pounds.of(131.2))`.
 
 Every value is set by name, so you cannot swap the length and the width by accident. Most carry
 their unit, like `Inches.of(27.5)`. A few are bare numbers whose unit you have to know. You will
 meet two below. A `Translation3d` is a point in meters, and a gain is a plain number. The builder
-also asks for each required value in turn, so the code does not compile if you leave one out.
+also asks for each required value in turn, so the code does not compile if you leave one out; the
+optional ones, such as the weight, come after them.
 
 The drivetrain is described the same way. You give the swerve modules, where they sit on the
 frame, and how they are driven. A swerve module is one wheel that can both spin and steer.

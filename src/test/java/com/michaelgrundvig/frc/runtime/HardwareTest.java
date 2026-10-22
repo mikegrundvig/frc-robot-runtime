@@ -255,7 +255,8 @@ class HardwareTest {
    */
   @Test
   void theSimulatorsHardwareIsTheWorlds() {
-    try (SimulatedWorld world = new SimulatedWorld(RobotSim.FIELD, ROBOT, SensorErrors.NONE);
+    try (SimulatedWorld world =
+            new SimulatedWorld(RobotSim.FIELD, ROBOT, RobotSim.massOf(ROBOT), SensorErrors.NONE);
         Hardware hardware =
             RobotContainer.hardware(RunMode.SIM, RunsOn.DESKTOP, ROBOT, Optional.of(world))) {
       assertThat(hardware).isInstanceOf(SimulatedHardware.class);

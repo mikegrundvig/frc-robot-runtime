@@ -158,7 +158,12 @@ public final class DriveSimHarness implements AutoCloseable {
     service = localization.service();
     RobotDefinition definition = robot.definition();
     simulation =
-        new DriveSimulation(definition.body(), definition.drivetrain(), errors, definition.imus());
+        new DriveSimulation(
+            definition.body(),
+            RobotSim.massOf(definition),
+            definition.drivetrain(),
+            errors,
+            definition.imus());
     simulation.setTerrain(terrain);
     drive =
         new Drive(
@@ -170,6 +175,7 @@ public final class DriveSimHarness implements AutoCloseable {
                 .odometryLock(new ReentrantLock())
                 .build(),
             definition,
+            RobotSim.massOf(definition),
             robot::drivetrain,
             scheduler,
             localization::pose);

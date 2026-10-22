@@ -63,8 +63,8 @@ repositories {
     }
 }
 dependencies {
-    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.10.21"
-    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.10.21")
+    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.10.22"
+    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.10.22")
 }
 ```
 
@@ -96,7 +96,7 @@ pluginManagement {
 
 // build.gradle
 plugins {
-    id "frc.advantagescope-assets" version "2026.10.21"
+    id "frc.advantagescope-assets" version "2026.10.22"
 }
 ```
 

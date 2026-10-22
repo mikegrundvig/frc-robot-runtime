@@ -15,14 +15,12 @@ import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Milliseconds;
-import static org.wpilib.units.Units.Pounds;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
 import com.michaelgrundvig.frc.localization.VisionConfig;
-import com.michaelgrundvig.frc.world.game.SeasonLimits;
 import com.michaelgrundvig.frc.world.physical.Inertia;
 import com.michaelgrundvig.frc.world.physical.MassProperties;
 import com.michaelgrundvig.frc.world.robot.Body;
@@ -282,48 +280,26 @@ public final class ExampleRobot {
   // @end
 
   /**
-   * What 2026's manual allows a robot: a 110 in frame perimeter and 30 in tall at the start,
-   * bumpers within 2.5 to 5.75 in of the floor, and 135 lb with bumpers and without its battery, a
-   * battery with its leads weighing about 14.5 lb. The guide's robot is built to them.
-   */
-  private static final SeasonLimits SEASON =
-      SeasonLimits.builder()
-          .framePerimeter(Inches.of(110))
-          .startingHeight(Inches.of(30))
-          .extension(Inches.of(12))
-          .bumperZoneBottom(Inches.of(2.5))
-          .bumperZoneTop(Inches.of(5.75))
-          .weight(Pounds.of(135))
-          .battery(Pounds.of(14.5))
-          .build();
-
-  /**
-   * Not weighed: the most the season allows, 135 lb of robot and bumpers (R408) plus a 14.5 lb
-   * battery (R601). Weigh the robot and write what the scale says ({@code
-   * Body.Weight.weighed(Pounds.of(131.2))}).
-   */
-  private static final Body.Weight WEIGHT = SEASON.unweighed();
-
-  /**
    * Frame 27.5 x 27.5 in, the largest square within 2026's 110 in frame perimeter (R104), with
    * bumpers 4 in beyond it (R403) filling the bumper zone, 2.5 to 5.75 in up (R405), and 30 in
-   * tall, 2026's starting height limit (R104). The 6.7 kg m^2 yaw inertia is an estimate, not a
-   * measurement. The pitch and roll inertias are those of a box, which the model works out, and
-   * they stand until CAD or a tilt test gives better ones. The center of gravity is written as
-   * centered and low, which is the best case. Only the simulator reads it, and the drive's current
-   * limit (below) is estimated from it. If it were left out, it would be taken as the frame's
-   * center, a third of the robot's height up.
+   * tall, 2026's starting height limit (R104). It isn't weighed: until it is, the program takes it
+   * at the season's maximum and says so at startup. Weigh it and write what the scale says ({@code
+   * .weight(Pounds.of(131.2))}). The 6.7 kg m^2 yaw inertia is an estimate, not a measurement. The
+   * pitch and roll inertias are those of a box, which the model works out, and they stand until CAD
+   * or a tilt test gives better ones. The center of gravity is written as centered and low, which
+   * is the best case. Only the simulator reads it, and the drive's current limit (below) is
+   * estimated from it. If it were left out, it would be taken as the frame's center, a third of the
+   * robot's overall height up.
    */
   private static final Body BODY =
       Body.builder()
           .frameLength(Inches.of(27.5))
           .frameWidth(Inches.of(27.5))
-          .height(Inches.of(30))
+          .overallHeight(Inches.of(30))
           .bumperEnds(Inches.of(4))
           .bumperSides(Inches.of(4))
           .bumperBottom(Inches.of(2.5))
           .bumperTop(Inches.of(5.75))
-          .weight(WEIGHT)
           .inertia(Body.Turning.yaw(KilogramSquareMeters.of(6.7)))
           .cg(new Translation3d(0, 0, 0.15))
           .build();

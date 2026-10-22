@@ -55,7 +55,11 @@ class CornerNoiseSimTest {
   private static List<Double> corners(SensorErrors errors) {
     List<Double> corners = new ArrayList<>();
     try (SimulatedWorld world =
-        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), errors)) {
+        new SimulatedWorld(
+            RobotSim.FIELD,
+            ExampleRobot.SIM.definition(),
+            RobotSim.massOf(ExampleRobot.SIM.definition()),
+            errors)) {
       world.place(STANDING);
       CameraIO[] cameras = world.cameras();
       for (int loop = 0; loop < RobotLoop.loops(1.0); loop++) {

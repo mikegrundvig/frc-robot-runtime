@@ -87,7 +87,11 @@ class CameraTimingSimTest {
   }
 
   private static SimulatedWorld world() {
-    return new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+    return new SimulatedWorld(
+        RobotSim.FIELD,
+        ExampleRobot.SIM.definition(),
+        RobotSim.massOf(ExampleRobot.SIM.definition()),
+        SensorErrors.NONE);
   }
 
   /**

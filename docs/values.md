@@ -50,7 +50,7 @@ The calibration procedures print their results in exactly this form, ready to pa
 Do the same for what you measure by hand:
 
 ```java
-.weight(Body.Weight.weighed(Pounds.of(131.2))) // measured YYYY-MM-DD: two scales, bumpers and battery on
+.weight(Pounds.of(131.2)) // measured YYYY-MM-DD: two scales, bumpers and battery on
 ```
 
 A number measured for a part rather than a robot (a camera's latency, a tread's friction) goes where
@@ -199,36 +199,27 @@ the guide: replace them with your robot's.
 
 `com.michaelgrundvig.frc.world.robot.Body`: the frame, bumpers, and mass. Per robot, in `Robots`.
 The template's robot is the largest and heaviest the 2026 rules allowed, with the best case center
-of gravity. Its weight is the robot as weighed, every joint where it rests, with a section of its
-own ([`Body.Weight`](#bodyweight)), and until it's weighed, the most the season allows; its inertia
-is CAD's whole tensor, its yaw alone, or neither, a solid box of its mass, bumpers and height
-supplying what isn't given. The definition takes its mechanisms' links from it, and what's left is the chassis.
-Its center of mass is optional, since only the simulator reads it: until it's given, it's the
-frame's center, a third of the robot's height up. Each default is in the robot's missing-data
-report (`RobotDefinition.missing`), the center of mass's said only in the simulator.
+of gravity. Its weight is the robot as weighed, every joint where it rests; it's left out until
+it's weighed, and the program then takes it at the most its season allows (`SeasonLimits.robotMass`,
+from the `Game` the program starts with). Its inertia is CAD's whole tensor, its yaw alone, or left
+out, a solid box of its mass, bumpers and overall height supplying what isn't given. The definition
+takes its mechanisms' links from it, and what's left is the chassis. Its center of mass is optional,
+since only the simulator reads it: until it's given, it's the frame's center, a third of the
+robot's overall height up. The weight and the inertia left out are in the robot's missing-data
+report (`RobotDefinition.findings`).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `frameLength` | as built | rules (2026: the largest square within R104's 110 in perimeter) | From CAD; check with a tape across the outside of the frame. |
 | `frameWidth` | as built | rules (2026, as `frameLength`) | As `frameLength`, side to side. |
-| `height` | as built | rules (2026: R104's starting height) | From CAD: the tallest point in the starting configuration. |
+| `overallHeight` | as built | rules (2026: R104's starting height) | From CAD: the robot's tallest point above the floor in its starting configuration. |
 | `bumperEnds` | as built | rules (2026: R403's most) | From the outside of the frame to the outside of the bumper, cover on, at the front and the back. |
 | `bumperSides` | as built | rules (2026: R403's most) | As `bumperEnds`, at the left and the right. The same as at the ends, often; bumpers square around a frame that isn't are thicker on its shorter sides. |
 | `bumperBottom` | as built | rules (2026: the bottom of R405's bumper zone) | From CAD, or a tape with the robot on flat carpet: the floor to the bumpers' bottom edge. AdvantageScope's schematic robot draws its bumpers from it, and the season's bumper zone is checked against it. |
 | `bumperTop` | as built | rules (2026: the top of R405's bumper zone) | As `bumperBottom`, to their top edge. No higher than the robot. |
-| `inertia` | calibrated | guess (typical) | How hard the robot is to turn, about its center of mass: CAD's whole tensor ([`Body.Turning.Tensor`](#bodyturningtensor)), its yaw alone ([`Body.Turning.Yaw`](#bodyturningyaw)), as PathPlanner's or Choreo's robot MOI, CAD, or [SysId's rotation test](calibration.md#the-robots-mass-center-of-gravity-and-inertia) gives it, or nothing known (`Body.Turning.BOX`). What isn't given, a solid box of the robot's mass, bumpers and height supplies, and the missing-data report says which. A given yaw must stand beside the box's pitch and roll, each of the three at most the sum of the other two, or the definition refuses it: give the whole tensor then. |
-| `cg` | calibrated | guess (best case: centered and low) | Optional: nothing on the robot reads it. Until it's given, it's the frame's center, a third of the robot's height up; nothing notes it, since nothing uses it. CAD's mass-properties report, or [the two scales](calibration.md#the-robots-mass-center-of-gravity-and-inertia) for how far forward and the tilt test for its height, every joint where it rests. With the tread's friction, its height says where the wheels slip, which the drive's current limit is chosen under (`DrivetrainControl.Limits.driveStatorCurrent`). |
-
-### `Body.Weight`
-
-`com.michaelgrundvig.frc.world.robot.Body.Weight`: what the whole robot weighs, bumpers and battery
-on: on a scale (`Body.Weight.weighed`), or until it's weighed, the most the season allows with a
-battery, which its limits give (`Rebuilt.LIMITS.unweighed()`).
-
-| Value | Kind | Source | How to measure it, or why |
-|---|---|---|---|
-| `mass` | calibrated | rules (2026: 135 lb with bumpers, R408, and a 14.5 lb battery, R601) | [Weigh the robot](calibration.md#the-robots-mass-center-of-gravity-and-inertia), bumpers and battery on, every joint where it rests; again after big changes. The simulator's drive carries it, a quarter on each wheel, so it sets how fast the simulated robot speeds up and how long its drive motors stay at their current limit. Its links' masses together must leave some of it for the chassis. |
-| `weighed` | calibrated | rules (2026, as `mass`) | Whether `mass` is the robot on a scale. Until it is, the missing-data report says the mass is the season's. |
+| `weight` | calibrated | rules (2026: 135 lb with bumpers, R408, and a 14.5 lb battery, R601, until it's weighed) | Optional: `.weight(Pounds.of(131.2))`, taken as given. [Weigh the robot](calibration.md#the-robots-mass-center-of-gravity-and-inertia), bumpers and battery on, every joint where it rests; again after big changes. Until it's weighed, the program takes the season's maximum with a battery and says so at startup. The drive's moves and feedforward read it, and the simulator's drive carries it, a quarter on each wheel, so it sets how fast the simulated robot speeds up and how long its drive motors stay at their current limit. Its links' masses together must leave some of it for the chassis. A weight over the season's limit fails its check (`SeasonLimits.problems`). |
+| `inertia` | calibrated | guess (typical) | Optional: how hard the robot is to turn, about its center of mass: CAD's whole tensor ([`Body.Turning.Tensor`](#bodyturningtensor)), or its yaw alone ([`Body.Turning.Yaw`](#bodyturningyaw)), as PathPlanner's or Choreo's robot MOI, CAD, or [SysId's rotation test](calibration.md#the-robots-mass-center-of-gravity-and-inertia) gives it. What isn't given, a solid box of the robot's mass, bumpers and overall height supplies, and the missing-data report says which. A given yaw must stand beside the box's pitch and roll, each of the three at most the sum of the other two, or the definition refuses it (at the weight given; until it's weighed, its season's check does, at the season's maximum): give the whole tensor then. |
+| `cg` | calibrated | guess (best case: centered and low) | Optional: nothing on the robot reads it. Until it's given, it's the frame's center, a third of the robot's overall height up; nothing notes it, since nothing uses it. CAD's mass-properties report, or [the two scales](calibration.md#the-robots-mass-center-of-gravity-and-inertia) for how far forward and the tilt test for its height, every joint where it rests. With the tread's friction, its height says where the wheels slip, which the drive's current limit is chosen under (`DrivetrainControl.Limits.driveStatorCurrent`). |
 
 ### `Body.Turning.Tensor`
 
@@ -239,7 +230,7 @@ section of its own ([`Inertia`](#inertia)). The template's robot gives its yaw a
 ### `Body.Turning.Yaw`
 
 `com.michaelgrundvig.frc.world.robot.Body.Turning.Yaw`: the robot's yaw inertia alone, what most
-teams know: a solid box of the robot's mass, bumpers and height supplies the pitch and roll, and
+teams know: a solid box of the robot's mass, bumpers and overall height supplies the pitch and roll, and
 no products of inertia.
 
 | Value | Kind | Source | How to measure it, or why |
@@ -1266,7 +1257,8 @@ switch goes on a CANdi.
 ### `SeasonLimits`
 
 `com.michaelgrundvig.frc.world.game.SeasonLimits` (in the world model): what the game manual allows a robot to be. One per season, in its
-game class in the model (`Rebuilt.LIMITS`); every robot's definition is checked against it in the tests
+game class in the model (`Rebuilt.LIMITS`, which its `Game` carries, `Rebuilt.GAME.limits()`); a robot not yet weighed is
+taken at its `weight` plus its `battery` (`SeasonLimits.robotMass`); every robot's definition is checked against it in the tests
 (`SeasonLimitsTest`, by `SeasonLimits.problems`), with its joints where they rest and in each of its
 named configurations. Where the robot reaches between its configurations, mid-move, isn't checked: no
 guard reads the limits while the robot runs. The next season's manual replaces every number at

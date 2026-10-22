@@ -18,6 +18,7 @@ import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
 import java.util.List;
@@ -65,11 +66,10 @@ class ScenariosTest {
 
   /** A world, its parts declared to a fresh set of simulator controls, the robot standing. */
   private SimulatedWorld world(List<CameraConfig> cameras, SensorErrors errors) {
+    RobotDefinition robot =
+        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition()).cameras(cameras).build();
     SimulatedWorld built =
-        new SimulatedWorld(
-            RobotSim.FIELD,
-            RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition()).cameras(cameras).build(),
-            errors);
+        new SimulatedWorld(RobotSim.FIELD, robot, RobotSim.massOf(robot), errors);
     worlds.add(built);
     components = new Components(said -> {});
     built.addTo(components);

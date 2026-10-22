@@ -72,6 +72,7 @@ import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.system.RobotController;
 import org.wpilib.tunable.TunableRegistry;
+import org.wpilib.units.measure.Mass;
 
 /**
  * Everything the robot is made of, built and run in one place. This class builds every mechanism on
@@ -229,6 +230,8 @@ public final class RobotContainer implements AutoCloseable {
    * @param scheduler runs every command: the controls', and the Pitwall page's actions
    * @param robot the robot: its frame, wiring, and cameras
    * @param field the field the robot plays on, with its official layout
+   * @param robotMass the robot's mass, which the drive and the simulator read: as weighed, or until
+   *     it is, the season's maximum ({@code SeasonLimits.robotMass})
    * @param venues the venue the pit selected, which takes the field's place while disabled
    * @param controls what the robot does and the drive team's buttons for it. It is the team's own,
    *     and is made once the mechanisms are.
@@ -247,6 +250,7 @@ public final class RobotContainer implements AutoCloseable {
       Scheduler scheduler,
       RobotConfig robot,
       FieldModel field,
+      Mass robotMass,
       Venues venues,
       ControlsMaker<?> controls,
       SensorErrors simulatedErrors,
@@ -271,7 +275,7 @@ public final class RobotContainer implements AutoCloseable {
     operator = bindings.gamepad("operator", OPERATOR_PORT);
 
     // What the robot reads and drives.
-    world = simulatedWorld(mode, field, simulatedErrors);
+    world = simulatedWorld(mode, field, robotMass, simulatedErrors);
     hardware = watched.apply(hardware(mode, runsOn, definition, world));
 
     // Localization comes before the drivetrain, which asks it where the robot is.
@@ -281,6 +285,7 @@ public final class RobotContainer implements AutoCloseable {
             "Drive",
             hardware.drive(),
             definition,
+            robotMass,
             tunings.drivetrain()::get,
             scheduler,
             localization::pose);
@@ -348,7 +353,7 @@ public final class RobotContainer implements AutoCloseable {
 
     // What the robot doubts or does not know is said last, once the team's bindings exist, because
     // two commands bound to one button in the same way are among the doubts.
-    Doubts.say(definition, Doubts.of(definition, bindings), mode);
+    Doubts.say(definition, Doubts.of(definition, robotMass, bindings), mode);
   }
 
   // ---- Building the robot ----
@@ -365,11 +370,11 @@ public final class RobotContainer implements AutoCloseable {
 
   /** The simulated world, which only the simulator has. */
   private Optional<SimulatedWorld> simulatedWorld(
-      RunMode mode, FieldModel field, SensorErrors simulatedErrors) {
+      RunMode mode, FieldModel field, Mass robotMass, SensorErrors simulatedErrors) {
     if (mode != RunMode.SIM) {
       return Optional.empty();
     }
-    return Optional.of(new SimulatedWorld(field, definition, simulatedErrors));
+    return Optional.of(new SimulatedWorld(field, definition, robotMass, simulatedErrors));
   }
 
   /**

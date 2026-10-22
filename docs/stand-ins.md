@@ -106,7 +106,7 @@ each a known gap in the truth suite, with its number:
 - **The battery:** it holds 12 V through a launch, as above.
 - **Yaw inertia beyond the wheels':** the robot spins as if all its mass sat at its wheels, 11.1
   kg m² for the template's robot against the 6.7 its body is configured with
-  (`Body.yawMomentOfInertia`, which nothing reads yet), so it spins up at 60% of the rate that
+  (`Body.yawMomentOfInertia`, which the simulator doesn't read yet), so it spins up at 60% of the rate that
   body would.
 - **Coupling between the modules:** each wheel moves its own share of the robot, and the robot
   follows the wheels' best fit, so a module pushing harder or weaker than the others, or pointed

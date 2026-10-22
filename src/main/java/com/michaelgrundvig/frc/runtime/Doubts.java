@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Optional;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.DriverStationErrors;
+import org.wpilib.units.measure.Mass;
 
 /**
  * What the robot says at startup that it doubts or does not know. All of it is allowed, and all of
@@ -43,9 +44,14 @@ import org.wpilib.driverstation.DriverStationErrors;
 final class Doubts {
   private Doubts() {}
 
-  /** Every doubt and note the robot says at startup: its definition's, then its bindings'. */
-  static List<Finding> of(RobotDefinition definition, Bindings bindings) {
-    List<Finding> found = new ArrayList<>(of(definition));
+  /**
+   * Every doubt and note the robot says at startup: its definition's, then its bindings'.
+   *
+   * @param robotMass the robot's mass: as weighed, or until it is, the season's maximum, which a
+   *     note then names ({@code SeasonLimits.robotMass})
+   */
+  static List<Finding> of(RobotDefinition definition, Mass robotMass, Bindings bindings) {
+    List<Finding> found = new ArrayList<>(of(definition, robotMass));
     found.addAll(bindings.doubts());
     return found;
   }
@@ -53,8 +59,8 @@ final class Doubts {
   /**
    * Every doubt and note that comes from the robot's definition, in the order of the list above.
    */
-  static List<Finding> of(RobotDefinition definition) {
-    List<Finding> found = new ArrayList<>(definition.findings());
+  static List<Finding> of(RobotDefinition definition, Mass robotMass) {
+    List<Finding> found = new ArrayList<>(definition.findings(robotMass));
     found.addAll(DefaultLocalizer.doubts(definition));
     for (Joint joint : Joints.driven(definition)) {
       found.addAll(ControllerSettings.findings(definition.math(), joint));

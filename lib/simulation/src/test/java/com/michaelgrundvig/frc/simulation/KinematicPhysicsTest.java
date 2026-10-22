@@ -33,7 +33,7 @@ class KinematicPhysicsTest {
   }
 
   private double mass() {
-    return TestRobot.BODY.mass().in(Kilograms);
+    return TestRobot.MASS.in(Kilograms);
   }
 
   /**

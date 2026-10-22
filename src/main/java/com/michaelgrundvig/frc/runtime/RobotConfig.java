@@ -50,7 +50,7 @@ public record RobotConfig(
     // wired in a way the template has no modules for, a joint it cannot run, and an interlock it
     // cannot enforce.
     Checks.on(RobotConfig.class, definition.name())
-        .findings("definition", definition::findings)
+        .findings("definition", definition::refusals)
         .check(
             "definition.drivetrain.wiring",
             () -> drivetrainWiring.map(Drive::whyNotDriven).orElse(null))

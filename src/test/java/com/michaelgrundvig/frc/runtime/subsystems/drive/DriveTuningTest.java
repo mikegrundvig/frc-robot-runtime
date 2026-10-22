@@ -62,6 +62,7 @@ class DriveTuningTest {
                 .odometryLock(new ReentrantLock())
                 .build(),
             ExampleRobot.SIM.definition(),
+            RobotSim.massOf(ExampleRobot.SIM.definition()),
             config::get,
             Scheduler.createIndependentScheduler(),
             () -> Pose2d.ZERO)) {

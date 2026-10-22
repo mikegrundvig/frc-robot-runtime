@@ -48,6 +48,7 @@ import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.simulation.DriverStationSim;
 import org.wpilib.system.Filesystem;
+import org.wpilib.units.measure.Mass;
 import org.wpilib.util.Alert;
 
 /**
@@ -325,7 +326,8 @@ public class Robot extends LoggedRobot {
    *
    * @param runsOn the computer the program runs on: a laptop driving real devices opens only those
    *     on its CANivore
-   * @param game this season's field and venues
+   * @param game this season's field, venues and limits: a robot not yet weighed is taken at the
+   *     most the limits allow, the one place its mass is settled
    * @param controls what the robot does, made once its mechanisms are built
    * @param simulatedErrors in the simulator, how the robot's wheels and sensors differ from its
    *     configuration
@@ -350,6 +352,7 @@ public class Robot extends LoggedRobot {
     // Without a store nothing is ever selected, so the robot stays on the official layout.
     VenueIO selection = disk.isPresent() ? disk.get() : new VenueIO() {};
     Venues venues = new Venues(game, selection);
+    Mass robotMass = game.limits().robotMass(robot.definition().body());
     RobotContainer container =
         new RobotContainer(
             mode,
@@ -357,6 +360,7 @@ public class Robot extends LoggedRobot {
             scheduler,
             robot,
             game.officialField(),
+            robotMass,
             venues,
             controls,
             simulatedErrors,

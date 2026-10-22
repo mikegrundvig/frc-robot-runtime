@@ -15,6 +15,7 @@ import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.geometry.Twist2d;
 import org.wpilib.math.system.DCMotor;
+import org.wpilib.units.measure.Mass;
 
 /**
  * Today's physics. The robot moves as its wheels roll: kinematically, by the one rigid motion that
@@ -197,19 +198,22 @@ public final class KinematicPhysics implements Physics {
    * On flat ground until given its terrain ({@link Disturbance.Ground}), standing at the field's
    * origin.
    *
-   * @param body the robot's mass, which the wheels carry
+   * @param body the robot's frame and bumpers, which run into what's on the field
+   * @param robotMass the robot's mass, which the wheels carry: as weighed, or until it is, the
+   *     season's maximum ({@code SeasonLimits.robotMass})
    * @param drivetrain the drivetrain as defined: where its wheels are, and each module's motors,
    *     gearing, and radius
    * @param wheelRadiusScale each wheel's true radius over the configured one, as built
    */
-  public KinematicPhysics(Body body, DrivetrainGeometry drivetrain, List<Double> wheelRadiusScale) {
+  public KinematicPhysics(
+      Body body, Mass robotMass, DrivetrainGeometry drivetrain, List<Double> wheelRadiusScale) {
     this.body = body;
     wheelPlaces = drivetrain.moduleTranslations();
     fit = new RigidFit(wheelPlaces);
     ground = new GroundPlane(wheelPlaces);
     int wheelCount = wheelPlaces.length;
     configuredRadiusMeters = new double[wheelCount];
-    double carriedKilograms = body.mass().in(Kilograms) / wheelCount;
+    double carriedKilograms = robotMass.in(Kilograms) / wheelCount;
     wheels = new Wheel[wheelCount];
     drives = new WheelDrive[wheelCount];
     for (int i = 0; i < wheelCount; i++) {
@@ -228,7 +232,7 @@ public final class KinematicPhysics implements Physics {
               ownKgM2);
       drives[i] = new WheelDrive();
     }
-    wheelLoadNewtons = body.mass().in(Kilograms) * STANDARD_GRAVITY / wheelCount;
+    wheelLoadNewtons = robotMass.in(Kilograms) * STANDARD_GRAVITY / wheelCount;
     frictionCoefficient = drivetrain.wheelCoefficientOfFriction();
     gripLimitMetersPerSecondSquared = frictionCoefficient * STANDARD_GRAVITY;
     travelBefore = new WheelTravel(wheelCount);

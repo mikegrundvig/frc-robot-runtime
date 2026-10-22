@@ -67,7 +67,8 @@ class PdhIOSimTest {
   void eachModulesChannelsReadWhatItsDriveAndSteeringDraw() {
     RobotDefinition robot = fed();
     DriveSimulation drivetrain =
-        new DriveSimulation(robot.body(), robot.drivetrain(), SensorErrors.NONE);
+        new DriveSimulation(
+            robot.body(), RobotSim.massOf(robot), robot.drivetrain(), SensorErrors.NONE);
     PdhIO pdh = new PdhIOSim(robot, new JointSimulation(robot), drivetrain);
     for (int i = 0; i < 4; i++) {
       ModuleIOSim module = drivetrain.moduleSim(i);

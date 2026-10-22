@@ -18,6 +18,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Transform3d;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The world the simulated robot drives in: the drivetrain's physics, which knows where the robot
@@ -59,13 +60,17 @@ public final class SimulatedWorld implements AutoCloseable {
    * @param field the field, with its tags, its terrain, and the elements the robot runs into
    * @param definition what the robot is: its drivetrain, frame and IMUs, its cameras, its joints,
    *     its sensors and its PDH, each simulated from it
+   * @param robotMass the robot's mass: as weighed, or until it is, the season's maximum ({@code
+   *     SeasonLimits.robotMass})
    * @param errors how the robot's wheels, sensors, and camera mounts differ from its configuration
    */
-  public SimulatedWorld(FieldModel field, RobotDefinition definition, SensorErrors errors) {
+  public SimulatedWorld(
+      FieldModel field, RobotDefinition definition, Mass robotMass, SensorErrors errors) {
     this.field = field;
     Imus imus = definition.imus();
     List<CameraConfig> cameras = definition.cameras();
-    this.drivetrain = new DriveSimulation(definition.body(), definition.drivetrain(), errors, imus);
+    this.drivetrain =
+        new DriveSimulation(definition.body(), robotMass, definition.drivetrain(), errors, imus);
     this.hasBackupImu = imus.backup().isPresent();
     this.drivetrain.setTerrain(field.terrain());
     // A field with nothing written to stand on it is a bare one, for a test to drive across: it is

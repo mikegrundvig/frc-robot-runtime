@@ -256,6 +256,7 @@ class DriveBasicsTest {
         name,
         hardware,
         ExampleRobot.SIM.definition(),
+        RobotSim.massOf(ExampleRobot.SIM.definition()),
         ExampleRobot.SIM::drivetrain,
         harness.scheduler,
         () -> Pose2d.ZERO);

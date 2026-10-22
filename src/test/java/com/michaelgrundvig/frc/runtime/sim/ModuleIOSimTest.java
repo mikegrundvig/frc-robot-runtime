@@ -31,7 +31,10 @@ class ModuleIOSimTest {
   /** A wheel of the template's robot, standing still: the modules here only steer. */
   private static WheelTruth wheel() {
     return new KinematicPhysics(
-            ExampleRobot.SIM.definition().body(), GEOMETRY, List.of(1.0, 1.0, 1.0, 1.0))
+            ExampleRobot.SIM.definition().body(),
+            RobotSim.massOf(ExampleRobot.SIM.definition()),
+            GEOMETRY,
+            List.of(1.0, 1.0, 1.0, 1.0))
         .wheel(0);
   }
 

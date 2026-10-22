@@ -72,7 +72,10 @@ public final class SimModuleBench implements ModuleBench {
     SimRig(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
       KinematicPhysics physics =
           new KinematicPhysics(
-              ExampleRobot.SIM.definition().body(), GEOMETRY, List.of(1.0, 1.0, 1.0, 1.0));
+              ExampleRobot.SIM.definition().body(),
+              RobotSim.massOf(ExampleRobot.SIM.definition()),
+              GEOMETRY,
+              List.of(1.0, 1.0, 1.0, 1.0));
       sim = new ModuleIOSim(GEOMETRY.module(0), physics.wheel(0), 0, 0);
       sim.configure(gains, limits);
     }

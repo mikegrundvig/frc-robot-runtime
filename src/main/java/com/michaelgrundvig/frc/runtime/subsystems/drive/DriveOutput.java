@@ -13,6 +13,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.math.util.MathUtil;
+import org.wpilib.units.measure.Mass;
 
 /**
  * What the drivetrain tells its four modules in one loop. There are four things it can tell them:
@@ -74,12 +75,18 @@ final class DriveOutput {
    */
   private Logged logged = Logged.NOTHING;
 
-  DriveOutput(Module[] modules, RobotDefinition robot, SwerveDriveKinematics kinematics) {
+  /**
+   * @param robotMass the robot's mass: as weighed, or until it is, the season's maximum ({@code
+   *     SeasonLimits.robotMass})
+   */
+  DriveOutput(
+      Module[] modules, RobotDefinition robot, Mass robotMass, SwerveDriveKinematics kinematics) {
     this.modules = modules;
     this.kinematics = kinematics;
     moduleTranslations = robot.moduleTranslations();
-    massKilograms = robot.body().mass().in(Kilograms);
-    yawInertiaKilogramSquareMeters = robot.body().yawMomentOfInertia().in(KilogramSquareMeters);
+    massKilograms = robotMass.in(Kilograms);
+    yawInertiaKilogramSquareMeters =
+        robot.body().yawMomentOfInertia(robotMass).in(KilogramSquareMeters);
     double sum = 0;
     for (Translation2d at : moduleTranslations) {
       sum += at.getSquaredNorm();

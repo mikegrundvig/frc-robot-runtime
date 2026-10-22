@@ -239,9 +239,10 @@ too: recalibrate the one farthest off first, and the other comes back with it.
 
 *By hand, with nothing to run.*
 
-These set the robot's body's mass (`Body.weight`, `Body.Weight.weighed`, until then the season's
-most), where its center of gravity is (`Body.cg`, until then the frame's center a third of its
-height up, which only the simulator reads), and its inertia (`Body.inertia`, until then a box's). Measure with the bumpers and battery on, every mechanism stowed
+These set the robot's body's mass (`Body.weight`, `.weight(Pounds.of(131.2))`, left out until then
+and taken at the season's maximum), where its center of gravity is (`Body.cg`, until then the
+frame's center a third of its overall height up, which only the simulator reads), and its inertia
+(`Body.inertia`, until then a box's). Measure with the bumpers and battery on, every mechanism stowed
 at its reference, the robot powered off. No Systemcore needed.
 
 **Safety:** a robot weighs as much as a person. Lift it with two people, one at each end, knees

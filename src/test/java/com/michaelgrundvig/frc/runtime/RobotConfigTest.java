@@ -308,14 +308,21 @@ class RobotConfigTest {
 
     RobotConfig robot = RobotConfigBuilder.builder(ExampleRobot.SIM).definition(grippy).build();
 
-    assertThat(Doubts.lines(Doubts.of(robot.definition()), Finding.Scope.ROBOT))
+    assertThat(
+            Doubts.lines(
+                Doubts.of(robot.definition(), RobotSim.massOf(robot.definition())),
+                Finding.Scope.ROBOT))
         .contains(
             "the treads' grip, 2.26, is past 1.53, above which the slip check can't tell a slide"
                 + " from a collision: a jolt up to 2.26 g may be the floor's, so it's none, and a"
                 + " hit under it is seen only as a slide. Give the tread's own, about 1.0 worn and"
                 + " 1.3 new, from a pull test (docs/characterization.md, tread friction); a path"
                 + " planner's friction is a tuning value, not the tread's");
-    assertThat(Doubts.lines(Doubts.of(ExampleRobot.SIM.definition()), Finding.Scope.ROBOT))
+    assertThat(
+            Doubts.lines(
+                Doubts.of(
+                    ExampleRobot.SIM.definition(), RobotSim.massOf(ExampleRobot.SIM.definition())),
+                Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("slip check can't tell"));
   }
 

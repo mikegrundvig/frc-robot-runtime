@@ -14,7 +14,6 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
-import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -58,7 +57,7 @@ class HoodSimTest {
   /** The robot starts with the hood in it, undriven: nothing refused, and the template says why. */
   @Test
   void theTemplateLeavesTheHoodToItsOwnSubsystem() {
-    assertThat(ROBOT.findings()).noneMatch(Finding::refused);
+    assertThat(ROBOT.refusals()).isEmpty();
     assertThat(Joints.problems(ROBOT)).isEmpty();
     assertThatThrownBy(() -> sim.joints.of(HOOD))
         .hasMessage(
@@ -146,7 +145,7 @@ class HoodSimTest {
     Sensor.Encoder encoder = Objects.requireNonNull(math.absoluteEncoder(withEncoder));
     double raw = port.raw(Degrees.of(30).in(Rotations)); // what the port reads, the hood at 30°
 
-    assertThat(robot.findings()).noneMatch(Finding::refused);
+    assertThat(robot.refusals()).isEmpty();
     assertThat(new JointsSimHarness(robot).joints.all())
         .as("no mechanism, and its encoder never asked for")
         .isEmpty();

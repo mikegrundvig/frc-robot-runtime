@@ -48,8 +48,10 @@ class DefinitionDoubtsTest {
    */
   @Test
   void theRobotSaysWhatItsCodeReadsAndTheSimulatorWhatOnlyItReads() {
-    List<String> doubts = Doubts.lines(Doubts.of(ROBOT), Finding.Scope.ROBOT);
-    List<String> notes = Doubts.lines(Doubts.of(ROBOT), Finding.Scope.SIMULATOR);
+    List<String> doubts =
+        Doubts.lines(Doubts.of(ROBOT, RobotSim.massOf(ROBOT)), Finding.Scope.ROBOT);
+    List<String> notes =
+        Doubts.lines(Doubts.of(ROBOT, RobotSim.massOf(ROBOT)), Finding.Scope.SIMULATOR);
 
     assertThat(doubts)
         .contains(
@@ -68,18 +70,24 @@ class DefinitionDoubtsTest {
   }
 
   /**
-   * The template's robot leaves its tread's grip and its modules' inertias to the defaults: the
-   * grip is the robot's doubt, since its drive moves and slip check read it; the inertias are the
-   * simulator's notes. Its center of mass is given, so that's no note.
+   * The template's robot isn't weighed, and leaves its tread's grip and its modules' inertias to
+   * the defaults: its weight, taken at the season's maximum, and the grip are the robot's doubts,
+   * since its drive moves, feedforward and slip check read them; the inertias are the simulator's
+   * notes. Its center of mass is given, so that's no note.
    */
   @Test
   void theTemplatesUnmeasuredGripIsTheRobotsDoubtAndItsInertiasTheSimulators() {
     RobotDefinition template = ExampleRobot.SIM.definition();
-    List<String> doubts = Doubts.lines(Doubts.of(template), Finding.Scope.ROBOT);
-    List<String> notes = Doubts.lines(Doubts.of(template), Finding.Scope.SIMULATOR);
+    List<String> doubts =
+        Doubts.lines(Doubts.of(template, RobotSim.massOf(template)), Finding.Scope.ROBOT);
+    List<String> notes =
+        Doubts.lines(Doubts.of(template, RobotSim.massOf(template)), Finding.Scope.SIMULATOR);
 
     assertThat(doubts)
         .contains(
+            "not known: the robot isn't weighed: it's taken at the season's maximum, 149.5 lb."
+                + " with battery: the drive's moves and feedforward, the simulator's acceleration"
+                + " and the links' mass budget rest on the rules, not the robot",
             "not known: the tread's grip isn't measured: it's 1.2, PathPlanner's default: drive"
                 + " moves plan their acceleration on it, and the slip check judges by it: measure it"
                 + " with a pull test (docs/characterization.md, tread friction)")
@@ -103,7 +111,8 @@ class DefinitionDoubtsTest {
   @Test
   void theTemplatesRollersSayHowFastTheirRotorsAloneSpinThemUp() {
     RobotDefinition example = ExampleRobot.COMPETITION.definition();
-    List<String> notes = Doubts.lines(Doubts.of(example), Finding.Scope.SIMULATOR);
+    List<String> notes =
+        Doubts.lines(Doubts.of(example, RobotSim.massOf(example)), Finding.Scope.SIMULATOR);
 
     assertThat(notes)
         .contains(
@@ -121,7 +130,7 @@ class DefinitionDoubtsTest {
   void aWrittenKgIsNoDoubt() {
     RobotDefinition tuned = ROBOT.with(ARM.retuned(control -> control.withKg(0)));
 
-    assertThat(Doubts.lines(Doubts.of(tuned), Finding.Scope.ROBOT))
+    assertThat(Doubts.lines(Doubts.of(tuned, RobotSim.massOf(tuned)), Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("kG"));
   }
 
@@ -137,12 +146,16 @@ class DefinitionDoubtsTest {
             .pdh(Pdh.can(1))
             .build();
 
-    assertThat(Doubts.lines(Doubts.of(wired), Finding.Scope.ROBOT))
+    assertThat(Doubts.lines(Doubts.of(wired, RobotSim.massOf(wired)), Finding.Scope.ROBOT))
         .contains(
             "not known: arm's motor controller 32 has no PDH channel: which channel feeds each, and"
                 + " through what breaker, isn't checked: give each its own where it's wired,"
                 + " .pdh(channel, breaker)");
-    assertThat(Doubts.lines(Doubts.of(ExampleRobot.SIM.definition()), Finding.Scope.ROBOT))
+    assertThat(
+            Doubts.lines(
+                Doubts.of(
+                    ExampleRobot.SIM.definition(), RobotSim.massOf(ExampleRobot.SIM.definition())),
+                Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("PDH"));
   }
 }

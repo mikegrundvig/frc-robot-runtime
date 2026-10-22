@@ -14,6 +14,7 @@ import java.util.List;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.system.DCMotor;
+import org.wpilib.units.measure.Mass;
 
 /**
  * A robot for the simulation's own tests, independent of any team's: a 27.5 in square frame of 68
@@ -21,16 +22,19 @@ import org.wpilib.math.system.DCMotor;
  * it the simplest way ({@link Controllers}).
  */
 final class TestRobot {
+  /** What the robot weighs. */
+  static final Mass MASS = Kilograms.of(68);
+
   static final Body BODY =
       Body.builder()
           .frameLength(Inches.of(27.5))
           .frameWidth(Inches.of(27.5))
-          .height(Inches.of(30))
+          .overallHeight(Inches.of(30))
           .bumperEnds(Inches.of(3.5))
           .bumperSides(Inches.of(3.5))
           .bumperBottom(Inches.of(2.5))
           .bumperTop(Inches.of(5.75))
-          .weight(Body.Weight.weighed(Kilograms.of(68)))
+          .weight(MASS)
           .inertia(
               Body.Turning.tensor(
                   Inertia.builder().ixx(6.7).iyy(6.7).izz(6.7).ixy(0).ixz(0).iyz(0).build()))
@@ -61,7 +65,7 @@ final class TestRobot {
 
   /** Today's physics for the robot, its treads as configured. */
   static KinematicPhysics physics() {
-    return new KinematicPhysics(BODY, DRIVETRAIN, List.of(1.0, 1.0, 1.0, 1.0));
+    return new KinematicPhysics(BODY, MASS, DRIVETRAIN, List.of(1.0, 1.0, 1.0, 1.0));
   }
 
   /** Where each wheel sits, from the robot's center. */

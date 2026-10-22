@@ -50,6 +50,7 @@ import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
 import org.wpilib.units.measure.LinearVelocity;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The swerve drivetrain: four {@link Module}s and a gyro, as a Commands v3 {@link Mechanism}.
@@ -109,6 +110,10 @@ public class Drive implements Mechanism, AutoCloseable {
   private static final ChassisAccelerations NO_ACCELERATION = new ChassisAccelerations();
 
   private final RobotDefinition robot;
+
+  /** The robot's mass, as weighed or the season's maximum: what its accelerations are worked at. */
+  private final Mass robotMass;
+
   private final Scheduler scheduler;
 
   /** How the drivetrain is driven, as the pit tunes it, read each loop. */
@@ -225,6 +230,8 @@ public class Drive implements Mechanism, AutoCloseable {
    * @param name alert group name: "Drive" on the robot, another name for a second instance
    * @param hardware the modules, the gyro, and the backup IMU
    * @param robot the robot's definition: its frame and its drivetrain's geometry place the wheels
+   * @param robotMass the robot's mass, which its feedforward and its moves' accelerations read: as
+   *     weighed, or until it is, the season's maximum ({@code SeasonLimits.robotMass})
    * @param config how the drivetrain is driven, read every loop so tuned values take effect
    * @param pose where the robot is, from localization: field-relative driving turns by its heading
    */
@@ -232,11 +239,13 @@ public class Drive implements Mechanism, AutoCloseable {
       String name,
       DriveHardware hardware,
       RobotDefinition robot,
+      Mass robotMass,
       Supplier<DrivetrainControl> config,
       Scheduler scheduler,
       Supplier<Pose2d> pose) {
     this.config = config;
     this.robot = robot;
+    this.robotMass = robotMass;
     this.scheduler = scheduler;
     this.pose = pose;
     for (int i = 0; i < Module.COUNT; i++) {
@@ -245,14 +254,14 @@ public class Drive implements Mechanism, AutoCloseable {
     Translation2d[] moduleTranslations = robot.moduleTranslations();
     kinematics = new SwerveDriveKinematics(moduleTranslations);
     readings = new DriveReadings(modules, hardware, moduleTranslations, kinematics);
-    output = new DriveOutput(modules, robot, kinematics);
+    output = new DriveOutput(modules, robot, robotMass, kinematics);
     alerts = new DriveAlerts(name);
     steeringRig = new SteeringRig(modules, output);
     wheelPoses = new WheelPoses(modules, robot);
     applied = config.get();
     apply(applied);
     accelerationsAsTuned = applied;
-    accelerations = DrivetrainControl.accelerations(robot, applied);
+    accelerations = DrivetrainControl.accelerations(robot, robotMass, applied);
     // A move plans its path as it starts, on the robot's loop. Planning one here, as the robot
     // starts, has the planner's code loaded and compiled before the first move needs it.
     Trajectories.warmUp(RobotLoop.PERIOD_SECONDS);
@@ -387,7 +396,7 @@ public class Drive implements Mechanism, AutoCloseable {
   DrivetrainControl.Accelerations accelerations() {
     DrivetrainControl tuned = config.get();
     if (!tuned.equals(accelerationsAsTuned)) {
-      accelerations = DrivetrainControl.accelerations(robot, tuned);
+      accelerations = DrivetrainControl.accelerations(robot, robotMass, tuned);
       accelerationsAsTuned = tuned;
     }
     return accelerations;

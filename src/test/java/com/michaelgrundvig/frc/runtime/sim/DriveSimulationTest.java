@@ -19,8 +19,6 @@ import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.simulation.SensorErrorsBuilder;
 import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.Terrain;
-import com.michaelgrundvig.frc.world.robot.Body;
-import com.michaelgrundvig.frc.world.robot.BodyBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import java.util.List;
@@ -262,7 +260,7 @@ class DriveSimulationTest {
    */
   @Test
   void fromRestAtItsStatorLimitTheRobotAcceleratesAsForceOverItsMass() {
-    double template = ExampleRobot.SIM.definition().body().mass().in(Kilograms);
+    double template = RobotSim.massOf(ExampleRobot.SIM.definition()).in(Kilograms);
     for (double kilograms : new double[] {template, 0.6 * template}) {
       assertThat(accelerationFromRest(kilograms))
           .as("%.1f kg", kilograms)
@@ -294,12 +292,13 @@ class DriveSimulationTest {
    * average acceleration over 0.3 s, in m/s², while every motor stays at its stator limit.
    */
   private static double accelerationFromRest(double kilograms) {
-    Body weighed = ExampleRobot.SIM.definition().body();
-    Body body =
-        BodyBuilder.builder(weighed).weight(Body.Weight.weighed(Kilograms.of(kilograms))).build();
     DrivetrainControl drivetrain = ExampleRobot.SIM.drivetrain();
     DriveSimulation simulation =
-        new DriveSimulation(body, ExampleRobot.SIM.definition().drivetrain(), SensorErrors.NONE);
+        new DriveSimulation(
+            ExampleRobot.SIM.definition().body(),
+            Kilograms.of(kilograms),
+            ExampleRobot.SIM.definition().drivetrain(),
+            SensorErrors.NONE);
     for (int i = 0; i < 4; i++) {
       ModuleIOSim module = simulation.moduleSim(i);
       module.configure(drivetrain.gains(), drivetrain.limits());

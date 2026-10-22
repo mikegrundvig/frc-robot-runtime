@@ -22,6 +22,7 @@ import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Placement;
 import com.michaelgrundvig.frc.world.game.Game;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import java.util.Objects;
@@ -44,6 +45,7 @@ import org.wpilib.telemetry.MockTelemetryBackend;
 import org.wpilib.telemetry.TelemetryRegistry;
 import org.wpilib.tunable.MockTunableBackend;
 import org.wpilib.tunable.TunableRegistry;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The simulator, for tests: every test that touches WPILib's simulation (its clock, the Driver
@@ -77,6 +79,15 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   /** The season as tests play it: its field with nothing standing on it ({@link #FIELD}). */
   private static final Game ON_OPEN_FLOOR = Rebuilt.GAME.withoutElements();
+
+  /**
+   * A robot's mass as the program on the season's field takes it ({@code SeasonLimits.robotMass}):
+   * as weighed, or the season's maximum. For a test that builds the simulated world or the drive
+   * itself, which the program hands it.
+   */
+  public static Mass massOf(RobotDefinition definition) {
+    return ON_OPEN_FLOOR.limits().robotMass(definition.body());
+  }
 
   /** The simulator's robot without its cameras: odometry alone. */
   public static final RobotConfig WITHOUT_CAMERAS =

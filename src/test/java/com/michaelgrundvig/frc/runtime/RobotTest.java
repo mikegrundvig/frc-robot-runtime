@@ -159,7 +159,10 @@ class RobotTest {
   void aScenarioStartsOnceTheRobotIsEnabled() {
     try (SimulatedWorld world =
         new SimulatedWorld(
-            RobotSim.FIELD, RobotSim.WITHOUT_CAMERAS.definition(), SensorErrors.NONE)) {
+            RobotSim.FIELD,
+            RobotSim.WITHOUT_CAMERAS.definition(),
+            RobotSim.massOf(RobotSim.WITHOUT_CAMERAS.definition()),
+            SensorErrors.NONE)) {
       Components components = new Components(said -> {});
       world.addTo(components);
       List<Setting> collision = Scenarios.named("collision").eventsIn(world);
@@ -213,7 +216,10 @@ class RobotTest {
   void aScenarioStartsWithItsSensorFaults() {
     try (SimulatedWorld world =
         new SimulatedWorld(
-            RobotSim.FIELD, RobotSim.WITHOUT_CAMERAS.definition(), SensorErrors.TYPICAL)) {
+            RobotSim.FIELD,
+            RobotSim.WITHOUT_CAMERAS.definition(),
+            RobotSim.massOf(RobotSim.WITHOUT_CAMERAS.definition()),
+            SensorErrors.TYPICAL)) {
       Components components = new Components(said -> {});
       world.addTo(components);
 

@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
@@ -23,6 +24,7 @@ import java.util.List;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.system.DCMotor;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The template's simulated drivetrain on its own, its motor controllers commanded directly, for the
@@ -34,6 +36,10 @@ final class TruthRig {
   static final double STEP_SECONDS = RobotLoop.PERIOD_SECONDS / DriveSimulation.STEPS_PER_LOOP;
 
   final Body body;
+
+  /** The robot's mass, as the program on the season's field takes it. */
+  final Mass robotMass;
+
   final DrivetrainGeometry drivetrain;
   final DriveSimulation simulation;
   final ModuleIO[] modules;
@@ -58,6 +64,7 @@ final class TruthRig {
   /** As above, its gyro mounted here. */
   TruthRig(Body body, double frictionCoefficient, SensorErrors errors, ImuMount gyro) {
     this.body = body;
+    this.robotMass = Rebuilt.GAME.limits().robotMass(body);
     DrivetrainGeometry template = ExampleRobot.SIM.definition().drivetrain();
     List<DrivetrainGeometry.Corner> corners = new ArrayList<>();
     for (DrivetrainGeometry.Corner corner : template.corners()) {
@@ -73,6 +80,7 @@ final class TruthRig {
     simulation =
         new DriveSimulation(
             body,
+            robotMass,
             drivetrain,
             errors,
             ImusBuilder.builder(ExampleRobot.SIM.definition().imus()).gyro(gyro).build());
@@ -134,7 +142,7 @@ final class TruthRig {
   }
 
   double mass() {
-    return body.mass().in(Kilograms);
+    return robotMass.in(Kilograms);
   }
 
   double wheelRadius() {

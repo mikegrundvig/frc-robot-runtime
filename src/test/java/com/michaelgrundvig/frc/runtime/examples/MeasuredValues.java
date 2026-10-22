@@ -26,9 +26,7 @@ final class MeasuredValues {
 
   static final Body BODY =
       BodyBuilder.builder(ExampleRobot.SIM.definition().body())
-          .weight(
-              Body.Weight.weighed(
-                  Pounds.of(131.2))) // measured YYYY-MM-DD: two scales, bumpers and battery on
+          .weight(Pounds.of(131.2)) // measured YYYY-MM-DD: two scales, bumpers and battery on
           .build();
 
   private static final VisionConfig VISION =

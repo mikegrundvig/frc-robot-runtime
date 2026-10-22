@@ -27,6 +27,7 @@ import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.physical.Polygon2d;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -55,6 +56,12 @@ class FaultsTest {
   /** Where the robot stands: on blue's side, clear of everything. */
   private static final Pose2d STANDING = new Pose2d(2.0, 4.0, Rotation2d.ZERO);
 
+  /** The simulator's robot without its cameras. */
+  private static final RobotDefinition WITHOUT_CAMERAS = RobotSim.WITHOUT_CAMERAS.definition();
+
+  /** The simulator's robot. */
+  private static final RobotDefinition EXAMPLE = ExampleRobot.SIM.definition();
+
   private final List<SimulatedWorld> worlds = new ArrayList<>();
   private final List<String> said = new ArrayList<>();
   private Components components = new Components(said::add);
@@ -72,7 +79,8 @@ class FaultsTest {
   /** A world with sensors that err like this, its parts declared, the robot standing. */
   private SimulatedWorld world(SensorErrors errors) {
     SimulatedWorld built =
-        new SimulatedWorld(RobotSim.FIELD, RobotSim.WITHOUT_CAMERAS.definition(), errors);
+        new SimulatedWorld(
+            RobotSim.FIELD, WITHOUT_CAMERAS, RobotSim.massOf(WITHOUT_CAMERAS), errors);
     worlds.add(built);
     components = new Components(said::add);
     built.addTo(components);
@@ -139,7 +147,7 @@ class FaultsTest {
   @Test
   void everyPartTheWorldViewCanClickIsAPartDeclaredHere() {
     SimulatedWorld world =
-        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+        new SimulatedWorld(RobotSim.FIELD, EXAMPLE, RobotSim.massOf(EXAMPLE), SensorErrors.NONE);
     worlds.add(world);
     components = new Components(said::add);
     world.addTo(components);
@@ -176,7 +184,7 @@ class FaultsTest {
   @Test
   void everyFaultIsDeclaredWithTheLifetimeTheCatalogGivesIt() {
     SimulatedWorld world =
-        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+        new SimulatedWorld(RobotSim.FIELD, EXAMPLE, RobotSim.massOf(EXAMPLE), SensorErrors.NONE);
     worlds.add(world);
     components = new Components(said::add);
     world.addTo(components);
@@ -677,7 +685,8 @@ class FaultsTest {
     Body body = RobotSim.WITHOUT_CAMERAS.definition().body();
     FieldModel season = Rebuilt.field();
     SimulatedWorld world =
-        new SimulatedWorld(season, RobotSim.WITHOUT_CAMERAS.definition(), SensorErrors.NONE);
+        new SimulatedWorld(
+            season, WITHOUT_CAMERAS, RobotSim.massOf(WITHOUT_CAMERAS), SensorErrors.NONE);
     worlds.add(world);
     Polygon2d hub = season.elements().get(0).footprint();
     double hubsNearFace =

@@ -23,6 +23,7 @@ import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Transform2d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.units.measure.Mass;
 
 /**
  * The simulated drivetrain: the {@link Physics} that knows where the robot really is, the modules'
@@ -73,26 +74,32 @@ public final class DriveSimulation {
   /**
    * On flat ground until given its terrain ({@link #setTerrain}), its IMUs at the robot's center.
    *
-   * @param body the robot's frame, which places the wheels, and its mass, which they carry
+   * @param body the robot's frame and bumpers
+   * @param robotMass the robot's mass, which the wheels carry: as weighed, or until it is, the
+   *     season's maximum ({@code SeasonLimits.robotMass})
    * @param drivetrain the drivetrain as defined: the code's belief about its modules
    * @param errors how the real wheels and sensors differ from the configuration
    */
-  public DriveSimulation(Body body, DrivetrainGeometry drivetrain, SensorErrors errors) {
-    this(body, drivetrain, errors, Imus.UNCHECKED);
+  public DriveSimulation(
+      Body body, Mass robotMass, DrivetrainGeometry drivetrain, SensorErrors errors) {
+    this(body, robotMass, drivetrain, errors, Imus.UNCHECKED);
   }
 
   /**
    * On flat ground until given its terrain ({@link #setTerrain}).
    *
-   * @param body the robot's frame, which places the wheels, and its mass, which they carry
+   * @param body the robot's frame and bumpers
+   * @param robotMass the robot's mass, which the wheels carry: as weighed, or until it is, the
+   *     season's maximum ({@code SeasonLimits.robotMass})
    * @param drivetrain the drivetrain as defined: the code's belief about its modules
    * @param errors how the real wheels and sensors differ from the configuration
    * @param imus where the robot's definition mounts its IMUs: they really sit off that, and are
    *     turned off it, by their accelerometers' errors. A robot without a backup IMU still has one
    *     simulated, at the gyro's mount, which the world never hands its code
    */
-  public DriveSimulation(Body body, DrivetrainGeometry drivetrain, SensorErrors errors, Imus imus) {
-    physics = new KinematicPhysics(body, drivetrain, errors.wheelRadiusScale());
+  public DriveSimulation(
+      Body body, Mass robotMass, DrivetrainGeometry drivetrain, SensorErrors errors, Imus imus) {
+    physics = new KinematicPhysics(body, robotMass, drivetrain, errors.wheelRadiusScale());
     for (int i = 0; i < MODULE_COUNT; i++) {
       // Each module's CANcoder sends on its own clock: here a quarter period after the last, to the
       // steering loop's millisecond (0, 2, 5 and 7 ms into its cycle, at 100 Hz).

@@ -5,7 +5,7 @@
 # This release of the FRC libraries (the model, localization, Pitwall, the runtime): what this build
 # publishes as (gradle/publishing.gradle), and the version of the model, localization and Pitwall it
 # reads. All of them share it, so a release is one change, here.
-frc-libs = "2026.10.21"
+frc-libs = "2026.10.22"
 gradlerio = "2027.0.0-alpha-7"
 spotless = "8.10.4"
 # The formatters Spotless runs (gradle/quality.gradle), pinned rather than left to Spotless's

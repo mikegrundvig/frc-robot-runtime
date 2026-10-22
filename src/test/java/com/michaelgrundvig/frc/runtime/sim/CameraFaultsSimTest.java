@@ -49,7 +49,11 @@ class CameraFaultsSimTest {
   @BeforeEach
   void standSeeingTags() {
     SimulatedWorld world =
-        new SimulatedWorld(RobotSim.FIELD, ExampleRobot.SIM.definition(), SensorErrors.NONE);
+        new SimulatedWorld(
+            RobotSim.FIELD,
+            ExampleRobot.SIM.definition(),
+            RobotSim.massOf(ExampleRobot.SIM.definition()),
+            SensorErrors.NONE);
     built = world;
     world.addTo(components);
     world.place(STANDING);

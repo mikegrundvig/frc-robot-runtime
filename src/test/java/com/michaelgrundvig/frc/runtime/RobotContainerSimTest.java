@@ -383,7 +383,12 @@ class RobotContainerSimTest {
     assertThat(recorded).containsExactly("driver back: on press: Reset heading");
     assertThat(fired).containsExactlyElementsOf(robot.bindings().all().subList(0, 1));
     assertThat(
-            Doubts.lines(Doubts.of(ExampleRobot.SIM.definition(), robot.bindings()), Scope.ROBOT))
+            Doubts.lines(
+                Doubts.of(
+                    ExampleRobot.SIM.definition(),
+                    RobotSim.massOf(ExampleRobot.SIM.definition()),
+                    robot.bindings()),
+                Scope.ROBOT))
         .contains(
             "driver back starts Reset heading and Zero arm on press: one press runs them together."
                 + " If that's meant, make them one command; if not, bind one to another button");

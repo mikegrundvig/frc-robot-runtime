@@ -103,7 +103,7 @@ class DynamicsTruthSimTest {
     double r = rig.wheelRadius();
     double wheels = 4 * rig.wheelInertia() * d * d / (r * r);
     double implied = 4 * rig.force(10) * d / measured - wheels;
-    double configured = rig.body.yawMomentOfInertia().in(KilogramSquareMeters);
+    double configured = rig.body.yawMomentOfInertia(rig.robotMass).in(KilogramSquareMeters);
     stillOpen("the yaw inertia the robot spins as, kg m²", implied, configured, 0.02, 11.085, 0.01);
     assertThat(rig.simulation.truePose().getTranslation().getNorm())
         .as("spinning in place")
@@ -444,7 +444,10 @@ class DynamicsTruthSimTest {
     double yawRate = rig.simulation.yawRateRadiansPerSecond();
     double energy =
         0.5 * rig.mass() * speed * speed
-            + 0.5 * rig.body.yawMomentOfInertia().in(KilogramSquareMeters) * yawRate * yawRate;
+            + 0.5
+                * rig.body.yawMomentOfInertia(rig.robotMass).in(KilogramSquareMeters)
+                * yawRate
+                * yawRate;
     ModuleIO.ModuleIOInputs inputs = new ModuleIO.ModuleIOInputs();
     for (ModuleIO module : rig.modules) {
       module.updateInputs(inputs);
