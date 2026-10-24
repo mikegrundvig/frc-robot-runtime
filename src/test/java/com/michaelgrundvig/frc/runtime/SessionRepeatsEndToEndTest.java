@@ -49,10 +49,15 @@ class SessionRepeatsEndToEndTest {
    * <ul>
    *   <li>{@code Loop/}: how long each loop took on the computer's own clock, section by section,
    *       and the alert raised from that.
+   *   <li>{@code AlertGroups/Loop}: AdvantageKit's own warning when a loop overran (alpha 7 raises
+   *       it), which says how long the loop took on the computer's clock.
    *   <li>{@code SystemStats/EpochTime}: the computer's date and time.
    *   <li>{@code LoggedRobot/GC}: how long, and how often, Java collected garbage in a loop.
    *   <li>{@code Logger/QueuedCycles}: how many loops' records waited for the log's own thread to
    *       write them.
+   *   <li>{@code Logger/DataReceivers}: how long each of the log's writers took (AdvantageKit 27
+   *       alpha 7 records it), under a key named for the writer's class, which for the session's
+   *       clock is a lambda whose name holds a memory address, different in every run.
    *   <li>{@code Console}: what the program printed, which names the port Pitwall was given and the
    *       log's own file, named at random and then for the date.
    * </ul>
@@ -60,9 +65,11 @@ class SessionRepeatsEndToEndTest {
   private static final List<String> ABOUT_THE_COMPUTER =
       List.of(
           "/RealOutputs/Loop/",
+          "/RealOutputs/AlertGroups/Loop/",
           "/SystemStats/EpochTime",
           "/RealOutputs/LoggedRobot/GC",
           "/RealOutputs/Logger/QueuedCycles",
+          "/RealOutputs/Logger/DataReceivers/",
           "/RealOutputs/Console");
 
   /**

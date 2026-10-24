@@ -58,8 +58,8 @@ draws the robot for it from `Robots.java`. A layout in the repository puts it al
 
 **Once, on each laptop:**
 
-1. Install AdvantageScope v27.0.0-alpha-6, the release that pairs with the AdvantageKit in
-   `vendordeps/` (27.0.0-alpha-6).
+1. Install AdvantageScope v27.0.0-alpha-6, the newest release, which works with the AdvantageKit in
+   `vendordeps/` (27.0.0-alpha-7).
 2. **App > Use Custom Assets Folder** (**AdvantageScope >** on a Mac), and choose the
    repository's `ascope_assets/` folder. The robot's model arrives with every `git pull` from then
    on; AdvantageScope rereads the folder every five seconds.
