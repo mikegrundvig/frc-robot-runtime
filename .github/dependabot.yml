@@ -17,6 +17,7 @@ updates:
       - dependency-name: "io.avaje:avaje-jsonb"
       - dependency-name: "us.hebi.quickbuf:quickbuf-runtime"
       - dependency-name: "gradle-wrapper"
+      - dependency-name: "org.ejml*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
