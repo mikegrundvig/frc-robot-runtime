@@ -5,6 +5,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.GyroIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
@@ -15,6 +16,7 @@ import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
+import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Transform3d;
@@ -79,6 +81,21 @@ public final class SimulatedWorld implements AutoCloseable {
       Mass robotMass,
       SensorErrors errors,
       VisionSim.Software software) {
+    this(field, definition, robotMass, errors, software, null);
+  }
+
+  /**
+   * As above, with {@code detection} deciding which tags Visor's detector finds ({@link
+   * VisionSim}'s), for comparing detectors on the same path; null for PhotonVision's simulation's
+   * own limits.
+   */
+  public SimulatedWorld(
+      FieldModel field,
+      RobotDefinition definition,
+      Mass robotMass,
+      SensorErrors errors,
+      VisionSim.Software software,
+      @Nullable DetectionModel detection) {
     this.field = field;
     Imus imus = definition.imus();
     List<CameraConfig> cameras = definition.cameras();
@@ -104,7 +121,8 @@ public final class SimulatedWorld implements AutoCloseable {
             errors.tagErrors(),
             camera -> Seeds.camera(errors.seed(), camera),
             noise,
-            software);
+            software,
+            detection);
     this.cameras = new CameraIOSim[cameras.size()];
     camerasOnJoints = cameras.stream().filter(camera -> camera.joint().isPresent()).toList();
     for (int i = 0; i < cameras.size(); i++) {

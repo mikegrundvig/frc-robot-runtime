@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.SplittableRandom;
 import java.util.function.IntToLongFunction;
+import org.jspecify.annotations.Nullable;
 import org.photonvision.PhotonCamera;
 import org.photonvision.simulation.PhotonCameraSim;
 import org.photonvision.simulation.SimCameraProperties;
@@ -107,6 +109,15 @@ public final class VisionSim implements AutoCloseable {
   private final Noise noise;
   private final List<PhotonCameraSim> cameras = new ArrayList<>();
   private final Software software;
+
+  /**
+   * On Visor's path, which tags its detector finds, by their size in the image; null for
+   * PhotonVision's simulation's own limits (its sight range and smallest area).
+   */
+  private final @Nullable DetectionModel detection;
+
+  /** Each camera's draws for {@link #detection}, by index, seeded from its own seed. */
+  private final Map<Integer, SplittableRandom> detectionDraws = new LinkedHashMap<>();
 
   /** Visor's frames, for the cameras on its path, and what each frame is built in. */
   private final VisorFeed visor = VisorFeed.inMemory();
@@ -270,6 +281,27 @@ public final class VisionSim implements AutoCloseable {
       IntToLongFunction cameraSeeds,
       Noise noise,
       Software software) {
+    this(field, tagErrors, cameraSeeds, noise, software, null);
+  }
+
+  /**
+   * As above, with {@code detection} deciding which tags Visor's detector finds, in place of
+   * PhotonVision's simulation's sight range and smallest area. For comparing detectors on the same
+   * path; Visor's only, since PhotonVision's multi-tag solve would still see every tag.
+   *
+   * @throws IllegalArgumentException for a detection model on PhotonVision's path
+   */
+  public VisionSim(
+      FieldModel field,
+      Map<Integer, Translation3d> tagErrors,
+      IntToLongFunction cameraSeeds,
+      Noise noise,
+      Software software,
+      @Nullable DetectionModel detection) {
+    if (detection != null && software != Software.VISOR) {
+      throw new IllegalArgumentException("a detection model is for Visor's path");
+    }
+    this.detection = detection;
     this.software = software;
     this.noise = noise;
     this.cameraSeeds = cameraSeeds;
@@ -383,6 +415,12 @@ public final class VisionSim implements AutoCloseable {
     // Tags farther than the camera's sight range are not detected. They are small in the image,
     // and noisy.
     simulated.setMaxSightRange(config.sensor().sightRange().in(Meters));
+    if (detection != null) {
+      // The detection model decides instead: every tag in view reaches it, however small.
+      simulated.setMaxSightRange(Double.MAX_VALUE);
+      simulated.setMinTargetAreaPixels(1);
+      detectionDraws.put(index, new SplittableRandom(cameraSeeds.applyAsLong(index) ^ 0x5eed));
+    }
     // No video. By default PhotonVision renders a raw and a processed frame of every image, in
     // native memory that is freed only when the collector gets to it (one study's process grew past
     // 4 GB). Nothing here views them, and what the camera detects doesn't depend on them.
@@ -607,6 +645,9 @@ public final class VisionSim implements AutoCloseable {
         break;
       }
       List<TargetCorner> detected = target.getDetectedCorners();
+      if (!found(added.index(), detected)) {
+        continue;
+      }
       for (int i = 0; i < 4; i++) {
         TargetCorner corner = detected.get(VISOR_ORDER[i]);
         corners[2 * i] = (float) corner.x;
@@ -620,6 +661,21 @@ public final class VisionSim implements AutoCloseable {
       visorFrame.setPoses(tag, bestPose, best, otherPose, 1);
     }
     return visorFrame;
+  }
+
+  /** Whether the detection model, if there is one, finds a tag with these corners. */
+  private boolean found(int camera, List<TargetCorner> corners) {
+    SplittableRandom draws = detectionDraws.get(camera);
+    if (detection == null || draws == null) {
+      return true;
+    }
+    double longest = 0;
+    for (int i = 0; i < corners.size(); i++) {
+      TargetCorner a = corners.get(i);
+      TargetCorner b = corners.get((i + 1) % corners.size());
+      longest = Math.max(longest, Math.hypot(a.x - b.x, a.y - b.y));
+    }
+    return draws.nextDouble() < detection.chance(longest);
   }
 
   private static void set(CameraToTag pose, Transform3d transform) {
