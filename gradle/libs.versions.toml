@@ -5,10 +5,13 @@
 # This release of the FRC libraries (the model, localization, Pitwall, the runtime): what this build
 # publishes as (gradle/publishing.gradle), and the version of the model, localization and Pitwall it
 # reads. All of them share it, so a release is one change, here.
-frc-libs = "2026.11.2"
+frc-libs = "2026.11.3"
 # Visor, the AprilTag vision program for a coprocessor: its robot client, at Visor's own version.
-visor = "2026.11.2"
+visor = "2026.11.3"
 gradlerio = "2027.0.0-alpha-7"
+# GradleRIO's deploy library, at the version that GradleRIO brings: the Visor deploy plugin
+# (build-logic) configures its targets.
+deployutils = "2027.2.0"
 spotless = "8.10.4"
 # The formatters Spotless runs (gradle/quality.gradle), pinned rather than left to Spotless's
 # defaults, so a newer Spotless can't reformat the code on its own: a formatter's new version is a
@@ -33,6 +36,7 @@ pitest-core = "1.30.0"
 pitest-junit5 = "1.2.3"
 
 [libraries]
+deployutils = { module = "org.wpilib:DeployUtils", version.ref = "deployutils" }
 frc-robot-model = { module = "com.michaelgrundvig.frc:frc-robot-model", version.ref = "frc-libs" }
 frc-docs-processor = { module = "com.michaelgrundvig.frc:frc-docs-processor", version.ref = "frc-libs" }
 frc-localization = { module = "com.michaelgrundvig.frc:frc-localization", version.ref = "frc-libs" }

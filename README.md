@@ -63,8 +63,8 @@ repositories {
     }
 }
 dependencies {
-    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.2"
-    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.2")
+    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.3"
+    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.3")
 }
 ```
 
@@ -96,7 +96,7 @@ pluginManagement {
 
 // build.gradle
 plugins {
-    id "frc.advantagescope-assets" version "2026.11.2"
+    id "frc.advantagescope-assets" version "2026.11.3"
 }
 ```
 
@@ -156,6 +156,7 @@ program's.
 - [Values](docs/values.md): every configuration value, what it means, and how to find yours
 - [Calibration](docs/calibration.md) and [characterization](docs/characterization.md): measuring the real robot
 - [Camera placement](docs/camera-placement.md): where to mount the cameras
+- [Visor](docs/visor.md): putting a camera on Visor, and how the deploy puts Visor on the coprocessors
 - [Localizers](docs/localizers.md): choosing WPILib's pose estimator or your own, and the contract one keeps
 - [Venues](docs/venues.md): where a match is played, and what the robot knows of it
 - [Stand-ins](docs/stand-ins.md): what waits on a library's release

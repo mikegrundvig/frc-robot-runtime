@@ -1,5 +1,5 @@
 // The build's own Gradle plugins, one per tool whose files the build generates from the robot's
-// configuration: the AdvantageScope plugin today. An included build (the root settings.gradle
+// configuration: AdvantageScope's robot assets, and Visor's configuration and deploy. An included build (the root settings.gradle
 // includes it), so the robot project applies a plugin by its id and Gradle builds it first.
 
 pluginManagement {
@@ -16,6 +16,8 @@ plugins {
 dependencyResolutionManagement {
     repositories {
         mavenCentral()
+        // GradleRIO's deploy library, which Gradle's plugin portal serves with GradleRIO.
+        gradlePluginPortal()
     }
     // The root build's version catalog, so test libraries are versioned in one place.
     versionCatalogs {

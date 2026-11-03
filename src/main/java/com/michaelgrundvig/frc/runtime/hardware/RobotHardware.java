@@ -306,7 +306,7 @@ public final class RobotHardware implements Hardware {
     List<CameraConfig> configured = definition.cameras();
     for (int index = 0; index < configured.size(); index++) {
       CameraConfig camera = configured.get(index);
-      if (camera.software() == CameraConfig.Software.VISOR) {
+      if (camera.software() instanceof CameraConfig.Software.Visor) {
         cameras.add(new CameraIOVisor(visor(), index));
       } else {
         cameras.add(new CameraIOPhotonVision(camera.name()));

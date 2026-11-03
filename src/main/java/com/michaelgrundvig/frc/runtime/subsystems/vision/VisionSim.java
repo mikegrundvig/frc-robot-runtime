@@ -391,7 +391,7 @@ public final class VisionSim implements AutoCloseable {
   public CameraIO camera(CameraConfig config, Transform3d mountError) {
     int index = cameras.size();
     CameraConfig.Software software = everyCamera != null ? everyCamera : config.software();
-    boolean onVisor = software == CameraConfig.Software.VISOR;
+    boolean onVisor = software instanceof CameraConfig.Software.Visor;
     CameraIO io;
     PhotonCamera drawnOn;
     if (onVisor) {
