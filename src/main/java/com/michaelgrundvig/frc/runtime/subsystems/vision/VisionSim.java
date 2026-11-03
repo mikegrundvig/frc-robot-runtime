@@ -5,6 +5,8 @@ import static org.wpilib.units.Units.Hertz;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Milliseconds;
 
+import com.michaelgrundvig.frc.visor.CameraToTag;
+import com.michaelgrundvig.frc.visor.VisorFrame;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
@@ -20,6 +22,8 @@ import org.photonvision.simulation.SimCameraProperties;
 import org.photonvision.simulation.VisionSystemSim;
 import org.photonvision.simulation.VisionTargetSim;
 import org.photonvision.targeting.PhotonPipelineResult;
+import org.photonvision.targeting.PhotonTrackedTarget;
+import org.photonvision.targeting.TargetCorner;
 import org.wpilib.fields.Field;
 import org.wpilib.fields.FieldTag;
 import org.wpilib.math.geometry.Pose3d;
@@ -37,6 +41,9 @@ import org.wpilib.vision.stream.CameraServer;
  * field of view, frame rate, latency, and a little lens-calibration error. Its results reach the
  * robot code through the same {@link CameraIOPhotonVision} a real camera uses, each image stamped
  * with when it was taken ({@link #update}).
+ *
+ * <p>The images reach the robot as one of two vision programs would send them ({@link Software}):
+ * PhotonVision's, or Visor's, whose frames go through Visor's own client and {@link CameraIOVisor}.
  *
  * <p>While the simulation runs, a camera can be knocked on its mount ({@link #mount}), made later
  * than its configuration says ({@link #addLatency}), or have its clock set off the robot's ({@link
@@ -75,6 +82,19 @@ public final class VisionSim implements AutoCloseable {
     public static final Noise NONE = new Noise(0, 0, 0);
   }
 
+  /** Which vision program the simulated cameras' images reach the robot code through. */
+  public enum Software {
+    /** PhotonVision: its results, over NetworkTables, through {@link CameraIOPhotonVision}. */
+    PHOTONVISION,
+    /**
+     * Visor: each image as Visor's frame, through its client and {@link CameraIOVisor}. The tags'
+     * corners and poses are PhotonVision's simulation's, which Visor's solve matches (Visor's own
+     * tests check it against the same simulation). Visor solves no tags together, so there is no
+     * multi-tag solution.
+     */
+    VISOR
+  }
+
   /** How far back the robot's true poses are kept, for the images taken that long ago. */
   private static final double HISTORY_SECONDS = 1.5;
 
@@ -86,6 +106,17 @@ public final class VisionSim implements AutoCloseable {
   private final IntToLongFunction cameraSeeds;
   private final Noise noise;
   private final List<PhotonCameraSim> cameras = new ArrayList<>();
+  private final Software software;
+
+  /** Visor's frames, for the cameras on its path, and what each frame is built in. */
+  private final VisorFeed visor = VisorFeed.inMemory();
+
+  private final VisorFrame visorFrame = new VisorFrame();
+  private final CameraToTag bestPose = new CameraToTag();
+  private final CameraToTag otherPose = new CameraToTag();
+
+  /** The PhotonCameras the Visor path makes for PhotonVision's simulation to draw on. */
+  private final List<PhotonCamera> visorPathCameras = new ArrayList<>();
 
   /**
    * When this world began, on the robot's clock, in nanoseconds. The robot's true poses are kept by
@@ -152,6 +183,9 @@ public final class VisionSim implements AutoCloseable {
    * A camera as added.
    *
    * @param simulated PhotonVision's simulation of it
+   * @param index its place among the cameras: on Visor's path, the index its frames carry
+   * @param widthPixels its images' width
+   * @param heightPixels and height
    * @param configured where its configuration mounts it on the robot
    * @param latencyMillis its configured latency
    * @param mountError how far it is knocked from its configured mount, in the robot's frame
@@ -159,6 +193,9 @@ public final class VisionSim implements AutoCloseable {
    */
   private record Added(
       PhotonCameraSim simulated,
+      int index,
+      int widthPixels,
+      int heightPixels,
       Transform3d configured,
       double latencyMillis,
       Transform3d mountError,
@@ -223,6 +260,17 @@ public final class VisionSim implements AutoCloseable {
       Map<Integer, Translation3d> tagErrors,
       IntToLongFunction cameraSeeds,
       Noise noise) {
+    this(field, tagErrors, cameraSeeds, noise, Software.PHOTONVISION);
+  }
+
+  /** As above, the images reaching the robot code through {@code software}. */
+  public VisionSim(
+      FieldModel field,
+      Map<Integer, Translation3d> tagErrors,
+      IntToLongFunction cameraSeeds,
+      Noise noise,
+      Software software) {
+    this.software = software;
     this.noise = noise;
     this.cameraSeeds = cameraSeeds;
     this.field = field;
@@ -316,13 +364,22 @@ public final class VisionSim implements AutoCloseable {
    *     configured orientation
    */
   public CameraIO camera(CameraConfig config, Transform3d mountError) {
-    CameraIOPhotonVision io = new CameraIOPhotonVision(config.name());
+    int index = cameras.size();
+    CameraIO io;
+    PhotonCamera drawnOn;
+    if (software == Software.VISOR) {
+      drawnOn = new PhotonCamera(config.name());
+      visorPathCameras.add(drawnOn);
+      io = new CameraIOVisor(visor, index);
+    } else {
+      CameraIOPhotonVision photonVision = new CameraIOPhotonVision(config.name());
+      drawnOn = photonVision.camera();
+      io = photonVision;
+    }
     // Seeded, one seed per camera, so a simulated run repeats exactly.
     PhotonCameraSim simulated =
         new OwnTopicsCameraSim(
-            io.camera(),
-            properties(config.sensor(), cameraSeeds.applyAsLong(cameras.size()), noise),
-            layout);
+            drawnOn, properties(config.sensor(), cameraSeeds.applyAsLong(index), noise), layout);
     // Tags farther than the camera's sight range are not detected. They are small in the image,
     // and noisy.
     simulated.setMaxSightRange(config.sensor().sightRange().in(Meters));
@@ -338,7 +395,14 @@ public final class VisionSim implements AutoCloseable {
     byName.put(
         config.name(),
         new Added(
-            simulated, configured, config.sensor().latency().in(Milliseconds), mountError, mount));
+            simulated,
+            index,
+            config.sensor().widthPixels(),
+            config.sensor().heightPixels(),
+            configured,
+            config.sensor().latency().in(Milliseconds),
+            mountError,
+            mount));
     return io;
   }
 
@@ -356,7 +420,15 @@ public final class VisionSim implements AutoCloseable {
     world.adjustCamera(added.simulated(), mount);
     byName.put(
         camera,
-        new Added(added.simulated(), added.configured(), added.latencyMillis(), mountError, mount));
+        new Added(
+            added.simulated(),
+            added.index(),
+            added.widthPixels(),
+            added.heightPixels(),
+            added.configured(),
+            added.latencyMillis(),
+            mountError,
+            mount));
   }
 
   /**
@@ -501,7 +573,65 @@ public final class VisionSim implements AutoCloseable {
     // A camera whose clock is off the robot's stamps its image as its own clock had it.
     image.metadata.captureTimestampNanos = takenNanos + clockOffsets.getOrDefault(name, 0L);
     image.metadata.publishTimestampNanos = arrivedNanos;
-    camera.submitProcessedFrame(image, arrivedNanos);
+    if (software == Software.VISOR) {
+      visor.offer(visorFrame(added, image));
+    } else {
+      camera.submitProcessedFrame(image, arrivedNanos);
+    }
+  }
+
+  /** PhotonVision's corners, by Visor's (OpenCV's) order: PhotonVision's reversed. */
+  private static final int[] VISOR_ORDER = {3, 2, 1, 0};
+
+  /** Each camera's next frame number on Visor's path, by index. */
+  private final Map<Integer, Long> visorSequences = new LinkedHashMap<>();
+
+  /**
+   * An image as Visor would send it: its capture time, the tags' corners in Visor's order, and
+   * their two poses. PhotonVision's simulation gives each tag's ambiguity but not the two errors it
+   * comes from, so the errors carry the ratio: the best one is the ambiguity, the other 1.
+   */
+  private VisorFrame visorFrame(Added added, PhotonPipelineResult image) {
+    long sequence = visorSequences.merge(added.index(), 1L, Long::sum) - 1;
+    visorFrame.setHeader(
+        sequence,
+        added.widthPixels(),
+        added.heightPixels(),
+        image.metadata.captureTimestampNanos,
+        added.index(),
+        true,
+        false);
+    float[] corners = new float[8];
+    for (PhotonTrackedTarget target : image.getTargets()) {
+      if (visorFrame.tagCount() == VisorFrame.MAX_TAGS) {
+        break;
+      }
+      List<TargetCorner> detected = target.getDetectedCorners();
+      for (int i = 0; i < 4; i++) {
+        TargetCorner corner = detected.get(VISOR_ORDER[i]);
+        corners[2 * i] = (float) corner.x;
+        corners[2 * i + 1] = (float) corner.y;
+      }
+      int tag = visorFrame.addTag(target.getFiducialId(), 0, 50, corners);
+      set(bestPose, target.getBestCameraToTarget());
+      set(otherPose, target.getAlternateCameraToTarget());
+      double ambiguity = target.getPoseAmbiguity();
+      float best = ambiguity >= 0 ? (float) Math.min(ambiguity, 1) : 1;
+      visorFrame.setPoses(tag, bestPose, best, otherPose, 1);
+    }
+    return visorFrame;
+  }
+
+  private static void set(CameraToTag pose, Transform3d transform) {
+    var q = transform.getRotation().getQuaternion();
+    pose.set(
+        transform.getX(),
+        transform.getY(),
+        transform.getZ(),
+        q.getW(),
+        q.getX(),
+        q.getY(),
+        q.getZ());
   }
 
   /**
@@ -570,5 +700,9 @@ public final class VisionSim implements AutoCloseable {
     for (PhotonCameraSim camera : cameras) {
       camera.close();
     }
+    for (PhotonCamera camera : visorPathCameras) {
+      camera.close();
+    }
+    visor.close();
   }
 }

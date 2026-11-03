@@ -66,6 +66,19 @@ public final class SimulatedWorld implements AutoCloseable {
    */
   public SimulatedWorld(
       FieldModel field, RobotDefinition definition, Mass robotMass, SensorErrors errors) {
+    this(field, definition, robotMass, errors, VisionSim.Software.PHOTONVISION);
+  }
+
+  /**
+   * As above, the cameras' images reaching the robot code through {@code software}: PhotonVision's
+   * path, or Visor's ({@link VisionSim.Software}).
+   */
+  public SimulatedWorld(
+      FieldModel field,
+      RobotDefinition definition,
+      Mass robotMass,
+      SensorErrors errors,
+      VisionSim.Software software) {
     this.field = field;
     Imus imus = definition.imus();
     List<CameraConfig> cameras = definition.cameras();
@@ -87,7 +100,11 @@ public final class SimulatedWorld implements AutoCloseable {
             VisionSim.LATENCY_STD_DEV_MILLIS);
     vision =
         new VisionSim(
-            field, errors.tagErrors(), camera -> Seeds.camera(errors.seed(), camera), noise);
+            field,
+            errors.tagErrors(),
+            camera -> Seeds.camera(errors.seed(), camera),
+            noise,
+            software);
     this.cameras = new CameraIOSim[cameras.size()];
     camerasOnJoints = cameras.stream().filter(camera -> camera.joint().isPresent()).toList();
     for (int i = 0; i < cameras.size(); i++) {

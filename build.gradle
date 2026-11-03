@@ -40,6 +40,8 @@ dependencies {
     api libs.frc.localization
     api project(":frc-robot-simulation")
     api libs.frc.pitwall
+    // Visor's robot client: frames from its coprocessors, and the clock they sync to.
+    api libs.frc.visor.client
     api libs.jspecify
 
     // WPILib, and the vendor libraries in vendordeps/ (Commands v3, AdvantageKit, Phoenix, REVLib,
