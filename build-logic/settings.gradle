@@ -1,5 +1,5 @@
-// The build's own Gradle plugins, one per tool whose files the build generates from the robot's
-// configuration: AdvantageScope's robot assets, and Visor's configuration and deploy. An included build (the root settings.gradle
+// The build's own Gradle plugins, one per tool whose files the build brings to the robot:
+// AdvantageScope's robot assets, and Visor's release. An included build (the root settings.gradle
 // includes it), so the robot project applies a plugin by its id and Gradle builds it first.
 
 pluginManagement {

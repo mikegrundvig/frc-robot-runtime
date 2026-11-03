@@ -5,9 +5,11 @@
 # This release of the FRC libraries (the model, localization, Pitwall, the runtime): what this build
 # publishes as (gradle/publishing.gradle), and the version of the model, localization and Pitwall it
 # reads. All of them share it, so a release is one change, here.
-frc-libs = "2026.11.3"
+frc-libs = "2026.11.4"
 # Visor, the AprilTag vision program for a coprocessor: its robot client, at Visor's own version.
-visor = "2026.11.3"
+visor = "2026.11.4"
+# Spotter, whose manager watches the coprocessors' agents and installs Visor through them.
+spotter = "0.4.0"
 gradlerio = "2027.0.0-alpha-7"
 # GradleRIO's deploy library, at the version that GradleRIO brings: the Visor deploy plugin
 # (build-logic) configures its targets.
@@ -42,6 +44,8 @@ frc-docs-processor = { module = "com.michaelgrundvig.frc:frc-docs-processor", ve
 frc-localization = { module = "com.michaelgrundvig.frc:frc-localization", version.ref = "frc-libs" }
 frc-pitwall = { module = "com.michaelgrundvig.frc:frc-pitwall", version.ref = "frc-libs" }
 frc-visor-client = { module = "com.michaelgrundvig.frc:frc-visor-client", version.ref = "visor" }
+spotter-manager = { module = "com.michaelgrundvig.frc:spotter-manager", version.ref = "spotter" }
+spotter-agent = { module = "com.michaelgrundvig.frc:spotter-agent", version.ref = "spotter" }
 recordbuilder-core = { module = "io.soabase.record-builder:record-builder-core", version.ref = "recordbuilder" }
 recordbuilder-processor = { module = "io.soabase.record-builder:record-builder-processor", version.ref = "recordbuilder" }
 jspecify = { module = "org.jspecify:jspecify", version.ref = "jspecify" }

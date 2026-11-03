@@ -58,8 +58,8 @@ if (localLibs != null && gradle.parent == null) {
     }
 }
 
-// The build's Gradle plugins, AdvantageScope's robot assets and Visor's deploy (build-logic/), an included build of
-// its own, built, tested and published with this one when this is the build that runs. A robot
+// The build's Gradle plugins, for AdvantageScope's robot assets and Visor's release (build-logic/),
+// an included build of its own, built, tested and published with this one when this runs. A robot
 // program that builds this one from source (-PlocalLibs) includes build-logic itself, through its
 // plugin management, to apply the plugins.
 if (gradle.parent == null) {

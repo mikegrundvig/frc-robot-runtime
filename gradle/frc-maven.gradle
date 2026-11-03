@@ -1,7 +1,8 @@
 // Where the FRC libraries this build reads come from: their Maven repository,
 // https://mikegrundvig.github.io/frc-maven/, which GitHub Pages serves from
 // github.com/mikegrundvig/frc-maven. Only it serves com.michaelgrundvig.frc, and it serves nothing
-// else, so no other repository can stand in for one of these libraries.
+// else, so no other repository can stand in for one of these libraries. Spotter's manager, of the
+// same group, comes from Spotter's own repository alone, as Spotter publishes it.
 //
 // -PfrcMaven=<url> reads them from somewhere else, such as a clone of that repository holding a
 // release that isn't pushed yet: -PfrcMaven=file:///home/you/src/frc-maven.
@@ -14,7 +15,18 @@ repositories {
             }
         }
         filter {
-            includeGroup "com.michaelgrundvig.frc"
+            includeModuleByRegex "com\\.michaelgrundvig\\.frc", "(?!spotter-).+"
+        }
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "spotterMaven"
+                url = "https://mikegrundvig.github.io/frc-spotter/maven"
+            }
+        }
+        filter {
+            includeModuleByRegex "com\\.michaelgrundvig\\.frc", "spotter-.+"
         }
     }
 }

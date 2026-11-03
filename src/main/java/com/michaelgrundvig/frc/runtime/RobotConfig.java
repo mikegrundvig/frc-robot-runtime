@@ -7,6 +7,7 @@ import com.michaelgrundvig.frc.localization.LocalizerMaker;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
+import com.michaelgrundvig.frc.spotter.manager.BoardDefinition;
 import com.michaelgrundvig.frc.world.config.Checks;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
 import com.michaelgrundvig.frc.world.field.FieldModel;
@@ -17,6 +18,8 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import io.soabase.recordbuilder.core.RecordBuilder;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -37,14 +40,22 @@ import java.util.Optional;
  * @param localizer what works out where the robot is, for a robot that chooses its own: {@code
  *     .localizer(WpilibLocalizer::new)} for WPILib's pose estimator, or a maker of the team's own
  *     (docs/localizers.md). Left out, the robot gets the default localizer.
+ * @param coprocessors the robot's coprocessors, each by its Spotter agent: its address and the
+ *     team's packs it's to have, from the deploy folder's {@code spotter-packs/} ({@code new
+ *     BoardDefinition("10.12.34.11", "visor")} for team 1234's). The robot watches each, and
+ *     installs and configures Visor on those its Visor cameras are plugged into (docs/visor.md).
+ *     None unless given.
  */
 @ConfigRecord
 public record RobotConfig(
     RobotDefinition definition,
     VisionConfig vision,
     EstimatorConfig estimator,
-    Optional<LocalizerMaker> localizer) {
+    Optional<LocalizerMaker> localizer,
+    @RecordBuilder.Initializer(value = "of", source = List.class)
+        List<BoardDefinition> coprocessors) {
   public RobotConfig {
+    coprocessors = List.copyOf(coprocessors);
     Optional<SwerveWiring> drivetrainWiring = definition.drivetrain().wiring();
     // The definition's own findings come first, then what this program cannot drive: a drivetrain
     // wired in a way the template has no modules for, a joint it cannot run, and an interlock it

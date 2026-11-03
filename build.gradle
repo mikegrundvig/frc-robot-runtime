@@ -42,6 +42,8 @@ dependencies {
     api libs.frc.pitwall
     // Visor's robot client: frames from its coprocessors, and the clock they sync to.
     api libs.frc.visor.client
+    // The coprocessors' agents (RobotConfig.coprocessors), and Visor installed through them.
+    api libs.spotter.manager
     api libs.jspecify
 
     // WPILib, and the vendor libraries in vendordeps/ (Commands v3, AdvantageKit, Phoenix, REVLib,
@@ -199,10 +201,37 @@ def modelDir = librarySourceDirs.model
 def localizationDir = librarySourceDirs.localization
 def pitwallDir = librarySourceDirs.pitwall
 
+// For CoprocessorsEndToEndTest: Spotter's agent as a coprocessor runs it (java -jar), and the
+// Visor release this runtime's client belongs to, whose Spotter pack the robot pushes.
+configurations {
+    spotterAgentForTests {
+        canBeConsumed = false
+        transitive = false
+    }
+    visorReleaseForTests {
+        canBeConsumed = false
+        transitive = false
+    }
+}
+dependencies {
+    spotterAgentForTests libs.spotter.agent
+    visorReleaseForTests "com.michaelgrundvig.frc:visor:${libs.versions.visor.get()}:linux-arm64@tar.gz"
+}
+
 tasks.named("test") {
     useJUnitPlatform()
     // A fresh test JVM every 20 test classes (a robot program's tests do the same).
     forkEvery = 20
+    def spotterAgent = configurations.spotterAgentForTests
+    def visorRelease = configurations.visorReleaseForTests
+    inputs.files(spotterAgent).withPropertyName("spotterAgent").withNormalizer(ClasspathNormalizer)
+    inputs.files(visorRelease).withPropertyName("visorRelease").withPathSensitivity(PathSensitivity.NAME_ONLY)
+    jvmArgumentProviders.add({
+        [
+            "-Dfrc.spotterAgent=${spotterAgent.singleFile.absolutePath}".toString(),
+            "-Dfrc.visorRelease=${visorRelease.singleFile.absolutePath}".toString()
+        ]
+    } as CommandLineArgumentProvider)
     // Tests run in the build folder, so what simulated devices and logs write (CTRE's ctre_sim/,
     // for one) stays out of the project. A test finds project files through frc.projectDir.
     def work = layout.buildDirectory.dir("test-work")

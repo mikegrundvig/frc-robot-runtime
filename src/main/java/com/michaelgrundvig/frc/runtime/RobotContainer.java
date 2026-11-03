@@ -24,6 +24,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Bindings;
 import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
 import com.michaelgrundvig.frc.runtime.commands.Calibration;
+import com.michaelgrundvig.frc.runtime.coprocessors.Coprocessors;
 import com.michaelgrundvig.frc.runtime.dashboard.Dashboard;
 import com.michaelgrundvig.frc.runtime.dashboard.RobotStatus;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
@@ -70,6 +71,7 @@ import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.system.Filesystem;
 import org.wpilib.system.RobotController;
 import org.wpilib.tunable.TunableRegistry;
 import org.wpilib.units.measure.Mass;
@@ -165,6 +167,11 @@ public final class RobotContainer implements AutoCloseable {
 
   /** The simulator's world, which knows where the robot really is. Only the simulator has one. */
   private final Optional<SimulatedWorld> world;
+
+  /**
+   * The robot's coprocessors, by their Spotter agents, and Visor on them. Only a robot has them.
+   */
+  private final Coprocessors coprocessors;
 
   // The field and the match.
 
@@ -277,6 +284,7 @@ public final class RobotContainer implements AutoCloseable {
     // What the robot reads and drives.
     world = simulatedWorld(mode, field, robotMass, simulatedErrors);
     hardware = watched.apply(hardware(mode, runsOn, definition, world));
+    coprocessors = coprocessors(mode, robot);
 
     // Localization comes before the drivetrain, which asks it where the robot is.
     localization = new Localization(localizationService(field, robot));
@@ -395,6 +403,25 @@ public final class RobotContainer implements AutoCloseable {
     };
   }
 
+  /**
+   * The robot's coprocessors: on a robot, those its configuration lists, watched through their
+   * Spotter agents, with Visor installed and configured on them from the deploy folder; in the
+   * simulator and a replay, none.
+   */
+  static Coprocessors coprocessors(RunMode mode, RobotConfig robot) {
+    if (mode != RunMode.REAL) {
+      return Coprocessors.none();
+    }
+    return Coprocessors.on(
+        robot.coprocessors(),
+        robot.definition().cameras(),
+        Filesystem.getDeployDirectory().toPath(),
+        RobotController.getTeamNumber(),
+        RobotState::isEnabled,
+        RobotState::isFMSAttached,
+        RobotController::getTime);
+  }
+
   /** Localization with the localizer the robot chose, or the default one. */
   private LocalizationService localizationService(FieldModel field, RobotConfig robot) {
     return new LocalizationService(
@@ -448,6 +475,7 @@ public final class RobotContainer implements AutoCloseable {
    * readings and this loop's pose.
    */
   public void periodic() {
+    coprocessors.periodic();
     boolean enabled = RobotState.isEnabled();
     takeThePitsChoices(enabled);
     Optional<Pose2d> placed = matchField.read(enabled);
@@ -838,6 +866,7 @@ public final class RobotContainer implements AutoCloseable {
     if (world.isPresent()) {
       world.get().close();
     }
+    coprocessors.close();
     hardware.close();
   }
 }

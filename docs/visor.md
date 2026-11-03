@@ -5,23 +5,25 @@ coprocessors: it captures each camera's frames, finds tags with NAPA, solves eac
 candidate poses, and sends every frame to the robot over UDP, stamped with its capture time on the
 robot's clock. It's the other choice to PhotonVision, per camera.
 
-The robot program and Visor deploy together: `./gradlew deploy` puts Visor's program and a
-configuration written from the robot's definition on each coprocessor, beside the robot program on
-the Systemcore. So a coprocessor never runs another version than the robot's client, or cameras the
-robot doesn't have. The robot reads a camera on Visor through `CameraIOVisor`, by its place in the
-robot's list of cameras, and answers Visor's clock sync while any camera is on it.
+The robot program carries Visor with it and puts it on its coprocessors itself. As the robot
+starts, it asks each coprocessor's [Spotter](https://github.com/mikegrundvig/frc-spotter) agent
+what it has, and, while disabled, installs this robot's Visor release on a board that has another,
+and writes each board the configuration for the robot's cameras plugged into it. So a coprocessor
+never runs another version than the robot's client, nor cameras the robot no longer has; a spare
+board swapped in, or a camera moved to the other board, is put right the next time the robot
+starts. The robot reads a camera on Visor through `CameraIOVisor`, by its place in the robot's
+list of cameras, and answers Visor's clock sync while any camera is on it.
 
-**Visor hasn't run on robot hardware yet.** It's built and tested against rendered frames and the
-simulator.
+**Visor hasn't run on robot hardware yet.** It's built and tested against rendered frames, the
+simulator, and Spotter's real agent on a laptop.
 
 ## Putting a camera on Visor
 
-In `Robots.java`, the camera's `.software(...)` says which board it plugs into and which device
-it is there, with its settings and its lens:
+In `Robots.java`, the camera's `.software(...)` says which camera it is, by its device, with its
+settings and its lens:
 
 ```java
 Software.visor()
-    .coprocessor("vision-a")
     .device("/dev/v4l/by-id/usb-Thrifty_ThriftyCam_0001-video-index0")
     .controls(
         List.of(
@@ -40,63 +42,56 @@ Software.visor()
     .build()
 ```
 
-`Software.VISOR` alone is enough for the simulator, which sends each simulated image through Visor's
-frames, its client and `CameraIOVisor`, as a real one arrives; a deploy needs the board and the
-device. [values.md](values.md#cameraconfigsoftwarevisor)
-says what each value is and how to find it.
+The device's `/dev/v4l/by-id/` name is the camera's own (its USB serial), so the robot finds which
+coprocessor it's plugged into from what each board reports, and nothing says which board a camera
+is on. `Software.VISOR` alone is enough for the simulator, which sends each simulated image
+through Visor's frames, its client and `CameraIOVisor`, as a real one arrives.
+[values.md](values.md#cameraconfigsoftwarevisor) says what each value is and how to find it.
 
-In `build.gradle`, the `visor` block says how to reach each board, by the name the cameras give:
+The robot's entry also lists its coprocessors, each by its Spotter agent's address and the packs
+it's to have, `visor` among them:
 
-```groovy
-visor {
-    team = deploy.targets.systemcore.team
-    coprocessors {
-        "vision-a" { address = teamAddress(11) }   // 10.TE.AM.11
-        "vision-b" { address = teamAddress(12) }
-    }
-}
+```java fragment
+.coprocessors(
+    List.of(
+        new BoardDefinition("10.12.34.11", List.of("debian", "visor")),
+        new BoardDefinition("10.12.34.12", List.of("debian", "visor"))))
 ```
 
-A camera on a board the block doesn't name fails the deploy, saying which. With more than one robot
-on Visor, name the one you're deploying to: `./gradlew deploy -Probot=competition`.
+## What the robot does
 
-## What a deploy does
+The build carries the Visor release for the robot's Visor client in the deploy (the `frc.visor`
+plugin, `build.gradle`): `visor/visor-<version>-linux-arm64.tar.gz`, and its Spotter pack in
+`spotter-packs/visor/`. On the robot, Spotter's manager pushes each board its packs, and for each
+board that reports any of the robot's Visor cameras, while the robot is disabled and off the field:
 
-For each board with a camera on it:
+1. If the board's Visor isn't this robot's version, it's sent the release (`visor.install`): the
+   board unpacks it beside the running one, has the new program say its version, and only then
+   moves it into place and restarts Visor. One that won't run there leaves the board as it was.
+2. If the board's configuration isn't the one for its cameras, it's sent it (`visor.configure`):
+   Visor checks it (`visor check`), and only then is it moved into place and Visor restarted. One
+   Visor refuses leaves the board as it was.
 
-1. `visorConfigs` writes its configuration from the robot's definition (`build/visor/configs/`):
-   each camera's index, device, frame size and rate, controls, time offset and lens.
-2. It takes Visor's program for the Visor client this build has, from the FRC libraries'
-   repository (`com.michaelgrundvig.frc:visor`, built for arm64), or `-PvisorProgram=<file>` for one
-   built from Visor's source.
-3. It copies both beside the running ones, as `visor.new` and `visor.toml.new`, and has the new
-   program check the new configuration (`visor check`). Only if it passes do both move into place;
-   the old program is stopped, and systemd starts the new one. A refused configuration fails the
-   deploy with Visor's reason, and the board keeps running what it had.
-
-A board none of the robot's cameras is on gets nothing and isn't contacted. A board that can't be
-reached fails the deploy, as the Systemcore does: a coprocessor left on the last deploy's
-configuration would run cameras the robot no longer has. Frames from a board a deploy missed carry
-another version ID: the robot refuses them, and its camera alert names both versions as they
-arrive.
+Each step is tried once for what's wanted. One that fails is said by an alert, with the board's
+reason, and isn't tried again until what's wanted changes or the program restarts. A camera none of
+the boards has plugged in is said once every board has reported. A board that reboots keeps what
+it has, so it's back on its own in seconds, mid-match included.
 
 ## What the board's image needs
 
-The deploy logs in over SSH and needs nothing else of the board's system:
+The board's image provides, once ([Visor's pack README](https://github.com/mikegrundvig/frc-visor/blob/main/spotter/visor/README.md)):
 
-- a `visor` user in the `video` group, who owns `/opt/visor` (on a read-only root, a kept path),
-  and logs in over SSH with the password the build gives (`-PvisorPassword=...`, or in
-  `~/.gradle/gradle.properties`; none unless given);
-- Visor's systemd unit, enabled: `deploy/visor.service` in Visor's repository, which runs
-  `/opt/visor/visor` and keeps trying until a first deploy puts it there;
+- Spotter's agent, with the team named (`/etc/frc-spotter/agent.json`), so it takes the robot's
+  pushes and actions;
+- a `visor` user in the `video` group, Visor's systemd unit (`deploy/visor.service` in Visor's
+  repository), enabled, and `/opt/visor`, writable by the agent, kept on a read-only root;
+- the polkit rule that lets the agent restart Visor, and only that;
 - chrony, with `deploy/chrony.conf` from Visor's repository, synced to the robot program.
-
-`visor { directory = ...; user = ... }` changes the first two for an image laid out otherwise.
 
 ## Calibrating a camera's lens
 
 Without a lens, Visor sends tags' corners and no poses. Calibrate each camera once, at the frame
 size it runs, with Visor's `tools/calibrate.py` (its README): print the board, record about 40
 frames on the coprocessor with `visor record`, and solve on a laptop. It refuses a session it can't
-trust, and prints the lens to paste into the camera's `.lens(...)`. The build refuses a lens
-calibrated at another frame size than the camera's `Sensor`.
+trust, and prints the lens as `Lens.builder()...build()`, to paste into the camera's
+`.lens(...)`. The build refuses a lens calibrated at another frame size than the camera's `Sensor`.

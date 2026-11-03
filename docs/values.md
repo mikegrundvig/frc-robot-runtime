@@ -173,6 +173,7 @@ wiring](#a-sensors-wiring)): the program reads them from the definition, never w
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `localizer` | chosen | simulation (the estimator study; left out, the default localizer) | What works out where the robot is: left out for the default localizer, `WpilibLocalizer::new` for WPILib's pose estimator, or a maker of your own. [localizers.md](localizers.md) says what each reports and what the robot does without it. The estimator study (`./gradlew estimatorStudy`) compares them in simulation, and a real robot's logs would show the same: how far the pose is from a taped checkpoint, under each. |
+| `coprocessors` | as built | none (no coprocessors) | Each coprocessor by its Spotter agent's address and the packs it's to have from the deploy folder's `spotter-packs/`: `visor` on each that may carry the robot's Visor cameras ([visor.md](visor.md)). The address is the board's, as its image sets it: `10.TE.AM.11` for the first, by the usual convention. |
 
 ### `RobotDefinition`
 
@@ -463,19 +464,17 @@ they aren't said.
 | `yaw` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `noiseScale` | calibrated | guess (every camera typical) | How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
 | `joint` | as built | none | What the camera rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
-| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or Visor, read from Visor's frames over UDP: `VISOR` for the robot program and the simulator, `Software.visor()...build()` with what a deploy needs ([below](#cameraconfigsoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
+| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or Visor, read from Visor's frames over UDP: `VISOR` for the simulator, `Software.visor()...build()` with what the robot configures Visor with ([below](#cameraconfigsoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
 
 ### `CameraConfig.Software.Visor`
 
-What the robot's deploy needs to put Visor on a camera's coprocessor ([visor.md](visor.md)): it
-writes them into Visor's configuration for that board. Per camera, in `Robots`, as
-`.software(Software.visor()...build())`. The robot program and the simulator read none of it, so a
-camera on Visor in the simulator alone can be `Software.VISOR`.
+What the robot configures Visor with for a camera, on whichever coprocessor it's plugged into
+([visor.md](visor.md)). Per camera, in `Robots`, as `.software(Software.visor()...build())`. The
+simulator reads none of it, so a camera on Visor in the simulator alone can be `Software.VISOR`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `coprocessor` | as built | none | The board the camera plugs into, by the name build.gradle's `visor` block gives it, which also says how to reach it. |
-| `device` | as built | none | The camera's `/dev/v4l/by-id/` path on that board (`ls /dev/v4l/by-id/` there, with it plugged in), which finds the same camera after a replug. A camera that shows several, `-video-index0` is the one that captures. |
+| `device` | as built | none | The camera's `/dev/v4l/by-id/` path (`ls /dev/v4l/by-id/` on its coprocessor, with it plugged in): its USB serial is in the name, so it's this camera on whichever board, and after a replug. The board's Visor status in Spotter lists the names it sees. A camera that shows several, `-video-index0` is the one that captures. |
 | `controls` | chosen | none (the camera's own settings) | Camera settings by the names `v4l2-ctl --list-ctrls` prints on the board, set in this order: manual exposure before the exposure. Aim for an exposure near 1 ms (UVC's unit is 100 µs, so `exposure_time_absolute` 10) with the gain raised: blur from the robot turning is the main error, and short exposures cut it. Check against logs: tags found while turning fast. |
 | `timeOffset` | calibrated | none (no offset) | Added to every capture time: the spin test, [camera latency](characterization.md#camera-latency-and-time-sync), on each camera. |
 

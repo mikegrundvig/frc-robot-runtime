@@ -2,7 +2,7 @@
 // AdvantageScope plugin checks its files against what's committed, as part of the build
 // (README.md, docs/simulator.md), through ToolConfigTask (the writer's Java process, and the check)
 // and ToolConfigSync (the check itself, and its sidecar under build/tool-configs/). The Visor plugin
-// writes each coprocessor's configuration as the robot deploys, and deploys it (docs/visor.md).
+// puts Visor's release and its Spotter pack in the robot's deploy (docs/visor.md).
 
 plugins {
     id "java-gradle-plugin"
@@ -29,18 +29,18 @@ gradlePlugin {
             displayName = "AdvantageScope's robot assets, from Robots.java"
             description = "Generates ascope_assets/ from the robot's configuration in every build, and fails on an edit made outside it."
         }
-        visorDeploy {
-            id = "frc.visor-deploy"
-            implementationClass = "com.michaelgrundvig.frc.toolconfigs.VisorDeployPlugin"
-            displayName = "Visor on the robot's coprocessors, deployed with the robot"
-            description = "Writes Visor's configuration for each coprocessor from the robot's definition, and deploys it with Visor's program as part of the robot's deploy."
+        visor {
+            id = "frc.visor"
+            implementationClass = "com.michaelgrundvig.frc.toolconfigs.VisorPlugin"
+            displayName = "Visor, carried in the robot's deploy"
+            description = "Puts the Visor release for the robot's Visor client, and its Spotter pack, in the robot's deploy, for the robot program to install on its coprocessors."
         }
     }
 }
 
-// The Visor plugin configures GradleRIO's deploy (DeployUtils), which the robot's build brings, so it
-// compiles against it and leaves it out. Its tests run it in a build with DeployUtils, against an SSH
-// server of their own (Apache MINA's, which DeployUtils' client comes with).
+// The Visor plugin adds to GradleRIO's deploy (DeployUtils), which the robot's build brings, so it
+// compiles against it and leaves it out. Its tests run it in a build with DeployUtils, deploying to
+// an SSH server of their own (Apache MINA's, which DeployUtils' client comes with).
 configurations {
     deployUtilsForTests
 }
@@ -104,7 +104,7 @@ publishing {
         withType(MavenPublication).configureEach {
             pom {
                 name = "FRC tool-config Gradle plugins"
-                description = "Gradle plugins that generate a tool's files from a robot program's configuration: AdvantageScope's robot assets, checked against what's committed (frc.advantagescope-assets), and Visor's configuration for each coprocessor, deployed with Visor (frc.visor-deploy)."
+                description = "Gradle plugins that generate a tool's files from a robot program's configuration: AdvantageScope's robot assets, checked against what's committed (frc.advantagescope-assets), and Visor's release and Spotter pack in the robot's deploy (frc.visor)."
                 url = "https://github.com/mikegrundvig/frc-robot-runtime"
                 licenses {
                     license {
