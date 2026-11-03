@@ -9,8 +9,8 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
-import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -51,7 +51,7 @@ class VisorPathSimTest {
       int camera, long sinceSetOffNanos, boolean multiTag, List<CameraIO.SeenTag> tags) {}
 
   /** Drives a world of the given software, and every image its cameras read after setting off. */
-  private static List<Read> drive(VisionSim.Software software) {
+  private static List<Read> drive(CameraConfig.Software software) {
     List<Read> images = new ArrayList<>();
     try (SimulatedWorld world =
         new SimulatedWorld(
@@ -91,8 +91,8 @@ class VisorPathSimTest {
 
   @Test
   void visorsPathLosesNothingOfWhatTheCamerasSaw() {
-    List<Read> photonVision = drive(VisionSim.Software.PHOTONVISION);
-    List<Read> visor = drive(VisionSim.Software.VISOR);
+    List<Read> photonVision = drive(CameraConfig.Software.PHOTONVISION);
+    List<Read> visor = drive(CameraConfig.Software.VISOR);
 
     assertThat(visor).as("images").hasSameSizeAs(photonVision).hasSizeGreaterThan(50);
     int tags = 0;
@@ -140,7 +140,7 @@ class VisorPathSimTest {
   @Test
   void eachImageThroughVisorShowsTheRobotWhereItWasAtItsStamp() {
     List<Double> behind = new ArrayList<>();
-    for (Read image : drive(VisionSim.Software.VISOR)) {
+    for (Read image : drive(CameraConfig.Software.VISOR)) {
       Transform3d mount =
           ExampleRobot.SIM.definition().cameras().get(image.camera()).robotToCamera();
       Pose2d truth = carried(image.sinceSetOffNanos());

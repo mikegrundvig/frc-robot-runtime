@@ -19,6 +19,10 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOCandi;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOVisor;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
+import com.michaelgrundvig.frc.visor.NtpResponder;
+import com.michaelgrundvig.frc.visor.VisorReceiver;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.CanDevice;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
@@ -33,6 +37,8 @@ import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import org.jspecify.annotations.Nullable;
+import org.wpilib.system.RobotController;
 import org.wpilib.util.Alert;
 
 /**
@@ -46,6 +52,11 @@ import org.wpilib.util.Alert;
  * gets nothing, as an unwired part does, and an alert names it: it isn't there to open.
  */
 public final class RobotHardware implements Hardware {
+  /** Visor's frames and clock, for cameras on Visor; null until one is made. */
+  private @Nullable VisorFeed visorFeed;
+
+  private @Nullable NtpResponder visorClock;
+
   private final RobotDefinition definition;
   private final RobotMath math;
 
@@ -284,14 +295,37 @@ public final class RobotHardware implements Hardware {
     return new PdhIORev(definition.pdh().get());
   }
 
-  /** Each camera's PhotonVision, by its name. */
+  /**
+   * Each camera as its definition says it's read: through PhotonVision, by its name, or through
+   * Visor, by its place in the list. With any camera on Visor, the robot also listens for Visor's
+   * frames and answers its coprocessors' clock sync ({@link NtpResponder}), once for all of them.
+   */
   @Override
   public List<CameraIO> cameras() {
     List<CameraIO> cameras = new ArrayList<>();
-    for (CameraConfig camera : definition.cameras()) {
-      cameras.add(new CameraIOPhotonVision(camera.name()));
+    List<CameraConfig> configured = definition.cameras();
+    for (int index = 0; index < configured.size(); index++) {
+      CameraConfig camera = configured.get(index);
+      if (camera.software() == CameraConfig.Software.VISOR) {
+        cameras.add(new CameraIOVisor(visor(), index));
+      } else {
+        cameras.add(new CameraIOPhotonVision(camera.name()));
+      }
     }
     return List.copyOf(cameras);
+  }
+
+  /**
+   * Visor's frames, and the clock its coprocessors sync to, started when a camera first needs them.
+   */
+  private VisorFeed visor() {
+    VisorFeed feed = visorFeed;
+    if (feed == null) {
+      feed = VisorFeed.listen(VisorReceiver.DEFAULT_PORT);
+      visorFeed = feed;
+      visorClock = NtpResponder.start(NtpResponder.DEFAULT_PORT, RobotController::getTime);
+    }
+    return feed;
   }
 
   @Override
@@ -301,5 +335,11 @@ public final class RobotHardware implements Hardware {
     sensorsUnwired.close();
     outOfReachAlert.close();
     phoenix.ifPresent(PhoenixDrivetrain::close);
+    if (visorFeed != null) {
+      visorFeed.close();
+    }
+    if (visorClock != null) {
+      visorClock.close();
+    }
   }
 }

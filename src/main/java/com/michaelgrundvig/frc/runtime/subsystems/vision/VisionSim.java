@@ -44,8 +44,11 @@ import org.wpilib.vision.stream.CameraServer;
  * robot code through the same {@link CameraIOPhotonVision} a real camera uses, each image stamped
  * with when it was taken ({@link #update}).
  *
- * <p>The images reach the robot as one of two vision programs would send them ({@link Software}):
- * PhotonVision's, or Visor's, whose frames go through Visor's own client and {@link CameraIOVisor}.
+ * <p>Each camera's images reach the robot as its vision program would send them ({@link
+ * CameraConfig.Software}): PhotonVision's results, or Visor's frames, through Visor's own client
+ * and {@link CameraIOVisor}. On Visor's path the tags' corners and poses are PhotonVision's
+ * simulation's, which Visor's solve matches (Visor's own tests check it against the same
+ * simulation), and there is no multi-tag solution, as Visor makes none.
  *
  * <p>While the simulation runs, a camera can be knocked on its mount ({@link #mount}), made later
  * than its configuration says ({@link #addLatency}), or have its clock set off the robot's ({@link
@@ -84,19 +87,6 @@ public final class VisionSim implements AutoCloseable {
     public static final Noise NONE = new Noise(0, 0, 0);
   }
 
-  /** Which vision program the simulated cameras' images reach the robot code through. */
-  public enum Software {
-    /** PhotonVision: its results, over NetworkTables, through {@link CameraIOPhotonVision}. */
-    PHOTONVISION,
-    /**
-     * Visor: each image as Visor's frame, through its client and {@link CameraIOVisor}. The tags'
-     * corners and poses are PhotonVision's simulation's, which Visor's solve matches (Visor's own
-     * tests check it against the same simulation). Visor solves no tags together, so there is no
-     * multi-tag solution.
-     */
-    VISOR
-  }
-
   /** How far back the robot's true poses are kept, for the images taken that long ago. */
   private static final double HISTORY_SECONDS = 1.5;
 
@@ -108,11 +98,13 @@ public final class VisionSim implements AutoCloseable {
   private final IntToLongFunction cameraSeeds;
   private final Noise noise;
   private final List<PhotonCameraSim> cameras = new ArrayList<>();
-  private final Software software;
+
+  /** Every camera's vision program, for a test; null for each camera's own configuration's. */
+  private final CameraConfig.@Nullable Software everyCamera;
 
   /**
-   * On Visor's path, which tags its detector finds, by their size in the image; null for
-   * PhotonVision's simulation's own limits (its sight range and smallest area).
+   * For cameras on Visor's path, which tags its detector finds, by their size in the image; null
+   * for PhotonVision's simulation's own limits (its sight range and smallest area).
    */
   private final @Nullable DetectionModel detection;
 
@@ -195,6 +187,7 @@ public final class VisionSim implements AutoCloseable {
    *
    * @param simulated PhotonVision's simulation of it
    * @param index its place among the cameras: on Visor's path, the index its frames carry
+   * @param onVisor whether its images reach the robot as Visor's frames
    * @param widthPixels its images' width
    * @param heightPixels and height
    * @param configured where its configuration mounts it on the robot
@@ -205,6 +198,7 @@ public final class VisionSim implements AutoCloseable {
   private record Added(
       PhotonCameraSim simulated,
       int index,
+      boolean onVisor,
       int widthPixels,
       int heightPixels,
       Transform3d configured,
@@ -271,38 +265,37 @@ public final class VisionSim implements AutoCloseable {
       Map<Integer, Translation3d> tagErrors,
       IntToLongFunction cameraSeeds,
       Noise noise) {
-    this(field, tagErrors, cameraSeeds, noise, Software.PHOTONVISION);
-  }
-
-  /** As above, the images reaching the robot code through {@code software}. */
-  public VisionSim(
-      FieldModel field,
-      Map<Integer, Translation3d> tagErrors,
-      IntToLongFunction cameraSeeds,
-      Noise noise,
-      Software software) {
-    this(field, tagErrors, cameraSeeds, noise, software, null);
+    this(field, tagErrors, cameraSeeds, noise, null);
   }
 
   /**
-   * As above, with {@code detection} deciding which tags Visor's detector finds, in place of
-   * PhotonVision's simulation's sight range and smallest area. For comparing detectors on the same
-   * path; Visor's only, since PhotonVision's multi-tag solve would still see every tag.
-   *
-   * @throws IllegalArgumentException for a detection model on PhotonVision's path
+   * As above, every camera's images reaching the robot code through {@code everyCamera}'s path,
+   * whatever its configuration says: for a test comparing the two. Null for each camera's own.
    */
   public VisionSim(
       FieldModel field,
       Map<Integer, Translation3d> tagErrors,
       IntToLongFunction cameraSeeds,
       Noise noise,
-      Software software,
+      CameraConfig.@Nullable Software everyCamera) {
+    this(field, tagErrors, cameraSeeds, noise, everyCamera, null);
+  }
+
+  /**
+   * As above, with {@code detection} deciding which tags the cameras on Visor's path find, in place
+   * of PhotonVision's simulation's sight range and smallest area: for comparing detectors on the
+   * same path. Cameras on PhotonVision's path keep its own limits, since its multi-tag solve would
+   * still see every tag.
+   */
+  public VisionSim(
+      FieldModel field,
+      Map<Integer, Translation3d> tagErrors,
+      IntToLongFunction cameraSeeds,
+      Noise noise,
+      CameraConfig.@Nullable Software everyCamera,
       @Nullable DetectionModel detection) {
-    if (detection != null && software != Software.VISOR) {
-      throw new IllegalArgumentException("a detection model is for Visor's path");
-    }
     this.detection = detection;
-    this.software = software;
+    this.everyCamera = everyCamera;
     this.noise = noise;
     this.cameraSeeds = cameraSeeds;
     this.field = field;
@@ -397,9 +390,11 @@ public final class VisionSim implements AutoCloseable {
    */
   public CameraIO camera(CameraConfig config, Transform3d mountError) {
     int index = cameras.size();
+    CameraConfig.Software software = everyCamera != null ? everyCamera : config.software();
+    boolean onVisor = software == CameraConfig.Software.VISOR;
     CameraIO io;
     PhotonCamera drawnOn;
-    if (software == Software.VISOR) {
+    if (onVisor) {
       drawnOn = new PhotonCamera(config.name());
       visorPathCameras.add(drawnOn);
       io = new CameraIOVisor(visor, index);
@@ -415,7 +410,7 @@ public final class VisionSim implements AutoCloseable {
     // Tags farther than the camera's sight range are not detected. They are small in the image,
     // and noisy.
     simulated.setMaxSightRange(config.sensor().sightRange().in(Meters));
-    if (detection != null) {
+    if (detection != null && onVisor) {
       // The detection model decides instead: every tag in view reaches it, however small.
       simulated.setMaxSightRange(Double.MAX_VALUE);
       simulated.setMinTargetAreaPixels(1);
@@ -435,6 +430,7 @@ public final class VisionSim implements AutoCloseable {
         new Added(
             simulated,
             index,
+            onVisor,
             config.sensor().widthPixels(),
             config.sensor().heightPixels(),
             configured,
@@ -461,6 +457,7 @@ public final class VisionSim implements AutoCloseable {
         new Added(
             added.simulated(),
             added.index(),
+            added.onVisor(),
             added.widthPixels(),
             added.heightPixels(),
             added.configured(),
@@ -611,7 +608,7 @@ public final class VisionSim implements AutoCloseable {
     // A camera whose clock is off the robot's stamps its image as its own clock had it.
     image.metadata.captureTimestampNanos = takenNanos + clockOffsets.getOrDefault(name, 0L);
     image.metadata.publishTimestampNanos = arrivedNanos;
-    if (software == Software.VISOR) {
+    if (added.onVisor()) {
       visor.offer(visorFrame(added, image));
     } else {
       camera.submitProcessedFrame(image, arrivedNanos);

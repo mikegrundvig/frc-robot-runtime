@@ -68,24 +68,25 @@ public final class SimulatedWorld implements AutoCloseable {
    */
   public SimulatedWorld(
       FieldModel field, RobotDefinition definition, Mass robotMass, SensorErrors errors) {
-    this(field, definition, robotMass, errors, VisionSim.Software.PHOTONVISION);
+    this(field, definition, robotMass, errors, null);
   }
 
   /**
-   * As above, the cameras' images reaching the robot code through {@code software}: PhotonVision's
-   * path, or Visor's ({@link VisionSim.Software}).
+   * As above, every camera's images reaching the robot code through {@code everyCamera}'s path,
+   * whatever its configuration says: for a test comparing PhotonVision's and Visor's. Null for each
+   * camera's own.
    */
   public SimulatedWorld(
       FieldModel field,
       RobotDefinition definition,
       Mass robotMass,
       SensorErrors errors,
-      VisionSim.Software software) {
-    this(field, definition, robotMass, errors, software, null);
+      CameraConfig.@Nullable Software everyCamera) {
+    this(field, definition, robotMass, errors, everyCamera, null);
   }
 
   /**
-   * As above, with {@code detection} deciding which tags Visor's detector finds ({@link
+   * As above, with {@code detection} deciding which tags the cameras on Visor's path find ({@link
    * VisionSim}'s), for comparing detectors on the same path; null for PhotonVision's simulation's
    * own limits.
    */
@@ -94,7 +95,7 @@ public final class SimulatedWorld implements AutoCloseable {
       RobotDefinition definition,
       Mass robotMass,
       SensorErrors errors,
-      VisionSim.Software software,
+      CameraConfig.@Nullable Software everyCamera,
       @Nullable DetectionModel detection) {
     this.field = field;
     Imus imus = definition.imus();
@@ -121,7 +122,7 @@ public final class SimulatedWorld implements AutoCloseable {
             errors.tagErrors(),
             camera -> Seeds.camera(errors.seed(), camera),
             noise,
-            software,
+            everyCamera,
             detection);
     this.cameras = new CameraIOSim[cameras.size()];
     camerasOnJoints = cameras.stream().filter(camera -> camera.joint().isPresent()).toList();

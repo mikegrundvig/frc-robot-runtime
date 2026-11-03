@@ -25,7 +25,10 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOCandi;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOVisor;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Gearing;
@@ -246,6 +249,31 @@ class HardwareTest {
       assertThat(hardware.sensor(hopper)).isInstanceOf(SensorIOCanRange.class);
       assertThat(activeAlerts())
           .noneMatch(text -> text.startsWith("Not on this laptop's CANivore"));
+    }
+  }
+
+  /**
+   * A camera whose definition says Visor is read through Visor, by its place in the list; the rest
+   * through PhotonVision. Closing the hardware closes Visor's port and its clock responder.
+   */
+  @Test
+  void aCameraOnVisorIsReadThroughVisor() {
+    List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
+    cameras.set(
+        0,
+        CameraConfigBuilder.builder(cameras.get(0)).software(CameraConfig.Software.VISOR).build());
+    RobotDefinition onVisor =
+        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
+            .name("on Visor")
+            .cameras(cameras)
+            .build();
+    try (Hardware hardware =
+        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, onVisor, Optional.empty())) {
+      List<CameraIO> made = hardware.cameras();
+      assertThat(made.get(0)).isInstanceOf(CameraIOVisor.class);
+      assertThat(made.subList(1, made.size()))
+          .allMatch(camera -> camera instanceof CameraIOPhotonVision);
+      made.forEach(CameraIO::close);
     }
   }
 

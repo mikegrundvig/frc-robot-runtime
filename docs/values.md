@@ -463,6 +463,7 @@ they aren't said.
 | `yaw` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `noiseScale` | calibrated | guess (every camera typical) | How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
 | `joint` | as built | none | What the camera rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
+| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or `VISOR`, read from Visor's frames over UDP. A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
 
 ### `CameraConfig.MountTolerance`
 
