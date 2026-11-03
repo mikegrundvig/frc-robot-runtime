@@ -175,20 +175,11 @@ with a standard deviation of 20/√12 = 5.8 ms. So from the loaded run:
 With `latency` measured, set `VisionConfig.latencyMarginSeconds` a little above the latencies'
 spread: images later than both are left out.
 
-**Steps, turning (the capture time):**
-
-1. On the practice field, where a camera sees two or more tags 2 to 3 m away, spin the robot in
-   place at a steady 1 rad/s one way for 10 s, then the other way for 10 s. Log it.
-2. For each image with a multi-tag solution, the camera's heading on the field comes from the
-   solution (`multiTagFieldToCamera`'s yaw, from its quaternion as above). The gyro's heading at the image's capture time comes from
-   its 250 Hz readings (`Drive/Gyro/OdometryYawsRad`, at `OdometryTimestampsNanos`): interpolate
-   between the two readings either side.
-3. Each image's difference: the camera's heading, less the gyro's, less the camera's mounted yaw.
-
-**Working out the number:** a capture time off by `t` makes a robot turning at `w` rad/s read
-`w × t` off, one way spinning left and the other way spinning right; a constant difference (the
-gyro's offset, the mount) is the same both ways. So the capture time's error is
-`(average difference spinning left - average difference spinning right) / (2 × w)`, in seconds.
+**Turning (the capture time):** the calibration procedure measures it, camera by camera, from
+spins both ways in view of tags ([a camera's capture time](calibration.md#a-cameras-capture-time)):
+run it on the practice field, where the cameras see tags 2 to 3 m away. It works from each tag by
+itself, so it times a camera on Visor, which makes no multi-tag solution, as well as one on
+PhotonVision.
 
 **What good looks like:** latency steady within a few milliseconds, with no long tail; a result
 100 ms late or more means a busy coprocessor or network. The capture time's error under about

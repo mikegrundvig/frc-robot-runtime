@@ -476,7 +476,7 @@ simulator reads none of it, so a camera on Visor in the simulator alone can be `
 |---|---|---|---|
 | `device` | as built | none | The camera's `/dev/v4l/by-id/` path (`ls /dev/v4l/by-id/` on its coprocessor, with it plugged in): its USB serial is in the name, so it's this camera on whichever board, and after a replug. The board's Visor status in Spotter lists the names it sees. A camera that shows several, `-video-index0` is the one that captures. |
 | `controls` | chosen | none (the camera's own settings) | Camera settings by the names `v4l2-ctl --list-ctrls` prints on the board, set in this order: manual exposure before the exposure. Aim for an exposure near 1 ms (UVC's unit is 100 µs, so `exposure_time_absolute` 10) with the gain raised: blur from the robot turning is the main error, and short exposures cut it. Check against logs: tags found while turning fast. |
-| `timeOffset` | calibrated | none (no offset) | Added to every capture time: the spin test, [camera latency](characterization.md#camera-latency-and-time-sync), on each camera. |
+| `timeOffset` | calibrated | none (no offset) | Added to every capture time: [a camera's capture time](calibration.md#a-cameras-capture-time), the spin test, prints it to paste, on each camera. |
 
 ### `CameraConfig.Software.Lens`
 

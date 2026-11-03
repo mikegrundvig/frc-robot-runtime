@@ -14,6 +14,7 @@ Run them in this order, since each leans on the ones before it:
 3. **The gyro's scale**, so every turn is measured right.
 4. **The wheel radius**, measured against the gyro.
 5. **Camera mounts**, measured while the other cameras place the robot.
+6. **Cameras' capture times**, by spinning both ways in view of tags, once the mounts are right.
 
 Run every procedure in utility mode, enabled, with the robot on the floor. The page refuses to run
 them on the field.
@@ -235,6 +236,35 @@ several cameras out of calibration at once more likely means that than several k
 knocked camera also pulls the pose a little, so a camera beside it can read a few centimeters off
 too: recalibrate the one farthest off first, and the other comes back with it.
 
+## A camera's capture time
+
+*Calibrate the cameras' capture times (spins both ways, about 17 s, where cameras see tags).*
+
+Park the robot where its cameras see tags 2 to 3 m away, and clear a circle around it. It spins in
+place at 1.5 rad/s for 8 s one way, stops, and spins 8 s the other way. Every tag each camera sees
+says the robot's heading by itself, and the robot knows its own heading at each image's stamp. A
+stamp late by `t` reads `1.5 × t` behind the turn spinning left and ahead of it spinning right,
+while a mount or solve error reads the same both ways. So the two spins tell the stamps' error apart
+from everything else, to within a millisecond from a few hundred tags.
+
+Each camera's result is how late its images are stamped:
+
+- **On Visor**, it's the camera's time offset: `.timeOffset(Milliseconds.of(-23.8))` in its
+  `Software.visor()`. The offset already configured is counted in, so replace the old value. Run it
+  again after: the camera should read within a millisecond or two.
+- **On PhotonVision**, its time sync sets the stamps, and nothing is configured: 5 ms or more is
+  worth finding why, and a loop (20 ms) or more means the time sync isn't working (the
+  coprocessor's PhotonVision not the one the robot's PhotonLib expects, say).
+
+A camera that saw too few tags either way says so: face where it sees more. A camera on a joint
+isn't timed here, since its mount moves.
+
+Why it matters: the estimator applies each image at its stamp, and while the robot turns, a stamp
+`t` off puts every tag `turn rate × t` off. 10 ms at 3 rad/s is 1.7°, 9 cm at 3 m.
+
+When: once for each camera, after its mount, and again after a coprocessor's image or a camera's
+settings change (exposure changes when an image is taken within its frame).
+
 ## The robot's mass, center of gravity, and inertia
 
 *By hand, with nothing to run.*
@@ -310,7 +340,9 @@ field's bumps and ramps are known.
 
 ## Done elsewhere
 
-- **Camera lenses** (intrinsics): in PhotonVision, with a ChArUco board, at the resolution the
-  robot runs. PhotonVision keeps the result; export it with the robot's settings.
+- **Camera lenses** (intrinsics): with a ChArUco board, at the resolution the robot runs. On
+  PhotonVision, in PhotonVision, which keeps the result; on Visor, with Visor's
+  `tools/calibrate.py`, which prints the lens to paste into the camera's `.lens(...)`
+  ([visor.md](visor.md#calibrating-a-cameras-lens)).
 - **The field** (tag positions at an event): WPILib's WPIcal, from photos of the field. The result
   is a field layout for that event.

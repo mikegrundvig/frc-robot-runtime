@@ -5,6 +5,7 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
+import com.michaelgrundvig.frc.localization.calibration.CaptureTimeCalibration;
 import com.michaelgrundvig.frc.localization.calibration.GyroScaleCalibration;
 import com.michaelgrundvig.frc.localization.calibration.HeadingAverage;
 import com.michaelgrundvig.frc.localization.calibration.LevelCheck;
@@ -18,8 +19,11 @@ import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.littletonrobotics.junction.Logger;
@@ -82,6 +86,21 @@ public final class Calibration {
 
   /** The fewest heading measurements that make a reference. */
   private static final int MIN_HEADINGS = 5;
+
+  // The cameras' capture times: the robot spins in place one way, then the other, while each
+  // camera's tags are compared with the robot's heading at their stamps.
+
+  /** How fast the robot spins for the capture times: a stamp 20 ms late reads 1.7° off. */
+  private static final double CAPTURE_SPIN_RADIANS_PER_SECOND = 1.5;
+
+  /** How long it spins each way: about two turns, so every camera passes its tags each way. */
+  private static final double CAPTURE_SPIN_SECONDS = 8;
+
+  /** Capture times this far off are worth finding the cause of. */
+  private static final double CAPTURE_WORTH_A_LOOK_SECONDS = 0.005;
+
+  /** And this far, a loop or more, means the time sync isn't working. */
+  private static final double CAPTURE_BROKEN_SECONDS = 0.020;
 
   // The level check.
 
@@ -164,6 +183,12 @@ public final class Calibration {
                 "Calibrate the wheel radius (%.0f slow turns in place, about %.0f s)",
                 WHEEL_SPIN_TURNS, wheelSpinSecondsSaid),
             Actions.command(() -> scheduler, this::wheelRadius))
+        .add(
+            format(
+                "Calibrate the cameras' capture times (spins both ways, about %.0f s, where cameras"
+                    + " see tags)",
+                2 * CAPTURE_SPIN_SECONDS + 2 * SETTLE_SECONDS),
+            Actions.command(() -> scheduler, this::captureTimes))
         .add(
             format("Check the IMU reads level (%.0f s, on a level floor)", LEVEL_SECONDS),
             Actions.command(() -> scheduler, this::level));
@@ -337,6 +362,88 @@ public final class Calibration {
         "Gyro scale: the cameras measured the heading %d times standing still; it needs %d. Face"
             + " where they see two or more tags.",
         headings.count(), MIN_HEADINGS);
+  }
+
+  // ---- The cameras' capture times ----
+
+  /**
+   * Measures how late each camera's capture times are, the spin test: the robot spins in place one
+   * way, then the other, where its cameras see tags, and each tag's heading is compared with the
+   * robot's heading at the image's stamp. A late stamp reads behind the turn one way and ahead of
+   * it the other, while a mount or solve error reads the same both ways, so the two spins tell them
+   * apart. For a camera on Visor, the result is its {@code timeOffset}.
+   */
+  public Command captureTimes() {
+    return drive
+        .run(this::measureCaptureTimes)
+        .whenCanceled(
+            () -> {
+              vision.stopCollectingCaptureTimes();
+              report("Capture times: canceled before it finished");
+            })
+        .named("Calibrate capture times");
+  }
+
+  private void measureCaptureTimes(Coroutine coroutine) {
+    Map<String, CaptureTimeCalibration> spins = new LinkedHashMap<>();
+    for (CameraConfig camera : cameras) {
+      // A camera on a joint moves with it, so a spin in place doesn't time it.
+      if (camera.joint().isEmpty()) {
+        spins.put(camera.name(), new CaptureTimeCalibration());
+      }
+    }
+    vision.collectCaptureTimes(spins);
+    spinFor(coroutine, CAPTURE_SPIN_RADIANS_PER_SECOND, CAPTURE_SPIN_SECONDS);
+    stop(coroutine);
+    coroutine.wait(Seconds.of(SETTLE_SECONDS));
+    spinFor(coroutine, -CAPTURE_SPIN_RADIANS_PER_SECOND, CAPTURE_SPIN_SECONDS);
+    stop(coroutine);
+    coroutine.wait(Seconds.of(SETTLE_SECONDS));
+    vision.stopCollectingCaptureTimes();
+    List<String> said = new ArrayList<>();
+    for (CameraConfig camera : cameras) {
+      CaptureTimeCalibration spin = spins.get(camera.name());
+      if (spin != null) {
+        said.add(captureTimeResult(camera, spin));
+      }
+    }
+    report(said.isEmpty() ? "Capture times: no camera on the chassis" : String.join(" ", said));
+  }
+
+  private String captureTimeResult(CameraConfig camera, CaptureTimeCalibration spin) {
+    Optional<CaptureTimeCalibration.Result> solved = spin.solve();
+    if (solved.isEmpty()) {
+      return format(
+          "%s: too few sightings to say (%d spinning left, %d right; it needs %d each way): face"
+              + " where it sees tags.",
+          camera.name(), spin.left(), spin.right(), CaptureTimeCalibration.MIN_EACH_WAY);
+    }
+    double late = solved.get().lateSeconds();
+    String measured =
+        format(
+            "%s: images stamped %.1f ms %s (±%.1f ms, %d sightings).",
+            camera.name(),
+            Math.abs(late) * 1000,
+            late >= 0 ? "late" : "early",
+            solved.get().stdDevSeconds() * 1000,
+            solved.get().sightings());
+    if (camera.software() instanceof CameraConfig.Software.Visor visor) {
+      // The offset already configured is in the stamps measured: the new one corrects what's left.
+      double configured = visor.timeOffset().map(offset -> offset.in(Seconds)).orElse(0.0);
+      return format(
+          "%s In Robots, the %s camera's Software.visor(): .timeOffset(Milliseconds.of(%.1f))"
+              + " // measured %s",
+          measured, camera.name(), (configured - late) * 1000, today.get());
+    }
+    if (Math.abs(late) >= CAPTURE_BROKEN_SECONDS) {
+      return measured
+          + " A loop or more: PhotonVision's time sync isn't working. Check the coprocessor runs"
+          + " the PhotonVision the robot's PhotonLib expects.";
+    }
+    if (Math.abs(late) >= CAPTURE_WORTH_A_LOOK_SECONDS) {
+      return measured + " Worth finding why: PhotonVision's time sync should do better.";
+    }
+    return measured;
   }
 
   // ---- The level check ----

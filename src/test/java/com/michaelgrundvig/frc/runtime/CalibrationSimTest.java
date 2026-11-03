@@ -3,10 +3,14 @@ package com.michaelgrundvig.frc.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
@@ -92,6 +96,81 @@ class CalibrationSimTest {
           .as(alert.text)
           .isFalse();
     }
+  }
+
+  /** A camera's clock off the robot's by this, as a coprocessor whose time sync failed. */
+  private void offsetClock(String camera, double millis) {
+    assertThat(
+            sim.components()
+                .apply(
+                    Setting.of(
+                        FaultCatalog.camera(camera),
+                        FaultCatalog.CLOCK_OFFSET,
+                        Map.of(FaultCatalog.OFFSET, millis))))
+        .isNull();
+  }
+
+  /**
+   * The milliseconds a camera's sentence in a capture-times report says, signed: late is positive.
+   */
+  private static double lateMillis(String report, String camera) {
+    Matcher said =
+        Pattern.compile(Pattern.quote(camera) + ": images stamped (\\d+\\.\\d) ms (late|early)")
+            .matcher(report);
+    assertThat(said.find()).as("%s in: %s", camera, report).isTrue();
+    double millis = Double.parseDouble(said.group(1));
+    return said.group(2).equals("late") ? millis : -millis;
+  }
+
+  /**
+   * The front-left camera's clock 25 ms ahead of the robot's: spinning both ways where the cameras
+   * see tags, its stamps are found 25 ms late, and the others' on time.
+   */
+  @Test
+  void aCameraStampingLateIsFoundBySpinningBothWays() {
+    build(SensorErrors.NONE, true);
+    sim.run(1.0);
+    offsetClock("front-left", 25);
+
+    String report = run(sim.robot().calibration().captureTimes(), 40);
+    System.out.println(report);
+
+    assertThat(lateMillis(report, "front-left")).isCloseTo(25, within(3.0));
+    for (CameraConfig camera : ExampleRobot.SIM.definition().cameras()) {
+      if (!camera.name().equals("front-left") && report.contains(camera.name() + ": images")) {
+        assertThat(lateMillis(report, camera.name())).as(camera.name()).isCloseTo(0, within(3.0));
+      }
+    }
+    assertThat(report).contains("front-left").contains("PhotonVision's time sync isn't working");
+  }
+
+  /**
+   * The same on Visor: the camera's sentence ends with its time offset to paste, which corrects the
+   * stamps by what was found.
+   */
+  @Test
+  void aCameraOnVisorGetsItsTimeOffset() {
+    CameraConfig frontLeft =
+        ExampleRobot.SIM.definition().cameras().stream()
+            .filter(camera -> camera.name().equals("front-left"))
+            .findFirst()
+            .orElseThrow();
+    sim.build(
+        ExampleRobot.SIM.with(
+            CameraConfigBuilder.builder(frontLeft).software(CameraConfig.Software.VISOR).build()),
+        SensorErrors.NONE);
+    sim.run(1.0);
+    offsetClock("front-left", 25);
+
+    String report = run(sim.robot().calibration().captureTimes(), 40);
+    System.out.println(report);
+
+    Matcher offset =
+        Pattern.compile(
+                "front-left camera's Software\\.visor\\(\\): \\.timeOffset\\(Milliseconds\\.of\\((-?\\d+\\.\\d)\\)\\)")
+            .matcher(report);
+    assertThat(offset.find()).as(report).isTrue();
+    assertThat(Double.parseDouble(offset.group(1))).isCloseTo(-25, within(3.0));
   }
 
   @Test

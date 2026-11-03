@@ -18,6 +18,7 @@ import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.localization.VisionPipeline;
 import com.michaelgrundvig.frc.localization.VisionResult;
 import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
+import com.michaelgrundvig.frc.localization.calibration.CaptureTimeCalibration;
 import com.michaelgrundvig.frc.localization.calibration.HeadingAverage;
 import com.michaelgrundvig.frc.pitwall.Limits;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
@@ -29,6 +30,7 @@ import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalLong;
@@ -38,7 +40,9 @@ import org.littletonrobotics.junction.Logger;
 import org.wpilib.command3.Command;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
+import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
+import org.wpilib.math.util.MathUtil;
 import org.wpilib.tunable.TunableBase;
 import org.wpilib.tunable.TunableDouble;
 import org.wpilib.tunable.TunableRegistry;
@@ -137,6 +141,9 @@ public final class Vision implements AutoCloseable {
 
   /** Where the headings the cameras measure go, while a calibration collects them. */
   private Optional<HeadingAverage> headings = Optional.empty();
+
+  /** Where each camera's tag sightings go, by its name, while the spin test collects them. */
+  private Map<String, CaptureTimeCalibration> captureTimes = Map.of();
 
   /** The camera whose mount is being calibrated, and where its sightings go, while one is. */
   private Optional<MountCalibration> mountCalibration = Optional.empty();
@@ -244,6 +251,18 @@ public final class Vision implements AutoCloseable {
   }
 
   /**
+   * From now on, each camera named here gives every tag it sees to its spin test, with the robot's
+   * heading at the image's stamp and how fast it was turning then, until stopped.
+   */
+  public void collectCaptureTimes(Map<String, CaptureTimeCalibration> into) {
+    captureTimes = Map.copyOf(into);
+  }
+
+  public void stopCollectingCaptureTimes() {
+    captureTimes = Map.of();
+  }
+
+  /**
    * From now on, a camera's tag sightings go into this calibration of its mount, until stopped.
    * They are taken while the robot stands still and the other cameras hold its pose within 5 cm.
    * The camera's own measurements stay out of the estimator meanwhile, so that the pose it is
@@ -257,9 +276,12 @@ public final class Vision implements AutoCloseable {
     mountCalibration = Optional.empty();
   }
 
-  /** Whether a calibration is collecting from the cameras: headings, or one camera's mount. */
+  /**
+   * Whether a calibration is collecting from the cameras: headings, one camera's mount, or the
+   * capture times.
+   */
   public boolean isCalibrating() {
-    return mountCalibration.isPresent() || headings.isPresent();
+    return mountCalibration.isPresent() || headings.isPresent() || !captureTimes.isEmpty();
   }
 
   private boolean isBeingCalibrated(Camera camera) {
@@ -593,6 +615,7 @@ public final class Vision implements AutoCloseable {
     }
     Optional<Pose2d> poseThen = localization.poseAt(takenNanos);
     CaptureContext capture = localization.capture(takenNanos);
+    collectItsCaptureTime(camera, detections, poseThen);
     Optional<VisionMeasurement> measurement =
         handToLocalization(camera, detections, tagsOnTheField);
     collectItsHeading(measurement);
@@ -631,6 +654,43 @@ public final class Vision implements AutoCloseable {
       camera.outcome(result.outcome());
     }
     return measurement;
+  }
+
+  /** How far back the turn rate at an image's stamp is measured over, in nanoseconds. */
+  private static final long RATE_SPAN_NANOS = 20_000_000L;
+
+  /**
+   * Gives each tag an image saw to its camera's spin test, if one is collecting: with the robot's
+   * heading at the image's stamp, and how fast it was turning over the 20 ms before, both from the
+   * robot's history. A camera on a joint isn't timed here: its mount moves.
+   */
+  private void collectItsCaptureTime(
+      Camera camera, TagDetections detections, Optional<Pose2d> poseThen) {
+    CaptureTimeCalibration into = captureTimes.get(camera.name());
+    if (into == null || poseThen.isEmpty() || camera.config.joint().isPresent()) {
+      return;
+    }
+    Optional<Pose2d> before = localization.poseAt(detections.timestampNanos() - RATE_SPAN_NANOS);
+    if (before.isEmpty()) {
+      return;
+    }
+    Rotation2d heading = poseThen.get().getRotation();
+    double yawRate =
+        MathUtil.angleModulus(heading.getRadians() - before.get().getRotation().getRadians())
+            / (RATE_SPAN_NANOS / 1e9);
+    for (TagDetections.Tag tag : detections.tags()) {
+      field
+          .tag(tag.id())
+          .ifPresent(
+              place ->
+                  into.add(
+                      place,
+                      camera.config.robotToCamera(),
+                      tag.bestCameraToTag(),
+                      tag.altCameraToTag(),
+                      heading,
+                      yawRate));
+    }
   }
 
   /** Gives a measurement's heading to the calibration collecting headings, if one is. */
