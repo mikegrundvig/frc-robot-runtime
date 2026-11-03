@@ -108,6 +108,11 @@ class CoprocessorsEndToEndTest {
         () -> Files.exists(config) && read(config).equals(wanted),
         "the board configured");
     assertThat(read(program)).isEqualTo(program(VisorVersion.VERSION));
+    // Readable and runnable by Visor's own user, though the agent writes them under umask 0077.
+    assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(config)))
+        .isEqualTo("rw-r--r--");
+    assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(program)))
+        .isEqualTo("rwxr-xr-x");
     assertThat(restarts).content().isEqualTo("restarted\nrestarted\n");
 
     // Brought up to date, it's left alone.
@@ -156,13 +161,15 @@ class CoprocessorsEndToEndTest {
     Files.createDirectories(root.resolve("var/lib/frc-spotter"));
     ProcessBuilder builder =
         new ProcessBuilder(
+                "/bin/sh",
+                "-c",
+                // With the umask its systemd unit gives it (UMask=0077), as on a board.
+                "umask 077; exec \"$0\" -Xmx128m -jar \"$1\" --root=\"$2\" --controller=127.0.0.1"
+                    + " --port=\"$3\"",
                 ProcessHandle.current().info().command().orElse("java"),
-                "-Xmx128m",
-                "-jar",
                 System.getProperty("frc.spotterAgent"),
-                "--root=" + root,
-                "--controller=127.0.0.1",
-                "--port=" + port)
+                root.toString(),
+                Integer.toString(port))
             .redirectErrorStream(true)
             .redirectOutput(ProcessBuilder.Redirect.appendTo(work.resolve("agent.log").toFile()));
     builder.environment().put("VISOR_DIR", visor.toString());
