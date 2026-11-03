@@ -251,7 +251,9 @@ Each camera's result is how late its images are stamped:
 
 - **On Visor**, it's the camera's time offset: `.timeOffset(Milliseconds.of(-23.8))` in its
   `Software.visor()`. The offset already configured is counted in, so replace the old value. Run it
-  again after: the camera should read within a millisecond or two.
+  again after: the camera should read within a millisecond or two. (In the simulator, cameras with
+  nothing wrong read 0.2 to 0.9 ms early, and why isn't known yet: not the heading history, not the
+  images' stamps, not the rate's wobble. A millisecond at 3 rad/s is 0.17°.)
 - **On PhotonVision**, its time sync sets the stamps, and nothing is configured: 5 ms or more is
   worth finding why, and a loop (20 ms) or more means the time sync isn't working (the
   coprocessor's PhotonVision not the one the robot's PhotonLib expects, say).

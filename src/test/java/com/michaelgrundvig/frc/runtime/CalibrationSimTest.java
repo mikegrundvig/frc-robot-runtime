@@ -124,7 +124,10 @@ class CalibrationSimTest {
 
   /**
    * The front-left camera's clock 25 ms ahead of the robot's: spinning both ways where the cameras
-   * see tags, its stamps are found 25 ms late, and the others' on time.
+   * see tags, its stamps are found 25 ms late, and the others' on time. Every camera reads 0.2 to
+   * 0.9 ms early here (front-left 23.8), for a reason not yet found; the arithmetic alone finds a
+   * stamp within half a millisecond (CaptureTimeCalibrationTest), so it's in how the simulator's
+   * images meet the robot's history.
    */
   @Test
   void aCameraStampingLateIsFoundBySpinningBothWays() {
