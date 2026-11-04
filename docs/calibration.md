@@ -13,8 +13,10 @@ Run them in this order, since each leans on the ones before it:
    speed with it.
 3. **The gyro's scale**, so every turn is measured right.
 4. **The wheel radius**, measured against the gyro.
-5. **Camera mounts**, measured while the other cameras place the robot.
-6. **Cameras' capture times**, by spinning both ways in view of tags, once the mounts are right.
+5. **Camera lenses**, off the page ([below](#done-elsewhere)): a camera with no lens calibration
+   gives no poses, so nothing after this works without it.
+6. **Camera mounts**, measured while the other cameras place the robot.
+7. **Cameras' capture times**, by spinning both ways in view of tags, once the mounts are right.
 
 Run every procedure in utility mode, enabled, with the robot on the floor. The page refuses to run
 them on the field.
@@ -225,7 +227,8 @@ Two patterns point somewhere other than the mount:
 
 - **Tags that land farther off the farther away they are**, by a share of the distance (2 cm at
   1 m, 6 cm at 3 m), along the camera's line of sight: its lens calibration (focal length) is off.
-  Recalibrate the lens in PhotonVision; recalibrating the mount only hides it at one distance.
+  Recalibrate the lens ([below](#done-elsewhere)); recalibrating the mount only hides it at one
+  distance.
 - **Every camera out of calibration at once at an event:** the field's tags aren't where the
   layout says. Check the event's field layout (WPIcal) before touching any camera.
 
@@ -342,9 +345,10 @@ field's bumps and ramps are known.
 
 ## Done elsewhere
 
-- **Camera lenses** (intrinsics): with a ChArUco board, at the resolution the robot runs. On
-  PhotonVision, in PhotonVision, which keeps the result; on Visor, with Visor's
-  `tools/calibrate.py`, which prints the lens to paste into the camera's `.lens(...)`
-  ([visor.md](visor.md#calibrating-a-cameras-lens)).
+- **Camera lenses** (intrinsics), step 5 of the order above, before the mounts: with a ChArUco
+  board, at the resolution the robot runs, once per camera and again after refocusing or replacing
+  it. On Visor, with Visor's `tools/calibrate.py`, which prints the lens to paste into the camera's
+  `.lens(...)` ([visor.md](visor.md#calibrating-a-cameras-lens)); on PhotonVision, in
+  PhotonVision, which keeps the result.
 - **The field** (tag positions at an event): WPILib's WPIcal, from photos of the field. The result
   is a field layout for that event.

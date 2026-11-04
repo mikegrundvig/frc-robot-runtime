@@ -186,8 +186,9 @@ PhotonVision.
 5 ms, and under about 2 ms if every fix corrects the heading (`EstimatorConfig.headingCorrection`
 `EVERY_FIX`): while the robot turns, each fix then leans on its capture time ([the consistency
 study](testing.md#the-simulators-late-stamps)). More than a loop (20 ms) means the time sync isn't
-working: check that the coprocessor runs the PhotonVision version the robot's PhotonLib expects,
-and that the robot's clock and PhotonVision's agree. Results applied "too late" or "from the
+working. On Visor, check chrony on the coprocessor ([visor.md](visor.md#what-the-boards-image-needs),
+*Checking the clock*); on PhotonVision, that the coprocessor runs the PhotonVision version the
+robot's PhotonLib expects, and that the robot's clock and PhotonVision's agree. Results applied "too late" or "from the
 future" in `Vision/<camera>/Decisions` say the same.
 
 ## Vision coprocessor capacity
