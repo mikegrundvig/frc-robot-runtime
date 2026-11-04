@@ -17,7 +17,7 @@ import java.util.Optional;
  * whose device is among them, at its place in the robot's list of cameras, which is the index its
  * frames carry and the robot reads it by. A camera is found by its device's {@code /dev/v4l/by-id/}
  * name, which is the camera's own (its USB serial), so it's configured on whichever board it's
- * plugged into.
+ * plugged into; or, for a camera with no serial of its own, by its port's {@code by-path/} name.
  */
 public final class VisorConfigs {
   private VisorConfigs() {}
@@ -28,7 +28,7 @@ public final class VisorConfigs {
    *
    * @param cameras the robot's cameras, in its definition's order
    * @param team the team number, which finds the robot controller, 10.TE.AM.2
-   * @param devices the {@code /dev/v4l/by-id/} names the board reports
+   * @param devices the {@code /dev/v4l/by-id/} and {@code by-path/} names the board reports
    */
   public static Optional<String> forBoard(
       List<CameraConfig> cameras, int team, Collection<String> devices) {
@@ -92,7 +92,7 @@ public final class VisorConfigs {
     return unplaced;
   }
 
-  /** A device's name under {@code /dev/v4l/by-id/}: its path's last part. */
+  /** A device's name under {@code /dev/v4l/by-id/} or {@code by-path/}: its path's last part. */
   static String deviceName(String device) {
     Path name = Path.of(device).getFileName();
     return name == null ? device : name.toString();

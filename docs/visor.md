@@ -98,7 +98,10 @@ The board's image provides, once ([Visor's pack README](https://github.com/mikeg
 ## Calibrating a camera's lens
 
 Without a lens, Visor sends tags' corners and no poses. Calibrate each camera once, at the frame
-size it runs, with Visor's `tools/calibrate.py` (its README): print the board, record about 40
-frames on the coprocessor with `visor record`, and solve on a laptop. It refuses a session it can't
+size it runs, with Visor's `tools/calibrate.py` (its README): print the board, find the camera's
+device with `visor cameras` on the coprocessor, stop Visor's service, record about 40 frames with
+`visor record --device ... --width ... --height ...` (no robot needed yet; once the robot has
+configured the board, `--camera <name>` instead), copy them from `/tmp/visor-frames/`, and solve
+on a laptop. It refuses a session it can't
 trust, and prints the lens as `Lens.builder()...build()`, to paste into the camera's
 `.lens(...)`. The build refuses a lens calibrated at another frame size than the camera's `Sensor`.

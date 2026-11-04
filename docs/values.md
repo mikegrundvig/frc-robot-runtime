@@ -455,7 +455,7 @@ they aren't said.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `name` | chosen | none | The name PhotonVision knows the camera by. |
+| `name` | chosen | none | The camera's name: on PhotonVision, the name PhotonVision knows it by; on Visor, the name in Visor's configuration and logs, which `visor record --camera` takes. |
 | `forward` | calibrated | 2026 code (a 2026 robot's cameras) | [A camera's mount](calibration.md#a-cameras-mount), starting from CAD; again after mounting, bumping, or remounting it. |
 | `left` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `up` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
@@ -474,7 +474,7 @@ simulator reads none of it, so a camera on Visor in the simulator alone can be `
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `device` | as built | none | The camera's `/dev/v4l/by-id/` path (`ls /dev/v4l/by-id/` on its coprocessor, with it plugged in): its USB serial is in the name, so it's this camera on whichever board, and after a replug. The board's Visor status in Spotter lists the names it sees. A camera that shows several, `-video-index0` is the one that captures. |
+| `device` | as built | none | The camera's `/dev/v4l/by-id/` path, as `visor cameras` on its coprocessor lists it, with the sizes it offers: its USB serial is in the name, so it's this camera on whichever board, and after a replug. A camera with no serial of its own (none, or another camera's) has only its USB port's `/dev/v4l/by-path/` name, which `visor cameras` gives instead: it then has to stay in that port. The board's Visor status in Spotter lists the names it sees. |
 | `controls` | chosen | none (the camera's own settings) | Camera settings by the names `v4l2-ctl --list-ctrls` prints on the board, set in this order: manual exposure before the exposure. Aim for an exposure near 1 ms (UVC's unit is 100 µs, so `exposure_time_absolute` 10) with the gain raised: blur from the robot turning is the main error, and short exposures cut it. Check against logs: tags found while turning fast. |
 | `timeOffset` | calibrated | none (no offset) | Added to every capture time: [a camera's capture time](calibration.md#a-cameras-capture-time), the spin test, prints it to paste, on each camera. |
 
@@ -487,7 +487,7 @@ calibrated at another size than the camera's `Sensor`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `width` | calibrated | none | The frame size the calibration was made at: `calibrate.py`, from the frames `visor record` saved on the board. |
+| `width` | calibrated | none | The frame size the calibration was made at: `calibrate.py`, from the frames `visor record` saved on the board at the camera's `Sensor` size. |
 | `height` | calibrated | none | As `width`. |
 | `fx` | calibrated | none | `calibrate.py solve`: the focal length across, in pixels. It prints each value's uncertainty; a good session's is well under a pixel. |
 | `fy` | calibrated | none | As `fx`, down. |
