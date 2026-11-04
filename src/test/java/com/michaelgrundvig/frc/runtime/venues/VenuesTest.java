@@ -17,6 +17,8 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class VenuesTest {
   /** The season's welded layout, as WPILib ships it. */
@@ -126,10 +128,11 @@ class VenuesTest {
     assertThat(venues.unusable().orElseThrow()).contains("isn't on the robot");
   }
 
-  @Test
-  void aPracticeFieldsVenueGivesWayToTheOfficialLayoutWithTheFieldAttached() {
+  @ParameterizedTest
+  @ValueSource(strings = {"practice", "shop"})
+  void aPracticeFieldsOrShopsVenueGivesWayToTheOfficialLayoutWithTheFieldAttached(String kind) {
     Disk disk = new Disk();
-    disk.text = venue("practice", 0.03);
+    disk.text = venue(kind, 0.03);
     Venues venues = venues(disk);
     assertThat(venues.update(true, false)).isPresent();
     assertThat(venues.practiceOnField()).isFalse();

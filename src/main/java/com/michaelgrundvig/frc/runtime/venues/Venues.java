@@ -71,8 +71,8 @@ public final class Venues implements AutoCloseable {
       new Alert(
           "Venue",
           "practiceOnField",
-          "A practice field's venue with the field attached: the robot uses the official layout"
-              + " until the pit selects the event's venue",
+          "A practice field's or shop's venue with the field attached: the robot uses the official"
+              + " layout until the pit selects the event's venue",
           Alert.Level.HIGH);
   private final Alert notInGit =
       new Alert(
@@ -131,7 +131,7 @@ public final class Venues implements AutoCloseable {
 
     boolean isPracticeVenueOnTheField =
         selection instanceof Selection.Surveyed surveyed
-            && surveyed.venue().kind() == Venue.Kind.PRACTICE
+            && surveyed.venue().kind().offTheFieldOnly()
             && fieldAttached;
     practiceOnField.set(isPracticeVenueOnTheField);
     Selection wanted = OFFICIAL;
@@ -257,7 +257,7 @@ public final class Venues implements AutoCloseable {
     return Optional.of(unusable.getText());
   }
 
-  /** Whether a practice field's venue is set aside because the field is attached. */
+  /** Whether a practice field's or shop's venue is set aside because the field is attached. */
   boolean practiceOnField() {
     return practiceOnField.get();
   }
