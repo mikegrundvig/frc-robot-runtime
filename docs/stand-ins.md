@@ -16,9 +16,8 @@ Released, but alpha: each is tied to one WPILib alpha, and moves with it.
 - **Phoenix 6 26.70.0-alpha-2** (`vendordeps/Phoenix6-26.70.0-alpha-2.json`, from WPILib's
   vendor-json-repo, `2027_alpha7`): the version CTRE pairs with WPILib alpha 7. Every CTRE device
   needs firmware 26.70 to talk to it (Phoenix Tuner X Preview flashes it), and a CANivore on
-  Systemcore needs CTRE's `canivore-usb` package (WPILib's SystemcoreTesting repository,
-  CTR-Phoenix). No Pro license is assumed: no FOC, and the steering reads its CANcoder as a remote
-  sensor.
+  Systemcore needs CTRE's `canivore-usb` package ([canivore.md](canivore.md)). No Pro license is
+  assumed: no FOC, and the steering reads its CANcoder as a remote sensor.
 
 - **REVLib 2027.0.0-alpha-8** (`vendordeps/REVLib.json`, from REV's own `REVLib-2027.json`,
   `2027_alpha7`). Its units were measured in REV's simulation (2026-10-05); a SPARK's direction

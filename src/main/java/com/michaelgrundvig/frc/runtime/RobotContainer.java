@@ -27,6 +27,7 @@ import com.michaelgrundvig.frc.runtime.commands.Calibration;
 import com.michaelgrundvig.frc.runtime.coprocessors.Coprocessors;
 import com.michaelgrundvig.frc.runtime.dashboard.Dashboard;
 import com.michaelgrundvig.frc.runtime.dashboard.RobotStatus;
+import com.michaelgrundvig.frc.runtime.hardware.CanivoreWatch;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.hardware.RobotHardware;
 import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
@@ -165,6 +166,9 @@ public final class RobotContainer implements AutoCloseable {
   /** What the robot reads and drives: its own devices, the simulator's, or none in a replay. */
   private final Hardware hardware;
 
+  /** With real devices, whether Phoenix sees each CANivore they're on. */
+  private final Optional<CanivoreWatch> canivores;
+
   /** The simulator's world, which knows where the robot really is. Only the simulator has one. */
   private final Optional<SimulatedWorld> world;
 
@@ -284,6 +288,8 @@ public final class RobotContainer implements AutoCloseable {
     // What the robot reads and drives.
     world = simulatedWorld(mode, field, robotMass, simulatedErrors);
     hardware = watched.apply(hardware(mode, runsOn, definition, world));
+    canivores =
+        mode == RunMode.REAL ? Optional.of(CanivoreWatch.on(definition, runsOn)) : Optional.empty();
     coprocessors = coprocessors(mode, robot);
 
     // Localization comes before the drivetrain, which asks it where the robot is.
@@ -475,6 +481,7 @@ public final class RobotContainer implements AutoCloseable {
    * readings and this loop's pose.
    */
   public void periodic() {
+    canivores.ifPresent(CanivoreWatch::periodic);
     coprocessors.periodic();
     boolean enabled = RobotState.isEnabled();
     takeThePitsChoices(enabled);
@@ -867,6 +874,7 @@ public final class RobotContainer implements AutoCloseable {
       world.get().close();
     }
     coprocessors.close();
+    canivores.ifPresent(CanivoreWatch::close);
     hardware.close();
   }
 }

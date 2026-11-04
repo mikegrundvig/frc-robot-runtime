@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.hardware;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.StatusCode;
 import com.michaelgrundvig.frc.world.robot.CanBus;
+import java.util.Optional;
 
 /**
  * What Phoenix says of a CANivore: whether this computer sees it. A laptop driving real devices
@@ -26,5 +27,14 @@ public final class PhoenixBuses {
           + "% of the bus in use";
     }
     return canivore.shown() + ": not seen (" + code.getName() + ": " + code.getDescription() + ")";
+  }
+
+  /** Why this computer doesn't see a CANivore, in Phoenix's words, or empty while it does. */
+  public static Optional<String> notSeen(CanBus.Canivore canivore) {
+    StatusCode code = new CANBus(canivore.name()).getStatus().Status;
+    if (code.isOK()) {
+      return Optional.empty();
+    }
+    return Optional.of(code.getName() + ": " + code.getDescription());
   }
 }
