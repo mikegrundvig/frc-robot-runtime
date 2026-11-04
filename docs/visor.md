@@ -120,3 +120,30 @@ configured the board, `--camera <name>` instead), copy them from `/tmp/visor-fra
 on a laptop. It refuses a session it can't
 trust, and prints the lens as `Lens.builder()...build()`, to paste into the camera's
 `.lens(...)`. The build refuses a lens calibrated at another frame size than the camera's `Sensor`.
+
+## Reading its frame rate and load
+
+**Visor's log.** Every 10 s, Visor writes one line per camera to its journal. Read it on the
+board with `sudo journalctl -u visor -f`, or through Spotter's agent, whose Visor pack serves it as
+the log `visor.log`:
+
+```text
+front: 59.8 fps, 0 dropped, detect 4.2 ms mean, 9.8 ms worst, 1.50 tags per frame
+```
+
+- **fps:** frames Visor processed, each a datagram to the robot. It should be the camera's
+  `fps` in its configuration (`CameraConfig.Sensor`'s `frameRate`).
+- **dropped:** frames the camera delivered that a newer one replaced before Visor got to them.
+  Above 0, detection can't keep up with the camera.
+- **detect, mean and worst:** how long detection and the pose solves took, per frame. Under the
+  frame's period (16.7 ms at 60 fps), with room to spare, is what keeps `dropped` at 0.
+
+It also warns, in the same 10 s, about frames it couldn't send (the robot program isn't running,
+or the network) and frames stamped with the clock not synced.
+
+**The board's load**, from Spotter's `debian` pack on the image:
+`curl -H 'Accept: application/json' http://10.TE.AM.11:5808/v2/values` from a laptop on the
+robot's network. `debian.cpu.busiest` is the busiest core's share, `debian.cpu.capped` whether the
+board slowed itself for heat or power, and `debian.thermal.margin` how far it is from slowing for
+heat. [Characterization](characterization.md#vision-coprocessor-capacity) uses these to find how
+many cameras one board carries.

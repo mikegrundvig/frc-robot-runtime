@@ -170,7 +170,7 @@ with a standard deviation of 20/√12 = 5.8 ms. So from the loaded run:
 - the camera's own spread, for the simulator, is `sqrt(s² - 5.8²)` in milliseconds, where `s` is
   the latencies' standard deviation;
 - **`frameRate`** is the images logged in a minute, over 60; PhotonVision's dashboard shows the
-  same.
+  same, and so does Visor's log line ([visor.md](visor.md#reading-its-frame-rate-and-load)).
 
 With `latency` measured, set `VisionConfig.latencyMarginSeconds` a little above the latencies'
 spread: images later than both are left out.
@@ -203,14 +203,18 @@ and add a coprocessor.
 
 **Equipment:**
 
-- One coprocessor as the robot runs it: the same model, cooling, PhotonVision version, and power,
-  through the regulator the robot uses.
+- One coprocessor as the robot runs it: the same model, cooling, vision software and its version,
+  and power, through the regulator the robot uses.
 - Three cameras of the robot's model, each with its lens calibrated at the resolution in use, and
-  the AprilTag pipeline set as the robot runs it (resolution, exposure, and the rest).
+  set as the robot runs it: PhotonVision's AprilTag pipeline (resolution, exposure, and the rest),
+  or Visor's configuration, which the robot writes from each camera's definition.
 - Several tags in each camera's view, 2 to 3 m away, so detection does real work.
 - A Systemcore running the robot program, to log the results
   ([camera latency](#camera-latency-and-time-sync) says how); or, with no Systemcore, PhotonVision's
-  dashboard on a laptop on the coprocessor's network.
+  dashboard on a laptop on the coprocessor's network. Visor has no dashboard: its log gives each
+  camera's frame rate, dropped frames and detection time every 10 s, robot or not, and Spotter's
+  agent the board's load ([visor.md](visor.md#reading-its-frame-rate-and-load)). Without a
+  Systemcore, Visor's frames go nowhere, so read latency on the robot only.
 
 **Safety:** a coprocessor gets hot over ten minutes of full load: let it cool before handling it.
 
@@ -220,7 +224,8 @@ and add a coprocessor.
 2. Plug in the second camera, set the same; log two minutes, both cameras.
 3. Plug in the third; log two minutes, all three.
 4. With all three, log ten minutes more. A coprocessor that heats up slows itself, and its frame
-   rate falls with it. Note its temperature and load at the end, if its dashboard shows them.
+   rate falls with it. Note its temperature and load at the end, from its dashboard, or on Visor
+   from Spotter's `debian.cpu` and `debian.thermal` values, every minute or so.
 
 **Working out the numbers:** for each step and each camera, its frame rate (results logged per
 second) and its latency, worked out as in [camera latency](#camera-latency-and-time-sync). Write
@@ -233,7 +238,8 @@ different numbers of cameras need a `Sensor` each.
 **What good looks like:** every camera holding its own frame rate as cameras are added, and its
 latency within a few milliseconds of the single camera's. The step where any camera's frame rate
 drops (by more than about a tenth) or its latency climbs is past the coprocessor's capacity: put
-that camera on another coprocessor. So is a rate that sags over the ten minutes.
+that camera on another coprocessor. So is a rate that sags over the ten minutes. On Visor, so is
+any camera's `dropped` above 0, or `debian.cpu.capped` true.
 
 ## Gyro drift and noise
 
