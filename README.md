@@ -155,6 +155,7 @@ program's.
 - [Bench](docs/bench.md): drive real CTRE hardware from a laptop, before the robot has its Systemcore
 - [A CANivore on Systemcore](docs/canivore.md): CTRE's package, once per Systemcore, and the alert that says a CANivore isn't seen
 - [Phoenix Tuner X on the robot](docs/tuner-x.md): reaching the devices through the robot program, what the program writes over, and encoder offsets
+- [Checking localization on the field](docs/localization-check.md): taped spots, what passes, and what a failure points at
 - [Values](docs/values.md): every configuration value, what it means, and how to find yours
 - [Calibration](docs/calibration.md) and [characterization](docs/characterization.md): measuring the real robot
 - [Camera placement](docs/camera-placement.md): where to mount the cameras

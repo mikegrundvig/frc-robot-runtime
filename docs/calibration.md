@@ -18,6 +18,9 @@ Run them in this order, since each leans on the ones before it:
 6. **Camera mounts**, measured while the other cameras place the robot.
 7. **Cameras' capture times**, by spinning both ways in view of tags, once the mounts are right.
 
+Then [check localization on the field](localization-check.md): taped spots, standing and just after
+driving, which tests all of these together.
+
 Run every procedure in utility mode, enabled, with the robot on the floor. The page refuses to run
 them on the field.
 
