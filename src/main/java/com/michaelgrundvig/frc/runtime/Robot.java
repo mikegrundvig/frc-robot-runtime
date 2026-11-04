@@ -50,6 +50,7 @@ import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.simulation.DriverStationSim;
 import org.wpilib.simulation.RoboRioSim;
 import org.wpilib.system.Filesystem;
+import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.Mass;
 import org.wpilib.util.Alert;
 
@@ -169,6 +170,11 @@ public class Robot extends LoggedRobot {
   public Robot(RobotProgram program) {
     super(RobotLoop.PERIOD_SECONDS);
     recordWhichCodeThisIs(program.build());
+    // Which controller this is, in the log and on the console: a team with several units tells them
+    // apart by it.
+    String serial = RobotController.getSerialNumber();
+    Logger.recordMetadata("ControllerSerial", serial);
+    System.out.println("Controller serial: " + serial);
     Optional<Scenario> scenario =
         scenarioAskedFor(mode, Optional.ofNullable(System.getProperty(SCENARIO_PROPERTY)));
     if (scenario.isPresent()) {
