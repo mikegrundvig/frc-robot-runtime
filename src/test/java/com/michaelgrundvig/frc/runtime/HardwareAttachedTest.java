@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime;
 
 import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TALON_FX;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Rotations;
 
@@ -25,10 +26,13 @@ import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.OptionalInt;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.wpilib.math.geometry.Translation3d;
+import org.wpilib.system.Filesystem;
 
 /**
  * What the program decides for each place it runs: the simulator on a laptop, real devices driven
@@ -199,6 +203,55 @@ class HardwareAttachedTest {
     assertThat(HardwareAttached.canivores(ROBOT.definition())).containsExactly(CANIVORE);
     assertThat(HardwareAttached.canivores(ExampleRobot.SIM.definition())).isEmpty();
     assertThat(PhoenixBuses.status(CANIVORE)).startsWith("the CANivore bench: ");
+  }
+
+  /**
+   * A laptop standing in for the robot with its coprocessors: the team number Gradle passes, the
+   * address that gives the laptop, and what it says as it starts. Each row is what Gradle passed,
+   * the team taken, and the parts of the line said with one board.
+   */
+  private record TeamRow(Optional<String> asked, OptionalInt team, List<String> says) {}
+
+  private static final List<String> NO_TEAM = List.of("No team number, so Visor isn't installed");
+
+  private static final List<TeamRow> TEAMS =
+      List.of(
+          new TeamRow(Optional.empty(), OptionalInt.empty(), NO_TEAM),
+          new TeamRow(Optional.of(""), OptionalInt.empty(), NO_TEAM),
+          new TeamRow(Optional.of("0"), OptionalInt.empty(), NO_TEAM),
+          new TeamRow(
+              Optional.of("1234"), OptionalInt.of(1234), List.of("Team 1234:", "10.12.34.2.")),
+          new TeamRow(
+              Optional.of(" 254 "), OptionalInt.of(254), List.of("Team 254:", "10.2.54.2.")),
+          new TeamRow(
+              Optional.of("12345"), OptionalInt.of(12345), List.of("Team 12345:", "10.123.45.2.")));
+
+  @Test
+  void aLaptopStandingInForTheRobotTakesTheTeamNumberAndSaysWhatAddressToTake() {
+    for (TeamRow row : TEAMS) {
+      String asked = row.asked().toString();
+      OptionalInt team = HardwareAttached.team(row.asked());
+      assertThat(team).as(asked).isEqualTo(row.team());
+
+      List<String> said = HardwareAttached.coprocessorLines(1, team);
+      assertThat(said).as(asked).hasSize(1);
+      assertThat(said.get(0)).as(asked).contains(row.says());
+      assertThat(HardwareAttached.coprocessorLines(0, team))
+          .as(asked + ", with no coprocessors")
+          .isEmpty();
+    }
+    assertThatThrownBy(() -> HardwareAttached.team(Optional.of("12a4")))
+        .hasMessage("frc.team \"12a4\" isn't a team number");
+  }
+
+  /** A laptop reads the deploy folder Gradle put together, or WPILib's without one. */
+  @Test
+  void aLaptopReadsTheDeployFolderGradlePutTogether() {
+    Path wpilibs = Filesystem.getDeployDirectory().toPath();
+    assertThat(HardwareAttached.deployDirectory(Optional.of("build/hwsim/deploy")))
+        .isEqualTo(Path.of("build/hwsim/deploy"));
+    assertThat(HardwareAttached.deployDirectory(Optional.empty())).isEqualTo(wpilibs);
+    assertThat(HardwareAttached.deployDirectory(Optional.of(" "))).isEqualTo(wpilibs);
   }
 
   /** The banner's lines after one that starts so, up to one that starts with another. */

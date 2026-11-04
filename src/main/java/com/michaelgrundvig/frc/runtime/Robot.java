@@ -34,6 +34,7 @@ import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.function.UnaryOperator;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
@@ -47,6 +48,7 @@ import org.wpilib.driverstation.RobotState;
 import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.simulation.DriverStationSim;
+import org.wpilib.simulation.RoboRioSim;
 import org.wpilib.system.Filesystem;
 import org.wpilib.units.measure.Mass;
 import org.wpilib.util.Alert;
@@ -181,6 +183,14 @@ public class Robot extends LoggedRobot {
       // Before anything else is opened: real motors are about to be, from a laptop.
       HardwareAttached.banner(robot.definition()).forEach(System.out::println);
       Logger.recordMetadata("HardwareAttached", "real devices driven from a laptop");
+      // The team number Systemcore would give it, before the coprocessors are told the robot's
+      // address by it.
+      OptionalInt team =
+          HardwareAttached.team(
+              Optional.ofNullable(System.getProperty(HardwareAttached.TEAM_PROPERTY)));
+      team.ifPresent(RoboRioSim::setTeamNumber);
+      HardwareAttached.coprocessorLines(robot.coprocessors().size(), team)
+          .forEach(line -> System.out.println("Hardware-attached: " + line));
     }
     Optional<RobotSession> session = sessionFor(mode, robot);
     chooseWhereTheLogGoes(session);
@@ -303,7 +313,7 @@ public class Robot extends LoggedRobot {
     if (mode == RunMode.REPLAY) {
       return Optional.empty();
     }
-    Path committed = Filesystem.getDeployDirectory().toPath().resolve("venues");
+    Path committed = HardwareAttached.deployDirectory().resolve("venues");
     return Optional.of(new VenueStore(venueFolder(runsOn), committed));
   }
 

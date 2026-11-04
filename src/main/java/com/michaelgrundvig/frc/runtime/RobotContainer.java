@@ -72,7 +72,6 @@ import org.wpilib.driverstation.RobotState;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
-import org.wpilib.system.Filesystem;
 import org.wpilib.system.RobotController;
 import org.wpilib.tunable.TunableRegistry;
 import org.wpilib.units.measure.Mass;
@@ -421,7 +420,7 @@ public final class RobotContainer implements AutoCloseable {
     return Coprocessors.on(
         robot.coprocessors(),
         robot.definition().cameras(),
-        Filesystem.getDeployDirectory().toPath(),
+        HardwareAttached.deployDirectory(),
         RobotController.getTeamNumber(),
         RobotState::isEnabled,
         RobotState::isFMSAttached,

@@ -105,6 +105,39 @@ simulator does. It hasn't been tried with the 2027 Driver Station; the GUI is th
 so switch it on deliberately, in Pitwall's Tune view, with a mentor watching. It goes back off
 each time the program starts.
 
+## Standing in for the robot with its coprocessors
+
+The same run stands in for the robot with its vision coprocessors, before there's a Systemcore. The
+laptop installs and configures Visor on the boards through their Spotter agents, receives their
+frames, and answers their clock sync, all as the robot would. Nothing needs a CANivore, and a robot
+with no CTRE devices at all is fine. On Linux it runs without CTRE's kernel module, and says the
+CANivore isn't seen.
+
+1. **The robot's entry** in `Robots.java` lists the board and a camera on Visor, as the robot's
+   will ([visor.md](visor.md#putting-a-camera-on-visor)). The board is
+   `new BoardDefinition("10.TE.AM.11", List.of("visor"))` in its `coprocessors(...)`. The camera's
+   `device` is from `visor cameras` on the board.
+2. **The team number**, stored once: `./gradlew setTeamNumber -PteamNumber=NNNN`. The laptop goes
+   by it as Systemcore would, and without it the robot installs nothing of Visor's.
+3. **The network:** the board and the laptop on the radio or one switch. Give the laptop the
+   robot's own address, `10.TE.AM.2`, mask `255.255.255.0`: the board's Visor sends its frames
+   there, its chrony asks the time there, and its agent takes installs only from there. The Paddock
+   starter's board is `10.TE.AM.11` already.
+4. **Run it:** `./gradlew run -PhwSim -Probot=<name>`. As it starts it says, after the banner,
+   which address it expects to have: `Hardware-attached: Team NNNN: the coprocessors send their
+   frames to, and ask the time of, 10.TE.AM.2`. On Windows, let Java through the firewall when
+   asked: the frames and the clock sync are UDP.
+
+**Check:**
+- The `Coprocessors` alerts clear, and `Visor/...` alerts don't come.
+- `chronyc sources` on the board shows `^*` on `10.TE.AM.2`.
+- Visor's log line counts frames ([visor.md](visor.md#reading-its-frame-rate-and-load)), and
+  `Vision/<camera>/LatencySeconds` fills in the laptop's log while a tag is in view.
+
+The laptop reads a deploy folder put together as a robot's is: `src/main/deploy` with Visor's
+release and pack beside it, in `build/hwsim/deploy` (`hwSimDeploy`). So what it installs is what a
+deploy would carry.
+
 ## Safety checklist
 
 Before the first enable, every session:

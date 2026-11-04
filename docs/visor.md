@@ -15,7 +15,8 @@ starts. The robot reads a camera on Visor through `CameraIOVisor`, by its place 
 list of cameras, and answers Visor's clock sync while any camera is on it.
 
 **Visor hasn't run on robot hardware yet.** It's built and tested against rendered frames, the
-simulator, and Spotter's real agent on a laptop.
+simulator, and Spotter's real agent on a laptop. Before a Systemcore, a laptop can stand in for the
+robot with a real board ([bench.md](bench.md#standing-in-for-the-robot-with-its-coprocessors)).
 
 ## Putting a camera on Visor
 
