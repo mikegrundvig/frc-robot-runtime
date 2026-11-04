@@ -101,6 +101,15 @@ The board's image provides, once ([Visor's pack README](https://github.com/mikeg
 - the polkit rule that lets the agent restart Visor, and only that;
 - chrony, with `deploy/chrony.conf` from Visor's repository, synced to the robot program.
 
+**Checking the clock.** Visor stamps each frame in robot time through chrony, which the robot
+program answers on UDP 5806. On the coprocessor, with the robot program running, `chronyc sources`
+shows the robot's line starting `^*`, and `chronyc tracking` names `10.TE.AM.2` with a System time
+under a millisecond ([Visor's README](https://github.com/mikegrundvig/frc-visor#checking-the-clock)).
+Until then each frame arrives marked unsynced: the robot leaves it out, counts it in the camera's
+outcomes (`Vision/<camera>/Outcomes`: "image(s) without a capture time, left out"), and raises the
+camera's high alert, `Vision/<camera>NoCaptureTime`, while they keep coming. The camera still
+counts as connected, since its frames arrive.
+
 ## Calibrating a camera's lens
 
 Without a lens, Visor sends tags' corners and no poses. Calibrate each camera once, at the frame

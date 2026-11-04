@@ -37,7 +37,9 @@ public final class VisorFeed implements AutoCloseable {
     final List<CameraIO.Frame> frames = new ArrayList<>();
     final List<CameraIO.SeenTag> tags = new ArrayList<>();
     int skipped;
-    long lastCaptureNanos = Long.MIN_VALUE;
+
+    /** When its last frame arrived, on the robot's clock: a frame's own stamp may mean nothing. */
+    long lastHeardNanos = Long.MIN_VALUE;
   }
 
   private VisorFeed(VisorReceiver receiver) {
@@ -65,15 +67,16 @@ public final class VisorFeed implements AutoCloseable {
    * @param nowNanos the robot's clock, for whether the camera is still sending
    */
   void read(int camera, CameraIO.CameraIOInputs inputs, long nowNanos) {
-    sortWhatArrived();
+    sortWhatArrived(nowNanos);
     Pending mine = pending.computeIfAbsent(camera, index -> new Pending());
     inputs.frames = mine.frames.toArray(CameraIO.Frame[]::new);
     inputs.tags = mine.tags.toArray(CameraIO.SeenTag[]::new);
     inputs.skippedFrames = mine.skipped;
-    // A camera is connected while its frames keep coming: Visor sends one for every image.
+    // A camera is connected while its frames keep coming: Visor sends one for every image. Judged
+    // by when they arrive, so a coprocessor whose clock isn't synced yet still counts as sending.
     inputs.connected =
-        mine.lastCaptureNanos != Long.MIN_VALUE
-            && nowNanos - mine.lastCaptureNanos < STILL_SENDING_NANOS;
+        mine.lastHeardNanos != Long.MIN_VALUE
+            && nowNanos - mine.lastHeardNanos < STILL_SENDING_NANOS;
     inputs.error = versionError();
     mine.frames.clear();
     mine.tags.clear();
@@ -83,10 +86,10 @@ public final class VisorFeed implements AutoCloseable {
   /** How long without a frame before a camera counts as disconnected. */
   private static final long STILL_SENDING_NANOS = 500_000_000L;
 
-  private void sortWhatArrived() {
+  private void sortWhatArrived(long nowNanos) {
     while (receiver.poll(frame)) {
       Pending into = pending.computeIfAbsent(frame.camera(), index -> new Pending());
-      into.lastCaptureNanos = Math.max(into.lastCaptureNanos, frame.captureNanos());
+      into.lastHeardNanos = nowNanos;
       // A frame from a clock not yet synced to the robot's has a capture time that means nothing.
       if (!frame.clockSynced() || frame.captureNanos() < 0) {
         into.skipped++;

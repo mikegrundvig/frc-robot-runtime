@@ -60,6 +60,9 @@ final class Camera implements AutoCloseable {
   /** The out-of-step alert stays up this long after the last image out of step. */
   private static final long OUT_OF_STEP_HOLD_NANOS = 2_000_000_000L;
 
+  /** How long the no-capture-time alert stays up after the last image without one. */
+  private static final long NO_CAPTURE_TIME_HOLD_NANOS = 2_000_000_000L;
+
   /** The out-of-calibration alert, once up, comes down at this share of the tolerance. */
   private static final double ALERT_CLEARS_AT = 0.8;
 
@@ -102,11 +105,14 @@ final class Camera implements AutoCloseable {
   private final Alert unreadable;
   private final Alert outOfCalibration;
   private final Alert outOfStep;
+  private final Alert noCaptureTime;
 
   // ---- Images that arrive out of step ----
 
   /** The out-of-step alert is up until this time. It is empty while no image has been late. */
   private OptionalLong outOfStepAlertHeldUntil = OptionalLong.empty();
+
+  private OptionalLong noCaptureTimeHeldUntil = OptionalLong.empty();
 
   /** How many images were left out for arriving out of step, since the robot started. */
   private int leftOutOfStep;
@@ -236,6 +242,8 @@ final class Camera implements AutoCloseable {
             name + "OutOfStep",
             "Camera " + possessive(name) + " images arrive out of step",
             Alert.Level.HIGH);
+    noCaptureTime =
+        new Alert("Vision", name + "NoCaptureTime", noCaptureTimeText(config), Alert.Level.HIGH);
     TunableRegistry.publish(key + "/enabled", enabled);
   }
 
@@ -555,6 +563,7 @@ final class Camera implements AutoCloseable {
       outOfStepAlertHeldUntil = OptionalLong.empty();
     }
     outOfStep.set(outOfStepAlertIsHeldAt(nowNanos));
+    showWhetherImagesHaveCaptureTimes(nowNanos);
     Logger.recordOutput(outcomesKey, outcomes.toArray(String[]::new));
     Logger.recordOutput(leftOutOfStepKey, leftOutOfStep);
     Logger.recordOutput(
@@ -563,6 +572,34 @@ final class Camera implements AutoCloseable {
     Logger.recordOutput(mountOffsetMetersKey, mount.offsetMeters());
     Logger.recordOutput(mountDoubtMetersKey, mountDoubt);
     logTagResidual();
+  }
+
+  /**
+   * Keeps the no-capture-time alert up while images keep arriving without one, and for a while
+   * after: a camera whose coprocessor's clock isn't synced to the robot's sends every image so, and
+   * all of them are left out. A camera that's off or gone says that instead.
+   */
+  private void showWhetherImagesHaveCaptureTimes(long nowNanos) {
+    if (inputs.skippedFrames > 0) {
+      noCaptureTimeHeldUntil = OptionalLong.of(nowNanos + NO_CAPTURE_TIME_HOLD_NANOS);
+    }
+    if (!enabled.get() || !inputs.connected) {
+      noCaptureTimeHeldUntil = OptionalLong.empty();
+    }
+    noCaptureTime.set(
+        noCaptureTimeHeldUntil.isPresent() && nowNanos < noCaptureTimeHeldUntil.getAsLong());
+  }
+
+  /** What the no-capture-time alert says: on Visor, where to look. */
+  private static String noCaptureTimeText(CameraConfig config) {
+    String said =
+        "Camera " + possessive(config.name()) + " images arrive without a capture time, left out";
+    if (config.software() instanceof CameraConfig.Software.Visor) {
+      return said
+          + ": its coprocessor's clock isn't synced to the robot's (chronyc tracking on the"
+          + " coprocessor, docs/visor.md)";
+    }
+    return said;
   }
 
   /**
@@ -744,6 +781,11 @@ final class Camera implements AutoCloseable {
     return disconnected.get();
   }
 
+  /** The no-capture-time alert, while it's up. */
+  Optional<String> noCaptureTimeAlert() {
+    return noCaptureTime.get() ? Optional.of(noCaptureTime.getText()) : Optional.empty();
+  }
+
   boolean isUnreadableAlertActive() {
     return unreadable.get();
   }
@@ -771,6 +813,7 @@ final class Camera implements AutoCloseable {
     unreadable.close();
     outOfCalibration.close();
     outOfStep.close();
+    noCaptureTime.close();
     TunableRegistry.remove(key + "/enabled");
   }
 }

@@ -76,6 +76,14 @@ class CameraIOVisorTest {
     CameraIO.CameraIOInputs inputs = read(front);
     assertThat(inputs.frames).hasSize(1);
     assertThat(inputs.skippedFrames).isEqualTo(1);
+
+    // Before chrony first syncs, the stamps are a day off, or more: still a camera sending.
+    now.addAndGet(5 * SECOND);
+    feed.offer(frame(0, 2, -86_400 * SECOND, false));
+    inputs = read(front);
+    assertThat(inputs.frames).isEmpty();
+    assertThat(inputs.skippedFrames).isEqualTo(1);
+    assertThat(inputs.connected).as("sending, unsynced").isTrue();
   }
 
   @Test

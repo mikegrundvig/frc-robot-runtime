@@ -97,6 +97,7 @@ class VisionTest {
   /** A camera that reports whatever the test scripts. */
   private static final class ScriptedCamera implements CameraIO {
     boolean connected = true;
+    int skipped;
     @Nullable RuntimeException failure;
     List<Frame> frames = new ArrayList<>();
     List<SeenTag> tags = new ArrayList<>();
@@ -107,6 +108,7 @@ class VisionTest {
         throw failure;
       }
       inputs.connected = connected;
+      inputs.skippedFrames = skipped;
       inputs.frames = frames.toArray(Frame[]::new);
       inputs.tags = tags.toArray(SeenTag[]::new);
       frames = new ArrayList<>();
@@ -314,6 +316,56 @@ class VisionTest {
 
     assertThat(vision.camera(0).isDisconnectedAlertActive()).isTrue();
     assertThat(vision.summary()).startsWith("0 of 1 cameras connected");
+  }
+
+  /**
+   * A camera on Visor whose coprocessor's clock isn't synced to the robot's: its images arrive
+   * without a capture time, and the alert stays up while they keep coming and two seconds after.
+   * Each row is a loop: how far in, how many such images, whether the camera is connected, and
+   * whether the alert is up.
+   */
+  @Test
+  void imagesWithoutACaptureTimeRaiseAnAlertWhileTheyKeepComing() {
+    vision.close();
+    CameraConfig onVisor =
+        CameraConfigBuilder.builder(camera)
+            .software(
+                CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-cam-video-index0").build())
+            .build();
+    vision =
+        new Vision(
+            List.of(onVisor),
+            new CameraIO[] {io},
+            localization,
+            FIELD,
+            () -> tuned,
+            () -> ourAlliance);
+    record Row(double seconds, int skipped, boolean connected, boolean up) {}
+    List<Row> loops =
+        List.of(
+            new Row(0, 0, true, false),
+            new Row(0.02, 3, true, true),
+            new Row(1.0, 2, true, true),
+            new Row(2.9, 0, true, true),
+            new Row(3.1, 0, true, false),
+            new Row(4.0, 1, true, true),
+            new Row(4.02, 1, false, false));
+    for (Row row : loops) {
+      io.skipped = row.skipped();
+      io.connected = row.connected();
+      vision.periodic(T0 + (long) (row.seconds() * 1e9));
+      assertThat(vision.camera(0).noCaptureTimeAlert().isPresent())
+          .as("at %.2f s", row.seconds())
+          .isEqualTo(row.up());
+    }
+    io.connected = true;
+    io.skipped = 1;
+    vision.periodic(T0 + 5_000_000_000L);
+    assertThat(vision.camera(0).noCaptureTimeAlert())
+        .contains(
+            "Camera front's images arrive without a capture time, left out: its coprocessor's clock"
+                + " isn't synced to the robot's (chronyc tracking on the coprocessor,"
+                + " docs/visor.md)");
   }
 
   @Test
