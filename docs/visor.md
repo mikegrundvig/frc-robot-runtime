@@ -49,13 +49,15 @@ through Visor's frames, its client and `CameraIOVisor`, as a real one arrives.
 [values.md](values.md#cameraconfigsoftwarevisor) says what each value is and how to find it.
 
 The robot's entry also lists its coprocessors, each by its Spotter agent's address and the packs
-it's to have, `visor` among them:
+the robot pushes it, from the deploy folder's `spotter-packs/`: `visor`. A pack the board's image
+installs, such as Spotter's `debian` pack for its own health (the Paddock starter's image has it),
+isn't listed: one listed that the deploy doesn't carry is a standing Spotter warning.
 
 ```java fragment
 .coprocessors(
     List.of(
-        new BoardDefinition("10.12.34.11", List.of("debian", "visor")),
-        new BoardDefinition("10.12.34.12", List.of("debian", "visor"))))
+        new BoardDefinition("10.12.34.11", List.of("visor")),
+        new BoardDefinition("10.12.34.12", List.of("visor"))))
 ```
 
 ## What the robot does

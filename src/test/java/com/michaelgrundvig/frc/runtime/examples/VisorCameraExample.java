@@ -32,12 +32,15 @@ final class VisorCameraExample {
                   .build())
           .build();
 
-  /** A robot's coprocessors, each by its Spotter agent and the packs it's to have. */
+  /**
+   * A robot's coprocessors, each by its Spotter agent and the packs the robot pushes it: Visor's.
+   * Spotter's debian pack, for the board's own health, comes with the board's image.
+   */
   static final RobotConfig WITH_COPROCESSORS =
       RobotConfigBuilder.builder(ExampleRobot.COMPETITION)
           .coprocessors(
               List.of(
-                  new BoardDefinition("10.12.34.11", List.of("debian", "visor")),
-                  new BoardDefinition("10.12.34.12", List.of("debian", "visor"))))
+                  new BoardDefinition("10.12.34.11", List.of("visor")),
+                  new BoardDefinition("10.12.34.12", List.of("visor"))))
           .build();
 }
