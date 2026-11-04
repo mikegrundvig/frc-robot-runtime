@@ -619,6 +619,30 @@ Systemcore port (`MechanismWiring.PortEncoder`); unwired, only the simulator rea
 |---|---|---|---|
 | `ratio` | as built | none | Its turns for each of the joint's, from the gears or belt between them: count the teeth, the joint's over the encoder's. On a joint that slides, its turns for each of its drum's, the drum, sprocket or pulley its motors' pitch radius names: 1 on the drum's shaft, 1/12 geared twelve to one down from it. Positive: which way it turns is its wiring's. One of its turns, or a potentiometer's range, must cover the joint's travel with a fortieth of it to spare at each end, or where the joint is can't be told from it alone: the definition refuses it, saying the most that fits. An elevator's drum turns several times over its travel, so an encoder on an elevator is usually geared down from the drum. |
 
+#### Measuring an encoder's offset
+
+Each of its wirings has an `offset`, in the encoder's turns, added to its reading so it reads zero
+with the joint at its zero. The offset the program has is already in every reading: in what Tuner
+X or REV's Hardware Client shows, too, since the program writes its own to the device as it
+starts. So measure it from the robot's own reading, the same way for every kind:
+
+1. Put the joint at its zero, the pose its origin gives in CAD, with the offset the definition has
+   now deployed (0 the first time).
+2. Read where the encoder says the joint is: `Joints/<joint>/AbsoluteAt`, in radians, or meters for
+   a joint that slides. For a CANcoder the TalonFX reads (`REMOTE`, `FUSED`, `SYNC`), read the
+   joint's own position, `Joints/<joint>`: it's the encoder's.
+3. Turn it into the encoder's turns: divide by 2π (2π times the pitch radius, for a joint that
+   slides), and multiply by the encoder's `ratio`.
+4. The new offset is the definition's offset minus that. For an encoder that wraps each turn, if
+   it's past half a turn either way, add or subtract 1 (not for a potentiometer, whose range is
+   its turns). Put it in the definition, with the date, and redeploy. **Check:** at the zero, the
+   reading from step 2 is now 0, within the encoder's count.
+
+For example, an encoder on a pivot's axle (`ratio` 1) at offset 0.20: at the zero, `AbsoluteAt`
+reads 0.63 rad, 0.10 of a turn. The new offset is 0.20 − 0.10 = 0.10. A CANcoder's reading in
+Tuner X is already in its turns, offset included, so it can stand in for steps 2 and 3
+([tuner-x.md](tuner-x.md#encoder-offsets)).
+
 ### `Driven.LimitSwitch`
 
 `com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch`: a switch a joint presses at one end of
@@ -1023,7 +1047,7 @@ there, so a belt's slip the encoder would correct isn't simulated.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `offset` | calibrated | none | Put the joint at its zero (the pose its origin gives in CAD), read the encoder's absolute position in REV's Hardware Client with no offset, and negate it; again whenever the encoder moves. |
+| `offset` | calibrated | none | [Measured at the joint's zero](#measuring-an-encoders-offset), from `Joints/<joint>/AbsoluteAt`: Hardware Client's reading is no help, since the program writes the SPARK a zero offset of its own (the low edge of the window). Again whenever the encoder moves. |
 | `reversed` | as built | none | Move the joint forward and watch the encoder's reading in REV's Hardware Client: true (`.inverted()` after its offset) if it falls. |
 | `closedLoop` | chosen | none | Why: false, the encoder tells the motor's own encoder where the joint is at startup, and the SPARK's loop runs on that; true (`.closesLoop()`), the SPARK's loop runs on this encoder itself, at the controller's rate, so backlash or slip between the motor and the joint doesn't move where the joint goes. Its kP is then per turn of the encoder, worked out from the same control. Only a joint held at positions, without a homing recipe, and with a range closes its loop on it. Unconfirmed on a SPARK yet ([stand-ins](stand-ins.md)). Check: a log, seeded once, of `Joints/<label>`'s position (the motor's) against `Joints/<label>/AbsoluteAt` (the encoder's, as the SPARK reads it): a gap that follows the direction of travel is backlash, and one that grows or jumps is slip; either is a reason to close the loop on the encoder. |
 
@@ -1040,7 +1064,7 @@ loop ([absolute encoders](mechanisms.md#absolute-encoders)).
 | `port` | as built | none | The port it's plugged into, 0 to 5, as the robot's wiring has it. Not a port a switch is on. |
 | `signal` | as built | none | How it reports: `DUTY_CYCLE` for a through-bore's absolute output, `ANALOG` for an analog encoder or a potentiometer. |
 | `turnsPerRange` | as built | none | How many of its turns its signal's full range covers: 1 for an encoder that wraps each turn, from its datasheet for a multi-turn potentiometer (10 for a ten-turn pot). |
-| `offset` | calibrated | none | Put the joint at its zero (the pose its origin gives in CAD), read the encoder's share of its range with no offset (logged as `Joints/<joint>/Absolute/Share`), times `turnsPerRange`, and negate it; again whenever the encoder moves. Within its range either way. |
+| `offset` | calibrated | none | [Measured at the joint's zero](#measuring-an-encoders-offset), from `Joints/<joint>/AbsoluteAt`; again whenever the encoder moves. Within its range either way. |
 | `reversed` | as built | none | Move the joint forward and watch its reading: true (`.inverted()` after its offset) if it falls, as WPILib's `setInverted(true)`. |
 | `closedLoop` | chosen | none | Why: false, the encoder tells the motor's own encoder where the joint is at startup, and the motor controller's loop runs on that, at 1 kHz; true (`.closesLoop()`), the robot runs the joint's loop on this encoder itself, each loop, at 50 Hz, so backlash or slip between the motor and the joint doesn't move where the joint goes. The robot's loop is coarser: tune kP again, lower if the joint buzzes. Only a joint held at positions, without a homing recipe, and with a range closes its loop on it. Check: a log of `Joints/<label>`'s position (the motor's) against `Joints/<label>/AbsoluteAt` (the encoder's): a gap that follows the direction of travel is backlash, and one that grows or jumps is slip; either is a reason to close the loop on the encoder. Closed on a duty-cycle encoder that's lost, the joint is faulted and holds on its motor; an analog one can't say it's lost. |
 
@@ -1059,7 +1083,7 @@ drum), and its `RotorToSensorRatio` the rotor's turns for each of the CANcoder's
 |---|---|---|---|
 | `bus` | as built | none | Tuner X: Systemcore's port, or the CANivore's name. Its joint's motors' bus, where their TalonFX reads it: the robot refuses another. |
 | `id` | as built | none | Tuner X. |
-| `offset` | calibrated | none | Put the joint at its zero (the pose its origin gives in CAD), read the CANcoder's absolute position in Tuner X, and subtract it from the offset it has now ([tuner-x.md](tuner-x.md#encoder-offsets): the reading includes the offset the program wrote); again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
+| `offset` | calibrated | none | [Measured at the joint's zero](#measuring-an-encoders-offset), or from Tuner X's reading ([tuner-x.md](tuner-x.md#encoder-offsets)): either way the offset it has now minus the reading, which includes the offset the program wrote. Again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
 | `turnsClockwise` | as built | none | Move the joint forward and watch the CANcoder from its LED side: clockwise (`.clockwise()` after its offset) or not, so its reading grows with the joint. |
 | `feedback` | chosen | none | What the TalonFX reads its position from: `ROTOR` (the CANcoder read only by code, at boot), `REMOTE` (no license), or `FUSED` or `SYNC` (Phoenix Pro). `FUSED` keeps the rotor's rate with the CANcoder's position, and is the best where it's licensed. |
 
