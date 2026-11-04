@@ -77,6 +77,13 @@ reason, and isn't tried again until what's wanted changes or the program restart
 the boards has plugged in is said once every board has reported. A board that reboots keeps what
 it has, so it's back on its own in seconds, mid-match included.
 
+Spotter's own alerts are the robot's too, in the group `Coprocessors`, each naming its board: one
+that's missing or on another protocol (high), one whose packs differ from the robot's or that
+reports problems in them, each value of its packs at warning (medium) or failing (high), and the
+robot's own Spotter setup, such as a packs folder it can't read. So a board that never answers says
+so, even while the camera alert above waits for it. The keys and texts are in Spotter's
+[robot guide](https://github.com/mikegrundvig/frc-spotter/blob/main/docs/robot.md).
+
 ## What the board's image needs
 
 The board's image provides, once ([Visor's pack README](https://github.com/mikegrundvig/frc-visor/blob/main/spotter/visor/README.md)):

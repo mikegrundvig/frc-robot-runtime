@@ -15,6 +15,7 @@ import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.BooleanSupplier;
@@ -22,14 +23,16 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.wpilib.util.AlertDataJNI;
 
 /**
- * A robot's coprocessors as the robot program starts: its configuration names one board, Spotter's
- * real agent runs there with nothing of Visor's, and the robot pushes it Visor's pack (from the
- * Visor release this runtime's client belongs to), installs its Visor release, and configures it
- * for the robot's camera plugged into it. The board is this computer: the agent runs from its
+ * A robot's coprocessors as the robot program starts: its configuration names two boards. Spotter's
+ * real agent runs on the first with nothing of Visor's, and the robot pushes it Visor's pack (from
+ * the Visor release this runtime's client belongs to), installs its Visor release, and configures
+ * it for the robot's camera plugged into it. The board is this computer: the agent runs from its
  * published jar with its files under a folder of the test's, and Visor's program is a script that
- * answers {@code version} and {@code check} as Visor does.
+ * answers {@code version} and {@code check} as Visor does. The second board never answers, and the
+ * robot's alerts say so.
  */
 class CoprocessorsEndToEndTest {
   private static final String CAMERA = "usb-Thrifty_Cam_0001-video-index0";
@@ -68,6 +71,7 @@ class CoprocessorsEndToEndTest {
     Path restart =
         executable(work.resolve("restart"), "#!/bin/sh\necho restarted >> " + restarts + "\n");
     int port = freePort();
+    String dead = "127.0.0.1:" + freePort(); // a second board, where nothing answers
     startAgent(port, visor, devices, restart);
 
     // The robot's deploy folder: Visor's pack among the team's packs, and its release.
@@ -86,7 +90,10 @@ class CoprocessorsEndToEndTest {
             .build();
     RobotConfig robot =
         RobotConfigBuilder.builder(ExampleRobot.COMPETITION.with(onVisor))
-            .coprocessors(List.of(new BoardDefinition("127.0.0.1:" + port, List.of("visor"))))
+            .coprocessors(
+                List.of(
+                    new BoardDefinition("127.0.0.1:" + port, List.of("visor")),
+                    new BoardDefinition(dead, List.of("visor"))))
             .build();
     String wanted =
         VisorConfigs.forBoard(robot.definition().cameras(), 1234, List.of(CAMERA)).orElseThrow();
@@ -114,6 +121,8 @@ class CoprocessorsEndToEndTest {
     assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(program)))
         .isEqualTo("rwxr-xr-x");
     assertThat(restarts).content().isEqualTo("restarted\nrestarted\n");
+    // The board that never answers is the robot's alert, though the other was seen to.
+    assertThat(coprocessorsAlerts()).contains("HIGH " + dead + "/missing");
 
     // Brought up to date, it's left alone.
     long until = System.nanoTime() + 5_000_000_000L;
@@ -122,6 +131,14 @@ class CoprocessorsEndToEndTest {
       Thread.sleep(20);
     }
     assertThat(restarts).content().as("nothing more").isEqualTo("restarted\nrestarted\n");
+  }
+
+  /** The robot's Coprocessors alerts a dashboard shows now: level and key. */
+  private static List<String> coprocessorsAlerts() {
+    return Arrays.stream(AlertDataJNI.getAlerts())
+        .filter(alert -> alert.group.equals("Coprocessors") && alert.activeStartTime != 0)
+        .map(alert -> (alert.level == AlertDataJNI.LEVEL_HIGH ? "HIGH " : "MEDIUM ") + alert.id)
+        .toList();
   }
 
   /** Visor's program, as the pack sees it: its version, and a check that passes. */

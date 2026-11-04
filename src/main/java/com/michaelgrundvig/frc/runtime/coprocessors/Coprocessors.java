@@ -17,22 +17,25 @@ import org.jspecify.annotations.Nullable;
 /**
  * The robot's coprocessors, each by its Spotter agent (the robot configuration's {@code
  * coprocessors}): Spotter's manager, which watches them and pushes them the team's packs from the
- * deploy folder ({@code spotter-packs/}, where Visor's pack is), and the Visor installer, which
- * brings each board that has the robot's Visor cameras up to date. On a robot only: in the
- * simulator and a replay there are none.
+ * deploy folder ({@code spotter-packs/}, where Visor's pack is), its alerts shown as the robot's
+ * own ({@link SpotterAlerts}), and the Visor installer, which brings each board that has the
+ * robot's Visor cameras up to date. On a robot only: in the simulator and a replay there are none.
  */
 public final class Coprocessors implements AutoCloseable {
   private final @Nullable Manager manager;
+  private final @Nullable SpotterAlerts alerts;
   private final @Nullable VisorInstaller visor;
 
-  private Coprocessors(@Nullable Manager manager, @Nullable VisorInstaller visor) {
+  private Coprocessors(
+      @Nullable Manager manager, @Nullable SpotterAlerts alerts, @Nullable VisorInstaller visor) {
     this.manager = manager;
+    this.alerts = alerts;
     this.visor = visor;
   }
 
   /** None: the simulator's, a replay's, and a robot's that lists no coprocessors. */
   public static Coprocessors none() {
-    return new Coprocessors(null, null);
+    return new Coprocessors(null, null, null);
   }
 
   /**
@@ -78,7 +81,7 @@ public final class Coprocessors implements AutoCloseable {
             () -> !enabled.getAsBoolean() && !fieldAttached.getAsBoolean(),
             nanos,
             manager.boards().stream().map(SpotterBoards::new).toList());
-    return new Coprocessors(manager, visor);
+    return new Coprocessors(manager, new SpotterAlerts(manager::alerts), visor);
   }
 
   /** A Visor release's archive, as its release workflow names it. */
@@ -86,10 +89,13 @@ public final class Coprocessors implements AutoCloseable {
     return "visor-" + version + "-linux-arm64.tar.gz";
   }
 
-  /** Once each loop, first: the boards' state as last heard, then what Visor needs. */
+  /** Once each loop, first: the boards' state as last heard, its alerts, then what Visor needs. */
   public void periodic() {
     if (manager != null) {
       manager.update();
+    }
+    if (alerts != null) {
+      alerts.periodic();
     }
     if (visor != null) {
       visor.periodic();
@@ -100,6 +106,9 @@ public final class Coprocessors implements AutoCloseable {
   public void close() {
     if (visor != null) {
       visor.close();
+    }
+    if (alerts != null) {
+      alerts.close();
     }
     if (manager != null) {
       manager.close();
