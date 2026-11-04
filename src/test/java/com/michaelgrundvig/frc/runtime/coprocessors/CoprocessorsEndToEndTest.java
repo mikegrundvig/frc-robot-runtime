@@ -133,10 +133,49 @@ class CoprocessorsEndToEndTest {
     assertThat(restarts).content().as("nothing more").isEqualTo("restarted\nrestarted\n");
   }
 
+  /**
+   * A Systemcore with no team number (0): Visor's configuration would send frames to 10.0.0.2, so
+   * nothing of Visor's is done, and an alert says how to set it. The board isn't there: nothing
+   * waits on it.
+   */
+  @Test
+  void withNoTeamNumberVisorIsLeftAloneAndTheRobotSaysWhy() throws Exception {
+    CameraConfig first = ExampleRobot.COMPETITION.definition().cameras().get(0);
+    CameraConfig onVisor =
+        CameraConfigBuilder.builder(first)
+            .software(Software.visor().device("/dev/v4l/by-id/" + CAMERA).build())
+            .build();
+    RobotConfig robot = ExampleRobot.COMPETITION.with(onVisor);
+    Path deploy = Files.createDirectories(work.resolve("deploy"));
+    List<BoardDefinition> boards =
+        List.of(new BoardDefinition("127.0.0.1:" + freePort(), List.of("visor")));
+    for (int team : new int[] {0, 1234}) {
+      try (Coprocessors robotsBoards =
+          Coprocessors.on(
+              boards,
+              robot.definition().cameras(),
+              deploy,
+              team,
+              () -> false,
+              () -> false,
+              System::nanoTime)) {
+        robotsBoards.periodic();
+        assertThat(alerts("Visor"))
+            .as("team " + team)
+            .isEqualTo(team == 0 ? List.of("HIGH noTeam") : List.of());
+      }
+    }
+  }
+
   /** The robot's Coprocessors alerts a dashboard shows now: level and key. */
   private static List<String> coprocessorsAlerts() {
+    return alerts("Coprocessors");
+  }
+
+  /** The alerts of one group a dashboard shows now: level and key. */
+  private static List<String> alerts(String group) {
     return Arrays.stream(AlertDataJNI.getAlerts())
-        .filter(alert -> alert.group.equals("Coprocessors") && alert.activeStartTime != 0)
+        .filter(alert -> alert.group.equals(group) && alert.activeStartTime != 0)
         .map(alert -> (alert.level == AlertDataJNI.LEVEL_HIGH ? "HIGH " : "MEDIUM ") + alert.id)
         .toList();
   }

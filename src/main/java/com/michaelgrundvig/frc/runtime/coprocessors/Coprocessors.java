@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import org.jspecify.annotations.Nullable;
+import org.wpilib.util.Alert;
 
 /**
  * The robot's coprocessors, each by its Spotter agent (the robot configuration's {@code
@@ -20,22 +21,31 @@ import org.jspecify.annotations.Nullable;
  * deploy folder ({@code spotter-packs/}, where Visor's pack is), its alerts shown as the robot's
  * own ({@link SpotterAlerts}), and the Visor installer, which brings each board that has the
  * robot's Visor cameras up to date. On a robot only: in the simulator and a replay there are none.
+ *
+ * <p>Visor's configuration finds the robot by its team number, so with none set on Systemcore (team
+ * 0), Visor is neither installed nor configured, and an alert says why: its frames would go to
+ * 10.0.0.2, and a board's good configuration would be replaced by that one.
  */
 public final class Coprocessors implements AutoCloseable {
   private final @Nullable Manager manager;
   private final @Nullable SpotterAlerts alerts;
   private final @Nullable VisorInstaller visor;
+  private final @Nullable Alert noTeam;
 
   private Coprocessors(
-      @Nullable Manager manager, @Nullable SpotterAlerts alerts, @Nullable VisorInstaller visor) {
+      @Nullable Manager manager,
+      @Nullable SpotterAlerts alerts,
+      @Nullable VisorInstaller visor,
+      @Nullable Alert noTeam) {
     this.manager = manager;
     this.alerts = alerts;
     this.visor = visor;
+    this.noTeam = noTeam;
   }
 
   /** None: the simulator's, a replay's, and a robot's that lists no coprocessors. */
   public static Coprocessors none() {
-    return new Coprocessors(null, null, null);
+    return new Coprocessors(null, null, null, null);
   }
 
   /**
@@ -48,7 +58,7 @@ public final class Coprocessors implements AutoCloseable {
    *     whichever board they're plugged into
    * @param deploy the deploy folder: the team's packs in {@code spotter-packs/}, and this robot's
    *     Visor release in {@code visor/}
-   * @param team the team number, for Visor's configuration
+   * @param team the team number set on Systemcore, for Visor's configuration; 0 if none is
    * @param enabled whether the robot is enabled
    * @param fieldAttached whether the field is attached
    * @param nanos the robot's clock
@@ -71,6 +81,22 @@ public final class Coprocessors implements AutoCloseable {
             Settings.DEFAULTS.withPacks(deploy.resolve("spotter-packs")),
             Recorder.NONE);
     manager.start();
+    SpotterAlerts alerts = new SpotterAlerts(manager::alerts);
+    boolean onVisor =
+        cameras.stream()
+            .anyMatch(camera -> camera.software() instanceof CameraConfig.Software.Visor);
+    if (team <= 0 && onVisor) {
+      Alert noTeam =
+          new Alert(
+              "Visor",
+              "noTeam",
+              "Systemcore has no team number, so Visor isn't installed or configured on the"
+                  + " coprocessors (its frames would go to 10.0.0.2): set it on Systemcore's page,"
+                  + " http://robot.local, Change Team Number, then restart the robot program",
+              Alert.Level.HIGH);
+      noTeam.set(true);
+      return new Coprocessors(manager, alerts, null, noTeam);
+    }
     Path release = deploy.resolve("visor").resolve(releaseName(VisorVersion.VERSION));
     VisorInstaller visor =
         new VisorInstaller(
@@ -81,7 +107,7 @@ public final class Coprocessors implements AutoCloseable {
             () -> !enabled.getAsBoolean() && !fieldAttached.getAsBoolean(),
             nanos,
             manager.boards().stream().map(SpotterBoards::new).toList());
-    return new Coprocessors(manager, new SpotterAlerts(manager::alerts), visor);
+    return new Coprocessors(manager, alerts, visor, null);
   }
 
   /** A Visor release's archive, as its release workflow names it. */
@@ -109,6 +135,9 @@ public final class Coprocessors implements AutoCloseable {
     }
     if (alerts != null) {
       alerts.close();
+    }
+    if (noTeam != null) {
+      noTeam.close();
     }
     if (manager != null) {
       manager.close();

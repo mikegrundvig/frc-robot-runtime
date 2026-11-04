@@ -79,6 +79,10 @@ reason, and isn't tried again until what's wanted changes or the program restart
 the boards has plugged in is said once every board has reported. A board that reboots keeps what
 it has, so it's back on its own in seconds, mid-match included.
 
+Visor's configuration names the robot by the team number set on Systemcore. With none set, the
+robot installs and configures nothing of Visor's, and a high alert, `Visor/noTeam`, says how to set
+it.
+
 Spotter's own alerts are the robot's too, in the group `Coprocessors`, each naming its board: one
 that's missing or on another protocol (high), one whose packs differ from the robot's or that
 reports problems in them, each value of its packs at warning (medium) or failing (high), and the
