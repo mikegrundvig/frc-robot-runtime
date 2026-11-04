@@ -43,6 +43,9 @@ clears it.
 
 Alpha firmware changes often. When the template moves to a newer Phoenix, flash again.
 
+Once the devices are on the robot, Tuner X reaches them through the robot program instead
+([tuner-x.md](tuner-x.md)).
+
 ## Run it
 
 ```bash

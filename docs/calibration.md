@@ -40,7 +40,7 @@ Stand the robot still on a floor you trust to be level. The procedure averages t
 roll for two seconds, and should read within 1° of zero. If it doesn't, the IMU's mount calibration
 is off, and every tilt the robot reads is off by the same amount: tilt handling, bump detection,
 and every camera image solved on a tilted robot. Redo the Pigeon 2's mount calibration in Phoenix
-Tuner X, with the robot level, then check again.
+Tuner X, with the robot level ([on the robot](tuner-x.md)), then check again.
 
 When: after mounting or moving the IMU, and before each event.
 

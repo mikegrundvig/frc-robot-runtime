@@ -441,7 +441,7 @@ they aren't said.
 | `driveId` | as built | none | Tuner X, or REV's Hardware Client for a SPARK. |
 | `steerId` | as built | none | Tuner X, or REV's Hardware Client. |
 | `encoderId` | as built | none | Tuner X: the CANcoder's ID. Empty for a SPARK's steering, whose encoder is on its data port. |
-| `encoderOffset` | calibrated | none | Tuner X's swerve generator, with the wheels straight ahead; again whenever a module is rebuilt. On REV's modules: with the wheels straight ahead, read each steering SPARK's absolute encoder in REV's Hardware Client, and negate it. |
+| `encoderOffset` | calibrated | none | With the wheels straight ahead, the offset it has now minus what its CANcoder reads, in rotations ([tuner-x.md](tuner-x.md#encoder-offsets): the reading includes the offset the program wrote); again whenever a module is rebuilt. On REV's modules: with the wheels straight ahead, read each steering SPARK's absolute encoder in REV's Hardware Client, and negate it. |
 | `driveInverted` | as built | none | Tuner X's swerve generator. |
 | `steerInverted` | as built | none | Tuner X's swerve generator. |
 | `encoderInverted` | as built | none | Tuner X's swerve generator. |
@@ -1059,7 +1059,7 @@ drum), and its `RotorToSensorRatio` the rotor's turns for each of the CANcoder's
 |---|---|---|---|
 | `bus` | as built | none | Tuner X: Systemcore's port, or the CANivore's name. Its joint's motors' bus, where their TalonFX reads it: the robot refuses another. |
 | `id` | as built | none | Tuner X. |
-| `offset` | calibrated | none | Put the joint at its zero (the pose its origin gives in CAD), read the CANcoder's absolute position in Tuner X with no offset, and negate it; again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
+| `offset` | calibrated | none | Put the joint at its zero (the pose its origin gives in CAD), read the CANcoder's absolute position in Tuner X, and subtract it from the offset it has now ([tuner-x.md](tuner-x.md#encoder-offsets): the reading includes the offset the program wrote); again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
 | `turnsClockwise` | as built | none | Move the joint forward and watch the CANcoder from its LED side: clockwise (`.clockwise()` after its offset) or not, so its reading grows with the joint. |
 | `feedback` | chosen | none | What the TalonFX reads its position from: `ROTOR` (the CANcoder read only by code, at boot), `REMOTE` (no license), or `FUSED` or `SYNC` (Phoenix Pro). `FUSED` keeps the rotor's rate with the CANcoder's position, and is the best where it's licensed. |
 
