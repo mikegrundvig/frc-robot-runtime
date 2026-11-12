@@ -16,11 +16,11 @@ published to the FRC libraries' Maven repository,
 
 | Path | What |
 |---|---|
-| `src/main/java/` | The runtime (`com.michaelgrundvig.frc.runtime`, `com.michaelgrundvig.frc:frc-robot-runtime`). At its top: `RobotProgram` (the entry point), `Robot` (logging, Pitwall, and the loop), `RobotContainer` (builds every mechanism on the hardware for the mode: real, simulated, or replayed from a log), `RobotConfig`, `RunMode`, and `ExampleRobot`, the guide's robot, which the runtime is tested on, with `ExampleControls`, its buttons and autos. Its packages: `subsystems` (`drive`, `localization`, `vision`, `mechanisms`), `hardware`, `behavior`, `autos`, `commands`, `dashboard`, `venues`, `sim` (the simulated world's adapters), and `lib` (loop timing, Systemcore's CAN ports, the Phoenix and REV helpers). |
+| `src/main/java/` | The runtime (`com.michaelgrundvig.frc.runtime`, `com.michaelgrundvig.frc:frc-robot-runtime`). At its top: `RobotProgram` (the entry point), `Robot` (logging, Pitwall, and the loop), `RobotContainer` (builds every mechanism on the hardware for the mode: real, simulated, or replayed from a log), `RobotConfig`, `RunMode`, and `ExampleRobot`, the guide's robot, which the runtime is tested on, with `ExampleControls`, its buttons and autos. Its packages: `subsystems` (`drive`, `localization`, `vision`, `mechanisms`), `hardware`, `behavior`, `autos`, `commands`, `dashboard`, `coprocessors` (the robot's side of Spotter and Visor on each coprocessor), `venues`, `sim` (the simulated world's adapters), and `lib` (loop timing, Systemcore's CAN ports, the Phoenix and REV helpers, and the camera and board health measures). |
 | `src/testFixtures/java/` | What a team tests its own robot with: `RobotSim`, `Monkey`, `AutoCheck`, the invariants, `GoldenFile`, and the architecture rules a robot program shares (`ProductionRules`). A robot program asks for them as `testFixtures("com.michaelgrundvig.frc:frc-robot-runtime")`. |
 | `src/test/java/` | The runtime's own tests, in the packages of what they test, from single classes to the whole robot in the simulator, on the guide's robot, with its architecture rules (`ArchitectureTest`), the values register's test (`ValuesRegisterTest`) and the guides' examples' test (`DocExamplesTest`). |
 | `lib/simulation/` | The simulation, a project of its own (`com.michaelgrundvig.frc.simulation`, published as `com.michaelgrundvig.frc:frc-robot-simulation`): the physics, the IMUs' models, how the simulated sensors err, the catalog of what can fail, the seeds, and the truth suite that checks them against physics. Reads the world model and nothing else of the robot's. |
-| `build-logic/` | The Gradle plugin that writes AdvantageScope's robot assets from a robot program's `Robots.java` (`frc.advantagescope-assets`), an included build of its own, published with the runtime as `com.michaelgrundvig.frc:frc-gradle-plugins`. |
+| `build-logic/` | The Gradle plugins: one writes AdvantageScope's robot assets from a robot program's `Robots.java` (`frc.advantagescope-assets`), and one carries the Visor release in the robot's deploy (`frc.visor`). An included build of its own, published with the runtime as `com.michaelgrundvig.frc:frc-gradle-plugins`. |
 | `docs/` | The guides, below. |
 | `vendordeps/` | The vendor libraries the runtime is built and tested with, as in any WPILib project. A robot program that uses the runtime has the same files at the same versions. |
 | `gradle/` | The build's supporting rules: `quality.gradle` (checks, for every project), `wpilib-repositories.gradle` (where the libraries find WPILib), `frc-maven.gradle` (where the robot model, localization and Pitwall come from), `publishing.gradle` (the published artifacts), the version catalog (with `frc-libs`, the release's version), and every downloaded library's checksum. |
@@ -63,8 +63,8 @@ repositories {
     }
 }
 dependencies {
-    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.11"
-    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.11")
+    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.13"
+    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.13")
 }
 ```
 
@@ -73,9 +73,12 @@ compile against them and bring none of them. So the program must use the version
 repository's build and tests use: GradleRIO's version in `gradle/libs.versions.toml` and the files
 in `vendordeps/`. The jar says which they were, in `META-INF/frc-robot-runtime/built-with.json`
 (written by the `builtWith` task), and the template's build reads it and fails when they differ.
+The model, localization and Pitwall write their own beside it, naming the modules each compiled
+against, and the template's build compares those too.
 
 To draw AdvantageScope's robot assets from `Robots.java`, a program applies the plugin that lives
-in `build-logic/`, published with the runtime at its version:
+in `build-logic/`, published with the runtime at its version (`frc.visor`, the other, is applied
+the same way and is explained in [docs/visor.md](docs/visor.md)):
 
 ```groovy
 // settings.gradle
@@ -89,6 +92,7 @@ pluginManagement {
             filter {
                 includeGroup "com.michaelgrundvig.frc"
                 includeGroup "frc.advantagescope-assets"
+                includeGroup "frc.visor"
             }
         }
     }
@@ -96,7 +100,7 @@ pluginManagement {
 
 // build.gradle
 plugins {
-    id "frc.advantagescope-assets" version "2026.11.11"
+    id "frc.advantagescope-assets" version "2026.11.13"
 }
 ```
 

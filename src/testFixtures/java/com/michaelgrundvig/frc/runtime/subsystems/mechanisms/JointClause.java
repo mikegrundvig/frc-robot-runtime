@@ -49,7 +49,8 @@ public enum JointClause {
   J37("the encoder beside the count seeds it at startup and after a restart"),
   J38("an encoder the controller's loop runs on is where the joint reads"),
   J39("a joint that turns freely reads on past a turn"),
-  J40("a position is taken as its number says, not as the nearest turn");
+  J40("a position is taken as its number says, not as the nearest turn"),
+  J41("a homing push held still draws its volts over the windings, up to the stator limit");
 
   private final String says;
 

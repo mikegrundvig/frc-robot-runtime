@@ -134,8 +134,8 @@ final class Contact {
 
   /** The outline of every block that stands between the bumpers' bottom edge and their top. */
   private static Outline[] inTheBumpersWay(Body body, List<Element> elements) {
-    double bumperBottom = body.bumperBottom().in(Meters);
-    double bumperTop = body.bumperTop().in(Meters);
+    double bumperBottom = body.bumperBottomOrDefault().in(Meters);
+    double bumperTop = body.bumperTopOrDefault().in(Meters);
     List<Outline> outlines = new ArrayList<>();
     for (Element element : elements) {
       for (Polygon2d outline : element.inTheWayOf(bumperBottom, bumperTop)) {

@@ -35,7 +35,6 @@ import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Fault;
 import com.michaelgrundvig.frc.pitwall.simulator.Values;
 import com.michaelgrundvig.frc.pitwall.world.SimulatedParts;
-import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.Crossing;

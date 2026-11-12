@@ -23,12 +23,6 @@ package com.michaelgrundvig.frc.simulation;
  */
 public interface Physics {
   /**
-   * The acceleration of gravity the world pulls with, in m/s²: the standard one, as localization
-   * reads an IMU's.
-   */
-  double STANDARD_GRAVITY = 9.80665;
-
-  /**
    * Moves the world on by this long: its sub-steps, each starting with the actuators told the truth
    * as it stands and asked what drives each wheel over it.
    *

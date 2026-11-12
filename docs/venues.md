@@ -48,7 +48,8 @@ the field attached.
 
 1. **Pick the tags to hang**, four to eight, from the game's layout, by number. Print each at the
    game's size, the black square's edge measured to the millimeter, flat on something rigid. The
-   robot solves images at the game's size, whatever the venue says.
+   robot solves images at the size the season's field gives its tags (6.5 in for Rebuilt), whatever
+   the venue says: a venue moves tags, never resizes them.
 2. **Lay the shop out in the field's coordinates.** Pick a corner of the shop's floor as the
    origin, with x along one wall and y along the other, both pointing into the shop. The shop has to
    fit inside the field's length and width, since the robot refuses an image that puts it off the
@@ -71,8 +72,11 @@ the field attached.
    Leave the tags you didn't hang as they are. The robot never sees them, so where it believes
    they are doesn't matter.
 5. **Upload it and choose it** on Pitwall, then commit it to `src/main/deploy/venues/`, below.
-   **Check:** with the robot still and a tag in view, `Localization/Pose` is where the robot is,
-   measured from the same origin. [The localization check](localization-check.md) then works in
+   **Check:** with the robot still and a tag in view, and Pitwall's localization line saying
+   *Tracking tags*, `Localization/Pose` is where the robot is, measured from the same origin. (A
+   robot put on its start's heading and then carried somewhere facing another way corrects its
+   heading from the tags first: [where the robot thinks it's
+   facing](localization-check.md#where-the-robot-thinks-its-facing).) [The localization check](localization-check.md) then works in
    the shop too, with the spots measured from the shop's tags.
 
 A tag moved since is a new venue: measure it again, and upload the change.

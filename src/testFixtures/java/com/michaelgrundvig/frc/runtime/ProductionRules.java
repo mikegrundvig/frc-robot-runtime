@@ -95,7 +95,7 @@ public final class ProductionRules {
           .should(onlyBeConstructedByTheirBuilder())
           .because(
               "a constructor takes its values by position, so two can swap without a compile error;"
-                  + " the builder names every value (Body.builder().frameLength(...)...)");
+                  + " the builder names every value (Lens.builder().width(...)...)");
 
   /** A record {@code a.b.Outer$Name} is built by {@code a.b.OuterNameBuilder}, and nothing else. */
   private static ArchCondition<JavaClass> onlyBeConstructedByTheirBuilder() {

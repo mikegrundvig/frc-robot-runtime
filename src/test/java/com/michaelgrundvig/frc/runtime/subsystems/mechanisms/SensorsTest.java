@@ -57,18 +57,14 @@ class SensorsTest {
                             up,
                             HOPPER_RANGE.on(CANRANGE.can(BUS, 30)),
                             SHOOTER_RANGE.on(CANRANGE.can(BUS, 30))))
-                    .build())
+                    .build()
+                    .checked())
         .withMessage(
             "RobotDefinition[joints].devices: two CANranges on Systemcore's CAN_S0 port share CAN"
                 + " ID 30, hopper range and shooter range: give each its own");
   }
 
   private static Sensor.Rangefinder range(String label) {
-    return Sensor.Rangefinder.builder()
-        .label(label)
-        .part(Part.CHASSIS)
-        .range(Meters.of(1.3))
-        .fieldOfView(Degrees.of(27))
-        .build();
+    return Sensor.Rangefinder.of(label, Part.CHASSIS, Meters.of(1.3), Degrees.of(27));
   }
 }

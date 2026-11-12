@@ -8,8 +8,8 @@ import com.michaelgrundvig.frc.localization.VisionConfigBuilder;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.BodyBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
+import com.michaelgrundvig.frc.world.robot.DrivetrainModuleBuilder;
 
 /**
  * Measured values written where they're set, each with when and how it was measured, as
@@ -18,8 +18,8 @@ import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
 final class MeasuredValues {
   private MeasuredValues() {}
 
-  static final DrivetrainGeometry.ModuleType MODULES =
-      DrivetrainGeometryModuleTypeBuilder.builder(
+  static final Drivetrain.Module MODULES =
+      DrivetrainModuleBuilder.builder(
               ExampleRobot.SIM.definition().drivetrain().corners().get(0).module())
           .wheelRadius(Inches.of(1.974)) // measured YYYY-MM-DD
           .build();
@@ -30,7 +30,7 @@ final class MeasuredValues {
           .build();
 
   private static final VisionConfig VISION =
-      VisionConfigBuilder.builder(VisionConfig.DEFAULTS)
+      VisionConfigBuilder.builder(VisionConfig.defaults())
           .linearStdDevBaseline(
               0.012) // characterized YYYY-MM-DD: camera noise, our camera at 1280 x 800
           .distanceExponent(2.1) // characterized YYYY-MM-DD: camera noise

@@ -3,13 +3,15 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.SignalLogger;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixStartup;
 import com.michaelgrundvig.frc.runtime.lib.wiring.CanPorts;
 import com.michaelgrundvig.frc.world.robot.CanBus;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
-import org.wpilib.math.geometry.Rotation3d;
 
 /**
  * The drivetrain's hardware: four modules, each a TalonFX driving the wheel, a TalonFX turning it,
@@ -37,26 +39,46 @@ public final class PhoenixDrivetrain implements AutoCloseable {
   public static final double ENCODER_FREQUENCY_HZ = 100;
 
   private final PhoenixOdometryThread odometry = new PhoenixOdometryThread();
+  private final ExecutorService sender = newSender();
   private final ModuleIO[] modules = new ModuleIO[Module.COUNT];
   private final GyroIO gyro;
 
   /**
    * Configures every device (waiting for each, at startup) and starts reading them.
    *
-   * @param wiring where the devices are, and how the encoders read
+   * @param wiring where the devices are, how the encoders read, and the Pigeon 2: its yaw scale,
+   *     and how it's turned on the robot
    * @param drivetrain each corner's module: its gearing and wheel
-   * @param gyroOrientation how the Pigeon 2 is turned on the robot, from the robot's definition
    */
-  public PhoenixDrivetrain(
-      SwerveWiring wiring, DrivetrainGeometry drivetrain, Rotation3d gyroOrientation) {
+  public PhoenixDrivetrain(SwerveWiring wiring, Drivetrain drivetrain) {
     SignalLogger.enableAutoLogging(false);
     CANBus bus = bus(wiring.canBus());
+    // Asked once, for every device on the bus: a CANivore that isn't plugged in can't answer, so
+    // each device is tried once, not five times (PhoenixStartup).
+    int tries = PhoenixStartup.tries(PhoenixStartup.busSeen(wiring.canBus()));
+    ModuleStartup startup = new ModuleStartup(tries, sender);
     for (int i = 0; i < Module.COUNT; i++) {
-      modules[i] = module(wiring, wiring.modules().get(i), drivetrain.module(i), bus);
+      modules[i] = module(wiring, wiring.modules().get(i), drivetrain.module(i), bus, startup);
     }
+    SwerveWiring.Gyro pigeon = wiring.gyro();
     gyro =
-        new GyroIOPigeon2(wiring.gyroId(), bus, wiring.gyroYawScale(), gyroOrientation, odometry);
+        new GyroIOPigeon2(
+            pigeon.id(), bus, tries, pigeon.yawScale(), pigeon.mount().orientation(), odometry);
     odometry.start();
+  }
+
+  /**
+   * The thread a module's device is sent its settings on while the robot runs, once it answers
+   * after not taking them at startup ({@link DeviceSettings}). The send waits for the device's
+   * answer, and the robot's loop must not. It is a daemon: it never keeps the program from ending.
+   */
+  private static ExecutorService newSender() {
+    return Executors.newSingleThreadExecutor(
+        work -> {
+          Thread thread = new Thread(work, "Swerve module settings");
+          thread.setDaemon(true);
+          return thread;
+        });
   }
 
   /**
@@ -66,10 +88,12 @@ public final class PhoenixDrivetrain implements AutoCloseable {
   private ModuleIO module(
       SwerveWiring wiring,
       SwerveWiring.ModuleWiring module,
-      DrivetrainGeometry.ModuleType hardware,
-      CANBus bus) {
+      Drivetrain.Module hardware,
+      CANBus bus,
+      ModuleStartup startup) {
     if (wiring.driveController() == MechanismWiring.Controller.TALON_FX) {
-      return new ModuleIOTalonFX(module, bus, hardware, hardware.couplingRatio(), odometry);
+      return new ModuleIOTalonFX(
+          module, bus, hardware, hardware.couplingRatio(), odometry, startup);
     }
     // SPARKs are on one of Systemcore's own CAN ports: a drivetrain of SPARKs on a CANivore is
     // refused by the robot's definition before this is built.
@@ -79,7 +103,8 @@ public final class PhoenixDrivetrain implements AutoCloseable {
         CanPorts.of(port.port()),
         wiring.driveController(),
         wiring.steerController(),
-        hardware);
+        hardware,
+        startup);
   }
 
   /** The modules: front left, front right, back left, back right. */
@@ -104,9 +129,10 @@ public final class PhoenixDrivetrain implements AutoCloseable {
     return PhoenixMechanism.bus(bus);
   }
 
-  /** Stops reading the devices. */
+  /** Stops reading the devices, and sending them their settings. */
   @Override
   public void close() {
     odometry.interrupt();
+    sender.shutdownNow();
   }
 }

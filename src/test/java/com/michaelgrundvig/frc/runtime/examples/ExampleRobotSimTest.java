@@ -37,7 +37,6 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Move;
 import com.michaelgrundvig.frc.world.physical.Vector3;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.DrivenBuilder;
 import com.michaelgrundvig.frc.world.robot.Gearing;
@@ -48,9 +47,14 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.PrismaticJointBuilder;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.ArrayList;
 import java.util.List;
@@ -58,7 +62,6 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
-import org.wpilib.math.geometry.Translation3d;
 
 /**
  * The robot docs/mechanisms.md describes is one the robot would start, and its commands do what the
@@ -71,8 +74,9 @@ class ExampleRobotSimTest {
 
   private static final Position HOPPER_CLEAR = Position.of("clear", Meters.of(0.1));
 
-  private static final Joint.Prismatic HOPPER =
-      Joint.slide("hopper", Part.CHASSIS, new Translation3d(0.1, 0, 0.2), new Vector3(1, 0, 0))
+  private static final PrismaticJoint HOPPER =
+      Joint.slide("hopper", Part.CHASSIS, new Vector3(1, 0, 0))
+          .at(Meters.of(0.1), Meters.of(0), Meters.of(0.2))
           .range(Range.meters(0, 0.3))
           .rest(HOPPER_DOWN)
           .positions(HOPPER_DOWN, HOPPER_CLEAR)
@@ -102,7 +106,7 @@ class ExampleRobotSimTest {
     assertThat(practice.joints())
         .as("the same joints, wired otherwise")
         .containsExactlyElementsOf(competition.joints());
-    Joint.Revolute pivot = (Joint.Revolute) practice.joints().getFirst();
+    RevoluteJoint pivot = (RevoluteJoint) practice.joints().getFirst();
     assertThat(pivot.driven().motors().orElseThrow().controllers())
         .containsExactly(TALON_FX.can(33).pdh(4, Amps.of(40)));
     assertThat(pivot.driven().motors().orElseThrow().gearing())
@@ -123,7 +127,7 @@ class ExampleRobotSimTest {
         .containsExactlyElementsOf(competition.cameras().stream().map(CameraConfig::name).toList());
     CameraConfig backLeft = practice.cameras().get(2);
     assertThat(backLeft.name()).isEqualTo("back-left");
-    assertThat(backLeft.up()).as("half an inch lower").isEqualTo(Inches.of(20.5));
+    assertThat(backLeft.up().orElseThrow()).as("half an inch lower").isEqualTo(Inches.of(20.5));
     assertThat(backLeft.yaw())
         .as("the rest of its mount kept")
         .isEqualTo(competition.cameras().get(2).yaw());
@@ -131,9 +135,9 @@ class ExampleRobotSimTest {
 
   /**
    * The same code drives each robot to its own places: {@code goTo(PIVOT_OUT)} and the intake's
-   * configuration, written of the competition robot's constants, swing the practice robot's pivot
-   * to its own out, 128°, and its gate on out holds there. Its roller's interlock, a clearance at
-   * 110°, lets it run.
+   * preset, written of the competition robot's constants, swing the practice robot's pivot to its
+   * own out, 128°, and its gate on out holds there. Its roller's interlock, a clearance at 110°,
+   * lets it run.
    */
   @Test
   void theSameCodeDrivesEachRobotToItsOwnPlaces() {
@@ -206,14 +210,15 @@ class ExampleRobotSimTest {
   void theElevatorsEncoderCoversItsTravelInOneTurn() {
     JointsSimHarness sim = new JointsSimHarness(ExampleRobot.COMPETITION.definition());
     sim.loop();
-    Joint.Prismatic onTheShaft =
-        ELEVATOR
+    PrismaticJoint onTheShaft =
+        PrismaticJointBuilder.builder(ELEVATOR)
             .driven(
                 DrivenBuilder.builder(ELEVATOR.driven()).absoluteEncoder(Optional.empty()).build())
+            .build()
             .absoluteEncoder(CANCODER.can(24).offset(Rotations.of(0.31)));
 
     assertThat(sim.joints.of(ELEVATOR).state()).isEqualTo(JointMechanism.State.READY);
-    assertThatThrownBy(() -> ExampleRobot.COMPETITION.definition().with(onTheShaft))
+    assertThatThrownBy(() -> ExampleRobot.COMPETITION.definition().with(onTheShaft).checked())
         .hasMessage(
             "RobotDefinition[example].joints: elevator's absolute encoder turns 10.03 times over"
                 + " its travel, 0 m to 1.2 m: one of its turns must cover the travel, with a"
@@ -227,9 +232,9 @@ class ExampleRobotSimTest {
    */
   @Test
   void aBlocksInterlocksAreTheRobotsOwn() {
-    assertThat(ROLLER.ownInterlocks())
+    assertThat(RobotMath.ownInterlocks(ROLLER))
         .containsExactly(Interlock.that(ROLLER).runsOnlyWhen(PIVOT.atLeast(Degrees.of(110))));
-    assertThat(ARM.ownInterlocks())
+    assertThat(RobotMath.ownInterlocks(ARM))
         .containsExactly(
             Interlock.that(ARM)
                 .keepsOut(Range.degrees(-10, 30))
@@ -241,7 +246,7 @@ class ExampleRobotSimTest {
    * out of its lowest 0.3 m while the arm riding on it reaches down past 130°, is taken beside the
    * arm's own rule. Kept out of 0.1 m to 0.6 m while the arm is at most 0° instead, it would hold
    * the arm, resting below the bumper's band, as the arm holds it: a deadlock where the robot
-   * starts and where its stowed configuration puts them, refused as the guide quotes it.
+   * starts and where its stowed preset puts them, refused as the guide quotes it.
    */
   @Test
   void aJointHeldByOneWrittenAfterItHasItsRuleInTheDefinition() {
@@ -272,9 +277,10 @@ class ExampleRobotSimTest {
                             Interlock.that(ELEVATOR)
                                 .keepsOut(Range.meters(0.1, 0.6))
                                 .when(ARM.atMost(Degrees.of(0)))))
-                    .build())
+                    .build()
+                    .checked())
         .hasMessage(
-            "RobotDefinition[example].configurations: configuration stowed leaves arm and elevator"
+            "RobotDefinition[example].presets: preset stowed leaves arm and elevator"
                 + " holding each other by their interlocks, so neither can free the other: a"
                 + " deadlock (arm keeps out of -10° to 30° while elevator at most 0.8128 m, so arm"
                 + " stays between -60° and -10°; elevator keeps out of 0.1 m to 0.6 m while arm at"
@@ -291,9 +297,8 @@ class ExampleRobotSimTest {
    * the feeder and the indexer each have a "feeding", at 1000 and 1500 rpm, and {@code
    * feeder.run(INDEXER_FEEDING)}, a slip between two constants, would otherwise run the feeder at
    * its own without a word. It's refused, and so is the indexer's feeding in a gate on the feeder
-   * or in a configuration's move, saying where the feeder's is. Its own constant runs, and on a
-   * practice robot that re-valued it, the competition robot's constant runs the practice robot's
-   * own.
+   * or in a preset's move, saying where the feeder's is. Its own constant runs, and on a practice
+   * robot that re-valued it, the competition robot's constant runs the practice robot's own.
    */
   @Test
   void anotherJointsPlaceOfTheSameNameIsRefused() {
@@ -311,8 +316,7 @@ class ExampleRobotSimTest {
     assertThatThrownBy(() -> sim.joints.gate(FEEDER.at(INDEXER_FEEDING)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage(why);
-    assertThatThrownBy(
-            () -> sim.joints.run(Configuration.of("feeding", FEEDER.at(INDEXER_FEEDING))))
+    assertThatThrownBy(() -> sim.joints.run(Preset.of("feeding", FEEDER.at(INDEXER_FEEDING))))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage(why);
     assertThat(sim.joints.of(FEEDER).run(FEEDER_FEEDING)).isNotNull();
@@ -369,7 +373,7 @@ class ExampleRobotSimTest {
   /**
    * Another joint's place of a name this joint has, elsewhere, is refused wherever it's given, as a
    * move to it is: the hopper's "clear" in the elevator's move, its gate, a gate on a condition on
-   * it, or a configuration's move, each saying where the elevator's clear is.
+   * it, or a preset's move, each saying where the elevator's clear is.
    */
   @Test
   void anotherJointsPlaceIsRefusedWhereverItsGiven() {
@@ -381,7 +385,7 @@ class ExampleRobotSimTest {
     assertThatThrownBy(() -> sim.joints.of(ELEVATOR).goTo(HOPPER_CLEAR)).hasMessage(why);
     assertThatThrownBy(() -> sim.joints.of(ELEVATOR).isAt(HOPPER_CLEAR)).hasMessage(why);
     assertThatThrownBy(() -> sim.joints.gate(ELEVATOR.atMost(HOPPER_CLEAR))).hasMessage(why);
-    assertThatThrownBy(() -> sim.joints.goTo(Configuration.of("clear", ELEVATOR.at(HOPPER_CLEAR))))
+    assertThatThrownBy(() -> sim.joints.goTo(Preset.of("clear", ELEVATOR.at(HOPPER_CLEAR))))
         .hasMessage(why);
   }
 

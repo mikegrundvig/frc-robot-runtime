@@ -17,6 +17,8 @@ import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.simulation.SimHooks;
 
 /**
  * The drivetrain's moves, as a joint's are: each a command that ends on its own, with a deadline,
@@ -34,7 +37,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 @ExtendWith(RobotSim.class)
 class DriveMovesSimTest {
   private final DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM);
-  private final Drive drive = harness.drive;
+  private final SwerveDrive drive = harness.drive;
 
   @AfterEach
   void tearDown() {
@@ -225,6 +228,40 @@ class DriveMovesSimTest {
         .after(1.00)
         .because(MoveReason.CONDITION_NEVER_HELD)
         .saying("bumped is false");
+  }
+
+  /**
+   * A move's deadline is judged at the start of each loop, as a joint move's is and as a replay of
+   * its log judges it, however long the loop's own code has taken by the time the move asks. Here
+   * the 50th loop, which starts 0.98 s into a 1 s deadline, spends 25 ms before the move checks the
+   * deadline: the move times out in the loop after it, and not in it. Until 2026-11-09 a drive move
+   * read the clock as it asked, and timed out in that loop.
+   */
+  @Test
+  void aDeadlineIsJudgedAtTheLoopsStart() {
+    boolean[] slow = {false};
+    BooleanSupplier never =
+        () -> {
+          if (slow[0]) {
+            slow[0] = false;
+            SimHooks.stepTiming(0.025);
+          }
+          return false;
+        };
+    DriveMove brief = drive.runUntil(new ChassisVelocities(0.5, 0, 0), never).within(Seconds.of(1));
+    RobotSim.setEnabled(true);
+    harness.scheduler.schedule(brief);
+    for (int i = 0; i < 49; i++) {
+      harness.loop();
+    }
+
+    slow[0] = true;
+    harness.loop();
+    Optional<Outcome> inTheSlowLoop = brief.outcome();
+    harness.loop();
+
+    assertThat(inTheSlowLoop).as("0.98 s in, by the loop's start").isEmpty();
+    assertThat(brief.outcome()).contains(Outcome.TIMED_OUT);
   }
 
   /** One of each kind of move, by name, made new each time it's asked for. */

@@ -368,6 +368,36 @@ class HomingSimTest {
     assertThat(sim.simulation.velocity(ROLLER)).isGreaterThan(100);
   }
 
+  /**
+   * Powered on 0.3 m up with its motor controllers off the bus, the elevator reads still, its last
+   * reading standing. That is not its stop: it is never found, and once its time is out it is
+   * faulted, saying it had no reading. Until 2026-11-09 it was found at 0 m, 0.3 m from where it
+   * was, and every move after would have been 0.3 m high.
+   */
+  @Test
+  void aJointWhoseControllerIsSilentIsNeverFoundAtItsStop() {
+    Homing quick = Homing.toHardStop(Sensor.Switch.Limit.End.LOWER, Seconds.of(1));
+    JointsSimHarness sim = new JointsSimHarness(homing(ROBOT, ELEVATOR, quick));
+    JointMechanism elevator = sim.joints.of(ELEVATOR);
+    sim.simulation.powerOnAt(ELEVATOR, 0.3);
+    sim.simulation.silence(ELEVATOR, true);
+    boolean everReady = false;
+
+    for (int i = 0; i < 60; i++) {
+      sim.loop();
+      everReady |= elevator.state() == JointMechanism.State.READY;
+    }
+
+    assertThat(everReady).as("never found").isFalse();
+    assertThat(elevator.state()).isEqualTo(JointMechanism.State.FAULTED);
+    assertThat(elevator.stateRecorded())
+        .isEqualTo(JointState.faulted(JointState.Fault.HOMING_FOUND_NO_STOP));
+    assertThat(elevator.stateShown())
+        .contains(
+            "elevator's homing had no reading from its motor controller in 1.0 s, pushing toward"
+                + " its lower stop");
+  }
+
   @Test
   void aStillJointAtItsStopHomesInAQuarterSecond() {
     JointsSimHarness sim =

@@ -1,7 +1,6 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
-import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import java.util.ArrayList;
 import java.util.Arrays;

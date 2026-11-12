@@ -53,6 +53,15 @@ tasks.named("pluginUnderTestMetadata") {
     pluginClasspath.from(configurations.deployUtilsForTests)
 }
 
+// The AdvantageScope writer reads the robot model, which the program it runs on carries: it's
+// compiled against the model, and never brings one. Its tests build robots and read back what it
+// writes, so they run on the model, with what the model is compiled against (WPILib's math and units).
+dependencies {
+    compileOnly libs.frc.robot.model
+}
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+
 dependencies {
     testImplementation platform(libs.junit.bom)
     testImplementation "org.junit.jupiter:junit-jupiter"

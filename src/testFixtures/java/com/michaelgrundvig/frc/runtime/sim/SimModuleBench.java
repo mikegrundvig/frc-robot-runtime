@@ -10,8 +10,8 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleClause;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.WheelDrive;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import java.util.List;
 import java.util.Optional;
 import org.wpilib.system.RobotController;
@@ -23,7 +23,7 @@ import org.wpilib.system.RobotController;
  * physics to move the robot.
  */
 public final class SimModuleBench implements ModuleBench {
-  private static final DrivetrainGeometry GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
+  private static final Drivetrain GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
 
   /** The simulator's step: a fifth of a loop. */
   private static final int STEPS_A_LOOP = 5;
@@ -39,7 +39,7 @@ public final class SimModuleBench implements ModuleBench {
   }
 
   @Override
-  public Rig powerOn(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public Rig powerOn(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     return new SimRig(gains, limits);
   }
 
@@ -69,14 +69,14 @@ public final class SimModuleBench implements ModuleBench {
     private final WheelDrive drive = new WheelDrive();
     private double wheelRadians;
 
-    SimRig(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+    SimRig(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
       KinematicPhysics physics =
           new KinematicPhysics(
               ExampleRobot.SIM.definition().body(),
               RobotSim.massOf(ExampleRobot.SIM.definition()),
               GEOMETRY,
               List.of(1.0, 1.0, 1.0, 1.0));
-      sim = new ModuleIOSim(GEOMETRY.module(0), physics.wheel(0), 0, 0);
+      sim = new ModuleIOSim(GEOMETRY, 0, physics.wheel(0), 0, 0);
       sim.configure(gains, limits);
     }
 

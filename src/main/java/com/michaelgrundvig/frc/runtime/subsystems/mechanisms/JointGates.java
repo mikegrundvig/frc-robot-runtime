@@ -2,7 +2,6 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
-import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.State;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
@@ -102,7 +101,10 @@ final class JointGates {
   }
 
   private final JointReadings readings;
-  private final JointHoming homing;
+
+  /** What the joint shows, which says whether where it is is known this loop. */
+  private final JointView view;
+
   private final JointProfile profile;
   private final MechanismControl.Bands positionBands;
   private final MechanismControl.Bands speedBands;
@@ -116,14 +118,14 @@ final class JointGates {
    */
   JointGates(
       JointReadings readings,
-      JointHoming homing,
+      JointView view,
       JointProfile profile,
       MechanismControl.Bands positionBands,
       MechanismControl.Bands speedBands,
       double freeSpeed,
       Doing doing) {
     this.readings = readings;
-    this.homing = homing;
+    this.view = view;
     this.profile = profile;
     this.positionBands = positionBands;
     this.speedBands = speedBands;
@@ -131,12 +133,22 @@ final class JointGates {
     this.doing = doing;
   }
 
-  /** Whether the joint is measured at a position, within its band. */
-  Gate.Logic at(double position) {
+  /**
+   * Whether the joint is measured at a position, within its band. While where it is isn't known, it
+   * is not, and the gate says why: its motor controllers aren't answering, or it doesn't know.
+   *
+   * @param unknown says why where the joint is isn't known, in the gate's name
+   */
+  Gate.Logic at(double position, WhereUnknown unknown) {
     Remembered inside = new Remembered();
     return why -> {
+      if (!view.knowsWhere()) {
+        unknown.addTo(why, view);
+        inside.held = false;
+        return false;
+      }
       double off = Math.abs(readings.position() - position);
-      inside.held = isReady() && off <= band(positionBands, inside.held);
+      inside.held = off <= band(positionBands, inside.held);
       return inside.held;
     };
   }
@@ -159,15 +171,15 @@ final class JointGates {
     };
   }
 
-  /** Whether the joint knows where it is and its motor controllers answer. */
+  /** Whether the joint knows where it is and its motor controllers answered this loop. */
   Gate.Logic ready() {
-    return why -> isReady() && readings.answers();
+    return why -> view.knowsWhere();
   }
 
   /**
    * Whether the joint is where it is asked to be, whatever that is: at the goal of its profile for
-   * a position, within its band of a speed, running for a voltage or a share of the battery, and
-   * still for neutral.
+   * a position, within its band of a speed, running for a voltage or a duty cycle, and still for
+   * neutral.
    *
    * <p>What it is asked is what the command that has it asked. So a joint a command has taken is
    * not at its goal until that command, or one it started, has asked something of it and the joint
@@ -179,7 +191,7 @@ final class JointGates {
       @Override
       boolean isDoingIt(boolean wasAtGoal) {
         return doing.enabled()
-            && isReady()
+            && view.knowsWhere()
             && doing.applied() instanceof Demand demand
             && isDoing(demand.ask(), wasAtGoal);
       }
@@ -222,10 +234,6 @@ final class JointGates {
         && withinSpeed(velocity, false);
   }
 
-  private boolean isReady() {
-    return homing.state() == State.READY;
-  }
-
   /**
    * Whether the joint is doing what it was driven at.
    *
@@ -239,7 +247,7 @@ final class JointGates {
         yield profile.arrived() && off <= band(positionBands, wasDoingIt);
       }
       case JointAsk.AtVelocity atVelocity -> withinSpeed(atVelocity.speed(), wasDoingIt);
-      // A voltage or a share of the battery has no speed to reach, so the joint is doing it at
+      // A voltage or a duty cycle has no speed to reach, so the joint is doing it at
       // once.
       case JointAsk.AtVoltage atVoltage -> true;
       case JointAsk.AtDutyCycle atDutyCycle -> true;

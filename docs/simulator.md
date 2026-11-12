@@ -88,7 +88,7 @@ a log and the simulator connected this way name every value alike.
 | The estimate | `Localization/Pose` (2D); `Localization/Pose3d`, raised to the ground under it and tilted as the IMU says |
 | Its uncertainty | `Localization/Ellipse`: the 99.9% ellipse (3.72 standard deviations, where the consistency study's "outside the ellipse" begins), a closed outline of 17 poses; nothing while it's wider than the field |
 | The truth (simulator only) | `Sim/TruePose`, and `Sim/TruePose3d`, raised and tilted as the robot really is |
-| Each camera's tags | `Vision/<camera>/AcceptedTags` and `RejectedTags`: this loop's tags where the field's layout has them, by what became of their images; `RejectedReasons`, why each refused one was, in the same order |
+| Each camera's tags | `Vision/<camera>/AcceptedTags` and `RejectedTags`: this loop's tags where the field's layout has them, by what became of their images; `RejectedVerdicts`, why each refused one was, in the same order |
 | What Pitwall's World view is drawn from, at any loop | `Localization/Pose3d`, `Covariance` (the position's covariance and the heading's variance: xx, xy, yy, heading), `Mode`, `Accepted`, `Rejected`, `VisionAgeSeconds`, `Recoveries`, `Placements` and `PlacedBecause`; `Drive/ModuleVelocities`; `Sim/TruePose3d`; and for each camera `Vision/<camera>/Sightings`, its tags as facts (the tag, which image, what became of it, and its verdict and solver by their numbers in localization's lists), written when they change, with `SightingNumbers` beside them: seven numbers for each tag of this loop (the verdict's value and its limit, the innovation, χ², and the measured pose's x, y and heading), empty in a loop without an image |
 | The wheels | `Drive/ModulePoses`: each wheel's center in the robot's frame, turned to its measured angle, which turns the model's wheels |
 | The slip check | `Localization/SlipMetersPerSecond`, `TurnSlipMetersPerSecond`, `SpeedSlipMetersPerSecond`, `SlideMetersPerSecond`, `TurnApartDegrees`, `CollisionShare` |
@@ -110,7 +110,8 @@ ghost. Commit the folder with the change to `Robots.java` that made it.
   starts the robot program to draw it: it builds only the robots' configuration records, in a Java
   process of its own on the project's Java, with a 32 MB heap. It can't tell `Robots.java` from
   the rest of the program, so it runs again whenever the compiled program or its libraries change
-  (any change to the main code, to a library in `runtime/lib/`, where the writer is, or to a vendordep):
+  (any change to the main code, to a library such as the robot model, to the writer, which is the
+  plugin's own, in `runtime/build-logic/`, or to a vendordep):
   0.3 s on the template's robot. With the code unchanged it's skipped as up to date (0.025 s).
 - **Don't edit the folder:** the next build writes over an edit, from `Robots.java`. Nobody edits
   these files with a tool, so the build simply keeps them in step: after a pull, a `clean`, or a
@@ -520,10 +521,16 @@ The simulated world is in two places, apart so that nothing the robot runs can r
   rangefinders (`SensorSimulation`), each built from the robot's definition with the world, the
   IMUs' IO (`GyroIOSim`),
   the cameras (`CameraIOSim`, over
-  PhotonVision's simulation in `VisionSim`), the coprocessors, the faults' bindings to Pitwall
+  PhotonVision's simulation in `VisionSim`; a camera whose definition puts it on Visor reaches the
+  robot as real `VisorFrame`s, through Visor's client and `CameraIOVisor`, with the same tags,
+  corners and poses as PhotonVision's, and no multi-tag solve, since Visor makes none. The simulator
+  has no board running a configuration, so its frames name none: configuration ID 0, never
+  checked), the coprocessors, the faults' bindings to Pitwall
   (`Faults`), the scenarios, and `DriveSimulation`, which steps them together and takes the
-  sensors' readings at 250 Hz. Only these adapters and the program's top level see the library: the
-  robot's code sees its IO interfaces alone (the robot's `ArchitectureTest`).
+  sensors' readings at 250 Hz. Only these adapters see the library. The program's top level makes
+  the simulator with one call, `Robot.simulation` (`SimulatorWiring`), and sees the simulated world
+  through the hardware package's `Simulation` and `World` from then on; the robot's code sees its
+  IO interfaces alone (the robot's `ArchitectureTest`).
 
 **The physics** sits behind one interface, `Physics`: commands go in, truth comes out.
 

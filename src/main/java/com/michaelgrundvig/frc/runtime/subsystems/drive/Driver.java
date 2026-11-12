@@ -13,7 +13,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Translation2d;
 
 /**
- * What the robot hands the drivetrain once, as it builds it ({@link Drive#takeDriver}): the
+ * What the robot hands the drivetrain once, as it builds it ({@link SwerveDrive#takeDriver}): the
  * driver's sticks, and the field and alliance the robot plays on. The sticks drive the robot. The
  * field and the alliance say where a {@link Place} is, since a place is written once for blue and
  * red's is somewhere else.

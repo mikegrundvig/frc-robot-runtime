@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.runtime.behavior.Why;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.config.Rules;
 import com.michaelgrundvig.frc.world.record.Holder;
 import com.michaelgrundvig.frc.world.record.Identity;
@@ -22,9 +23,8 @@ import com.michaelgrundvig.frc.world.record.JointSentences;
 import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.record.MoveSentences;
-import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Driven;
-import com.michaelgrundvig.frc.world.robot.EncoderGap;
+import com.michaelgrundvig.frc.world.robot.EncoderGapCheck;
 import com.michaelgrundvig.frc.world.robot.EncoderLoop;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
@@ -32,6 +32,8 @@ import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -178,10 +180,10 @@ public final class JointMechanism implements Mechanism {
   private final Scheduler scheduler;
 
   /**
-   * Why this mechanism is a stand-in for a joint that has none ({@link #standIn}), or empty for a
-   * joint that is driven. A stand-in refuses every move and holds every gate false, saying this.
+   * Whether this mechanism drives its joint, or stands in for a joint that has none ({@link
+   * #standIn}). A stand-in refuses every move and holds every gate false, saying why.
    */
-  private final Optional<String> standsIn;
+  private final JointMode mode;
 
   /** Whether the joint holds a position when idle: it has a range or named positions. */
   private final boolean holdsPositions;
@@ -266,7 +268,7 @@ public final class JointMechanism implements Mechanism {
 
         @Override
         public boolean knowsWhere() {
-          return homing.state() == State.READY && readings.answersThisLoop();
+          return JointMechanism.this.knowsWhere();
         }
 
         @Override
@@ -382,7 +384,7 @@ public final class JointMechanism implements Mechanism {
       Optional<AbsoluteEncoderIO> absolute,
       Sensors sensors,
       Scheduler scheduler) {
-    this(definition, joint, tuned, io, absolute, sensors, scheduler, Optional.empty());
+    this(definition, joint, tuned, io, absolute, sensors, scheduler, new JointMode.Drives());
   }
 
   /**
@@ -404,7 +406,7 @@ public final class JointMechanism implements Mechanism {
         Optional.empty(),
         sensors,
         scheduler,
-        Optional.of(why));
+        new JointMode.StandsIn(why));
   }
 
   private JointMechanism(
@@ -415,48 +417,28 @@ public final class JointMechanism implements Mechanism {
       Optional<AbsoluteEncoderIO> absolute,
       Sensors sensors,
       Scheduler scheduler,
-      Optional<String> standsIn) {
+      JointMode mode) {
     RobotMath math = definition.math();
     this.definition = definition;
     this.joint = joint;
     jointIndex = definition.joints().indexOf(joint);
     notAnswering = Optional.of(new Why(MoveReason.JOINT_NOT_ANSWERING, jointIndex, ""));
     this.tuned = tuned;
-    this.standsIn = standsIn;
+    this.mode = mode;
     this.scheduler = scheduler;
     this.sensors = sensors;
     label = joint.label();
     String key = "Joints/" + label;
     log = new JointLog(key);
-    // A stand-in's joint has no control and no motors. Nothing about how it is driven is worked
-    // out, since nothing drives it.
-    boolean isDriven = standsIn.isEmpty();
-    MechanismControl control = isDriven ? ControllerSettings.control(joint) : tuned.get();
+    JointSetup parts = JointSetup.of(mode, math, joint, tuned);
+    MechanismControl control = parts.control();
     retuned = control;
-    holdsPositions = joint.holdsPositions();
-
-    if (isDriven) {
-      travel = Travel.of(math, joint, control);
-      freeSpeed = math.freeSpeed(joint);
-      // The gains as the joint's motor controller has them: tuned, or else the definition's seed.
-      ControllerPlan plan = ControllerPlan.of(math, joint, control);
-      kA = plan.kA();
-      kV = plan.kV();
-    } else {
-      travel =
-          new Travel(
-              joint,
-              Double.NEGATIVE_INFINITY,
-              Double.POSITIVE_INFINITY,
-              Travel.Taking.AS_IT_IS,
-              1,
-              1,
-              0);
-      freeSpeed = 0;
-      kA = 0;
-      kV = 0;
-    }
-    MechanismControl.Bands kindBands = joint instanceof Joint.Revolute ? ANGLE_BANDS : LENGTH_BANDS;
+    holdsPositions = RobotMath.holdsPositions(joint);
+    travel = parts.travel();
+    freeSpeed = parts.freeSpeed();
+    kA = parts.kA();
+    kV = parts.kV();
+    MechanismControl.Bands kindBands = joint instanceof RevoluteJoint ? ANGLE_BANDS : LENGTH_BANDS;
     positionBands = holdsPositions ? control.bands().orElse(kindBands) : kindBands;
     speedBands = holdsPositions ? SPEED_BANDS : control.bands().orElse(SPEED_BANDS);
     requests =
@@ -504,51 +486,17 @@ public final class JointMechanism implements Mechanism {
             recipe,
             stops.homingSwitch(recipe),
             robotReadEncoder.map(JointReadings.RobotReadEncoder::forHoming),
-            this::found);
-    if (standsIn.isPresent()) {
-      homing.faultFor(JointState.Fault.NO_MECHANISM, standsIn.get());
+            this::found,
+            () -> retuned.currentLimits().stator().in(Amps));
+    if (mode instanceof JointMode.StandsIn standsIn) {
+      homing.faultFor(JointState.Fault.NO_MECHANISM, standsIn.why());
     }
 
     gates =
         new JointGates(
-            readings,
-            homing,
-            profile,
-            positionBands,
-            speedBands,
-            freeSpeed,
-            new JointGates.Doing() {
-              @Override
-              public boolean enabled() {
-                return enabled;
-              }
+            readings, view, profile, positionBands, speedBands, freeSpeed, new WhatItIsDoing());
 
-              @Override
-              public Applied applied() {
-                return applied;
-              }
-
-              @Override
-              public Optional<String> drivenName() {
-                return drivenName;
-              }
-
-              @Override
-              public long question() {
-                return tenure.question();
-              }
-
-              @Override
-              public long standing() {
-                return tenure.standing();
-              }
-
-              @Override
-              public boolean isJudged() {
-                return tenure.isJudged();
-              }
-            });
-
+    boolean isDriven = mode instanceof JointMode.Drives;
     boolean hasEncoderToCompare =
         isDriven && holdsPositions && encoder.isPresent() && math.absoluteEncoder(joint) != null;
     encoderTrust =
@@ -558,10 +506,46 @@ public final class JointMechanism implements Mechanism {
                     label,
                     travel,
                     EncoderTrust.Wiring.of(encoder.get()),
-                    new EncoderSlip(EncoderGap.of(math, joint, control)),
+                    new EncoderSlip(EncoderGapCheck.of(math, joint, control)),
                     readings,
                     homing))
             : Optional.empty();
+  }
+
+  /**
+   * What the joint is doing, as its gates read it ({@link JointGates.Doing}): read live from the
+   * mechanism, so a gate sees this loop's.
+   */
+  private final class WhatItIsDoing implements JointGates.Doing {
+    @Override
+    public boolean enabled() {
+      return enabled;
+    }
+
+    @Override
+    public Applied applied() {
+      return applied;
+    }
+
+    @Override
+    public Optional<String> drivenName() {
+      return drivenName;
+    }
+
+    @Override
+    public long question() {
+      return tenure.question();
+    }
+
+    @Override
+    public long standing() {
+      return tenure.standing();
+    }
+
+    @Override
+    public boolean isJudged() {
+      return tenure.isJudged();
+    }
   }
 
   /**
@@ -574,7 +558,7 @@ public final class JointMechanism implements Mechanism {
   }
 
   private static MechanismControl.Bands bands(double enter, double stay) {
-    return MechanismControl.Bands.builder().enter(enter).stay(stay).build();
+    return MechanismControl.Bands.of(enter, stay);
   }
 
   /**
@@ -709,25 +693,26 @@ public final class JointMechanism implements Mechanism {
    *
    * <p>A position is a name on the joint, and it goes where the robot running it puts it: a
    * practice robot's joint, its position re-placed ({@code replaced}), goes to its own, given the
-   * competition robot's constant. A position that isn't its own ({@link Joint#whyNotOwn}) is
-   * refused, saying so: a name it doesn't have, another joint's or one left out of its {@code
-   * .positions(...)}, or one of its names at a value it has never had, another joint's of the same
-   * name, elsewhere ({@code elevator.goTo(HOPPER_OUT)}, each with an "out"). Built as the robot
-   * starts, as its bindings and the autos built with them are, the move throws: the robot doesn't
-   * start, and a test that builds it fails. Built once the robot runs, in a command or anywhere
-   * else, it ends {@link Outcome#REFUSED} as it starts, its reason logged, so a robot on the field
-   * is never stopped by one ({@link Refusals}). Every other move, gate and option that can't work
-   * is refused the same way.
+   * competition robot's constant. A position that isn't its own ({@link
+   * RobotDefinition#whyNotOwn(Joint, Position)}) is refused, saying so: a name it doesn't have,
+   * another joint's or one left out of its {@code .positions(...)}, or one of its names at a value
+   * it has never had, another joint's of the same name, elsewhere ({@code
+   * elevator.goTo(HOPPER_OUT)}, each with an "out"). Built as the robot starts, as its bindings and
+   * the autos built with them are, the move throws: the robot doesn't start, and a test that builds
+   * it fails. Built once the robot runs, in a command or anywhere else, it ends {@link
+   * Outcome#REFUSED} as it starts, its reason logged, so a robot on the field is never stopped by
+   * one ({@link Refusals}). Every other move, gate and option that can't work is refused the same
+   * way.
    *
    * @throws IllegalArgumentException for a position not its own, built as the robot starts
    */
   public Move goTo(Position position) {
-    Optional<String> refused = refusedAsBuilt(joint.whyNotOwn(position));
+    Optional<String> refused = refusedAsBuilt(definition.whyNotOwn(joint, position));
     if (refused.isPresent()) {
       return Move.refusedGoTo(this, position.name(), refused);
     }
     Optional<String> name = Optional.of(position.name());
-    return Move.goTo(this, joint.own(position).value(), name, position.name(), refused);
+    return Move.goTo(this, definition.own(joint, position).value(), name, position.name(), refused);
   }
 
   /**
@@ -740,14 +725,18 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException if the joint slides, built as the robot starts
    */
   public Move goTo(Angle angle) {
-    if (!(joint instanceof Joint.Revolute)) {
+    if (!(joint instanceof RevoluteJoint)) {
       Optional<String> refused =
           refusedAsBuilt(Optional.of(label + " slides: send it to a distance"));
       return Move.refusedGoTo(this, Rules.shown(angle), refused);
     }
     double radians = angle.in(Radians);
     return Move.goTo(
-        this, radians, Optional.empty(), joint.shown(radians), refusedAsBuilt(Optional.empty()));
+        this,
+        radians,
+        Optional.empty(),
+        Position.Kind.of(joint).shown(radians),
+        refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -757,13 +746,17 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException if the joint turns, built as the robot starts
    */
   public Move goTo(Distance distance) {
-    if (!(joint instanceof Joint.Prismatic)) {
+    if (!(joint instanceof PrismaticJoint)) {
       Optional<String> refused = refusedAsBuilt(Optional.of(label + " turns: send it to an angle"));
       return Move.refusedGoTo(this, Rules.shown(distance), refused);
     }
     double meters = distance.in(Meters);
     return Move.goTo(
-        this, meters, Optional.empty(), joint.shown(meters), refusedAsBuilt(Optional.empty()));
+        this,
+        meters,
+        Optional.empty(),
+        Position.Kind.of(joint).shown(meters),
+        refusedAsBuilt(Optional.empty()));
   }
 
   /**
@@ -816,8 +809,8 @@ public final class JointMechanism implements Mechanism {
 
   /** Runs the joint at one of its outputs, until a condition holds if there is one. */
   private Move run(Output output, Optional<BooleanSupplier> until) {
-    Optional<String> refused = refusedAsBuilt(joint.whyNotOwn(output));
-    Output own = refused.isEmpty() ? joint.own(output) : output;
+    Optional<String> refused = refusedAsBuilt(definition.whyNotOwn(joint, output));
+    Output own = refused.isEmpty() ? definition.own(joint, output) : output;
     return Move.run(this, own, until, refused);
   }
 
@@ -831,7 +824,8 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException with the reason, as the robot starts
    */
   private Optional<String> refusedAsBuilt(Optional<String> why) {
-    Optional<String> cannot = standsIn.isPresent() ? standsIn : why;
+    Optional<String> cannot =
+        mode instanceof JointMode.StandsIn standsIn ? Optional.of(standsIn.why()) : why;
     return Refusals.asBuilt(scheduler, cannot);
   }
 
@@ -865,14 +859,14 @@ public final class JointMechanism implements Mechanism {
    * @throws IllegalArgumentException with why it cannot be, as the robot starts
    */
   private Gate gate(String name, Supplier<Gate.Logic> logic) {
-    if (standsIn.isPresent()) {
-      return Refusals.gate(scheduler, name, standsIn.get());
+    if (mode instanceof JointMode.StandsIn standsIn) {
+      return Refusals.gate(scheduler, name, standsIn.why());
     }
     Gate.Logic built;
     try {
       built = logic.get();
     } catch (IllegalArgumentException e) {
-      return Refusals.gate(scheduler, name, String.valueOf(e.getMessage()));
+      return Refusals.gate(scheduler, name, Said.of(e));
     }
     return new Gate(scheduler, name, built);
   }
@@ -890,7 +884,12 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether it's at one of its positions, as {@link #isAt(Position)}, under another name. */
   Gate isAt(String name, Position position) {
-    return gate(name, () -> gates.at(joint.own(position).value()));
+    return gate(
+        name,
+        () ->
+            gates.at(
+                definition.own(joint, position).value(),
+                new WhereUnknown(definition, name, jointIndex)));
   }
 
   /**
@@ -911,7 +910,7 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether it runs at one of its outputs, as {@link #isAt(Output)}, under another name. */
   Gate isAt(String name, Output output) {
-    return gate(name, () -> gates.runningAt(joint.own(output)));
+    return gate(name, () -> gates.runningAt(definition.own(joint, output)));
   }
 
   /** Whether it knows where it is and its motor controllers answer: "pivot ready". */
@@ -1057,6 +1056,16 @@ public final class JointMechanism implements Mechanism {
     return outcome.map(MoveEnding::sentence).orElse("");
   }
 
+  /**
+   * Whether where the joint is, is known this loop: it knows where it is, and its motor controllers
+   * answered with this loop's readings. A reading that isn't this loop's is no reading. Every gate
+   * and doubt check on where the joint is asks this, as do the interlocks on other joints that read
+   * it ({@link JointView#knowsWhere}).
+   */
+  boolean knowsWhere() {
+    return homing.state() == State.READY && readings.answersThisLoop();
+  }
+
   /** When this loop began, in nanoseconds on the robot's clock. */
   long now() {
     return nowNanos;
@@ -1067,8 +1076,8 @@ public final class JointMechanism implements Mechanism {
    * mechanism, its motor controllers are not answering, or its homing failed.
    */
   Optional<String> fault() {
-    if (standsIn.isPresent()) {
-      return standsIn;
+    if (mode instanceof JointMode.StandsIn standsIn) {
+      return Optional.of(standsIn.why());
     }
     if (!readings.answers()) {
       return Optional.of(MoveSentences.notAnswering(joint));
@@ -1081,8 +1090,8 @@ public final class JointMechanism implements Mechanism {
    * of the reasons it is, about this joint, with the fault's text where the reason has some.
    */
   Optional<Why> whyMovesCannotRun() {
-    if (standsIn.isPresent()) {
-      return Optional.of(new Why(MoveReason.JOINT_FAULTED, jointIndex, standsIn.get()));
+    if (mode instanceof JointMode.StandsIn standsIn) {
+      return Optional.of(new Why(MoveReason.JOINT_FAULTED, jointIndex, standsIn.why()));
     }
     if (!readings.answers()) {
       return notAnswering;
@@ -1200,7 +1209,7 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether a measure is a position the joint takes: an angle if it turns, a distance if not. */
   boolean isPosition(Measure<?> measure) {
-    if (joint instanceof Joint.Revolute) {
+    if (joint instanceof RevoluteJoint) {
       return measure instanceof Angle;
     }
     return measure instanceof Distance;
@@ -1208,7 +1217,7 @@ public final class JointMechanism implements Mechanism {
 
   /** Whether a measure is a speed the joint runs at. */
   boolean isSpeed(Measure<?> measure) {
-    if (joint instanceof Joint.Revolute) {
+    if (joint instanceof RevoluteJoint) {
       return measure instanceof AngularVelocity;
     }
     return measure instanceof LinearVelocity;
@@ -1253,7 +1262,7 @@ public final class JointMechanism implements Mechanism {
         && encoderTrust.get().check(nowNanos, enabled) == EncoderTrust.Change.TRUSTED_AGAIN) {
       holdWhereItIs();
     }
-    homing.advance(nowNanos, enabled, enabling, readings.velocity());
+    homing.advance(nowNanos, enabled, enabling, readings);
   }
 
   /** Takes the joint's control from the pit, if it was tuned since the last loop. */
@@ -1328,8 +1337,7 @@ public final class JointMechanism implements Mechanism {
    */
   void sensed() {
     homing.switchRead(nowNanos, readings.position(), sensors);
-    boolean knowsWhere = homing.state() == State.READY && readings.answers();
-    doubts.check(nowNanos, knowsWhere, readings.position(), sensors);
+    doubts.check(nowNanos, knowsWhere(), readings.position(), sensors);
     if (doubts.logged().length > 0) {
       log.switchDoubts(doubts.logged());
     }

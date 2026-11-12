@@ -1,7 +1,9 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
+import com.michaelgrundvig.frc.localization.ImageVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationService;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.PoseEstimator;
@@ -10,13 +12,12 @@ import com.michaelgrundvig.frc.localization.SwerveKinematicsModel;
 import com.michaelgrundvig.frc.localization.TagAllowlist;
 import com.michaelgrundvig.frc.localization.TagDetections;
 import com.michaelgrundvig.frc.localization.VisionMeasurement;
-import com.michaelgrundvig.frc.localization.VisionResult;
 import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.localization.Localization;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.Alliance;
@@ -55,13 +56,13 @@ public final class DriveSimHarness implements AutoCloseable {
    */
   public final LocalizationService service;
 
-  public final Drive drive;
+  public final SwerveDrive drive;
 
   /** Every camera measurement's fate, in order. */
   public final List<FrameVerdict> frames = new ArrayList<>();
 
   /** What localization made of each image the tag cameras sent, at once, in order. */
-  public final List<VisionResult> images = new ArrayList<>();
+  public final List<ImageVerdict> images = new ArrayList<>();
 
   private @Nullable FakeCamera camera;
   private List<FakeTagCamera> tagCameras = List.of();
@@ -81,7 +82,7 @@ public final class DriveSimHarness implements AutoCloseable {
    * keeps apart the simulator's field's tags.
    */
   public static PoseEstimator estimatorAt(Pose2d start) {
-    return estimatorAt(start, EstimatorConfig.DEFAULTS);
+    return estimatorAt(start, EstimatorConfig.defaults());
   }
 
   public static PoseEstimator estimatorAt(Pose2d start, EstimatorConfig config) {
@@ -105,12 +106,18 @@ public final class DriveSimHarness implements AutoCloseable {
       RobotConfig robot, PoseEstimator estimator, Terrain terrain) {
     return new Localization(
         new LocalizationService(
-            estimator,
-            new SwerveKinematicsModel(robot.definition().moduleTranslations()),
             RobotSim.FIELD,
             terrain,
             robot.definition(),
-            RobotLoop.PERIOD_SECONDS));
+            new DefaultLocalizer(
+                estimator,
+                new SwerveKinematicsModel(robot.definition().moduleTranslations()),
+                terrain,
+                robot.definition(),
+                robot.slipCheck()),
+            RobotLoop.PERIOD_SECONDS),
+        robot.scoringGate(),
+        robot.scoringWhenNotJudgedOrDefault());
   }
 
   /** Whether the harness hands the drive the driver's sticks as it builds it. */
@@ -130,11 +137,11 @@ public final class DriveSimHarness implements AutoCloseable {
    */
   public static DriveSimHarness withoutDriver(RobotConfig robot) {
     return new DriveSimHarness(
-        robot, SensorErrors.NONE, EstimatorConfig.DEFAULTS, Terrain.FLAT, Sticks.NOT_YET);
+        robot, SensorErrors.NONE, EstimatorConfig.defaults(), Terrain.FLAT, Sticks.NOT_YET);
   }
 
   public DriveSimHarness(RobotConfig robot, SensorErrors errors) {
-    this(robot, errors, EstimatorConfig.DEFAULTS);
+    this(robot, errors, EstimatorConfig.defaults());
   }
 
   public DriveSimHarness(RobotConfig robot, SensorErrors errors, EstimatorConfig config) {
@@ -163,10 +170,11 @@ public final class DriveSimHarness implements AutoCloseable {
             RobotSim.massOf(definition),
             definition.drivetrain(),
             errors,
-            definition.imus());
+            definition.gyroMount(),
+            definition.backupImu());
     simulation.setTerrain(terrain);
     drive =
-        new Drive(
+        new SwerveDrive(
             "Drive",
             DriveHardware.builder()
                 .modules(List.of(simulation.modules()))

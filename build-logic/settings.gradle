@@ -18,6 +18,27 @@ dependencyResolutionManagement {
         mavenCentral()
         // GradleRIO's deploy library, which Gradle's plugin portal serves with GradleRIO.
         gradlePluginPortal()
+        // The robot model, which the AdvantageScope writer is compiled against, from the FRC
+        // libraries' Maven repository as the runtime reads it (gradle/frc-maven.gradle); and WPILib's
+        // libraries, which the model is compiled against in turn.
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "frcMaven"
+                    url = providers.gradleProperty("frcMaven").orElse("https://mikegrundvig.github.io/frc-maven/").get()
+                }
+            }
+            filter {
+                includeModuleByRegex "com\\.michaelgrundvig\\.frc", "(?!spotter-).+"
+            }
+        }
+        maven {
+            name = "wpilib"
+            url = "https://frcmaven.wpi.edu/artifactory/release/"
+            content {
+                includeGroupByRegex "org\\.wpilib(\\..*)?"
+            }
+        }
     }
     // The root build's version catalog, so test libraries are versioned in one place.
     versionCatalogs {
@@ -28,3 +49,18 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "build-logic"
+
+// Developing the libraries together (-PlocalLibs, the runtime's settings.gradle): the robot model
+// beside this runtime is built from its source, in place of the published one, so the writer is
+// compiled against the model the robot program runs on.
+def model = new File(settingsDir, "../../model")
+if (providers.gradleProperty("localLibs").isPresent() && new File(model, "settings.gradle").exists()) {
+    includeBuild(model) {
+        dependencySubstitution {
+            substitute module("com.michaelgrundvig.frc:frc-robot-model") using project(":")
+            // Naming one substitution turns off Gradle's automatic ones, so the model's processor,
+            // published as frc-docs-processor, is named too.
+            substitute module("com.michaelgrundvig.frc:frc-docs-processor") using project(":docs-processor")
+        }
+    }
+}

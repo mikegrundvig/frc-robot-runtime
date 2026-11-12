@@ -1,17 +1,18 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
+import com.michaelgrundvig.frc.pitwall.world.SimulatedParts;
+import com.michaelgrundvig.frc.runtime.hardware.Hardware;
+import com.michaelgrundvig.frc.runtime.hardware.World;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.GyroIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
-import com.michaelgrundvig.frc.runtime.subsystems.vision.VisionSim;
 import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.Imus;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.Arrays;
 import java.util.List;
@@ -37,7 +38,7 @@ import org.wpilib.units.measure.Mass;
  * it, to Pitwall's simulator controls ({@link #addTo}), where the page and the scenarios apply
  * them.
  */
-public final class SimulatedWorld implements AutoCloseable {
+public final class SimulatedWorld implements World {
   private final FieldModel field;
   private final DriveSimulation drivetrain;
 
@@ -97,12 +98,19 @@ public final class SimulatedWorld implements AutoCloseable {
       SensorErrors errors,
       CameraConfig.@Nullable Software everyCamera,
       @Nullable DetectionModel detection) {
+    // A definition can reach the simulator without a RobotConfig, so it is checked here too.
+    definition.checked();
     this.field = field;
-    Imus imus = definition.imus();
     List<CameraConfig> cameras = definition.cameras();
     this.drivetrain =
-        new DriveSimulation(definition.body(), robotMass, definition.drivetrain(), errors, imus);
-    this.hasBackupImu = imus.backup().isPresent();
+        new DriveSimulation(
+            definition.body(),
+            robotMass,
+            definition.drivetrain(),
+            errors,
+            definition.gyroMount(),
+            definition.backupImu());
+    this.hasBackupImu = definition.backupImu().isPresent();
     this.drivetrain.setTerrain(field.terrain());
     // A field with nothing written to stand on it is a bare one, for a test to drive across: it is
     // left as open space, with no walls either. A season's field has elements, and its walls.
@@ -144,6 +152,24 @@ public final class SimulatedWorld implements AutoCloseable {
    */
   public void addTo(Components components) {
     Faults.declare(this, components);
+  }
+
+  /** Its parts that can fail ({@link #addTo}), and every scenario that can happen to its robot. */
+  @Override
+  public void addControlsTo(Components components) {
+    addTo(components);
+    Scenarios.addTo(components, this);
+  }
+
+  @Override
+  public SimulatedParts parts() {
+    return Faults.parts();
+  }
+
+  /** Its simulated devices, built from the robot's definition as it was. */
+  @Override
+  public Hardware hardware() {
+    return new SimulatedHardware(this);
   }
 
   /**
@@ -208,6 +234,7 @@ public final class SimulatedWorld implements AutoCloseable {
   }
 
   /** The drive team puts the robot here. */
+  @Override
   public void place(Pose2d pose) {
     drivetrain.place(pose);
   }
@@ -216,6 +243,7 @@ public final class SimulatedWorld implements AutoCloseable {
    * One loop: the world moves on, and the cameras see where the robot now is. Before the robot
    * reads its sensors, as on a robot between loops.
    */
+  @Override
   public void step(long nowNanos) {
     drivetrain.step(RobotLoop.PERIOD_SECONDS, nowNanos);
     joints.step(RobotLoop.PERIOD_SECONDS);
@@ -226,6 +254,7 @@ public final class SimulatedWorld implements AutoCloseable {
   }
 
   /** Where the robot really is. */
+  @Override
   public Pose2d truePose() {
     return drivetrain.truePose();
   }
@@ -234,6 +263,7 @@ public final class SimulatedWorld implements AutoCloseable {
    * Logs where the robot really is, and how far the estimate is from it: what localization has to
    * close. In 3D too, raised and tilted as the robot really is, for AdvantageScope's ghost.
    */
+  @Override
   public void log(Pose2d estimated) {
     Pose2d truth = drivetrain.truePose();
     Logger.recordOutput("Sim/TruePose", truth);

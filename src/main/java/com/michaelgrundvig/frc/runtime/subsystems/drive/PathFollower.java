@@ -40,7 +40,7 @@ final class PathFollower {
    */
   static final double RATE_DAMPING = 0.5;
 
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final HolonomicTrajectory path;
 
   /** Where the path ends. */
@@ -61,14 +61,17 @@ final class PathFollower {
    * @param control the drivetrain's gains and limits, as tuned now
    */
   PathFollower(
-      Drive drive, HolonomicTrajectory path, DriveTask.Arrival arrival, DrivetrainControl control) {
+      SwerveDrive drive,
+      HolonomicTrajectory path,
+      DriveTask.Arrival arrival,
+      DrivetrainControl control) {
     this.drive = drive;
     this.path = path;
     this.arrival = arrival;
     end = path.end().pose;
     translationKp = control.gains().translationKp();
     headingKp = control.gains().headingKp();
-    topSpeedMetersPerSecond = control.limits().maxLinearSpeed().in(MetersPerSecond);
+    topSpeedMetersPerSecond = control.limits().maxLinearSpeed().orElseThrow().in(MetersPerSecond);
     topTurnRateRadiansPerSecond = control.limits().maxAngularSpeed().in(RadiansPerSecond);
   }
 

@@ -6,7 +6,7 @@ delete the row when you replace it.
 
 | Stand-in | Stands in for | Replace when |
 |---|---|---|
-| The swerve drivetrain, `runtime/src/main/java/com/michaelgrundvig/frc/runtime/subsystems/drive/`, including its CTRE hardware code (`PhoenixDrivetrain`: TalonFX drive and steering, CANcoders, a Pigeon 2, and the thread that reads them at 250 Hz) | AdvantageKit's swerve templates, which bring the same for CTRE and REV hardware. Only the drivetrain goes: where the robot is belongs to localization (`LocalizationService` in `lib/localization`: the estimator, choosing between the gyro and the backup IMU, trusting the wheels; fed and logged by `subsystems/localization`), and the simulated world to `com.michaelgrundvig.frc.runtime.sim`, and both stay. Theirs needs one addition, an adapter that reports `DrivetrainReadings` each loop (every wheel reading, both IMUs, and the velocity), and to take its pose from `Localization` rather than its own estimator. Keep what ours adds if theirs lacks it: the steer-drive coupling, the IMU's attitude and acceleration (localization checks the wheels against them for slip), and not a number for an acceleration an IMU can't read. | AdvantageKit publishes its 2027 swerve templates, planned for WPILib's 2027 beta (AdvantageKit 27.0.0-alpha-6 release notes) |
+| The swerve drivetrain, `runtime/src/main/java/com/michaelgrundvig/frc/runtime/subsystems/drive/`, including its CTRE hardware code (`PhoenixDrivetrain`: TalonFX drive and steering, CANcoders, a Pigeon 2, and the thread that reads them at 250 Hz) | AdvantageKit's swerve templates, which bring the same for CTRE and REV hardware. Only the drivetrain goes: where the robot is belongs to localization (`LocalizationService` in the localization library: the estimator, choosing between the gyro and the backup IMU, trusting the wheels; fed and logged by `subsystems/localization`), and the simulated world to `com.michaelgrundvig.frc.runtime.sim`, and both stay. Theirs needs one addition, an adapter that reports `DrivetrainReadings` each loop (every wheel reading, both IMUs, and the velocity), and to take its pose from `Localization` rather than its own estimator. Keep what ours adds if theirs lacks it: the steer-drive coupling, the IMU's attitude and acceleration (localization checks the wheels against them for slip), and not a number for an acceleration an IMU can't read. | AdvantageKit publishes its 2027 swerve templates, planned for WPILib's 2027 beta (AdvantageKit 27.0.0-alpha-6 release notes) |
 | PhotonLib, pinned to a development build (`vendordeps/photonlib.json`, dev-v2027.0.0-alpha-2-69-g71416112) that exists only in PhotonVision's snapshots repository, not in its releases. The dependency checksums (the robot template's `docs/upgrading.md`) flag it if it's replaced there | A PhotonLib release for WPILib alpha 7. Its one 2027 release (alpha-2, May 2026) targets alpha 5, and GradleRIO alpha 7 refuses it. The coprocessor must run the same PhotonVision version as the pinned library. | PhotonVision releases a build for the WPILib version in use |
 
 ## Alpha dependencies
@@ -75,8 +75,8 @@ rate the code asks for (`PhoenixDrivetrain.ENCODER_FREQUENCY_HZ`), which no robo
 confirmed.
 
 The drive carries the robot's configured mass. Each drive motor turns its wheel's share of
-`Body.mass` as inertia at the configured `DrivetrainGeometry.ModuleType.wheelRadius`, (m / 4) r²,
-plus the wheel's own moving parts (`DrivetrainGeometry.ModuleType.driveInertia`, an estimate: about
+`Body.weight` as inertia at the configured `Drivetrain.Module.wheelRadius`, (m / 4) r²,
+plus the wheel's own moving parts (`Drivetrain.Module.driveInertia`, an estimate: about
 2% more), so the robot speeds up as F = m a, and a heavier robot in `Robots.java` is a slower one
 in the simulator. At the template's 30 A stator limit, it speeds up from rest at 4.35 m/s² and is
 within 10% of full speed in under a second: 2.25% short of F = m a's 4.45, since the motor

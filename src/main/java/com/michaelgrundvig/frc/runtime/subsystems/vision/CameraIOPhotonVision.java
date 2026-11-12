@@ -32,7 +32,7 @@ public class CameraIOPhotonVision implements CameraIO {
   }
 
   /** The PhotonVision camera, for a simulation to attach to. */
-  PhotonCamera camera() {
+  public PhotonCamera camera() {
     return camera;
   }
 

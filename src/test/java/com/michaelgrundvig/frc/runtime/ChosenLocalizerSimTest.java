@@ -51,12 +51,15 @@ class ChosenLocalizerSimTest {
         .isLessThan(0.3);
 
     // The pit's lines say what is not reported, and show no number in its place.
-    assertThat(robot.localizationStatus())
+    assertThat(robot.localization().describe())
         .isEqualTo("What the pose rests on and how sure it is: not reported by this localizer");
-    assertThat(robot.scoring())
-        .isEqualTo("Not judged: what the pose rests on is not reported by this localizer");
-    assertThat(robot.readyToScore()).as("a gate that can't judge holds nothing back").isTrue();
-    assertThat(robot.cameras())
+    assertThat(robot.localization().scoring())
+        .isEqualTo(
+            "Not judged, so not ready: what the pose rests on is not reported by this localizer");
+    assertThat(robot.localization().readyToScore())
+        .as("a gate that can't judge, by default")
+        .isFalse();
+    assertThat(robot.vision().summary())
         .contains("cameras connected")
         .contains("measurements given, how many were accepted is not reported")
         .doesNotContain("%");

@@ -4,6 +4,7 @@ import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TAL
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
@@ -18,12 +19,12 @@ import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.system.DCMotor;
 
 /**
@@ -46,8 +47,9 @@ class PowerSimTest {
   static final double STALLED = 40 * 40 * DCMotor.getKrakenX60(1).R / 12;
 
   /** An arm on two Krakens, fed from channels 4 and 5, stowed by hand against its lower stop. */
-  static final Joint.Revolute ARM =
-      Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+  static final RevoluteJoint ARM =
+      Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
           .range(Range.degrees(0, 90))
           .rest(ARM_DOWN)
           .positions(ARM_DOWN)
@@ -147,8 +149,9 @@ class PowerSimTest {
     idle.run(1);
 
     Output spinning = Output.volts("spinning", 6);
-    Joint.Revolute roller =
-        Joint.roller("roller", Part.CHASSIS, new Translation3d(0.3, 0, 0.3))
+    RevoluteJoint roller =
+        Joint.roller("roller", Part.CHASSIS)
+            .at(Meters.of(0.3), Meters.of(0), Meters.of(0.3))
             .outputs(spinning)
             .motors(
                 Motor.KRAKEN_X60.through(Gearing.of(3)).on(TALON_FX.can(21).pdh(6, Amps.of(40))))

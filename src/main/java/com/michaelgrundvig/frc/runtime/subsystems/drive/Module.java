@@ -3,8 +3,8 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.robot.Actuator;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import java.util.List;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Rotation2d;
@@ -39,7 +39,7 @@ public class Module {
   private final ModuleIO io;
   private final ModuleIOInputsAutoLogged inputs = new ModuleIOInputsAutoLogged();
 
-  /** Where the module's inputs are logged, {@code Drive/ModuleFrontLeft}: worked out once. */
+  /** Where the module's inputs are logged, {@code SwerveDrive/ModuleFrontLeft}: worked out once. */
   private final String inputsKey;
 
   private final double wheelRadiusMeters;
@@ -61,29 +61,32 @@ public class Module {
 
   /**
    * @param index which module this is, from 0 to 3, in the order of {@link #NAMES}
-   * @param type the module as the robot's definition has it: its wheel, gearing and motors
+   * @param drivetrain the drivetrain as the robot's definition has it: each module's wheel, gearing
+   *     and motors, and how their controllers drive them
    */
-  Module(ModuleIO io, int index, DrivetrainGeometry.ModuleType type) {
+  Module(ModuleIO io, int index, Drivetrain drivetrain) {
+    Drivetrain.Module type = drivetrain.module(index);
     this.io = io;
     this.inputsKey = "Drive/Module" + NAMES.get(index);
     this.wheelRadiusMeters = type.wheelRadius().in(Meters);
-    Actuator.Motors motors = type.driveMotors();
+    Actuator.MotorGroup motors = drivetrain.driveMotors(index);
     voltsPerNewton =
         wheelRadiusMeters
-            * motors.motor().model().R
+            * motors.curve().model().R
             / (type.driveGearing().ratio()
                 * type.driveGearing().efficiency()
                 * motors.count()
-                * motors.motor().model().Kt);
+                * motors.curve().model().Kt);
   }
 
   /**
    * Takes new gains and limits. The drive's feedforward is worked out here each loop, so its gains
    * are kept here. Everything else goes to the motor controllers.
    */
-  void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     driveKs = gains.driveKs();
-    driveKv = gains.driveKv();
+    // The drivetrain fills in its modules' ideal where none was tuned, so there is always one.
+    driveKv = gains.driveKv().orElseThrow();
     io.configure(gains, limits);
   }
 
@@ -178,9 +181,23 @@ public class Module {
     return inputs.steerStatorCurrentAmps;
   }
 
-  /** The module's devices that didn't take their configuration at startup, or empty. */
+  /** The module's devices that haven't taken their configuration, or empty. */
   String unconfigured() {
     return inputs.unconfigured;
+  }
+
+  /**
+   * Whether every one of the module's devices has taken its configuration. One that hasn't runs on
+   * its defaults, without its directions, gearing or current limits, so the drivetrain holds still
+   * until it has.
+   */
+  boolean isConfigured() {
+    return inputs.unconfigured.isEmpty();
+  }
+
+  /** What the steering's absolute encoder last said of its magnet. */
+  ModuleIO.MagnetHealth encoderMagnet() {
+    return inputs.encoderMagnet;
   }
 
   /** How far the wheel has rolled, in meters, and which way it points. */

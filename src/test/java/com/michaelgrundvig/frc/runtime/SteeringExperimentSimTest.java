@@ -149,7 +149,7 @@ class SteeringExperimentSimTest {
      */
     Run run() throws Exception {
       var started =
-          send("POST", "/api/experiments", "{\"start\": \"" + RobotContainer.STEER_STEP + "\"}");
+          send("POST", "/api/experiments", "{\"start\": \"" + RobotPitwall.STEER_STEP + "\"}");
       assertThat(started.statusCode()).as(started.body()).isEqualTo(200);
       Run run = new Run();
       long deadline = System.nanoTime() + WAIT.toNanos();

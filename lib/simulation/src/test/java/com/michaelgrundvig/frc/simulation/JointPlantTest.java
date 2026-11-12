@@ -16,7 +16,9 @@ import com.michaelgrundvig.frc.world.robot.Link;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,8 +36,9 @@ class JointPlantTest {
   private static final double STEP = 0.001;
   private static final DCMotor KRAKEN = Motor.KRAKEN_X60.model();
 
-  private static final Joint.Revolute ARM =
-      Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.1, 0, 0.5), Joint.PITCH_UP)
+  private static final RevoluteJoint ARM =
+      Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(0.1), Meters.of(0), Meters.of(0.5))
           .range(Range.degrees(-60, 90))
           .rest(Degrees.of(0))
           .carries(
@@ -43,26 +46,31 @@ class JointPlantTest {
                   "arm link",
                   Kilograms.of(2),
                   new Translation3d(0.3, 0, 0),
-                  new Translation3d(0.6, 0.05, 0.05)))
+                  Meters.of(0.6),
+                  Meters.of(0.05),
+                  Meters.of(0.05)))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(MechanismControl.position(30));
 
-  private static final Joint.Revolute BARE_ARM =
-      Joint.pivot("bare arm", Part.CHASSIS, new Translation3d(-0.1, 0, 0.5), Joint.PITCH_UP)
+  private static final RevoluteJoint BARE_ARM =
+      Joint.pivot("bare arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(-0.1), Meters.of(0), Meters.of(0.5))
           .range(Range.degrees(-60, 90))
           .rest(Degrees.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(MechanismControl.position(30).withKg(0.4, Degrees.of(-30)));
 
-  private static final Joint.Prismatic LIFT =
-      Joint.elevator("lift", Part.CHASSIS, new Translation3d(0, 0.2, 0.1))
+  private static final PrismaticJoint LIFT =
+      Joint.elevator("lift", Part.CHASSIS)
+          .at(Meters.of(0), Meters.of(0.2), Meters.of(0.1))
           .range(Range.meters(0, 1))
           .rest(Meters.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(10)).drum(Inches.of(1)).count(2))
           .control(MechanismControl.position(60).withKg(0.5));
 
-  private static final Joint.Revolute TURRET =
-      Joint.roller("turret", Part.CHASSIS, new Translation3d(0, -0.2, 0.4), Vector3.UP)
+  private static final RevoluteJoint TURRET =
+      Joint.roller("turret", Part.CHASSIS, Vector3.UP)
+          .at(Meters.of(0), Meters.of(-0.2), Meters.of(0.4))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(20)))
           .control(MechanismControl.position(20));
 
@@ -70,7 +78,7 @@ class JointPlantTest {
 
   private static RobotMath math(List<Joint> joints) {
     List<Drive> drives = new ArrayList<>();
-    joints.forEach(joint -> drives.addAll(joint.ownDrives()));
+    joints.forEach(joint -> drives.addAll(RobotMath.ownDrives(joint)));
     return RobotMath.of(TestRobot.BODY, joints, List.of(), drives, List.of());
   }
 
@@ -88,7 +96,7 @@ class JointPlantTest {
 
     assertThat(lift.joint()).isEqualTo(LIFT);
     assertThat(lift.motors()).isEqualTo(2);
-    assertThat(lift.position()).isEqualTo(LIFT.restPosition());
+    assertThat(lift.position()).isEqualTo(RobotMath.restPosition(LIFT));
     assertThat(lift.velocity()).isZero();
     assertThat(lift.supplyAmps()).isZero();
   }
@@ -251,19 +259,25 @@ class JointPlantTest {
    */
   @Test
   void aJointTheDefinitionDoesNotDriveIsRefusedByName() {
-    Joint.Revolute elsewhere =
-        Joint.pivot("wrist", Part.CHASSIS, new Translation3d(0.2, 0, 0.5), Joint.PITCH_UP)
+    RevoluteJoint elsewhere =
+        Joint.pivot("wrist", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.2), Meters.of(0), Meters.of(0.5))
             .range(Range.degrees(-60, 90))
             .rest(Degrees.of(0))
             .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
             .control(MechanismControl.position(30));
-    Joint.Revolute unpowered =
-        Joint.pivot("flap", Part.CHASSIS, new Translation3d(0.3, 0, 0.5), Joint.PITCH_UP)
+    RevoluteJoint unpowered =
+        Joint.pivot("flap", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.3), Meters.of(0), Meters.of(0.5))
             .range(Range.degrees(-60, 90))
             .rest(Degrees.of(0));
     RobotMath withAFlap =
         RobotMath.of(
-            TestRobot.BODY, List.of(ARM, unpowered), List.of(), ARM.ownDrives(), List.of());
+            TestRobot.BODY,
+            List.of(ARM, unpowered),
+            List.of(),
+            RobotMath.ownDrives(ARM),
+            List.of());
 
     assertThatIllegalArgumentException()
         .isThrownBy(() -> JointPlant.of(MATH, elsewhere))

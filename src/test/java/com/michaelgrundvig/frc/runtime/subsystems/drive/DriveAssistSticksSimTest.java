@@ -17,9 +17,9 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 
 /**
- * When an assist ({@link Drive#facing}) reads the driver's sticks: each time it starts, not when it
- * is built. So a robot program may build its assists before or after it hands the drive the sticks
- * ({@link Drive#takeDriver}). In the simulator, on a drive that starts without them.
+ * When an assist ({@link SwerveDrive#facing}) reads the driver's sticks: each time it starts, not
+ * when it is built. So a robot program may build its assists before or after it hands the drive the
+ * sticks ({@link SwerveDrive#takeDriver}). In the simulator, on a drive that starts without them.
  */
 @ExtendWith(RobotSim.class)
 class DriveAssistSticksSimTest {
@@ -30,7 +30,7 @@ class DriveAssistSticksSimTest {
           + " drive.takeDriver(...)";
 
   private final DriveSimHarness harness = DriveSimHarness.withoutDriver(ExampleRobot.SIM);
-  private final Drive drive = harness.drive;
+  private final SwerveDrive drive = harness.drive;
 
   @AfterEach
   void tearDown() {

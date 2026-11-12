@@ -71,7 +71,7 @@ sealed interface DriveTask permits DriveTask.RunUntil, DriveTask.AlongAPath {
      *     found, or no smooth path goes through the keyframes
      */
     Trajectories.Plan plan(
-        Drive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits);
+        SwerveDrive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits);
 
     /** What the move must reach before it has arrived. */
     default Arrival arrival() {
@@ -87,7 +87,7 @@ sealed interface DriveTask permits DriveTask.RunUntil, DriveTask.AlongAPath {
   record TurnTo(Rotation2d heading) implements AlongAPath {
     @Override
     public Trajectories.Plan plan(
-        Drive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
+        SwerveDrive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
       // A line from where the robot is to where it is: only the heading changes.
       return Trajectories.line(
           start, moving, start.getTranslation(), heading, limits, RobotLoop.PERIOD_SECONDS);
@@ -107,7 +107,7 @@ sealed interface DriveTask permits DriveTask.RunUntil, DriveTask.AlongAPath {
   record ToPose(Pose2d pose) implements AlongAPath {
     @Override
     public Trajectories.Plan plan(
-        Drive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
+        SwerveDrive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
       return lineTo(pose, start, moving, limits);
     }
   }
@@ -121,7 +121,7 @@ sealed interface DriveTask permits DriveTask.RunUntil, DriveTask.AlongAPath {
   record ToPlace(Place place) implements AlongAPath {
     @Override
     public Trajectories.Plan plan(
-        Drive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
+        SwerveDrive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
       return lineTo(drive.found(place), start, moving, limits);
     }
   }
@@ -144,7 +144,7 @@ sealed interface DriveTask permits DriveTask.RunUntil, DriveTask.AlongAPath {
 
     @Override
     public Trajectories.Plan plan(
-        Drive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
+        SwerveDrive drive, Pose2d start, ChassisVelocities moving, Trajectories.Limits limits) {
       return Trajectories.through(
           start, moving, drive.found(keyframes), limits, RobotLoop.PERIOD_SECONDS);
     }

@@ -16,9 +16,10 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
+import com.michaelgrundvig.frc.world.robot.MechanismControlHomingToSwitchBuilder;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -79,7 +80,7 @@ class SwitchHomingSimTest {
                     control ->
                         homed(
                             control,
-                            Homing.ToSwitch.builder()
+                            MechanismControlHomingToSwitchBuilder.builder()
                                 .end(Sensor.Switch.Limit.End.LOWER)
                                 .volts(1)
                                 .timeout(Seconds.of(5))
@@ -241,13 +242,13 @@ class SwitchHomingSimTest {
    * out, braking, though the robot pushed it home all the loop before. (Gently: a joint going
    * faster brakes against its current limit, which puts volts across its motor.)
    */
-  private static void assertItsControllerStops(Joint.Revolute wired) {
-    Joint.Revolute turret =
+  private static void assertItsControllerStops(RevoluteJoint wired) {
+    RevoluteJoint turret =
         wired.retuned(
             control ->
                 homed(
                     control,
-                    Homing.ToSwitch.builder()
+                    MechanismControlHomingToSwitchBuilder.builder()
                         .end(End.LOWER)
                         .volts(1)
                         .timeout(Seconds.of(5))

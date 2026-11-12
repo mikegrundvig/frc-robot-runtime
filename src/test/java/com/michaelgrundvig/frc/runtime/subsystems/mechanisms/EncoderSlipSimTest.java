@@ -24,9 +24,9 @@ import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.record.MoveReason;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,22 +45,22 @@ class EncoderSlipSimTest {
       MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted();
 
   /** Its encoder tells its motor where it is, once. */
-  private static final Joint.Revolute SEEDED =
+  private static final RevoluteJoint SEEDED =
       PIVOT.absoluteEncoder(PORT_1).retuned(old -> control(30, 1, profile(8, 30)));
 
   /** Its loop closes on its encoder, the robot's. */
-  private static final Joint.Revolute CLOSED =
+  private static final RevoluteJoint CLOSED =
       SEEDED.absoluteEncoder(encoder -> encoder.on(PORT_1.closesLoop()));
 
   /** On a SPARK MAX, a through-bore on its data port, read once. */
-  private static final Joint.Revolute ON_DATA_PORT =
+  private static final RevoluteJoint ON_DATA_PORT =
       unmotored(PIVOT)
           .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(21)))
           .absoluteEncoder(DATA_PORT.offset(Rotations.of(0.1)))
           .retuned(old -> control(30, 1, profile(8, 30)));
 
   /** On a TalonFX, a CANcoder it's seeded from once, read beside its rotor. */
-  private static final Joint.Revolute ON_CANCODER =
+  private static final RevoluteJoint ON_CANCODER =
       PIVOT
           .motors(motors -> motors.on(TALON_FX.can(21)))
           .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))
@@ -71,7 +71,7 @@ class EncoderSlipSimTest {
   }
 
   /** The pivot, out at 130° and holding there. */
-  private static JointsSimHarness out(Joint.Revolute pivot) {
+  private static JointsSimHarness out(RevoluteJoint pivot) {
     JointsSimHarness sim = new JointsSimHarness(ROBOT.with(pivot));
     Move out = sim.joints.of(PIVOT).goTo(PIVOT_OUT);
     sim.scheduler.schedule(out);
@@ -201,7 +201,7 @@ class EncoderSlipSimTest {
    */
   @Test
   void anEncoderItsControllerReadsIsCheckedTheSame() {
-    for (Joint.Revolute pivot : List.of(ON_DATA_PORT, ON_CANCODER)) {
+    for (RevoluteJoint pivot : List.of(ON_DATA_PORT, ON_CANCODER)) {
       JointsSimHarness sim = out(pivot);
 
       sim.simulation.slip(PIVOT, Math.toRadians(20));
@@ -221,16 +221,16 @@ class EncoderSlipSimTest {
    */
   @Test
   void aJointThatTurnsFreelyIsCheckedTheNearestWayRound() {
-    Joint.Revolute onPort =
+    RevoluteJoint onPort =
         TURRET
             .absoluteEncoder(MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0)))
             .retuned(old -> control(20, 0.5, profile(3, 10)));
-    Joint.Revolute onDataPort =
+    RevoluteJoint onDataPort =
         unmotored(TURRET)
             .motors(Motor.NEO.through(gearing(50)).on(SPARK_MAX.can(22)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0)))
             .retuned(old -> control(20, 0.5, profile(3, 10)));
-    for (Joint.Revolute turret : List.of(onPort, onDataPort)) {
+    for (RevoluteJoint turret : List.of(onPort, onDataPort)) {
       JointsSimHarness sim = new JointsSimHarness(ROBOT.with(turret));
       JointMechanism mechanism = sim.joints.of(TURRET);
       double past = Double.NaN;
@@ -294,10 +294,10 @@ class EncoderSlipSimTest {
    */
   @Test
   void aCancoderWithABadMagnetIsntTrusted() {
-    Joint.Revolute remote =
+    RevoluteJoint remote =
         ON_CANCODER.absoluteEncoder(
             encoder -> encoder.on(CANCODER.can(34).offset(Rotations.of(0.3)).remote()));
-    for (Joint.Revolute wired : List.of(ON_CANCODER, remote)) {
+    for (RevoluteJoint wired : List.of(ON_CANCODER, remote)) {
       boolean[] bad = {false};
       JointsSimHarness sim =
           new JointsSimHarness(

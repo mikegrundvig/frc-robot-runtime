@@ -1,15 +1,21 @@
 package com.michaelgrundvig.frc.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.MetersPerSecond;
+import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
-import com.michaelgrundvig.frc.pitwall.Outcome;
 import com.michaelgrundvig.frc.pitwall.ParameterDocs;
+import com.michaelgrundvig.frc.pitwall.RequestOutcome;
 import com.michaelgrundvig.frc.pitwall.TunableTee;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.junit.jupiter.api.Test;
 import org.wpilib.tunable.MockTunableBackend;
 import org.wpilib.tunable.TunableRegistry;
@@ -22,6 +28,69 @@ class RobotTuningTest {
     for (RobotConfig robot : ExampleRobot.all()) {
       RobotChecks.committedValuesCanBeDialedIn(robot);
     }
+    RobotChecks.committedValuesCanBeDialedIn(onVisor());
+  }
+
+  /**
+   * The guide's robot with three cameras on Visor: one at the defaults (a fixed 1 ms, its own
+   * gain), one with its own exposure and gain, and one on the camera's own automatic exposure and
+   * gain.
+   */
+  private static RobotConfig onVisor() {
+    List<CameraConfig> cameras = ExampleRobot.SIM.definition().cameras();
+    return ExampleRobot.SIM.with(
+        on(cameras.get(0), Software.visor()),
+        on(cameras.get(1), Software.visor().exposure(Milliseconds.of(2.5)).gain(40)),
+        on(cameras.get(2), Software.visor().camerasOwnExposure()));
+  }
+
+  private static CameraConfig on(CameraConfig camera, Software software) {
+    return camera.withSoftware(software);
+  }
+
+  /**
+   * A camera on Visor tunes what its definition fixes, each knob within the camera's own reach, and
+   * gives the builder call to write the tuned value back; a camera on its own automatic exposure
+   * and gain has nothing to tune.
+   */
+  @Test
+  void aVisorCamerasExposureAndGainAreTunedWhereItsDefinitionFixesThem() {
+    var cameras = RobotContainer.tunings(onVisor()).cameras();
+    List<String> names =
+        ExampleRobot.SIM.definition().cameras().stream().map(CameraConfig::name).toList();
+    assertThat(cameras).containsOnlyKeys(names.get(0), names.get(1));
+
+    record Case(String camera, String path, double committed, double min, double max) {}
+    // At 30 frames a second, one frame is 33.3 ms: a longer exposure would slow the frame rate.
+    List<Case> cases =
+        List.of(
+            new Case(names.get(0), "exposure.time", 1, 0.1, 1000.0 / 30),
+            new Case(names.get(1), "exposure.time", 2.5, 0.1, 1000.0 / 30),
+            new Case(names.get(1), "gain.value", 40, 0, 65_535));
+    for (Case c : cases) {
+      LiveConfig<Software.Visor> tuning = Objects.requireNonNull(cameras.get(c.camera()));
+      assertThat(tuning.name()).isEqualTo(c.camera() + " camera");
+      assertThat(tuning.committedValue(c.path())).as(c.path()).isEqualTo(c.committed());
+      LiveConfig.Knob knob =
+          tuning.knobs().stream().filter(k -> k.path().equals(c.path())).findFirst().orElseThrow();
+      assertThat(knob.limits().min()).as(c.path()).isCloseTo(c.min(), within(1e-9));
+      assertThat(knob.limits().max()).as(c.path()).isCloseTo(c.max(), within(1e-9));
+    }
+    assertThat(Objects.requireNonNull(cameras.get(names.get(0))).knobs())
+        .as("its own gain: nothing to tune")
+        .extracting(LiveConfig.Knob::path)
+        .containsExactly("exposure.time");
+
+    LiveConfig<Software.Visor> tuning = Objects.requireNonNull(cameras.get(names.get(1)));
+    assertThat(tuning.set(Map.of("exposure.time", 1.5, "gain.value", 64.0))).isTrue();
+    assertThat(tuning.get()).isEqualTo(Software.visor().exposure(Milliseconds.of(1.5)).gain(64));
+    assertThat(tuning.changes())
+        .extracting(LiveConfig.Change::builderCall)
+        .containsExactly(".exposure(Milliseconds.of(1.5))", ".gain(64)");
+    assertThat(tuning.whyNot(Map.of("gain.value", 40.5)))
+        .isEqualTo(names.get(1) + " camera: gain.value takes a whole number, got 40.5");
+    assertThat(tuning.whyNot(Map.of("exposure.time", 50.0)))
+        .startsWith(names.get(1) + " camera: exposure.time: 50 ms is above its limit");
   }
 
   /** The container's list of tunings is the one every check reads: it misses none of them. */
@@ -29,7 +98,9 @@ class RobotTuningTest {
   void theListOfTuningsHasEveryOne() {
     var tunings = RobotContainer.tunings(ExampleRobot.SIM);
 
-    // The drivetrain's and vision's, and one for each driven joint.
+    // The drivetrain's and vision's, and one for each driven joint; the guide's cameras are on
+    // PhotonVision, so none of theirs.
+    assertThat(tunings.cameras()).isEmpty();
     assertThat(tunings.all())
         .hasSize(2 + tunings.joints().size())
         .doesNotHaveDuplicates()
@@ -53,7 +124,7 @@ class RobotTuningTest {
    */
   @Test
   void everyTunableValueSaysWhatItMeans() {
-    for (LiveConfig<?> live : RobotContainer.tunings(ExampleRobot.SIM).all()) {
+    for (LiveConfig<?> live : RobotContainer.tunings(onVisor()).all()) {
       for (LiveConfig.Knob knob : live.knobs()) {
         String component = knob.path().substring(knob.path().lastIndexOf('.') + 1);
         assertThat(live.meaning(knob.path()))
@@ -75,10 +146,11 @@ class RobotTuningTest {
    */
   @Test
   void aRecordsJavadocIsInTheProgram() {
-    ParameterDocs gains = ParameterDocs.of(DrivetrainControl.Gains.class);
+    ParameterDocs gains = ParameterDocs.of(DrivetrainControl.SwerveGains.class);
 
     assertThat(gains.summary()).startsWith("Drive: velocity control on the motor controller");
-    assertThat(gains.params().get("steerKp")).isEqualTo("volts per radian of error");
+    assertThat(gains.params().get("steerKp"))
+        .isEqualTo("volts per radian of error: Tuner X's, per turn of the module, over 2π");
   }
 
   /** Within its limits isn't enough: the records' own checks have the last word, and say which. */
@@ -110,7 +182,7 @@ class RobotTuningTest {
           .singleElement()
           .satisfies(
               reason -> {
-                assertThat(reason.layer()).isEqualTo(Outcome.Layer.RECORD);
+                assertThat(reason.layer()).isEqualTo(RequestOutcome.Layer.RECORD);
                 assertThat(reason.by()).isEqualTo("VisionConfig");
                 assertThat(reason.paths()).containsExactly("/Vision/config/maxAmbiguity");
               });
@@ -145,7 +217,8 @@ class RobotTuningTest {
     assertThat(drivetrain.whyNot(Map.of("limits.maxLinearSpeed", 6.0)))
         .isEqualTo("drivetrain: limits.maxLinearSpeed: 6 m/s is above its limit of 4.72868 m/s");
     assertThat(drivetrain.set(Map.of("limits.maxLinearSpeed", 6.0))).isFalse();
-    assertThat(drivetrain.get().limits().maxLinearSpeed().in(MetersPerSecond)).isEqualTo(4.5);
+    assertThat(drivetrain.get().limits().maxLinearSpeed().orElseThrow().in(MetersPerSecond))
+        .isEqualTo(4.5);
   }
 
   /** Vision's thresholds are tuned like the drivetrain's gains: its configuration, live. */
@@ -161,7 +234,7 @@ class RobotTuningTest {
             "linearStdDevBaseline",
             "angularStdDevBaseline",
             "distanceExponent",
-            "mountToleranceMeters",
+            "outOfCalibrationMeters",
             "latencyMarginSeconds");
     assertThat(vision.set(Map.of("maxAmbiguity", 0.1))).isTrue();
     assertThat(vision.get().maxAmbiguity()).isEqualTo(0.1);

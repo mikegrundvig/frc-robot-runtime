@@ -49,6 +49,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.math.kinematics.SwerveDriveKinematics;
 import org.wpilib.math.kinematics.SwerveModulePosition;
 import org.wpilib.math.kinematics.SwerveModuleVelocity;
+import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.LinearVelocity;
 import org.wpilib.units.measure.Mass;
 
@@ -97,7 +98,7 @@ import org.wpilib.units.measure.Mass;
  * docs/stand-ins.md.
  */
 @CheckReturnValue
-public class Drive implements Mechanism, AutoCloseable {
+public class SwerveDrive implements Mechanism, AutoCloseable {
   /** What a refusal says when the drive hasn't been handed the driver's sticks. */
   static final String NO_DRIVER = MoveSentences.NO_DRIVER;
 
@@ -140,6 +141,19 @@ public class Drive implements Mechanism, AutoCloseable {
 
   /** Whether the robot is enabled, as of this loop. */
   private boolean enabled;
+
+  /**
+   * When this loop began, in nanoseconds on the robot's clock: sampled once, as the drivetrain's
+   * loop starts, so that every drive move times itself from the same instant in a loop, as joint
+   * moves do.
+   */
+  private long nowNanos;
+
+  /**
+   * Whether every module's devices have taken their configuration, as of this loop. Until they
+   * have, the drivetrain holds still ({@link #isEnabled}).
+   */
+  private boolean configured;
 
   /** Whether the robot was disabled between the last loop and this one. */
   private boolean disabledThisLoop;
@@ -208,22 +222,41 @@ public class Drive implements Mechanism, AutoCloseable {
   public static LiveConfig<DrivetrainControl> tuning(
       DrivetrainControl committed, LinearVelocity freeSpeed) {
     return LiveConfig.of("drivetrain", committed)
-        .number("gains.driveKs", Limits.between(0, 1)) // volts
-        .number("gains.driveKv", Limits.between(0, 5)) // volts per meter per second
-        .number("gains.driveKp", Limits.between(0, 20))
-        .number("gains.steerKp", Limits.between(0, 100))
-        .number("gains.steerKd", Limits.between(0, 5))
-        .measure("gains.skewLookahead", Seconds.of(0), Seconds.of(0.1))
-        .measure("limits.driveStatorCurrent", Amps.of(10), Amps.of(120))
-        .measure("limits.driveSupplyCurrent", Amps.of(10), Amps.of(80))
+        .number("gains.driveKs", Limits.between(0, 1), ".withDriveKs(%s)") // volts
+        // Volts per meter per second: the drivetrain seeds it, so there's always one to tune.
+        .number("gains.driveKv", Limits.between(0, 5), ".withDriveKv(%s)")
+        .number("gains.driveKp", Limits.between(0, 20), ".withDriveKp(%s)")
+        // Per radian, the drivetrain's own unit, which the commit line names: a steering gain is
+        // never a plain number, so it can't be taken for Tuner X's, per turn.
+        .number("gains.steerKp", Limits.between(0, 100), ".withSteerKp(Volts.per(Radian).of(%s))")
+        .number(
+            "gains.steerKd",
+            Limits.between(0, 5),
+            ".withSteerKd(Volts.per(RadiansPerSecond).of(%s))")
+        .measure("gains.skewLookahead", Seconds.of(0), Seconds.of(0.1), ".withSkewLookahead(%s)")
+        .measure(
+            "limits.driveStatorCurrent", Amps.of(10), Amps.of(120), ".withDriveStatorLimit(%s)")
+        .measure("limits.driveSupplyCurrent", Amps.of(10), Amps.of(80), ".withDriveSupplyLimit(%s)")
         // Never above a 40 A breaker's rating, and stepping down well before the fastest one can
         // trip at twice its rating (1.5 s at 80 A, the supply limit's top): docs/values.md has the
         // times.
-        .measure("limits.driveSupplyLowerCurrent", Amps.of(10), Amps.of(40))
-        .measure("limits.driveSupplyLowerTime", Seconds.of(0.1), Seconds.of(1))
-        .measure("limits.steerStatorCurrent", Amps.of(5), Amps.of(80))
-        .measure("limits.maxLinearSpeed", MetersPerSecond.of(0.5), freeSpeed)
-        .measure("limits.maxAngularSpeed", RotationsPerSecond.of(0.1), RotationsPerSecond.of(3));
+        .measure(
+            "limits.driveSupplyLowerCurrent",
+            Amps.of(10),
+            Amps.of(40),
+            ".withDriveSupplyLowerLimit(%s)")
+        .measure(
+            "limits.driveSupplyLowerTime",
+            Seconds.of(0.1),
+            Seconds.of(1),
+            ".withDriveSupplyLowerTime(%s)")
+        .measure("limits.steerStatorCurrent", Amps.of(5), Amps.of(80), ".withSteerStatorLimit(%s)")
+        .measure("limits.maxLinearSpeed", MetersPerSecond.of(0.5), freeSpeed, ".withMaxSpeed(%s)")
+        .measure(
+            "limits.maxAngularSpeed",
+            RotationsPerSecond.of(0.1),
+            RotationsPerSecond.of(3),
+            ".withMaxTurnRate(%s)");
   }
 
   /**
@@ -235,7 +268,7 @@ public class Drive implements Mechanism, AutoCloseable {
    * @param config how the drivetrain is driven, read every loop so tuned values take effect
    * @param pose where the robot is, from localization: field-relative driving turns by its heading
    */
-  public Drive(
+  public SwerveDrive(
       String name,
       DriveHardware hardware,
       RobotDefinition robot,
@@ -249,7 +282,7 @@ public class Drive implements Mechanism, AutoCloseable {
     this.scheduler = scheduler;
     this.pose = pose;
     for (int i = 0; i < Module.COUNT; i++) {
-      modules[i] = new Module(hardware.modules().get(i), i, robot.drivetrain().module(i));
+      modules[i] = new Module(hardware.modules().get(i), i, robot.drivetrain());
     }
     Translation2d[] moduleTranslations = robot.moduleTranslations();
     kinematics = new SwerveDriveKinematics(moduleTranslations);
@@ -283,15 +316,33 @@ public class Drive implements Mechanism, AutoCloseable {
    * @param enabled whether the robot is enabled
    */
   public void periodic(boolean enabled) {
+    nowNanos = RobotController.getTime();
     takeTuningFromThePit();
     readings.read();
-    output.newLoop(enabled);
+    configured = everyModuleIsConfigured();
+    output.newLoop(enabled && configured);
     disabledThisLoop = this.enabled && !enabled;
     this.enabled = enabled;
     alerts.check(modules, readings);
     Logger.recordOutput("Drive/Pose", getPose());
     Logger.recordOutput("Drive/ModuleVelocities", readings.moduleVelocitiesAsRead());
     Logger.recordOutput("Drive/ModulePoses", modulePoses());
+  }
+
+  /**
+   * Whether every module's devices have taken their configuration, as of this loop's read. A module
+   * that hasn't drives on its defaults: a steering motor with no encoder to run on and no gain, a
+   * drive that counts the wheel five times over, no current limits. So while one hasn't, no module
+   * is driven, as a joint whose controller didn't take its settings is faulted, and its devices are
+   * sent their configuration again once they answer ({@code ModuleIO}'s M17).
+   */
+  private boolean everyModuleIsConfigured() {
+    for (Module module : modules) {
+      if (!module.isConfigured()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /** Takes the drivetrain's configuration from the pit, if it was tuned since the last loop. */
@@ -308,7 +359,7 @@ public class Drive implements Mechanism, AutoCloseable {
     for (Module module : modules) {
       module.configure(control.gains(), control.limits());
     }
-    topSpeedMetersPerSecond = control.limits().maxLinearSpeed().in(MetersPerSecond);
+    topSpeedMetersPerSecond = control.limits().maxLinearSpeed().orElseThrow().in(MetersPerSecond);
     topTurnRateRadiansPerSecond = control.limits().maxAngularSpeed().in(RadiansPerSecond);
     skewLookaheadSeconds = control.gains().skewLookahead().in(Seconds);
     output.limitWheelSpeed(topSpeedMetersPerSecond);
@@ -415,9 +466,22 @@ public class Drive implements Mechanism, AutoCloseable {
     return Refusals.asBuilt(scheduler, why);
   }
 
-  /** Whether the robot is enabled, as of this loop. A move waits to begin until it is. */
+  /**
+   * Whether the drivetrain may be driven this loop: the robot is enabled, and every module's
+   * devices have taken their configuration ({@link #everyModuleIsConfigured}). A move waits to
+   * begin until it may, with its deadline not yet running, and nothing else drives the wheels until
+   * then either ({@link DriveOutput}).
+   */
   boolean isEnabled() {
-    return enabled;
+    return enabled && configured;
+  }
+
+  /**
+   * When this loop began, in nanoseconds on the robot's clock. SwerveDrive moves time themselves by
+   * it.
+   */
+  long now() {
+    return nowNanos;
   }
 
   /**
@@ -433,9 +497,9 @@ public class Drive implements Mechanism, AutoCloseable {
   }
 
   /**
-   * Logs how a move of the drivetrain ended ({@code Drive/Outcome}): the facts of the run, and
-   * beside them the move's name and the text of its reason. A sentence is made from them wherever a
-   * person reads one ({@link MoveSentences#driveOutcome}).
+   * Logs how a move of the drivetrain ended ({@code SwerveDrive/Outcome}): the facts of the run,
+   * and beside them the move's name and the text of its reason. A sentence is made from them
+   * wherever a person reads one ({@link MoveSentences#driveOutcome}).
    *
    * @param name the move's name, which is its command's
    * @param outcome the facts of the run
@@ -736,6 +800,10 @@ public class Drive implements Mechanism, AutoCloseable {
 
   boolean isModuleUnconfiguredAlertActive(int module) {
     return alerts.isModuleUnconfiguredActive(module);
+  }
+
+  boolean isModuleMagnetRedAlertActive(int module) {
+    return alerts.isModuleMagnetRedActive(module);
   }
 
   boolean isOdometryStoppedAlertActive() {

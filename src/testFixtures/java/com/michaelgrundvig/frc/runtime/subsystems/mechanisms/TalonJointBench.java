@@ -149,13 +149,7 @@ public final class TalonJointBench implements JointBench {
 
   @Override
   public Optional<String> knownDifference(JointClause clause) {
-    return switch (clause) {
-      case J29 ->
-          Optional.of(
-              "Phoenix keeps a TalonFX's last reading and the driver does not say when a frame"
-                  + " did not come: it always reads fresh");
-      default -> Optional.empty();
-    };
+    return Optional.empty();
   }
 
   /**

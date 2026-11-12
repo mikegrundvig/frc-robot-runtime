@@ -3,11 +3,14 @@ package com.michaelgrundvig.frc.runtime.subsystems.vision;
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
 import com.michaelgrundvig.frc.localization.MountCheck;
 import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.localization.Timestamps;
 import com.michaelgrundvig.frc.localization.Verdict;
+import com.michaelgrundvig.frc.runtime.lib.Said;
+import com.michaelgrundvig.frc.runtime.lib.health.CameraHealth;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -17,6 +20,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.IntFunction;
+import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.tunable.TunableBoolean;
@@ -32,11 +36,12 @@ import org.wpilib.util.Alert;
  * <p>A loop of a camera goes in this order, which {@link Vision} keeps:
  *
  * <ol>
- *   <li>{@link #read} reads the camera and starts the loop's record.
+ *   <li>{@link #read} reads the camera, judges its health ({@link CameraHealthLog}), and starts the
+ *       loop's record.
  *   <li>{@link #checkMount} judges the mount by the tags seen in earlier loops, so that this loop's
  *       measurements can be doubted for it.
  *   <li>Each image is taken in turn: it is left out ({@link #leftOut}) or given to localization
- *       ({@link #outcome}), and its tags are recorded ({@link #saw}, {@link #landed}, {@link
+ *       ({@link #verdict}), and its tags are recorded ({@link #saw}, {@link #landed}, {@link
  *       #judgeMountBy}).
  *   <li>{@link #logLoop} logs the loop's images.
  *   <li>{@link #record}, after localization's update, logs what the update made of them.
@@ -55,6 +60,13 @@ import org.wpilib.util.Alert;
  *
  * <p>The two can't be one list. An image taken while the estimate didn't know where the robot was
  * has no placed tag, and it is still accepted or refused.
+ *
+ * <p>Every image the camera hands over comes to one {@link Verdict}, whatever decided it: the robot
+ * (turned off, the same image again, out of step, no capture time, unreadable data), the pipeline,
+ * or the estimator. Each is counted, since the robot started, under {@code
+ * Vision/<name>/Images/<VERDICT>}, so how many images were thrown out, and why, is read straight
+ * off the log. A camera on Visor, on a robot, with no lens calibration places nothing, and raises
+ * an alert that says so from the start.
  */
 final class Camera implements AutoCloseable {
   /** The out-of-step alert stays up this long after the last image out of step. */
@@ -80,7 +92,7 @@ final class Camera implements AutoCloseable {
 
   // Each value's name in the log. They are made once, because a name made every loop is a new
   // string every loop.
-  private final String outcomesKey;
+  private final String verdictsKey;
   private final String leftOutOfStepKey;
   private final String latencySecondsKey;
   private final String seenTagsKey;
@@ -88,16 +100,22 @@ final class Camera implements AutoCloseable {
   private final String mountDoubtMetersKey;
   private final String tagResidualMetersKey;
   private final String meanTagResidualMetersKey;
-  private final String decisionsKey;
+  private final String measurementVerdictsKey;
   private final String acceptedKey;
   private final String rejectedKey;
   private final String givenKey;
   private final String acceptedTagsKey;
   private final String rejectedTagsKey;
-  private final String rejectedReasonsKey;
+  private final String rejectedVerdictsKey;
+  private final String learnedTurnDegreesKey;
+  private final String lateSecondsKey;
+  private final String watchDoubtMetersKey;
 
   /** What became of each of its tags, logged as facts for Pitwall's World view. */
   private final SightingLog sightings;
+
+  /** Its frame rate, drops and detection time, logged under {@code Vision/<name>/Health}. */
+  private final CameraHealthLog health;
 
   // ---- The alerts ----
 
@@ -106,6 +124,7 @@ final class Camera implements AutoCloseable {
   private final Alert outOfCalibration;
   private final Alert outOfStep;
   private final Alert noCaptureTime;
+  private final Alert noLens;
 
   // ---- Images that arrive out of step ----
 
@@ -152,8 +171,29 @@ final class Camera implements AutoCloseable {
   private int accepted;
   private int rejected;
 
+  // ---- What became of its images, since the robot started ----
+
+  private static final Verdict[] VERDICTS = Verdict.values();
+
+  /** How many of its images came to each verdict, by the verdict's ordinal. */
+  private final long[] images = new long[VERDICTS.length];
+
+  /** Each count as last logged: -1 until it's logged, so the first loop logs them all. */
+  private final long[] imagesLogged = new long[VERDICTS.length];
+
+  /** Each count's name in the log, {@code Vision/<name>/Images/<VERDICT>}. */
+  private final String[] imagesKeys = new String[VERDICTS.length];
+
+  /** What became of its latest image, in words, as its verdict said it; empty before the first. */
+  private @Nullable String latestVerdict;
+
+  /**
+   * Whether the image being taken has a verdict yet, so one that then throws isn't counted twice.
+   */
+  private boolean imageHasAVerdict;
+
   /** Whether the robot's localizer says what became of each measurement it was given. */
-  enum Fates {
+  enum MeasurementVerdicts {
     REPORTED,
     NOT_REPORTED
   }
@@ -173,7 +213,7 @@ final class Camera implements AutoCloseable {
   // ---- This loop's record ----
 
   /** What became of each of this loop's images, in words. */
-  private final List<String> outcomes = new ArrayList<>();
+  private final List<String> verdicts = new ArrayList<>();
 
   /** How long after it was taken each of this loop's images was read, in seconds. */
   private final List<Double> latencies = new ArrayList<>();
@@ -191,13 +231,13 @@ final class Camera implements AutoCloseable {
   private final List<Pose3d> acceptedTags = new ArrayList<>();
 
   private final List<Pose3d> rejectedTags = new ArrayList<>();
-  private final List<String> rejectedReasons = new ArrayList<>();
+  private final List<String> rejectedVerdicts = new ArrayList<>();
 
   /** The arrays those three were last logged in, which are used again while their lengths hold. */
   private Pose3d[] acceptedArray = {};
 
   private Pose3d[] rejectedArray = {};
-  private String[] reasonsArray = {};
+  private String[] rejectedVerdictsArray = {};
 
   /**
    * @param mountSightings how many of its latest tags the camera's mount is judged by
@@ -208,7 +248,7 @@ final class Camera implements AutoCloseable {
     mount = new MountCheck(mountSightings);
     String name = config.name();
     key = "Vision/" + name;
-    outcomesKey = key + "/Outcomes";
+    verdictsKey = key + "/Verdicts";
     leftOutOfStepKey = key + "/LeftOutOfStep";
     latencySecondsKey = key + "/LatencySeconds";
     seenTagsKey = key + "/SeenTags";
@@ -216,14 +256,22 @@ final class Camera implements AutoCloseable {
     mountDoubtMetersKey = key + "/MountDoubtMeters";
     tagResidualMetersKey = key + "/TagResidualMeters";
     meanTagResidualMetersKey = key + "/MeanTagResidualMeters";
-    decisionsKey = key + "/Decisions";
+    measurementVerdictsKey = key + "/MeasurementVerdicts";
     acceptedKey = key + "/Accepted";
     rejectedKey = key + "/Rejected";
     givenKey = key + "/Given";
     acceptedTagsKey = key + "/AcceptedTags";
     rejectedTagsKey = key + "/RejectedTags";
-    rejectedReasonsKey = key + "/RejectedReasons";
+    rejectedVerdictsKey = key + "/RejectedVerdicts";
+    learnedTurnDegreesKey = key + "/LearnedTurnDegrees";
+    lateSecondsKey = key + "/LateSeconds";
+    watchDoubtMetersKey = key + "/WatchDoubtMeters";
+    for (Verdict verdict : VERDICTS) {
+      imagesKeys[verdict.ordinal()] = key + "/Images/" + verdict.name();
+    }
+    Arrays.fill(imagesLogged, -1);
     sightings = new SightingLog(config.name(), key);
+    health = new CameraHealthLog(config);
     disconnected =
         new Alert(
             "Vision", name + "Disconnected", "Camera " + name + " disconnected", Alert.Level.HIGH);
@@ -244,6 +292,14 @@ final class Camera implements AutoCloseable {
             Alert.Level.HIGH);
     noCaptureTime =
         new Alert("Vision", name + "NoCaptureTime", noCaptureTimeText(config), Alert.Level.HIGH);
+    Optional<String> withoutALens = withoutALens(config);
+    noLens =
+        new Alert(
+            "Vision",
+            name + "NoLens",
+            "Camera " + name + " " + withoutALens.orElse("has no lens calibration"),
+            Alert.Level.HIGH);
+    noLens.set(withoutALens.isPresent());
     TunableRegistry.publish(key + "/enabled", enabled);
   }
 
@@ -251,13 +307,35 @@ final class Camera implements AutoCloseable {
     return config.name();
   }
 
+  /**
+   * What's wrong with a camera that runs on Visor, on a robot (its device given), with no lens
+   * calibration: Visor then sends its tags' corners and no poses, so it places nothing. Empty for
+   * any other camera, and for one the simulator alone runs, which needs no lens.
+   */
+  static Optional<String> withoutALens(CameraConfig config) {
+    if (!(config.software() instanceof CameraConfig.Software.Visor visor)) {
+      return Optional.empty();
+    }
+    if (visor.device().isEmpty() || visor.lens().isPresent()) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        "has no lens calibration: Visor sends its tags' corners and no poses, so it places"
+            + " nothing. Calibrate it with Visor's tools/calibrate.py and give it the .lens(...)"
+            + " that prints (docs/visor.md)");
+  }
+
   // ---- Reading the camera ----
 
-  /** Reads the camera, shows whether it can be reached, and starts this loop's record. */
-  void read() {
+  /**
+   * Reads the camera, shows whether it can be reached, judges its health, and starts this loop's
+   * record.
+   */
+  void read(long nowNanos) {
     readInputs();
     Logger.processInputs(key, inputs);
     showWhetherItCanBeRead();
+    health.take(inputs, nowNanos);
     startLoopRecord();
   }
 
@@ -268,27 +346,23 @@ final class Camera implements AutoCloseable {
    * the robot's library, and again every few seconds. Let through, that would end the robot program
    * each time. Instead the camera reads as unreadable, with the reason, and the robot drives on its
    * other sensors.
+   *
+   * <p>The error is cleared before the read, so an IO that says why it can't be read (a Visor
+   * version mismatch) is heard.
    */
   private void readInputs() {
+    inputs.error = "";
     try {
       io.updateInputs(inputs);
-      inputs.error = "";
     } catch (RuntimeException thrown) {
       inputs.connected = false;
       inputs.frames = new CameraIO.Frame[] {};
       inputs.tags = new CameraIO.SeenTag[] {};
+      inputs.unsolvedTags = new int[] {};
       inputs.skippedFrames = 0;
-      inputs.error = said(thrown);
+      inputs.detectMs = new double[] {};
+      inputs.error = Said.of(thrown);
     }
-  }
-
-  /** What an exception says, or the whole of it when it says nothing. */
-  private static String said(RuntimeException thrown) {
-    String message = thrown.getMessage();
-    if (message == null) {
-      return thrown.toString();
-    }
-    return message.strip();
   }
 
   /**
@@ -307,16 +381,17 @@ final class Camera implements AutoCloseable {
   }
 
   private void startLoopRecord() {
-    outcomes.clear();
+    verdicts.clear();
     latencies.clear();
     seenTags.clear();
     acceptedTags.clear();
     rejectedTags.clear();
-    rejectedReasons.clear();
+    rejectedVerdicts.clear();
     loopResidualSumMeters = 0;
     loopResidualCount = 0;
     if (inputs.skippedFrames > 0) {
-      outcomes.add(inputs.skippedFrames + " image(s) without a capture time, left out");
+      verdict(inputs.skippedFrames + " image(s) without a capture time, left out");
+      images[Verdict.NO_CAPTURE_TIME.ordinal()] += inputs.skippedFrames;
     }
   }
 
@@ -324,15 +399,17 @@ final class Camera implements AutoCloseable {
 
   /**
    * Whether an image is new. A camera can hand over the same image twice, and an image no newer
-   * than the newest already seen is taken as one of those.
+   * than the newest already taken is taken as one of those. Only an image that arrived in time
+   * ({@link #taken}) moves the newest on: one stamped in the future must not make the good images
+   * after it look old.
    */
   boolean isNew(long takenNanos) {
-    boolean seenBefore = newestImageNanos.isPresent() && takenNanos <= newestImageNanos.getAsLong();
-    if (seenBefore) {
-      return false;
-    }
+    return newestImageNanos.isEmpty() || takenNanos > newestImageNanos.getAsLong();
+  }
+
+  /** An image that's new and arrived in time was taken: images no newer than it are seen before. */
+  void taken(long takenNanos) {
     newestImageNanos = OptionalLong.of(takenNanos);
-    return true;
   }
 
   /**
@@ -385,7 +462,7 @@ final class Camera implements AutoCloseable {
     if (previousLoopNanos.isEmpty()) {
       return Optional.empty();
     }
-    double latestSeconds = config.sensor().latency().in(Seconds) + marginSeconds;
+    double latestSeconds = config.latencyOrDefault().in(Seconds) + marginSeconds;
     double lateAtLeastSeconds = Timestamps.toSeconds(previousLoopNanos.getAsLong() - takenNanos);
     if (lateAtLeastSeconds > latestSeconds) {
       return Optional.of(
@@ -421,21 +498,47 @@ final class Camera implements AutoCloseable {
   }
 
   /** What became of one of this loop's images. */
-  void outcome(String outcome) {
-    outcomes.add(outcome);
+  void verdict(String words) {
+    verdicts.add(words);
+    latestVerdict = words;
+  }
+
+  /** An image is about to be taken: it has no verdict yet. */
+  void imageStarts() {
+    imageHasAVerdict = false;
   }
 
   /**
-   * One of this loop's images was left out before the estimator saw it. Why is its outcome, and its
+   * The image being taken has its verdict, and is counted by it once localization's update says it
+   * ({@link #record}).
+   */
+  void imageHasAVerdict() {
+    imageHasAVerdict = true;
+  }
+
+  /**
+   * The image being taken couldn't be read: its data threw. Its verdict says why, and it's counted
+   * as unreadable, unless it already had its verdict before it threw.
+   */
+  void unreadable(String why) {
+    verdict("unusable data from the camera: " + why);
+    if (!imageHasAVerdict) {
+      images[Verdict.UNREADABLE.ordinal()]++;
+    }
+  }
+
+  /**
+   * One of this loop's images was left out before the estimator saw it. Why is its verdict, and its
    * tags are refused for the same reason.
    *
    * @param tags the image's tags, where the field's layout has them
    */
   void leftOut(List<Pose3d> tags, String why) {
-    outcome(why);
+    imageHasAVerdict();
+    verdict(why);
     for (Pose3d tag : tags) {
       rejectedTags.add(tag);
-      rejectedReasons.add(why);
+      rejectedVerdicts.add(why);
     }
   }
 
@@ -564,7 +667,7 @@ final class Camera implements AutoCloseable {
     }
     outOfStep.set(outOfStepAlertIsHeldAt(nowNanos));
     showWhetherImagesHaveCaptureTimes(nowNanos);
-    Logger.recordOutput(outcomesKey, outcomes.toArray(String[]::new));
+    Logger.recordOutput(verdictsKey, verdicts.toArray(String[]::new));
     Logger.recordOutput(leftOutOfStepKey, leftOutOfStep);
     Logger.recordOutput(
         latencySecondsKey, latencies.stream().mapToDouble(Double::doubleValue).toArray());
@@ -619,33 +722,37 @@ final class Camera implements AutoCloseable {
   /**
    * Counts and logs what localization's update made of this camera's measurements, and this loop's
    * tags by what became of them: {@code AcceptedTags} and {@code RejectedTags}, where the field's
-   * layout has them, and beside each refused one why ({@code RejectedReasons}, in the same order).
+   * layout has them, and beside each refused one why ({@code RejectedVerdicts}, in the same order).
    *
    * <p>An image that was refused before it became a measurement is passed over here. It was logged
    * as it was refused ({@link #leftOut}).
    *
    * @param agreeMeters an accepted measurement this close to the estimate agrees with it
    * @param field where the field's layout has each tag, by its ID
-   * @param fates whether the localizer says what became of each measurement
+   * @param measurementVerdicts whether the localizer says what became of each measurement
    */
   void record(
       List<FrameVerdict> frames,
       double agreeMeters,
       IntFunction<Optional<Pose3d>> field,
-      Fates fates) {
-    List<String> decisions = new ArrayList<>();
+      MeasurementVerdicts measurementVerdicts) {
+    List<String> weighed = new ArrayList<>();
     for (FrameVerdict frame : frames) {
       boolean mine = frame.camera().equals(name());
-      Optional<FrameVerdict.Measured> measured = frame.measured();
-      if (!mine || measured.isEmpty()) {
+      if (!mine) {
         continue;
       }
-      decisions.add(frame.reason());
+      images[frame.verdict().ordinal()]++;
+      Optional<FrameVerdict.Measured> measured = frame.measured();
+      if (measured.isEmpty()) {
+        continue;
+      }
+      weighed.add(frame.described());
       sortItsTags(frame, field);
       tally(frame, measured.get(), agreeMeters);
     }
-    Logger.recordOutput(decisionsKey, decisions.toArray(String[]::new));
-    if (fates == Fates.NOT_REPORTED) {
+    Logger.recordOutput(measurementVerdictsKey, weighed.toArray(String[]::new));
+    if (measurementVerdicts == MeasurementVerdicts.NOT_REPORTED) {
       // No count of accepted or rejected is known, so neither is logged as if it were.
       Logger.recordOutput(givenKey, given);
     } else {
@@ -654,11 +761,40 @@ final class Camera implements AutoCloseable {
     }
     acceptedArray = acceptedTags.toArray(sized(acceptedArray, acceptedTags.size()));
     rejectedArray = rejectedTags.toArray(sized(rejectedArray, rejectedTags.size()));
-    reasonsArray = rejectedReasons.toArray(sized(reasonsArray, rejectedReasons.size()));
+    rejectedVerdictsArray =
+        rejectedVerdicts.toArray(sized(rejectedVerdictsArray, rejectedVerdicts.size()));
     Logger.recordOutput(acceptedTagsKey, acceptedArray);
     Logger.recordOutput(rejectedTagsKey, rejectedArray);
-    Logger.recordOutput(rejectedReasonsKey, reasonsArray);
+    Logger.recordOutput(rejectedVerdictsKey, rejectedVerdictsArray);
     sightings.log(frames);
+    logImages();
+  }
+
+  /**
+   * Logs what the default localizer's estimator has learned of this camera: how far it takes the
+   * camera to be turned on its mount ({@code LearnedTurnDegrees}), how late it takes its images to
+   * be stamped ({@code LateSeconds}), and how far its watch has the camera's measurements in doubt
+   * for landing to one side of the others' ({@code WatchDoubtMeters}), which is why a camera can
+   * count for less than another. NaN for a camera it hasn't learned of yet.
+   */
+  void logWhatTheEstimatorLearned(DefaultLocalizer estimator) {
+    Logger.recordOutput(learnedTurnDegreesKey, estimator.cameraTurnDegrees(name()));
+    Logger.recordOutput(lateSecondsKey, estimator.cameraLateSeconds(name()));
+    Logger.recordOutput(watchDoubtMetersKey, estimator.cameraWatchDoubtMeters(name()));
+  }
+
+  /**
+   * Logs how many of the camera's images came to each verdict, under {@code
+   * Vision/<name>/Images/<VERDICT>}: each count when it changes, and all of them the first time.
+   * They're plain counts, so what was thrown out and why is read straight off the log.
+   */
+  private void logImages() {
+    for (int verdict = 0; verdict < images.length; verdict++) {
+      if (images[verdict] != imagesLogged[verdict]) {
+        Logger.recordOutput(imagesKeys[verdict], images[verdict]);
+        imagesLogged[verdict] = images[verdict];
+      }
+    }
   }
 
   /**
@@ -679,7 +815,7 @@ final class Camera implements AutoCloseable {
         acceptedTags.add(onTheField.get());
       } else {
         rejectedTags.add(onTheField.get());
-        rejectedReasons.add(seen.reason());
+        rejectedVerdicts.add(seen.described());
       }
     }
   }
@@ -720,6 +856,11 @@ final class Camera implements AutoCloseable {
 
   // ---- What the camera has seen, for Vision, the pit and the tests ----
 
+  /** What became of each of this loop's images, in words, as {@code Verdicts} logs them. */
+  List<String> verdicts() {
+    return verdicts;
+  }
+
   /** This loop's tags that went into accepted measurements, where the field's layout has them. */
   List<Pose3d> acceptedTags() {
     return acceptedTags;
@@ -731,8 +872,8 @@ final class Camera implements AutoCloseable {
   }
 
   /** Why each of this loop's refused tags was refused, in the same order. */
-  List<String> rejectedReasons() {
-    return rejectedReasons;
+  List<String> rejectedVerdicts() {
+    return rejectedVerdicts;
   }
 
   /**
@@ -759,8 +900,71 @@ final class Camera implements AutoCloseable {
     return inputs.connected;
   }
 
+  /** Its frame rate, drops and detection time lately, and its warnings this session. */
+  CameraHealth health() {
+    return health.health();
+  }
+
   int accepted() {
     return accepted;
+  }
+
+  /** What became of its latest image, in words, as its verdict said it; empty before the first. */
+  Optional<String> latestVerdict() {
+    return Optional.ofNullable(latestVerdict);
+  }
+
+  /**
+   * How its images with tags fared, since the robot started, in words: "used 0 of 412 images with
+   * tags (398: a tag's height is off)", the reason most of the rest weren't used with its count.
+   */
+  String imagesUsedWords() {
+    String said = "used " + imagesUsed() + " of " + imagesWithTags() + " images with tags";
+    Optional<Verdict> leading = leadingRefusal();
+    if (leading.isEmpty()) {
+      return said;
+    }
+    return said + " (" + images(leading.get()) + ": " + leading.get().words() + ")";
+  }
+
+  /** How many of its images came to a verdict, since the robot started. */
+  long images(Verdict verdict) {
+    return images[verdict.ordinal()];
+  }
+
+  /**
+   * How many of its images saw any tag, solved or not, since the robot started: every image but
+   * those that saw none.
+   */
+  long imagesWithTags() {
+    long all = 0;
+    for (long count : images) {
+      all += count;
+    }
+    return all - images[Verdict.NO_TAGS.ordinal()];
+  }
+
+  /** How many of its images the localizer used: accepted, or given to one that doesn't say. */
+  long imagesUsed() {
+    return images[Verdict.ACCEPTED.ordinal()] + images[Verdict.GIVEN.ordinal()];
+  }
+
+  /**
+   * Why most of its images with tags weren't used, or empty while every one was. The first verdict
+   * in localization's list wins a tie.
+   */
+  Optional<Verdict> leadingRefusal() {
+    Verdict leading = null;
+    for (Verdict verdict : VERDICTS) {
+      boolean used = verdict == Verdict.ACCEPTED || verdict == Verdict.GIVEN;
+      if (used || verdict == Verdict.NO_TAGS || images[verdict.ordinal()] == 0) {
+        continue;
+      }
+      if (leading == null || images[verdict.ordinal()] > images[leading.ordinal()]) {
+        leading = verdict;
+      }
+    }
+    return Optional.ofNullable(leading);
   }
 
   int rejected() {
@@ -790,6 +994,11 @@ final class Camera implements AutoCloseable {
     return unreadable.get();
   }
 
+  /** The no-lens-calibration alert, while it's up. */
+  Optional<String> noLensAlert() {
+    return noLens.get() ? Optional.of(noLens.getText()) : Optional.empty();
+  }
+
   boolean isOutOfCalibrationAlertActive() {
     return outOfCalibration.get();
   }
@@ -814,6 +1023,7 @@ final class Camera implements AutoCloseable {
     outOfCalibration.close();
     outOfStep.close();
     noCaptureTime.close();
+    noLens.close();
     TunableRegistry.remove(key + "/enabled");
   }
 }

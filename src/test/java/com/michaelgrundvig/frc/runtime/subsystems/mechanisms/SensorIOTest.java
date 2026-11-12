@@ -15,11 +15,11 @@ import com.ctre.phoenix6.signals.S1StateValue;
 import com.ctre.phoenix6.signals.S2StateValue;
 import com.ctre.phoenix6.signals.UpdateModeValue;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.Waits;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
-import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -37,19 +37,6 @@ class SensorIOTest {
   @BeforeAll
   static void quietCtreLog() {
     SignalLogger.enableAutoLogging(false);
-  }
-
-  /** Reads until something is true, up to two seconds: Phoenix's simulated devices answer late. */
-  private static boolean eventually(Runnable read, BooleanSupplier done)
-      throws InterruptedException {
-    for (int i = 0; i < 200; i++) {
-      read.run();
-      if (done.getAsBoolean()) {
-        return true;
-      }
-      Thread.sleep(10);
-    }
-    return false;
   }
 
   /**
@@ -97,25 +84,22 @@ class SensorIOTest {
 
     device.getSimState().setS1State(S1StateValue.Low);
     device.getSimState().setS2State(S2StateValue.Floating);
-    boolean tripped =
-        eventually(
-            () -> {
-              open.updateInputs(a);
-              closed.updateInputs(b);
-            },
-            () -> a.connected && b.connected && a.tripped && b.tripped);
+    Waits.until(
+        "S1 low, normally open; S2 floating, normally closed",
+        () -> {
+          open.updateInputs(a);
+          closed.updateInputs(b);
+        },
+        () -> a.connected && b.connected && a.tripped && b.tripped);
     device.getSimState().setS1State(S1StateValue.Floating);
     device.getSimState().setS2State(S2StateValue.Low);
-    boolean clear =
-        eventually(
-            () -> {
-              open.updateInputs(a);
-              closed.updateInputs(b);
-            },
-            () -> !a.tripped && !b.tripped);
-
-    assertThat(tripped).as("S1 low, normally open; S2 floating, normally closed").isTrue();
-    assertThat(clear).as("S1 floating; S2 low").isTrue();
+    Waits.until(
+        "S1 floating; S2 low",
+        () -> {
+          open.updateInputs(a);
+          closed.updateInputs(b);
+        },
+        () -> !a.tripped && !b.tripped);
   }
 
   /** A CANrange reads its distance, in meters. */
@@ -126,12 +110,10 @@ class SensorIOTest {
     new CANrange(42, new CANBus(BUS)).getSimState().setDistance(0.3);
     SensorIO.SensorIOInputs inputs = new SensorIO.SensorIOInputs();
 
-    boolean read =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () -> inputs.connected && Math.abs(inputs.meters - 0.3) < 0.001);
-
-    assertThat(read).isTrue();
+    Waits.until(
+        "the CANrange reading 0.3 m",
+        () -> io.updateInputs(inputs),
+        () -> inputs.connected && Math.abs(inputs.meters - 0.3) < 0.001);
   }
 
   /**
@@ -150,11 +132,7 @@ class SensorIOTest {
   }
 
   private static Sensor.Rangefinder rangefinder(double meters, double degrees) {
-    return Sensor.Rangefinder.builder()
-        .label("hopper range")
-        .part(Part.CHASSIS)
-        .range(Meters.of(meters))
-        .fieldOfView(Degrees.of(degrees))
-        .build();
+    return Sensor.Rangefinder.of(
+        "hopper range", Part.CHASSIS, Meters.of(meters), Degrees.of(degrees));
   }
 }

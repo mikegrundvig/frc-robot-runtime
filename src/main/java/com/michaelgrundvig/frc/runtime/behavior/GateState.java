@@ -1,11 +1,12 @@
 package com.michaelgrundvig.frc.runtime.behavior;
 
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.record.GateTerm;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.driverstation.DriverStationErrors;
@@ -89,14 +90,51 @@ final class GateState implements BooleanSupplier {
    * alert, because an alert's name can be taken only once, and a command may make a gate of the
    * same name on every run. The alert is kept for good, as the gates of a robot's start are: a gate
    * made by a command has no moment at which it is done, so there is none to close it at.
+   *
+   * <p>A gate may be worked out on any thread that reads it, so the map is safe to use from any.
    */
-  private static final Map<String, Alert> THREW_ALERTS = new HashMap<>();
+  private static final Map<String, SharedAlert> THREW_ALERTS = new ConcurrentHashMap<>();
+
+  /**
+   * The one alert of the gates of a name, and how many of them throw now. It is raised while any of
+   * them throws, and lowered only once none does, so a gate that stops throwing never hides another
+   * of its name that still throws.
+   *
+   * <p>A gate that throws and is then never worked out again, because nothing reads it any more,
+   * counts as throwing for good: its alert stays raised, as the code that threw is still there.
+   */
+  private static final class SharedAlert {
+    private final Alert alert;
+    private int throwing;
+
+    SharedAlert(String name, String text) {
+      alert = new Alert("Gates", name, text, Alert.Level.HIGH);
+    }
+
+    synchronized void say(String text) {
+      alert.setText(text);
+    }
+
+    /** One more gate of the name throws. */
+    synchronized void startedThrowing() {
+      throwing++;
+      alert.set(true);
+    }
+
+    /** One gate of the name no longer throws. The alert is lowered when none does. */
+    synchronized void stoppedThrowing() {
+      throwing--;
+      if (throwing == 0) {
+        alert.set(false);
+      }
+    }
+  }
 
   /**
    * The alert that is raised while the logic throws, which is its name's shared one. This gate
    * takes it the first time its own logic throws.
    */
-  private Optional<Alert> threwAlert = Optional.empty();
+  private Optional<SharedAlert> threwAlert = Optional.empty();
 
   /** What the alert says. */
   private String threwText = "";
@@ -195,7 +233,7 @@ final class GateState implements BooleanSupplier {
   private void holdFalseAfter(RuntimeException thrown) {
     holds = false;
     blocking.clear();
-    String term = blocking.addThrew(name, said(thrown));
+    String term = blocking.addThrew(name, Said.of(thrown));
     report(term, thrown);
   }
 
@@ -212,7 +250,7 @@ final class GateState implements BooleanSupplier {
       DriverStationErrors.reportError(text, thrown.getStackTrace());
       threwAlert = Optional.of(sharedAlert(name, text));
     } else if (!text.equals(threwText)) {
-      threwAlert.get().setText(text);
+      threwAlert.get().say(text);
     }
     threwText = text;
   }
@@ -221,24 +259,27 @@ final class GateState implements BooleanSupplier {
    * The one alert of the gates with this name, saying this text. It is made for the first gate of
    * the name that throws, and every later one is handed the same alert.
    */
-  private static Alert sharedAlert(String name, String text) {
-    Alert made = THREW_ALERTS.get(name);
-    if (made == null) {
-      made = new Alert("Gates", name, text, Alert.Level.HIGH);
-      THREW_ALERTS.put(name, made);
-      return made;
-    }
-    made.setText(text);
-    return made;
+  private static SharedAlert sharedAlert(String name, String text) {
+    SharedAlert shared = THREW_ALERTS.computeIfAbsent(name, made -> new SharedAlert(made, text));
+    shared.say(text);
+    return shared;
   }
 
-  /** Raises the alert as the logic starts to throw, and lowers it as the logic stops. */
+  /**
+   * Counts this gate among its name's throwing gates as its logic starts to throw, and no longer as
+   * it stops. The shared alert is raised and lowered by that count.
+   */
   private void showWhetherItThrows(boolean throwsNow) {
     boolean changed = throwsNow != throwing;
-    if (threwAlert.isPresent() && changed) {
-      threwAlert.get().set(throwsNow);
-    }
     throwing = throwsNow;
+    if (threwAlert.isEmpty() || !changed) {
+      return;
+    }
+    if (throwsNow) {
+      threwAlert.get().startedThrowing();
+    } else {
+      threwAlert.get().stoppedThrowing();
+    }
   }
 
   private void log() {
@@ -289,14 +330,5 @@ final class GateState implements BooleanSupplier {
     Recorded recorded = recorded();
     Logger.recordOutput(blockingKey, recorded.terms());
     Logger.recordOutput(blockingTextKey, recorded.text());
-  }
-
-  /** What an exception says, or its kind when it says nothing. */
-  private static String said(RuntimeException thrown) {
-    String message = thrown.getMessage();
-    if (message == null || message.isBlank()) {
-      return thrown.getClass().getSimpleName();
-    }
-    return message;
   }
 }

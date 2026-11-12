@@ -1,7 +1,6 @@
 package com.michaelgrundvig.frc.runtime;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,7 +56,8 @@ class SessionStaysOffTheNetworkEndToEndTest {
   }
 
   private void opensNoNetworkTablesServer(Session session) throws Exception {
-    assumeTrue(ListeningSockets.available(), "this computer cannot say what a process listens on");
+    TestComputer.needs(
+        ListeningSockets.available(), "this computer cannot say what a process listens on");
 
     ListeningSockets.Watch watch = new ListeningSockets.Watch();
     session.record(dir, watch::start);

@@ -190,7 +190,7 @@ final class MoveLeg {
   /**
    * How long the joint needs to get where a move to a place sends it, in seconds, from the model:
    * its profile's time to a position, or the time its velocity loop takes to reach a speed. A
-   * voltage or a share of the battery is there at once.
+   * voltage or a duty cycle is there at once.
    */
   double secondsNeeded(double cruiseShare) {
     return switch (part) {
@@ -214,8 +214,8 @@ final class MoveLeg {
    * been there long enough to count as arrived.
    *
    * <p>A joint must stay inside its band for {@link Outcome#DWELL_NANOS}, so that one passing
-   * through its target is not taken to have arrived. A voltage or a share of the battery has no
-   * band to settle into, so a joint run at one has arrived in its first loop.
+   * through its target is not taken to have arrived. A voltage or a duty cycle has no band to
+   * settle into, so a joint run at one has arrived in its first loop.
    */
   boolean hasArrived(long now) {
     if (!isThere()) {

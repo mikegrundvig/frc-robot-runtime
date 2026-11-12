@@ -25,7 +25,9 @@ public enum ModuleClause {
   M15("readings stand in a loop a frame did not come"),
   M16("a restarted controller has its tuning again, and a restarted drive says so in one loop"),
   M17("unconfigured is empty when every device took its settings"),
-  M18("the drive says when its current limit held it, where the device says");
+  M18("the drive says when its current limit held it, where the device says"),
+  M19("the steering's angle in rotations is its angle, within half a turn"),
+  M20("the encoder's magnet and faults are what it last said, where it says");
 
   private final String says;
 

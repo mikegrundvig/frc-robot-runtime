@@ -6,12 +6,14 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.world.robot.CanBus;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainModuleBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
 import com.revrobotics.spark.SparkBase;
 import com.revrobotics.spark.SparkSim;
 import java.util.Optional;
@@ -35,8 +37,8 @@ public final class SparkModuleBench implements ModuleBench {
   private static final AtomicInteger NEXT_ID = new AtomicInteger(1);
 
   /** REV's MAXSwerve: a Vortex driving through the template's gearing, a NEO 550 steering. */
-  private static final DrivetrainGeometry.ModuleType MODULE =
-      DrivetrainGeometryModuleTypeBuilder.builder(
+  private static final Drivetrain.Module MODULE =
+      DrivetrainModuleBuilder.builder(
               ExampleRobot.SIM.definition().drivetrain().corners().get(0).module())
           .driveMotor(Motor.NEO_VORTEX)
           .steerMotor(Motor.NEO_550)
@@ -54,7 +56,7 @@ public final class SparkModuleBench implements ModuleBench {
   }
 
   @Override
-  public Rig powerOn(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public Rig powerOn(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     return new SparkRig(gains, limits, NEXT_ID.getAndAdd(2));
   }
 
@@ -81,16 +83,14 @@ public final class SparkModuleBench implements ModuleBench {
     /** Where the wheel was, in rotations, when the drive SPARK last started counting from zero. */
     private double countsFromRotations;
 
-    SparkRig(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits, int firstId) {
+    SparkRig(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits, int firstId) {
       RobotSim.setEnabled(true);
+      CanBus port = CanBus.port(CanBus.Systemcore.CAN_S4);
       SwerveWiring.ModuleWiring wiring =
-          SwerveWiring.ModuleWiring.builder()
-              .driveId(firstId)
-              .steerId(firstId + 1)
-              .encoderOffset(Rotations.of(0))
-              .driveInverted(false)
-              .steerInverted(false)
-              .encoderInverted(false)
+          SwerveWiringModuleWiringBuilder.builder()
+              .drive(MechanismWiring.Controller.SPARK_FLEX.can(port, firstId))
+              .steering(MechanismWiring.Controller.SPARK_MAX.can(port, firstId + 1))
+              .encoder(MechanismWiring.DATA_PORT.offset(Rotations.of(0)))
               .build();
       io =
           new ModuleIOSpark(
@@ -98,7 +98,8 @@ public final class SparkModuleBench implements ModuleBench {
               CANPort.CAN_S4,
               MechanismWiring.Controller.SPARK_FLEX,
               MechanismWiring.Controller.SPARK_MAX,
-              MODULE);
+              MODULE,
+              new ModuleStartup(5, Runnable::run));
       io.configure(gains, limits);
       drive = new SparkSim(io.drive(), MODULE.driveMotor().model());
       steer = new SparkSim(io.steer(), MODULE.steerMotor().model());

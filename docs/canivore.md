@@ -32,7 +32,9 @@ power, and that CTRE's canivore-usb package is installed (docs/canivore.md) (CAN
 ```
 
 So a CANivore that's unplugged, unpowered, renamed in Tuner X, or has no driver shows as one alert,
-not as every module's `DriveConnected` false. On a laptop driving real devices
+not as every module's `DriveConnected` false. At startup, a device on a CANivore the computer
+doesn't see gets its settings sent once, not the several tries a device on a bus that is seen gets,
+so a robot with its CANivore unplugged starts its loop at once instead of waiting on every device. On a laptop driving real devices
 ([bench.md](bench.md)), the same alert says to check that Tuner X sees it.
 
 ## After a Systemcore update

@@ -29,7 +29,7 @@ import org.wpilib.math.geometry.Translation2d;
 @ExtendWith(RobotSim.class)
 class DriveFollowSimTest {
   private final DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM);
-  private final Drive drive = harness.drive;
+  private final SwerveDrive drive = harness.drive;
 
   @AfterEach
   void tearDown() {

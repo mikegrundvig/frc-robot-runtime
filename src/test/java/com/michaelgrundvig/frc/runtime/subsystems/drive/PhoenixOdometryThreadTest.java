@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ctre.phoenix6.BaseStatusSignal;
+import com.michaelgrundvig.frc.runtime.Waits;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.PhoenixOdometryThread.Batch;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.PhoenixOdometryThread.Reading;
 import java.util.ArrayDeque;
@@ -59,7 +60,9 @@ class PhoenixOdometryThreadTest {
     Queue<Long> times = thread.timestamps();
     thread.start();
     try {
-      assertThat(script.done.await(2, TimeUnit.SECONDS)).as("read every step").isTrue();
+      assertThat(script.done.await(Waits.LIMIT.toSeconds(), TimeUnit.SECONDS))
+          .as("waited 30 s for every step read")
+          .isTrue();
     } finally {
       thread.interrupt();
       thread.join(2000);

@@ -8,6 +8,7 @@ import static com.michaelgrundvig.frc.world.config.Rules.size;
 
 import com.michaelgrundvig.frc.world.config.Checks;
 import com.michaelgrundvig.frc.world.config.ConfigRecord;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import io.soabase.recordbuilder.core.RecordBuilder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -226,7 +227,7 @@ public record SensorErrors(
             .flipped(false)
             .forwardMeters(0.01)
             .leftMeters(0)
-            .rangeMetersPerSecSq(2 * Physics.STANDARD_GRAVITY)
+            .rangeMetersPerSecSq(2 * RobotMath.GRAVITY)
             .sampleHz(100)
             .filterSeconds(0.016)
             .build();

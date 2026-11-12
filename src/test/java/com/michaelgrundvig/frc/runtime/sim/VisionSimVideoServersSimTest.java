@@ -1,10 +1,11 @@
-package com.michaelgrundvig.frc.runtime.subsystems.vision;
+package com.michaelgrundvig.frc.runtime.sim;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.Map;

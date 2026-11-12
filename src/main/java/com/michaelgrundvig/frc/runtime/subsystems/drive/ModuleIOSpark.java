@@ -6,8 +6,8 @@ import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevRestarts;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
@@ -29,10 +29,12 @@ import com.revrobotics.spark.config.SparkMaxConfig;
 import com.revrobotics.util.Signal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import org.wpilib.hardware.bus.CANPort;
 import org.wpilib.math.filter.Debouncer.DebounceType;
 import org.wpilib.math.geometry.Rotation2d;
+import org.wpilib.math.util.MathUtil;
 import org.wpilib.system.RobotController;
 
 /**
@@ -65,6 +67,11 @@ import org.wpilib.system.RobotController;
  * <p><b>A frame that does not come</b> leaves the module's last reading standing, so the wheel
  * reads as not having moved for that loop and not as back at 0 ({@link #takeTheFramesThatCame}).
  *
+ * <p><b>Settings that weren't taken.</b> A SPARK that doesn't confirm its settings at startup is
+ * named in the inputs ({@link ModuleIOInputs#unconfigured}), and the drivetrain holds still while
+ * any is. Once it answers, it is sent its whole configuration again, on a thread of its own, until
+ * it confirms ({@link DeviceSettings}).
+ *
  * <p><b>The absolute encoder's offset</b> is applied here, not on the SPARK, so it means what the
  * wiring says ({@link SwerveWiring.ModuleWiring}) whatever REV's own conventions. Its direction is
  * set on the SPARK, because the SPARK's loop runs on the reading.
@@ -74,9 +81,6 @@ final class ModuleIOSpark implements ModuleIO {
 
   /** A SPARK's speeds are in rotations a minute. */
   private static final double SECONDS_PER_MINUTE = 60;
-
-  /** At startup, configuring a SPARK is tried this many times. */
-  private static final int TRIES = 5;
 
   /**
    * How often a SPARK sends each signal this class reads, in milliseconds: 20 ms, the robot loop's
@@ -116,22 +120,16 @@ final class ModuleIOSpark implements ModuleIO {
   private final MechanismWiring.Controller driveController;
   private final MechanismWiring.Controller steerController;
 
-  /** Drive motor rotations for one rotation of the wheel. */
+  /** SwerveDrive motor rotations for one rotation of the wheel. */
   private final double driveGearing;
 
-  /** Drive motor rotations for one turn of the module, with the wheel held still. */
+  /** SwerveDrive motor rotations for one turn of the module, with the wheel held still. */
   private final double couplingRatio;
 
   private final double wheelRadiusMeters;
 
   /** Added to the absolute encoder's reading, in turns, so it reads zero pointing ahead. */
   private final double encoderOffset;
-
-  /**
-   * Whether the SPARKs have been sent their gains and limits yet. The first time, at startup, they
-   * are saved on the SPARKs and waited for. After that they are sent without waiting.
-   */
-  private boolean configured;
 
   /**
    * The gains and limits each SPARK was last sent ({@link #configure}), kept to send again to one
@@ -159,12 +157,31 @@ final class ModuleIOSpark implements ModuleIO {
   /** The steering's damping, volts per radian per second of its turning. */
   private double steerKd;
 
-  /** The SPARKs that didn't confirm their configuration at startup. */
-  private final List<String> unconfigured = new ArrayList<>();
+  /** How many times each SPARK is sent its settings at startup. */
+  private final int startupTries;
 
   /**
-   * The same SPARKs as one line of text, such as "drive motor 3". Kept beside the list so the loop
-   * hands the inputs a string without building one.
+   * What the wiring decides, for each SPARK: saved on it at startup, and again, with its tuning,
+   * when it is sent its whole configuration after it didn't take it.
+   */
+  private final SparkBaseConfig driveWiring;
+
+  private final SparkBaseConfig steerWiring;
+
+  /** Whether each SPARK took what the wiring decides, as the robot started. */
+  private final boolean driveWiringTaken;
+
+  private final boolean steerWiringTaken;
+
+  /** Whether each SPARK has taken its whole configuration, and sending it again until it has. */
+  private final DeviceSettings driveSettings;
+
+  private final DeviceSettings steerSettings;
+
+  /**
+   * The SPARKs that haven't taken their whole configuration, as one line of text, such as "drive
+   * motor 3". Worked out again only when one takes it, so the loop hands the inputs a string
+   * without building one.
    */
   private String unconfiguredNames = "";
 
@@ -195,31 +212,35 @@ final class ModuleIOSpark implements ModuleIO {
    * @param driveController the drive's SPARK, a MAX or a Flex
    * @param steerController the steering's
    * @param module the module's gearing and wheel
+   * @param startup how many times each SPARK is tried at startup, and where a send while the robot
+   *     runs waits for its answer
    */
   ModuleIOSpark(
       SwerveWiring.ModuleWiring wiring,
       CANPort port,
       MechanismWiring.Controller driveController,
       MechanismWiring.Controller steerController,
-      DrivetrainGeometry.ModuleType module) {
+      Drivetrain.Module module,
+      ModuleStartup startup) {
+    startupTries = startup.tries();
     this.driveController = driveController;
     this.steerController = steerController;
-    drive = spark(driveController, port, wiring.driveId());
-    steer = spark(steerController, port, wiring.steerId());
+    int driveId = wiring.drive().id();
+    int steerId = wiring.steering().id();
+    drive = spark(driveController, port, driveId);
+    steer = spark(steerController, port, steerId);
     driveGearing = module.driveGearing().ratio();
     couplingRatio = module.couplingRatio();
     wheelRadiusMeters = module.wheelRadius().in(Meters);
-    encoderOffset = wiring.encoderOffset().in(Rotations);
+    encoderOffset = wiring.encoder().offset().in(Rotations);
 
     // What the wiring decides is saved on the SPARKs now. The gains and limits come in configure().
-    SparkBaseConfig driveSettings = driveSettings(wiring);
-    SparkBaseConfig steerSettings = steerSettings(wiring);
-    if (!applied(() -> resetAndSave(drive, driveSettings))) {
-      noteUnconfigured("drive motor " + wiring.driveId());
-    }
-    if (!applied(() -> resetAndSave(steer, steerSettings))) {
-      noteUnconfigured("steering motor " + wiring.steerId());
-    }
+    driveWiring = driveSettings(wiring);
+    steerWiring = steerSettings(wiring);
+    driveWiringTaken = applied(startupTries, () -> resetAndSave(drive, driveWiring));
+    steerWiringTaken = applied(startupTries, () -> resetAndSave(steer, steerWiring));
+    driveSettings = new DeviceSettings("drive motor " + driveId, startup.sender());
+    steerSettings = new DeviceSettings("steering motor " + steerId, startup.sender());
     // Each SPARK's "has reset" warning is cleared now, so that what set it before the robot started
     // is not taken for a restart.
     drive.clearFaults();
@@ -240,7 +261,7 @@ final class ModuleIOSpark implements ModuleIO {
   private SparkBaseConfig driveSettings(SwerveWiring.ModuleWiring wiring) {
     SparkBaseConfig settings = blank(driveController);
     settings
-        .inverted(wiring.driveInverted())
+        .inverted(wiring.drive().turnsClockwise())
         .idleMode(SparkBaseConfig.IdleMode.kBrake)
         .voltageCompensation(Motor.NOMINAL_VOLTS);
     settings.closedLoop.feedbackSensor(FeedbackSensor.kPrimaryEncoder);
@@ -263,14 +284,14 @@ final class ModuleIOSpark implements ModuleIO {
   private SparkBaseConfig steerSettings(SwerveWiring.ModuleWiring wiring) {
     SparkBaseConfig settings = blank(steerController);
     settings
-        .inverted(wiring.steerInverted())
+        .inverted(wiring.steering().turnsClockwise())
         .idleMode(SparkBaseConfig.IdleMode.kBrake)
         .voltageCompensation(Motor.NOMINAL_VOLTS);
     if (steerController == MechanismWiring.Controller.SPARK_MAX) {
       // A SPARK MAX's data port serves several kinds of sensor, and has to be told this one.
       settings.absoluteEncoder.setSparkMaxDataPortConfig();
     }
-    settings.absoluteEncoder.inverted(wiring.encoderInverted());
+    settings.absoluteEncoder.inverted(readsInverted(wiring.encoder()));
     settings
         .closedLoop
         .feedbackSensor(FeedbackSensor.kAbsoluteEncoder)
@@ -309,6 +330,19 @@ final class ModuleIOSpark implements ModuleIO {
   }
 
   /** A SPARK of the kind the wiring names, a Flex or a MAX, driving a brushless motor. */
+  /**
+   * Whether the module's absolute encoder, on the steering SPARK's data port, reads inverted: its
+   * wiring's {@code .inverted()}. A SPARK steers by its data port, so the robot's definition
+   * refuses a module of SPARKs with a CANcoder before this is built.
+   */
+  private static boolean readsInverted(SwerveWiring.ModuleEncoder encoder) {
+    if (encoder instanceof MechanismWiring.DataPortEncoder dataPort) {
+      return dataPort.reversed();
+    }
+    throw new IllegalArgumentException(
+        "a SPARK steers by the encoder on its data port, and this module's is a CANcoder");
+  }
+
   private static SparkBase spark(MechanismWiring.Controller controller, CANPort port, int id) {
     if (controller == MechanismWiring.Controller.SPARK_FLEX) {
       return new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless);
@@ -325,11 +359,11 @@ final class ModuleIOSpark implements ModuleIO {
   }
 
   /**
-   * Whether a SPARK took a configuration. At startup, where waiting is fine, it is tried a few
-   * times before giving up.
+   * Whether a SPARK took a configuration, after so many tries. Only for startup, and for the
+   * sender, where waiting is fine.
    */
-  private static boolean applied(Supplier<REVLibError> attempt) {
-    for (int i = 0; i < TRIES; i++) {
+  private static boolean applied(int tries, Supplier<REVLibError> attempt) {
+    for (int i = 0; i < tries; i++) {
       if (attempt.get() == REVLibError.kOk) {
         return true;
       }
@@ -337,10 +371,56 @@ final class ModuleIOSpark implements ModuleIO {
     return false;
   }
 
-  /** Notes something a SPARK didn't confirm at startup. */
-  private void noteUnconfigured(String what) {
-    unconfigured.add(what);
-    unconfiguredNames = String.join(", ", unconfigured);
+  /** Works out the line of SPARKs that haven't taken their whole configuration. */
+  private void noteWhatIsUnconfigured() {
+    List<String> missing = new ArrayList<>();
+    for (DeviceSettings spark : List.of(driveSettings, steerSettings)) {
+      if (spark.missing()) {
+        missing.add(spark.name());
+      }
+    }
+    unconfiguredNames = String.join(", ", missing);
+  }
+
+  /**
+   * Sends each SPARK that hasn't taken its settings its whole configuration again, once it answers,
+   * and takes the answers that have come. A SPARK that takes them is sent the tuning as it is now
+   * too, in case the pit tuned it while the send waited.
+   */
+  private void sendSettingsAgainOnceAnswered() {
+    if (driveSettings.wantsSendingAgain(driveFramesCame)) {
+      driveSettings.sendAgain(wholeConfiguration(drive, driveWiring, driveTuning));
+    }
+    if (steerSettings.wantsSendingAgain(steerFrameCame)) {
+      steerSettings.sendAgain(wholeConfiguration(steer, steerWiring, steerTuning));
+    }
+    boolean driveTookIt = driveSettings.answerCame();
+    boolean steerTookIt = steerSettings.answerCame();
+    if (driveTookIt) {
+      sendWhileRunning(drive, driveTuning);
+    }
+    if (steerTookIt) {
+      sendWhileRunning(steer, steerTuning);
+    }
+    if (driveTookIt || steerTookIt) {
+      noteWhatIsUnconfigured();
+    }
+  }
+
+  /**
+   * One whole send of a SPARK's configuration, for the sender: reset to REV's defaults with what
+   * the wiring decides, then the tuning, each saved on it and waited for. The tuning is the one in
+   * force as the send is made; a configuration is never changed once made ({@link #configure} makes
+   * new ones), so the sender can read it while the loop goes on.
+   */
+  private static BooleanSupplier wholeConfiguration(
+      SparkBase spark, SparkBaseConfig wiring, SparkBaseConfig tuning) {
+    return () -> {
+      if (resetAndSave(spark, wiring) != REVLibError.kOk) {
+        return false;
+      }
+      return addAndSave(spark, tuning) == REVLibError.kOk;
+    };
   }
 
   /** The steering SPARK: for the tests, which read what it was told through REV's simulation. */
@@ -364,6 +444,7 @@ final class ModuleIOSpark implements ModuleIO {
         driveEncoder.getVelocity(),
         steerEncoder.getPosition(),
         steerEncoder.getVelocity());
+    sendSettingsAgainOnceAnswered();
     fill(inputs);
   }
 
@@ -379,6 +460,7 @@ final class ModuleIOSpark implements ModuleIO {
       Signal<Double> encoderRpm) {
     sendTuningAgainAfterARestart();
     takeTheFramesThatCame(motorTurns, motorRpm, encoderTurns, encoderRpm);
+    sendSettingsAgainOnceAnswered();
     fill(inputs);
   }
 
@@ -481,6 +563,7 @@ final class ModuleIOSpark implements ModuleIO {
 
     inputs.steerConnected = steerConnected.calculate(steerFrameCame);
     inputs.steerAngle = Rotation2d.fromRotations(moduleRotations);
+    inputs.steerAngleRotations = MathUtil.inputModulus(moduleRotations, -0.5, 0.5);
     inputs.steerVelocityRadPerSec = TWO_PI * steerRotationsPerSecond;
     inputs.steerAppliedVolts = steer.getAppliedOutput().get(0.0) * steer.getBusVoltage().get(0.0);
     inputs.steerStatorCurrentAmps = Math.abs(steer.getOutputCurrent().get(0.0));
@@ -497,7 +580,7 @@ final class ModuleIOSpark implements ModuleIO {
    * waiting after, so the loop never blocks.
    */
   @Override
-  public void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     steerKd = gains.steerKd();
     driveTuning = blank(driveController);
     driveTuning.smartCurrentLimit(wholeAmps(limits.driveStatorCurrent().in(Amps)));
@@ -505,9 +588,8 @@ final class ModuleIOSpark implements ModuleIO {
     steerTuning = blank(steerController);
     steerTuning.smartCurrentLimit(wholeAmps(limits.steerStatorCurrent().in(Amps)));
     steerTuning.closedLoop.p(steerKpAsAShare(gains), ClosedLoopSlot.kSlot0);
-    if (!configured) {
+    if (driveSettings.state() == DeviceSettings.State.NOT_YET_SENT) {
       saveAtStartup();
-      configured = true;
       return;
     }
     sendWhileRunning(drive, driveTuning);
@@ -520,7 +602,7 @@ final class ModuleIOSpark implements ModuleIO {
    * is 2π times the wheel's radius in meters a second, and it is the gearing times 60 RPM of the
    * motor.
    */
-  private double driveKpAsAShare(DrivetrainControl.Gains gains) {
+  private double driveKpAsAShare(DrivetrainControl.SwerveGains gains) {
     double voltsPerMotorRpm =
         gains.driveKp() * TWO_PI * wheelRadiusMeters / driveGearing / SECONDS_PER_MINUTE;
     return voltsPerMotorRpm / Motor.NOMINAL_VOLTS;
@@ -531,7 +613,7 @@ final class ModuleIOSpark implements ModuleIO {
    * module, which is what the absolute encoder on its shaft reads. The template's is in volts per
    * radian, and one turn is 2π radians.
    */
-  private static double steerKpAsAShare(DrivetrainControl.Gains gains) {
+  private static double steerKpAsAShare(DrivetrainControl.SwerveGains gains) {
     double voltsPerModuleTurn = gains.steerKp() * TWO_PI;
     return voltsPerModuleTurn / Motor.NOMINAL_VOLTS;
   }
@@ -543,15 +625,15 @@ final class ModuleIOSpark implements ModuleIO {
 
   /**
    * Saves the gains and limits on the SPARKs, on top of what the constructor saved, and waits for
-   * each to confirm. One that doesn't is noted, for the drivetrain's alert.
+   * each to confirm. One that didn't take either is noted, for the drivetrain's alert, and sent its
+   * whole configuration again once it answers.
    */
   private void saveAtStartup() {
-    if (!applied(() -> addAndSave(drive, driveTuning))) {
-      noteUnconfigured("drive motor's gains");
-    }
-    if (!applied(() -> addAndSave(steer, steerTuning))) {
-      noteUnconfigured("steering motor's gains");
-    }
+    driveSettings.sentAtStartup(
+        driveWiringTaken && applied(startupTries, () -> addAndSave(drive, driveTuning)));
+    steerSettings.sentAtStartup(
+        steerWiringTaken && applied(startupTries, () -> addAndSave(steer, steerTuning)));
+    noteWhatIsUnconfigured();
   }
 
   @Override

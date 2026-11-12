@@ -21,7 +21,15 @@ A move that drives a path has a default deadline: twice the path's time, plus ha
 move that times out says where the robot got to: "TIMED_OUT after 0.50 s, at (0.30, 0.00) facing
 0.0°". A `runUntil` has no default, because nothing says how long its condition takes to hold: it
 drives until the condition holds or it is canceled. Wherever driving on would be wrong, give it a
-deadline, as the example below does.
+deadline, as the example below does. A move reads the time once a loop, as the drivetrain's loop
+starts, as a joint move does: its deadline passes in the first loop that starts past it, however
+long that loop's code runs, and a replay of the log judges it the same.
+
+A move to a field pose or a place steers by where the robot thinks it is, its heading included. A
+robot set down on the field has the heading it was placed facing, on the placer's word, until a
+camera backs it. A robot set down crooked or backwards can say so in its status, and a move then
+drives from a wrong heading: set it down facing its start's heading, or face it straight downfield
+and press Back ([the guide](guide.md#autos) says more).
 
 `runtime/src/test/java/com/michaelgrundvig/frc/runtime/examples/Explorer.java` shows the moves in use. Its robot drives forward
 until its bumper switch trips, then turns a quarter turn either way, and repeats:
@@ -73,7 +81,7 @@ DriveAssist aim = drive.facing(Heading.toward(Rebuilt.HUB).withBack());
 Each loop, the robot turns toward the heading as fast as its turning limits allow, the nearer way
 round. Facing a place, it also turns with the place as the robot moves past it, so strafing around
 the hub doesn't leave it behind. It uses `headingKp`, the same gain a move's turn uses
-([values](values.md#drivetraincontrolgains)). It spins up no faster than a move would, at half the
+([values](values.md#drivetraincontrolswervegains)). It spins up no faster than a move would, at half the
 model's turning acceleration, and slows by the same law that steers it. In the simulator, a quarter
 turn from rest settles inside 2° in 0.76 s, goes 1.4° past, and ends within 0.5°.
 
@@ -147,7 +155,7 @@ Each loop, the move works out what to ask of the drivetrain:
 - **Each wheel's volts:** each wheel also gets the volts its share of the path's acceleration takes.
   That way the robot keeps up with the path, rather than trailing it.
 
-Both gains are in [values](values.md#drivetraincontrolgains). In the simulator, a quarter turn
+Both gains are in [values](values.md#drivetraincontrolswervegains). In the simulator, a quarter turn
 planned at 0.83 s arrives in 0.88 s, and a path through three keyframes passes each within 2 cm
 and 2°.
 
@@ -209,7 +217,7 @@ same move is right on both:
 ```java
 static final Place PICKUP = Place.at("Pickup", new Pose2d(5, 2, Rotation2d.CCW_90DEG));
 
-static void moves(Drive drive) {
+static void moves(SwerveDrive drive) {
   DriveMove toTower = drive.goTo(Rebuilt.TOWER);
   DriveMove leg = drive.follow(Keyframe.at(PICKUP), Keyframe.at(Rebuilt.TOWER));
 }

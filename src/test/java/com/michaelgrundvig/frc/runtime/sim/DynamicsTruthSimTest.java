@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.KilogramSquareMeters;
 
-import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
@@ -14,6 +13,7 @@ import com.michaelgrundvig.frc.simulation.KnownGap;
 import com.michaelgrundvig.frc.simulation.WheelTruth;
 import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.Terrain;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -391,7 +391,7 @@ class DynamicsTruthSimTest {
     double measured = (from.getX() - rig.simulation.truePose().getX()) / 2;
 
     double slope = Math.toRadians(15);
-    double amps = rig.mass() * ImuReadings.STANDARD_GRAVITY * Math.sin(slope) / 4 / rig.force(1);
+    double amps = rig.mass() * RobotMath.GRAVITY * Math.sin(slope) / 4 / rig.force(1);
     double motorSpeed = amps * rig.driveMotor().Kv * rig.driveMotor().R;
     double physics = motorSpeed / rig.gearing() * rig.wheelRadius() * Math.cos(slope);
     stillOpen("the creep down the ramp across the field, m/s", measured, physics, 0.02, 0, 1e-9);

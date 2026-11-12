@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.simulation;
 
 import com.michaelgrundvig.frc.world.robot.ImuMount;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.Random;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Rotation3d;
@@ -237,8 +238,8 @@ public final class AccelerometerModel {
     Rotation2d fieldToRobot = chassis.pose().getRotation().unaryMinus();
     Translation2d driving = fieldAcceleration.rotateBy(fieldToRobot);
     return new Translation3d(
-        driving.getX() - Physics.STANDARD_GRAVITY * Math.sin(pitch),
-        driving.getY() + Physics.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch),
-        Physics.STANDARD_GRAVITY * Math.cos(roll) * Math.cos(pitch));
+        driving.getX() - RobotMath.GRAVITY * Math.sin(pitch),
+        driving.getY() + RobotMath.GRAVITY * Math.sin(roll) * Math.cos(pitch),
+        RobotMath.GRAVITY * Math.cos(roll) * Math.cos(pitch));
   }
 }

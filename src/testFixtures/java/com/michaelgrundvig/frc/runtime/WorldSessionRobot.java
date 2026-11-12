@@ -7,6 +7,7 @@ import com.michaelgrundvig.frc.localization.TagVerdict;
 import com.michaelgrundvig.frc.pitwall.simulator.JoystickInput;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
+import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
@@ -103,7 +104,10 @@ final class WorldSessionRobot extends Robot {
     Logger.recordOutput("Witness/World/Rests", report.mode().map(Enum::name).orElse(""));
     Logger.recordOutput(
         "Witness/World/Recoveries", report.health().map(health -> health.recoveries()).orElse(-1));
-    Pose3d truth = robot.world().orElseThrow().drivetrain().truePose3d();
+    // The robot program sees its world as the hardware package's World; this session robot is the
+    // simulator's, so its world is the simulator's own, raised and tilted as the robot really is.
+    SimulatedWorld world = (SimulatedWorld) robot.world().orElseThrow();
+    Pose3d truth = world.drivetrain().truePose3d();
     Logger.recordOutput(
         "Witness/World/Truth",
         new double[] {

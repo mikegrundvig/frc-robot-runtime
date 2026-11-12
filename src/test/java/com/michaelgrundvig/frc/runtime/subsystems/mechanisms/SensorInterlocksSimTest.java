@@ -35,12 +35,7 @@ class SensorInterlocksSimTest {
   private static final Sensor.Switch CLAW_BEAM = Sensor.Switch.beam("claw beam", PIVOT);
 
   private static final Sensor.Rangefinder REEF =
-      Sensor.Rangefinder.builder()
-          .label("reef range")
-          .part(Part.CHASSIS)
-          .range(Meters.of(1))
-          .fieldOfView(Degrees.of(27))
-          .build();
+      Sensor.Rangefinder.of("reef range", Part.CHASSIS, Meters.of(1), Degrees.of(27));
 
   private static final Interlock ROLLER_ONLY_WHILE_CLEAR =
       Interlock.that(ROLLER).runsOnlyWhen(CLAW_BEAM.clear());
@@ -131,7 +126,7 @@ class SensorInterlocksSimTest {
     assertThat(Held.interlocksHolding(pivot)).containsExactly(PIVOT_AVOIDS_NEAR_REEF);
   }
 
-  /** An interlock on a sensor the robot doesn't have is refused as the definition is built. */
+  /** An interlock on a sensor the robot doesn't have is refused as the definition is checked. */
   @Test
   void anInterlockOnAStrangersSensorIsRefused() {
     Sensor.Switch stray = Sensor.Switch.beam("stray beam", PIVOT);
@@ -140,7 +135,8 @@ class SensorInterlocksSimTest {
             () ->
                 RobotDefinitionBuilder.builder(ROBOT)
                     .interlocks(List.of(Interlock.that(ROLLER).runsOnlyWhen(stray.clear())))
-                    .build())
+                    .build()
+                    .checked())
         .withMessageContaining(
             "interlock \"roller runs only when stray beam clear\"'s sensor, stray beam, isn't one"
                 + " of the robot's sensors: list it");

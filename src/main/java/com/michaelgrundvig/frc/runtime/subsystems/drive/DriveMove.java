@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.runtime.behavior.Why;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.path.Trajectories;
@@ -35,27 +36,27 @@ import org.wpilib.command3.Mechanism;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
-import org.wpilib.system.RobotController;
 import org.wpilib.units.measure.Time;
 
 /**
  * A pre-built command on the drivetrain, as a joint's move is on its joint: a v3 {@link Command}
  * that records how it ended, one of four {@link Outcome}s, with a reason it logs ({@code
- * Drive/Outcome}).
+ * SwerveDrive/Outcome}).
  *
  * <ul>
- *   <li>{@link Drive#runUntil}: at a velocity, robot-relative, until a condition holds: {@link
- *       Outcome#ARRIVED}. It has no deadline of its own. Given one ({@link #within}), it ends
- *       {@link Outcome#TIMED_OUT} then, saying why a gate never opened ("bumped is false: front
- *       bumper lost").
- *   <li>{@link Drive#goTo}: to a field pose, in a straight line, turning on the way; {@link
- *       Drive#turnTo}, turning where it stands; and {@link Drive#follow}, a smooth path through
- *       keyframes. Each plans a timed path as it starts, from where the robot is, under the robot's
- *       own accelerations ({@link DrivetrainControl#accelerations}), and follows it: the wheels
- *       given the volts the path's acceleration takes, the robot pushed back onto the path each
- *       loop. {@link Outcome#ARRIVED} at its end within 2 cm and 2° (a turn, 2°), nearly still, for
- *       40 ms; or {@link Outcome#TIMED_OUT} after twice the path's time and half a second, saying
- *       where it got to; or {@link Outcome#REFUSED} if no path goes through its keyframes.
+ *   <li>{@link SwerveDrive#runUntil}: at a velocity, robot-relative, until a condition holds:
+ *       {@link Outcome#ARRIVED}. It has no deadline of its own. Given one ({@link #within}), it
+ *       ends {@link Outcome#TIMED_OUT} then, saying why a gate never opened ("bumped is false:
+ *       front bumper lost").
+ *   <li>{@link SwerveDrive#goTo}: to a field pose, in a straight line, turning on the way; {@link
+ *       SwerveDrive#turnTo}, turning where it stands; and {@link SwerveDrive#follow}, a smooth path
+ *       through keyframes. Each plans a timed path as it starts, from where the robot is, under the
+ *       robot's own accelerations ({@link DrivetrainControl#accelerations}), and follows it: the
+ *       wheels given the volts the path's acceleration takes, the robot pushed back onto the path
+ *       each loop. {@link Outcome#ARRIVED} at its end within 2 cm and 2° (a turn, 2°), nearly
+ *       still, for 40 ms; or {@link Outcome#TIMED_OUT} after twice the path's time and half a
+ *       second, saying where it got to; or {@link Outcome#REFUSED} if no path goes through its
+ *       keyframes.
  * </ul>
  *
  * <p>{@link #within} sets a path's move another deadline, and {@link #passed} waits for a named
@@ -93,7 +94,7 @@ public final class DriveMove implements Command {
 
   // What the move is. None of it changes: within() makes a new move.
 
-  private final Drive drive;
+  private final SwerveDrive drive;
 
   /** What the move does. */
   private final DriveTask task;
@@ -155,7 +156,11 @@ public final class DriveMove implements Command {
   private OptionalLong atEndSince = OptionalLong.empty();
 
   private DriveMove(
-      Drive drive, DriveTask task, String name, OptionalDouble within, Optional<String> refused) {
+      SwerveDrive drive,
+      DriveTask task,
+      String name,
+      OptionalDouble within,
+      Optional<String> refused) {
     this.drive = drive;
     this.task = task;
     this.name = name;
@@ -166,7 +171,7 @@ public final class DriveMove implements Command {
 
   // ---- The kinds of move ----
 
-  static DriveMove runUntil(Drive drive, ChassisVelocities velocity, BooleanSupplier until) {
+  static DriveMove runUntil(SwerveDrive drive, ChassisVelocities velocity, BooleanSupplier until) {
     String name = "drive until";
     if (until instanceof Gate gate) {
       name = "drive until " + gate.name();
@@ -179,13 +184,13 @@ public final class DriveMove implements Command {
         Optional.empty());
   }
 
-  static DriveMove turnTo(Drive drive, Rotation2d heading) {
+  static DriveMove turnTo(SwerveDrive drive, Rotation2d heading) {
     String name = String.format(Locale.ROOT, "drive → %.1f°", heading.getDegrees());
     return new DriveMove(
         drive, new DriveTask.TurnTo(heading), name, OptionalDouble.empty(), Optional.empty());
   }
 
-  static DriveMove goTo(Drive drive, Pose2d pose) {
+  static DriveMove goTo(SwerveDrive drive, Pose2d pose) {
     String name = "drive → " + shown(pose);
     return new DriveMove(
         drive, new DriveTask.ToPose(pose), name, OptionalDouble.empty(), Optional.empty());
@@ -198,9 +203,9 @@ public final class DriveMove implements Command {
    *
    * @throws IllegalArgumentException as the robot starts, if the drive has no field to find it on
    */
-  static DriveMove goTo(Drive drive, Place place) {
+  static DriveMove goTo(SwerveDrive drive, Place place) {
     Optional<String> noField =
-        drive.driver().isEmpty() ? Optional.of(Drive.NO_FIELD) : Optional.empty();
+        drive.driver().isEmpty() ? Optional.of(SwerveDrive.NO_FIELD) : Optional.empty();
     Optional<String> refused = drive.refusedAsBuilt(noField);
     String name = "drive → " + place.name();
     return new DriveMove(
@@ -214,7 +219,7 @@ public final class DriveMove implements Command {
    *
    * @throws IllegalArgumentException with no keyframes, or two of one name, as the robot starts
    */
-  static DriveMove follow(Drive drive, List<Keyframe> keyframes) {
+  static DriveMove follow(SwerveDrive drive, List<Keyframe> keyframes) {
     List<Keyframe> path = List.copyOf(keyframes);
     Optional<String> refused = drive.refusedAsBuilt(whyNotAPath(drive, path));
     String name = "drive → " + shownPath(path);
@@ -225,7 +230,7 @@ public final class DriveMove implements Command {
    * Why keyframes cannot be a path at all, whatever the robot is doing when the move starts, or
    * empty when they can. The first thing wrong is the one said.
    */
-  private static Optional<String> whyNotAPath(Drive drive, List<Keyframe> path) {
+  private static Optional<String> whyNotAPath(SwerveDrive drive, List<Keyframe> path) {
     if (path.isEmpty()) {
       return Optional.of("a path needs a keyframe: give one, Keyframe.at(pose)");
     }
@@ -242,7 +247,7 @@ public final class DriveMove implements Command {
       anyAtAPlace |= keyframe.place() != null;
     }
     if (anyAtAPlace && drive.driver().isEmpty()) {
-      return Optional.of(Drive.NO_FIELD);
+      return Optional.of(SwerveDrive.NO_FIELD);
     }
     return Optional.empty();
   }
@@ -410,16 +415,18 @@ public final class DriveMove implements Command {
   }
 
   /**
-   * The facts of how its latest run ended, as {@code Drive/Outcome} logs them: how it ended, how
-   * long it ran, where the robot was, and why. Empty before a run has ended, and while one runs.
+   * The facts of how its latest run ended, as {@code SwerveDrive/Outcome} logs them: how it ended,
+   * how long it ran, where the robot was, and why. Empty before a run has ended, and while one
+   * runs.
    */
   public Optional<DriveOutcome> ending() {
     return ending;
   }
 
   /**
-   * The text of the reason its latest run ended for, as {@code Drive/OutcomeWhy} logs it: a gate's
-   * name and its false terms, or a refusal's own words. Empty for a reason its facts say whole.
+   * The text of the reason its latest run ended for, as {@code SwerveDrive/OutcomeWhy} logs it: a
+   * gate's name and its false terms, or a refusal's own words. Empty for a reason its facts say
+   * whole.
    */
   public String endingWhy() {
     return endingWhy;
@@ -462,8 +469,27 @@ public final class DriveMove implements Command {
 
   // ---- A run ----
 
+  /**
+   * One run of the move, from start to end.
+   *
+   * <p>A run that throws (a {@code runUntil}'s condition that the team's code supplies, say) ends
+   * {@code REFUSED}, saying what it threw, and the drivetrain is told to stand still. Then the
+   * throw goes on to the scheduler, which ends the command, and the robot's loop reports it. The
+   * scheduler doesn't cancel a command that threw, so without this the move would say it was
+   * running for good, log no outcome, and leave the wheels at their last speed.
+   */
   @Override
   public void run(Coroutine coroutine) {
+    try {
+      runToItsEnd(coroutine);
+    } catch (RuntimeException e) {
+      endBecauseItThrew(e);
+      throw e;
+    }
+  }
+
+  /** One run of the move ({@link #run}), as it goes when nothing throws. */
+  private void runToItsEnd(Coroutine coroutine) {
     startRun();
     if (refused.isPresent()) {
       end(Outcome.REFUSED, Optional.of(Why.saying(MoveReason.REFUSED_AS_BUILT, refused.get())));
@@ -491,7 +517,7 @@ public final class DriveMove implements Command {
     Arrays.fill(passed, false);
     runs++;
     atEndSince = OptionalLong.empty();
-    startNanos = RobotController.getTime();
+    startNanos = drive.now();
     deadlineNanos = OptionalLong.empty();
     tookALoop = false;
   }
@@ -506,7 +532,19 @@ public final class DriveMove implements Command {
       tookALoop = true;
       coroutine.yield();
     }
-    startNanos = RobotController.getTime();
+    startNanos = drive.now();
+  }
+
+  /**
+   * Ends a run that threw, as refused, with what it threw, and stops the drivetrain. A run that
+   * threw as it was ending has its ending already, which stays.
+   */
+  private void endBecauseItThrew(RuntimeException thrown) {
+    if (running) {
+      end(
+          Outcome.REFUSED,
+          Optional.of(Why.saying(MoveReason.NONE, "threw " + Said.withKind(thrown))));
+    }
   }
 
   @Override
@@ -523,8 +561,7 @@ public final class DriveMove implements Command {
   private void driveUntil(Coroutine coroutine, DriveTask.RunUntil runUntil) {
     OptionalLong deadline = deadlineItWasGiven();
     while (!runUntil.until().getAsBoolean()) {
-      boolean pastItsDeadline =
-          deadline.isPresent() && RobotController.getTime() >= deadline.getAsLong();
+      boolean pastItsDeadline = deadline.isPresent() && drive.now() >= deadline.getAsLong();
       if (pastItsDeadline) {
         Optional<Why> neverHeld =
             runUntil
@@ -565,7 +602,7 @@ public final class DriveMove implements Command {
       notePassedKeyframes(elapsedSeconds, plan.passing());
 
       boolean atItsEnd = follower.isAtItsEnd(elapsedSeconds, pose, measuredOnField);
-      long now = RobotController.getTime();
+      long now = drive.now();
       if (hasStayedAtItsEnd(atItsEnd, now)) {
         end(Outcome.ARRIVED);
         return;
@@ -591,7 +628,7 @@ public final class DriveMove implements Command {
     DrivetrainControl.Accelerations most = drive.accelerations();
     Trajectories.Limits limits =
         new Trajectories.Limits(
-            control.limits().maxLinearSpeed().in(MetersPerSecond),
+            control.limits().maxLinearSpeed().orElseThrow().in(MetersPerSecond),
             control.limits().maxAngularSpeed().in(RadiansPerSecond),
             PROFILE_SHARE * most.linear(),
             PROFILE_SHARE * most.angular());
@@ -656,7 +693,7 @@ public final class DriveMove implements Command {
 
   /** How long this run has gone on, in seconds. */
   private double elapsedSeconds() {
-    return (RobotController.getTime() - startNanos) / 1e9;
+    return (drive.now() - startNanos) / 1e9;
   }
 
   /** Ends its run with nothing to add to how it ended. */

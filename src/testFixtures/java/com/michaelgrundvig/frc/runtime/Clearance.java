@@ -33,8 +33,8 @@ public final class Clearance {
     this.field = field;
     bumperLength = body.bumperLength().in(Meters);
     bumperWidth = body.bumperWidth().in(Meters);
-    double bumperBottom = body.bumperBottom().in(Meters);
-    double bumperTop = body.bumperTop().in(Meters);
+    double bumperBottom = body.bumperBottomOrDefault().in(Meters);
+    double bumperTop = body.bumperTopOrDefault().in(Meters);
     for (Element element : field.elements()) {
       standing.addAll(element.inTheWayOf(bumperBottom, bumperTop));
     }

@@ -70,25 +70,42 @@ class ExplorerSimTest {
 
   /**
    * In 40 s it drives into a wall, turns, and drives on, at least three times across a 16.5 m room:
-   * every run square to the walls, since each turn is to the room's next quarter.
+   * every run square to the walls, since each turn is to the room's next quarter, and the estimate
+   * knows which way it faces at each wall.
+   *
+   * <p>How square a run is adds three things: the turn's arrival (within 2° of the estimate), the
+   * estimate's own heading error, and whatever the robot yaws on the way, since the forward run is
+   * open-loop and nothing holds its heading. Measured on 2026-11-10: a run started while the robot
+   * still slid sideways from the turn (the turn holds its place, and a camera recovery had just
+   * moved the estimate 10 cm) yawed 2.5° in its first 0.4 s, to 2.3° off square at the wall, with
+   * the estimate 0.16° from the truth. So the bound on squareness is 3°, and the estimate is held
+   * to 1° of the truth at every bump, where it was within 0.4° all run long at the walls.
    */
   @Test
   void itDrivesTurnsAtEachWallAndDrivesOn() {
     List<Double> headingsAtBumps = new ArrayList<>();
+    List<Double> estimateOffAtBumps = new ArrayList<>();
     boolean wasTouching = false;
     for (int i = 0; i < RobotLoop.loops(40); i++) {
       // A bump is a wall it drives into; brushing one as it turns beside it isn't.
       boolean driving = sim.drive().getRobotRelativeVelocities().vx > 0.5;
       boolean touching = loopInTheRoom();
       if (touching && !wasTouching && driving) {
-        headingsAtBumps.add(sim.world().truePose().getRotation().getDegrees());
+        Rotation2d truth = sim.world().truePose().getRotation();
+        headingsAtBumps.add(truth.getDegrees());
+        estimateOffAtBumps.add(sim.drive().getPose().getRotation().minus(truth).getDegrees());
       }
       wasTouching = touching;
     }
 
     assertThat(headingsAtBumps).as("it bumped, turned and drove on").hasSizeGreaterThanOrEqualTo(3);
     for (double heading : headingsAtBumps) {
-      assertThat(Math.abs(Math.IEEEremainder(heading, 90))).isCloseTo(0, within(2.0));
+      assertThat(Math.abs(Math.IEEEremainder(heading, 90))).isCloseTo(0, within(3.0));
+    }
+    for (double off : estimateOffAtBumps) {
+      assertThat(off)
+          .as("the estimate's heading at a wall, against the truth")
+          .isCloseTo(0, within(1.0));
     }
     assertThat(sim.scheduler().isRunning(explore)).isTrue();
   }

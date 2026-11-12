@@ -17,7 +17,7 @@ public interface ModuleBench {
   double wheelRadiusMeters();
 
   /** Powers a module's driver on, configured with these gains and limits, pointing ahead. */
-  Rig powerOn(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits);
+  Rig powerOn(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits);
 
   /** Why the bench cannot do something the suite would have it do, or empty if it can. */
   Optional<String> lacks(Ability ability);

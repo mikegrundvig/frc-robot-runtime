@@ -158,7 +158,7 @@ machine, which they rewrite each season.
 **What this does.** The rule is written once, on the joint it restricts, as `runsOnlyWhen` or
 `keepsOut(...).when(...)`. It is applied every loop, after the command's request and before the
 output. If the joint it reads does not know where it is, the rule assumes the worst and holds. At
-startup the rules are checked against each other and against every configuration, and two that would
+startup the rules are checked against each other and against every preset, and two that would
 leave joints holding each other for good are refused.
 
 **Why.** The class of bug is a check that one command has and the next one forgot. Often it was
@@ -180,7 +180,7 @@ depends on sensor delay and momentum, and nobody has measured it.
 student reading the command cannot see why the roller is not spinning. The answer is in the log
 under `HeldBy`. A held joint keeps its command, so a move can time out while it waits.
 
-**Not built yet.** A bench bypass for interlocks, and moving between configurations by a route.
+**Not built yet.** A bench bypass for interlocks, and moving between presets by a route.
 
 **What would change our mind.** A robot whose real collision rules cannot be written as
 conditions, so the team writes a state machine anyway and has two sources of truth. Or drive teams
@@ -226,8 +226,10 @@ controllers. The same fact is often in several of them.
 
 **What this does.** Every fact about the robot is in its Java description, in the block of the thing
 it describes. The runtime reads no configuration file for them. Where another tool needs a file, it
-is generated from the description. A venue's measured tag layout is the one kind of file the robot
-reads, because it is data measured at an event. The [values register](values.md) lists every value
+is generated from the description. The robot reads two kinds of file of its own, and neither holds a
+fact about the robot: a venue's measured tag layout, because it is data measured at an event, and
+the Visor configurations it last gave each coprocessor (`configurations.properties`, beside the
+venues), so a restart mid-match doesn't forget them ([visor.md](visor.md)). The [values register](values.md) lists every value
 and where the template's number came from, and a test fails when one has no row.
 
 **Why.** The class of bug is a number written in two places that disagree, usually the code and a
@@ -406,7 +408,7 @@ and a simulated one. Nothing checks that the two behave alike, and a difference 
 controllers is found on the robot.
 
 **What this does.** The joint driver's promises are numbered clauses in `JointIO`'s Javadoc, J1 to
-J40. The swerve module driver's are M1 to M18, in `ModuleIO`'s. One conformance suite runs against
+J41. The swerve module driver's are M1 to M20, in `ModuleIO`'s. One conformance suite runs against
 every joint driver (TalonFX, TalonFXS, SPARK MAX and SPARK Flex), each on its vendor's simulated
 device, and against the simulator's two emulated controllers. So the simulator is held to the
 contract the real drivers are held to. A test fails if the clauses in the Javadoc and the clauses
@@ -423,9 +425,9 @@ A position is taken as its number says (J40). The half second before a silent de
 connected" is kept in whole nanoseconds, so it ends on the same loop every run (J27).
 
 **Evidence, and how strong it is.** Measured, on vendors' simulated devices only. The suite has
-23 tests for a joint driver and 7 for a module driver. Every driver passes them, with a few
-skipped where a simulated device cannot do what the test asks. Two known differences are written
-into their clauses and left open for a real device (J29 and M15).
+24 tests for a joint driver and 7 for a module driver. Every driver passes them, with a few
+skipped where a simulated device cannot do what the test asks. One known difference is written
+into its clause and left open for a real device (M15).
 
 Counted, for how common device trouble is. *Devices: wrong setup, or failures nobody notices* has
 148 bugs on 42 robots, 15 serious. The clauses about a silent or restarted controller are aimed at
@@ -435,7 +437,7 @@ The caveat is large. A vendor's simulated device is not the device. REV's simula
 things a real SPARK does, and [stand-ins.md](stand-ins.md) lists them. A driver that passes may
 still break a clause on hardware.
 
-**What it costs.** There are 58 clauses to keep true. The contract is a lowest common denominator. A
+**What it costs.** There are 61 clauses to keep true. The contract is a lowest common denominator. A
 feature that only one vendor's controller has is left unused so the drivers agree.
 
 **Adding a driver.** A driver for another motor controller is a new `JointIO`. You give the suite a
@@ -639,7 +641,7 @@ study changed, and the counts are 33, 149 and 13, and 10, 66 and 11. Still behin
 turned 6° leaves the estimate 16.9 cm off against 2.4 cm (its heading measurements pass the gate
 and pull the heading, and no other camera's heading is there to hold it), a knocked camera 2.6 cm
 against 1.4 cm, and a tilted robot's estimate steps 44 cm when the cameras see a tag again after
-half a second blind. The [estimator study](../../docs/estimator-comparison.md#what-it-found) has
+half a second blind. The [estimator study](https://github.com/mikegrundvig/frc-robot-template/blob/main/docs/estimator-comparison.md#what-it-found) has
 the tables.
 
 **Each camera's turn, learned.** Both of those losses came from taking each camera's turn on its
@@ -882,7 +884,7 @@ released vendor libraries.
 Java 25 toolchain that Gradle downloads. The vendor libraries are alphas tied to that WPILib alpha,
 and PhotonLib is pinned to a development build. It is Java and not Kotlin, because Java is what
 students arrive knowing and what nearly every FRC example is written in. What is supported today is
-a swerve drivetrain, PhotonVision, and the motor controllers and sensors listed in [coming from
+a swerve drivetrain, PhotonVision or Visor cameras, and the motor controllers and sensors listed in [coming from
 WPILib](coming-from-wpilib.md#supported-today). The drivetrain stands in until AdvantageKit
 publishes its 2027 templates.
 

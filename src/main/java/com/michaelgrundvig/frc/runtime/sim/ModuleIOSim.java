@@ -19,8 +19,8 @@ import com.michaelgrundvig.frc.simulation.Physics;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.simulation.WheelDrive;
 import com.michaelgrundvig.frc.simulation.WheelTruth;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import java.util.Arrays;
 import java.util.Optional;
@@ -57,7 +57,7 @@ import org.wpilib.math.util.MathUtil;
  * supply limit. So this tests the code and not the robot's power, and docs/stand-ins.md says when
  * that matters. Both motors' stator current limits are modeled: the drive's caps the torque that
  * accelerates the robot, and the steering's caps how hard the module turns and stops. The motors
- * and their gearing are the robot's definition's ({@code DrivetrainGeometry.ModuleType}).
+ * and their gearing are the robot's definition's ({@code Drivetrain.Module}).
  */
 final class ModuleIOSim implements ModuleIO {
   private static final double NANOS_PER_SECOND = 1e9;
@@ -195,24 +195,28 @@ final class ModuleIOSim implements ModuleIO {
   private double steerPeakAmps;
 
   /**
-   * @param modules the modules as defined: their motors, gearing, and moving parts. The motor
-   *     controllers convert with this wheel radius. The steering's inertia sets how fast it turns
-   *     at its current limit, and so how high its gains can go (docs/stand-ins.md).
+   * @param drivetrain the drivetrain as defined: its modules' motors, gearing, and moving parts,
+   *     and how its controllers drive the motors. The motor controllers convert with this wheel
+   *     radius. The steering's inertia sets how fast it turns at its current limit, and so how high
+   *     its gains can go (docs/stand-ins.md).
+   * @param corner which module this is, front left 0
    * @param wheel the wheel it drives, as the physics has it: its encoders read it
    * @param steerOffsetRadians how far the absolute encoder's zero is off
    * @param encoderPhase when the CANcoder first sends, as a share of its period: each module's
    *     CANcoder sends on its own clock
    */
   ModuleIOSim(
-      DrivetrainGeometry.ModuleType modules,
+      Drivetrain drivetrain,
+      int corner,
       WheelTruth wheel,
       double steerOffsetRadians,
       double encoderPhase) {
+    Drivetrain.Module modules = drivetrain.module(corner);
     this.wheel = wheel;
     wheelRadiusMeters = modules.wheelRadius().in(Meters);
     steerMotor =
         new CurrentLimitedMotor(
-            modules.steerMotors().model(modules.steerGearing().efficiency()),
+            drivetrain.steerMotors(corner).model(modules.steerGearing().efficiency()),
             modules.steerInertiaOrDefault().in(KilogramSquareMeters),
             modules.steerGearing().ratio());
     this.steerOffsetRadians = steerOffsetRadians;
@@ -435,6 +439,7 @@ final class ModuleIOSim implements ModuleIO {
     inputs.steerConnected = true;
     // The steering's angle and speed as the robot hears them: what the CANcoder last sent.
     inputs.steerAngle = new Rotation2d(steerReadingRadians());
+    inputs.steerAngleRotations = inputs.steerAngle.getRotations();
     inputs.steerVelocityRadPerSec = steerVelocityReadingRadPerSec();
     inputs.steerAppliedVolts = steerMotor.appliedVolts();
     // The steering's current is the most it drew since the last loop, not what it draws now. It
@@ -514,7 +519,7 @@ final class ModuleIOSim implements ModuleIO {
    * modeled.
    */
   @Override
-  public void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     driveKp = gains.driveKp();
     steerKp = gains.steerKp();
     steerKd = gains.steerKd();

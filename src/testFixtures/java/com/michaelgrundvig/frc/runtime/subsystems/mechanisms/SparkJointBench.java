@@ -14,6 +14,7 @@ import com.michaelgrundvig.frc.world.robot.MechanismRotations;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import com.revrobotics.PersistMode;
 import com.revrobotics.REVLibError;
@@ -224,7 +225,7 @@ public final class SparkJointBench implements JointBench {
         opened.add(spark.follower(i));
         followers.add(new SparkSim(spark.follower(i), motor.model()));
       }
-      countAtZero = turns(joint.restPosition() - poweredOnAt);
+      countAtZero = turns(RobotMath.restPosition(joint) - poweredOnAt);
       lastWritten = encoderCount();
       turnTheSensors();
     }

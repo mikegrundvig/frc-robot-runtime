@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.subsystems.vision;
 
+import com.michaelgrundvig.frc.visor.VisorStream;
 import java.util.function.LongSupplier;
 import org.wpilib.system.RobotController;
 
@@ -13,11 +14,11 @@ import org.wpilib.system.RobotController;
  */
 public class CameraIOVisor implements CameraIO {
   private final VisorFeed feed;
-  private final int index;
+  private final VisorFeed.Reader reader;
   private final LongSupplier clock;
 
   /**
-   * @param feed the frames from every camera
+   * @param feed the frames from every camera: from now on, it keeps this index's
    * @param index the camera's index in Visor's configuration
    */
   public CameraIOVisor(VisorFeed feed, int index) {
@@ -26,12 +27,23 @@ public class CameraIOVisor implements CameraIO {
 
   CameraIOVisor(VisorFeed feed, int index, LongSupplier clock) {
     this.feed = feed;
-    this.index = index;
+    this.reader = feed.reader(index);
     this.clock = clock;
+  }
+
+  /**
+   * Where Visor serves a camera's live view: Visor's own address for it, so where it streams has
+   * one owner.
+   *
+   * @param board the coprocessor the camera is plugged into, by its address
+   * @param camera the camera's name
+   */
+  public static String liveView(String board, String camera) {
+    return VisorStream.url(board, camera);
   }
 
   @Override
   public void updateInputs(CameraIOInputs inputs) {
-    feed.read(index, inputs, clock.getAsLong());
+    feed.read(reader, inputs, clock.getAsLong());
   }
 }

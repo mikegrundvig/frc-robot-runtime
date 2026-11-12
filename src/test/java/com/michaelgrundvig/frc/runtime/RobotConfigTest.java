@@ -5,22 +5,30 @@ import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TAL
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.wpilib.units.Units.Degrees;
+import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.MetersPerSecond;
 import static org.wpilib.units.Units.Rotations;
 
+import com.michaelgrundvig.frc.localization.LocalizationGate;
+import com.michaelgrundvig.frc.localization.LocalizationGateBuilder;
+import com.michaelgrundvig.frc.localization.SlipCheck;
+import com.michaelgrundvig.frc.localization.SlipCheckSettingsBuilder;
+import com.michaelgrundvig.frc.pitwall.CameraIds;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.DrivenBuilder;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
+import com.michaelgrundvig.frc.world.robot.DrivetrainBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryCornerBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainCornerBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainModuleBuilder;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
@@ -30,16 +38,19 @@ import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.wpilib.math.geometry.Translation3d;
 
 class RobotConfigTest {
   @Test
@@ -50,9 +61,115 @@ class RobotConfigTest {
   }
 
   /**
+   * A camera's card on Pitwall's Pit view is named by its id and a coprocessor's by its address, so
+   * a camera named as another card is (the autos', the venue's, a listed board's), two cameras
+   * whose ids differ only by dots and underscores, or one board listed twice, are refused as the
+   * configuration is built, saying which and why, rather than failing as Pitwall starts; and so is
+   * a camera whose id is too long for Pitwall's World view to name its shapes by.
+   */
+  @Test
+  void aCardThatWouldTakeAnotherCardsNameIsRefused() {
+    record Case(List<String> cameras, List<String> boards, String refusal) {}
+    String cameras = "RobotConfig[sim].definition.cameras: ";
+    String boards = "RobotConfig[sim].coprocessors: ";
+    List<Case> cases =
+        List.of(
+            new Case(
+                List.of("Auto"),
+                List.of(),
+                cameras
+                    + "camera \"Auto\"'s card would be named auto on Pitwall's Pit view, as the"
+                    + " autos' card is: give the camera another name"),
+            new Case(
+                List.of("venue"),
+                List.of(),
+                cameras
+                    + "camera \"venue\"'s card would be named venue on Pitwall's Pit view, as the"
+                    + " venue's card is: give the camera another name"),
+            new Case(
+                List.of("rear.cam", "rear_cam"),
+                List.of(),
+                cameras
+                    + "camera \"rear_cam\"'s card would be named rear-cam on Pitwall's Pit view,"
+                    + " as camera \"rear.cam\"'s card is: give the camera another name"),
+            new Case(
+                List.of("10.12.34.11"),
+                List.of("10.12.34.11"),
+                cameras
+                    + "camera \"10.12.34.11\"'s card would be named 10-12-34-11 on Pitwall's Pit"
+                    + " view, as coprocessor 10.12.34.11's card is: give the camera another name"),
+            new Case(
+                List.of(),
+                List.of("10.12.34.11", "10.12.34.11"),
+                boards
+                    + "coprocessor 10.12.34.11's card would be named 10-12-34-11 on Pitwall's Pit"
+                    + " view, as coprocessor 10.12.34.11's card is: list each coprocessor once,"
+                    + " by its address"),
+            new Case(
+                List.of("A".repeat(53)),
+                List.of(),
+                cameras
+                    + "camera \""
+                    + "A".repeat(53)
+                    + "\"'s name is too long as an id (\""
+                    + "a".repeat(53)
+                    + "\", 53 characters; at most 52): shorten it"),
+            new Case(List.of("a".repeat(CameraIds.LONGEST)), List.of(), ""),
+            new Case(List.of("auto-cam", "venue-left"), List.of("10.12.34.11"), ""));
+    var definition = ExampleRobot.SIM.definition();
+    for (Case c : cases) {
+      List<CameraConfig> renamed = new ArrayList<>(definition.cameras());
+      for (int i = 0; i < c.cameras().size(); i++) {
+        renamed.set(
+            i, CameraConfigBuilder.builder(renamed.get(i)).name(c.cameras().get(i)).build());
+      }
+      var building =
+          RobotConfigBuilder.builder(ExampleRobot.SIM)
+              .definition(RobotDefinitionBuilder.builder(definition).cameras(renamed).build())
+              .coprocessors(c.boards());
+      String row = c.cameras() + " on " + c.boards();
+      if (c.refusal().isEmpty()) {
+        assertThat(building.build().definition().cameras()).as(row).isNotEmpty();
+      } else {
+        assertThatIllegalArgumentException()
+            .as(row)
+            .isThrownBy(building::build)
+            .withMessage(c.refusal());
+      }
+    }
+  }
+
+  /**
    * The driver's top speed is how it's driven, the free speed what the robot is: the definition
    * holds one to the other, as it's built. The template's robot reaches 4.73 m/s free.
    */
+  /**
+   * The values the guides tell a team to change: left out, the scoring gate and the slip check are
+   * the library's; given, they are the robot's.
+   */
+  @Test
+  void theScoringGateAndTheSlipCheckAreTheLibrarysUnlessGiven() {
+    LocalizationGate strict =
+        LocalizationGateBuilder.builder(LocalizationGate.SCORING)
+            .maxPositionStdDevMeters(0.05)
+            .build();
+    SlipCheck.Settings tolerant =
+        SlipCheckSettingsBuilder.builder(SlipCheck.Settings.defaults())
+            .speedToleranceMetersPerSecond(0.5)
+            .build();
+
+    RobotConfig given =
+        RobotConfigBuilder.builder(ExampleRobot.SIM)
+            .scoringGate(strict)
+            .slipCheck(tolerant)
+            .build();
+
+    assertThat(ExampleRobot.SIM.scoringGate()).isEqualTo(LocalizationGate.SCORING);
+    assertThat(ExampleRobot.SIM.slipCheck()).isEqualTo(SlipCheck.Settings.defaults());
+    assertThat(given.scoringGate()).isEqualTo(strict);
+    assertThat(given.slipCheck()).isEqualTo(tolerant);
+  }
+
   @Test
   void topSpeedCannotExceedTheFreeSpeed() {
     var tooFast =
@@ -74,7 +191,7 @@ class RobotConfigTest {
                     .build())
         .withMessage(
             "RobotDefinition[sim].drivetrain.control.limits.maxLinearSpeed: 5 m/s is faster than"
-                + " the drivetrain's free speed of 4.729 m/s: give maxLinearSpeed at most that");
+                + " the drivetrain's free speed of 4.729 m/s: give withMaxSpeed at most that");
   }
 
   /**
@@ -84,7 +201,7 @@ class RobotConfigTest {
    */
   @Test
   void eachJointsBlockIsItsSetup() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         JointFixtures.unmotored(JointFixtures.PIVOT)
             .motors(Motor.NEO.through(JointFixtures.gearing(25)).on(SPARK_MAX.can(32).clockwise()))
             .limitSwitch(
@@ -94,7 +211,7 @@ class RobotConfigTest {
     RobotDefinition wired =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
             .joints(List.of(pivot))
-            .configurations(List.of())
+            .presets(List.of())
             .build();
 
     RobotConfig robot = RobotConfigBuilder.builder(ExampleRobot.SIM).definition(wired).build();
@@ -104,7 +221,7 @@ class RobotConfigTest {
     assertThat(driven.driven().control()).isEqualTo(JointFixtures.PIVOT.driven().control());
     assertThat(driven.driven().motors().orElseThrow().controllers())
         .containsExactly(SPARK_MAX.can(32).clockwise());
-    assertThat(driven.switchAt(Sensor.Switch.Limit.End.LOWER).wiring())
+    assertThat(RobotMath.switchAt(driven, Sensor.Switch.Limit.End.LOWER).wiring())
         .contains(
             new SensorWiring.Connection(
                 new SensorWiring.ControllerLimit("pivot", SensorWiring.Direction.REVERSE),
@@ -117,10 +234,12 @@ class RobotConfigTest {
                         RobotDefinitionBuilder.builder(wired)
                             .joints(
                                 List.of(
-                                    pivot.driven(
-                                        DrivenBuilder.builder(pivot.driven())
-                                            .control(Optional.empty())
-                                            .build())))
+                                    RevoluteJointBuilder.builder(pivot)
+                                        .driven(
+                                            DrivenBuilder.builder(pivot.driven())
+                                                .control(Optional.empty())
+                                                .build())
+                                        .build()))
                             .build())
                     .build())
         .withMessageContaining(
@@ -135,7 +254,7 @@ class RobotConfigTest {
    */
   @Test
   void aPracticeRobotIsTheCompetitionRobotRewired() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         JointFixtures.unmotored(JointFixtures.PIVOT)
             .motors(Motor.NEO.through(JointFixtures.gearing(25)).on(SPARK_MAX.can(32).clockwise()));
     Sensor.Switch beam =
@@ -147,25 +266,19 @@ class RobotConfigTest {
                     .name("competition")
                     .joints(List.of(pivot))
                     .sensors(List.of(beam))
-                    .configurations(List.of())
+                    .presets(List.of())
                     .build())
             .build();
-    SwerveWiring wiring =
-        SwerveWiring.builder()
-            .canBus(CanBus.SYSTEMCORE)
-            .driveController(MechanismWiring.Controller.TALON_FX)
-            .steerController(MechanismWiring.Controller.TALON_FX)
-            .gyroId(1)
-            .gyroYawScale(1.0)
-            .modules(List.of(module(1, 2, 1), module(3, 4, 2), module(5, 6, 3), module(7, 8, 4)))
-            .build();
+    Drivetrain rewired =
+        TestWiring.talons(competition.definition().drivetrain(), CanBus.SYSTEMCORE, 1, 1);
+    SwerveWiring wiring = rewired.wiring().orElseThrow();
 
     RobotConfig practice =
         competition
             .named("practice")
             .with(pivot.motors(motors -> motors.on(SPARK_MAX.can(33).clockwise())))
             .with(beam.on(SensorWiring.port(2).normallyOpen()))
-            .with(competition.definition().drivetrain().wired(wiring));
+            .with(rewired);
     List<RobotConfig> all = List.of(competition, practice);
 
     assertThat(all).extracting(RobotConfig::name).containsExactly("competition", "practice");
@@ -197,8 +310,8 @@ class RobotConfigTest {
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
             .joints(
                 List.of(
-                    JointFixtures.PIVOT.driven(Driven.NONE),
-                    JointFixtures.ROLLER.driven(Driven.NONE)))
+                    RevoluteJointBuilder.builder(JointFixtures.PIVOT).driven(Driven.NONE).build(),
+                    RevoluteJointBuilder.builder(JointFixtures.ROLLER).driven(Driven.NONE).build()))
             .interlocks(
                 List.of(
                     Interlock.that(JointFixtures.ROLLER)
@@ -224,14 +337,16 @@ class RobotConfigTest {
   void aControlItsMotorControllerWouldRefuseIsRefusedWithTheConfiguration() {
     MechanismControl held =
         MechanismControl.position(30).withHoming(MechanismControl.Homing.assumeAtRest());
-    Joint.Revolute arm =
-        Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+    RevoluteJoint arm =
+        Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
             .motors(Motor.NEO.through(JointFixtures.gearing(50)))
             .control(held.withKg(0.4, Degrees.of(120)));
-    Joint.Revolute onKrakens =
-        Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+    RevoluteJoint onKrakens =
+        Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
             .motors(Motor.KRAKEN_X60.through(JointFixtures.gearing(50)))
@@ -275,7 +390,7 @@ class RobotConfigTest {
         .definition(
             RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
                 .joints(List.of(joint))
-                .configurations(List.of())
+                .presets(List.of())
                 .build())
         .build();
   }
@@ -287,13 +402,13 @@ class RobotConfigTest {
    */
   @Test
   void aPathPlannersFrictionAsTheTreadsGripIsADoubt() {
-    List<DrivetrainGeometry.Corner> corners =
+    List<Drivetrain.Corner> corners =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
             .map(
                 corner ->
-                    DrivetrainGeometryCornerBuilder.builder(corner)
+                    DrivetrainCornerBuilder.builder(corner)
                         .module(
-                            DrivetrainGeometryModuleTypeBuilder.builder(corner.module())
+                            DrivetrainModuleBuilder.builder(corner.module())
                                 .wheelCoefficientOfFriction(2.255)
                                 .build())
                         .build())
@@ -301,7 +416,7 @@ class RobotConfigTest {
     RobotDefinition grippy =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
             .drivetrain(
-                DrivetrainGeometryBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
+                DrivetrainBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
                     .corners(corners)
                     .build())
             .build();
@@ -310,7 +425,10 @@ class RobotConfigTest {
 
     assertThat(
             Doubts.lines(
-                Doubts.of(robot.definition(), RobotSim.massOf(robot.definition())),
+                Doubts.of(
+                    robot.definition(),
+                    SlipCheck.Settings.defaults(),
+                    RobotSim.massOf(robot.definition())),
                 Finding.Scope.ROBOT))
         .contains(
             "the treads' grip, 2.26, is past 1.53, above which the slip check can't tell a slide"
@@ -321,7 +439,9 @@ class RobotConfigTest {
     assertThat(
             Doubts.lines(
                 Doubts.of(
-                    ExampleRobot.SIM.definition(), RobotSim.massOf(ExampleRobot.SIM.definition())),
+                    ExampleRobot.SIM.definition(),
+                    SlipCheck.Settings.defaults(),
+                    RobotSim.massOf(ExampleRobot.SIM.definition())),
                 Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("slip check can't tell"));
   }
@@ -333,13 +453,13 @@ class RobotConfigTest {
    */
   @Test
   void aWiredSwerveOfMotorsNoTalonFxDrivesIsRefused() {
-    List<DrivetrainGeometry.Corner> neos =
+    List<Drivetrain.Corner> neos =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
             .map(
                 corner ->
-                    DrivetrainGeometryCornerBuilder.builder(corner)
+                    DrivetrainCornerBuilder.builder(corner)
                         .module(
-                            DrivetrainGeometryModuleTypeBuilder.builder(corner.module())
+                            DrivetrainModuleBuilder.builder(corner.module())
                                 .driveMotor(Motor.NEO)
                                 .build())
                         .build())
@@ -347,27 +467,17 @@ class RobotConfigTest {
     RobotDefinition rev =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
             .drivetrain(
-                DrivetrainGeometryBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
+                DrivetrainBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
                     .corners(neos)
                     .build())
             .build();
-    SwerveWiring wiring =
-        SwerveWiring.builder()
-            .canBus(CanBus.port(CanBus.Systemcore.CAN_S0))
-            .driveController(MechanismWiring.Controller.TALON_FX)
-            .steerController(MechanismWiring.Controller.TALON_FX)
-            .gyroId(1)
-            .gyroYawScale(1.0)
-            .modules(List.of(module(1, 2, 1), module(3, 4, 2), module(5, 6, 3), module(7, 8, 4)))
-            .build();
-
     RobotConfig unwired = RobotConfigBuilder.builder(ExampleRobot.SIM).definition(rev).build();
 
     assertThat(unwired.definition()).isEqualTo(rev);
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> rev.drivetrain().wired(wiring))
+        .isThrownBy(() -> TestWiring.talons(rev.drivetrain(), CanBus.SYSTEMCORE, 1, 1))
         .withMessage(
-            "DrivetrainGeometry.wiring: its drive's NEO is on a TalonFX, which doesn't drive one: a"
+            "Drivetrain.wiring: its drive's NEO is on a TalonFX, which doesn't drive one: a"
                 + " TalonFXS or a SPARK MAX or a SPARK Flex does");
   }
 
@@ -378,19 +488,19 @@ class RobotConfigTest {
    */
   @Test
   void aSwerveOnTwoMakersControllersIsRefusedByTheProgram() {
-    List<DrivetrainGeometry.Corner> neoSteering =
+    List<Drivetrain.Corner> neoSteering =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
             .map(
                 corner ->
-                    DrivetrainGeometryCornerBuilder.builder(corner)
+                    DrivetrainCornerBuilder.builder(corner)
                         .module(
-                            DrivetrainGeometryModuleTypeBuilder.builder(corner.module())
+                            DrivetrainModuleBuilder.builder(corner.module())
                                 .steerMotor(Motor.NEO_550)
                                 .build())
                         .build())
             .toList();
-    DrivetrainGeometry drivetrain =
-        DrivetrainGeometryBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
+    Drivetrain drivetrain =
+        DrivetrainBuilder.builder(ExampleRobot.SIM.definition().drivetrain())
             .corners(neoSteering)
             .build();
     RobotConfig unwired =
@@ -400,21 +510,12 @@ class RobotConfigTest {
                     .drivetrain(drivetrain)
                     .build())
             .build();
-    DrivetrainGeometry mixed =
-        drivetrain.wired(
-            SwerveWiring.builder()
-                .canBus(CanBus.port(CanBus.Systemcore.CAN_S0))
-                .driveController(MechanismWiring.Controller.TALON_FX)
-                .steerController(SPARK_MAX)
-                .gyroId(1)
-                .gyroYawScale(1.0)
-                .modules(
-                    List.of(
-                        sparkSteered(1, 2),
-                        sparkSteered(3, 4),
-                        sparkSteered(5, 6),
-                        sparkSteered(7, 8)))
-                .build());
+    Drivetrain mixed =
+        TestWiring.wired(
+            drivetrain,
+            SwerveWiring.PIGEON_2.can(1),
+            List.of(
+                sparkSteered(1, 2), sparkSteered(3, 4), sparkSteered(5, 6), sparkSteered(7, 8)));
 
     assertThatIllegalArgumentException()
         .isThrownBy(() -> unwired.with(mixed))
@@ -424,22 +525,15 @@ class RobotConfigTest {
                 + " both, so far: put both on TalonFXs, or both on SPARKs");
   }
 
-  /** A module steered by a SPARK, which reads its angle on its data port: no CANcoder. */
+  /**
+   * A module driven by a TalonFX and steered by a SPARK, which reads its angle on its data port: no
+   * CANcoder.
+   */
   private static SwerveWiring.ModuleWiring sparkSteered(int drive, int steer) {
-    return SwerveWiringModuleWiringBuilder.builder(module(drive, steer, 1))
-        .encoderId(Optional.empty())
-        .build();
-  }
-
-  private static SwerveWiring.ModuleWiring module(int drive, int steer, int encoder) {
-    return SwerveWiring.ModuleWiring.builder()
-        .driveId(drive)
-        .steerId(steer)
-        .encoderOffset(Rotations.of(0))
-        .driveInverted(false)
-        .steerInverted(true)
-        .encoderInverted(false)
-        .encoderId(encoder)
+    return SwerveWiringModuleWiringBuilder.builder()
+        .drive(MechanismWiring.Controller.TALON_FX.can(drive))
+        .steering(SPARK_MAX.can(steer).clockwise())
+        .encoder(MechanismWiring.DATA_PORT.offset(Rotations.of(0)))
         .build();
   }
 }

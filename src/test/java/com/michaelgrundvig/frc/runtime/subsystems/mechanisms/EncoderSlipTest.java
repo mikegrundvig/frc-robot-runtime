@@ -6,9 +6,9 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.wpilib.units.Units.Rotations;
 
-import com.michaelgrundvig.frc.world.robot.EncoderGap;
-import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.EncoderGapCheck;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -26,7 +26,7 @@ class EncoderSlipTest {
   @Test
   void theyreApartOnlyPastTheirMarginForAQuarterSecond() {
     EncoderSlip gap =
-        new EncoderSlip(new EncoderGap(PIVOT, Math.toRadians(5), Double.POSITIVE_INFINITY));
+        new EncoderSlip(new EncoderGapCheck(PIVOT, Math.toRadians(5), Double.POSITIVE_INFINITY));
     double off = Math.toRadians(6);
 
     String first = gap.slipped(0, off, 0, 0).orElse(null);
@@ -53,11 +53,11 @@ class EncoderSlipTest {
    */
   @Test
   void theyreApartTheNearestWayRoundAJointThatTravelsPastItsEncodersTurn() {
-    Joint.Revolute turret =
+    RevoluteJoint turret =
         TURRET.absoluteEncoder(MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0)));
     EncoderSlip gap =
         new EncoderSlip(
-            EncoderGap.of(
+            EncoderGapCheck.of(
                 ROBOT.with(turret).math(), turret, turret.driven().control().orElseThrow()));
 
     gap.slipped(0, Math.toRadians(-170), Math.toRadians(170), 0);

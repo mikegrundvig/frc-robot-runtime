@@ -254,12 +254,7 @@ class JointStagesRecordedSimTest {
   private static final Sensor.Switch CLAW_BEAM = Sensor.Switch.beam("claw beam", PIVOT);
 
   private static final Sensor.Rangefinder REEF =
-      Sensor.Rangefinder.builder()
-          .label("reef range")
-          .part(Part.CHASSIS)
-          .range(Meters.of(1))
-          .fieldOfView(Degrees.of(27))
-          .build();
+      Sensor.Rangefinder.of("reef range", Part.CHASSIS, Meters.of(1), Degrees.of(27));
 
   /**
    * The roller runs only with the pivot out and its beam clear; the turret only with the roller up

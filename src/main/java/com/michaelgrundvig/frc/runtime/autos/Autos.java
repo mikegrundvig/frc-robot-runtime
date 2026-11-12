@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.autos;
 
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.Start;
 import com.michaelgrundvig.frc.world.record.AutoOutcome;
 import com.michaelgrundvig.frc.world.record.MoveSentences;
@@ -34,10 +35,10 @@ import org.wpilib.util.Alert;
  *       selected is logged as an input ({@code Auto/Selected}), so a replay runs the auto the robot
  *       ran. The auto in use is logged as {@code Auto/Chosen}.
  *   <li><b>Every run gets a fresh command</b>, built when autonomous starts. A factory that throws
- *       as it builds one is caught here: nothing runs, {@code Auto/Outcome} says why, and an alert
- *       is raised. A command that throws as it runs is the command scheduler's to handle, like any
- *       other command's throw: on a robot the loop carries on past it, and in the simulator it
- *       fails the test ({@code Robot.loop}). It is reported here as well.
+ *       as it builds one is caught here: nothing runs, {@code Auto/OutcomeWhy} says why, and an
+ *       alert is raised. A command that throws as it runs is the command scheduler's to handle,
+ *       like any other command's throw: on a robot the loop carries on past it, and in the
+ *       simulator it fails the test ({@code Robot.loop}). It is reported here as well.
  *   <li><b>The start.</b> The chosen auto's start is where the robot is placed before the match,
  *       and what its placement is checked against.
  * </ul>
@@ -304,7 +305,7 @@ public final class Autos implements AutoCloseable {
       running = Optional.of(new Running(command, startedNanos));
       scheduler.schedule(command);
     } catch (RuntimeException e) {
-      ended(auto.name(), Ending.FAILED, 0, "it couldn't be built: " + shown(e));
+      ended(auto.name(), Ending.FAILED, 0, "it couldn't be built: " + Said.withKind(e));
     }
   }
 
@@ -354,7 +355,7 @@ public final class Autos implements AutoCloseable {
       case SchedulerEvent.Canceled canceled when canceled.command() == command ->
           ended(auto, endingIfCanceled, seconds, "");
       case SchedulerEvent.CompletedWithError error when error.command() == command ->
-          ended(auto, Ending.FAILED, seconds, shown(error.error()));
+          ended(auto, Ending.FAILED, seconds, Said.withKind(error.error()));
       default -> {}
     }
   }
@@ -380,16 +381,6 @@ public final class Autos implements AutoCloseable {
     Logger.recordOutput("Auto/Outcome", outcome);
     Logger.recordOutput("Auto/OutcomeName", auto);
     Logger.recordOutput("Auto/OutcomeWhy", why);
-  }
-
-  /** What was thrown, by its kind and what it says: "IllegalStateException: no path". */
-  private static String shown(Throwable thrown) {
-    String message = thrown.getMessage();
-    String kind = thrown.getClass().getSimpleName();
-    if (message == null) {
-      return kind;
-    }
-    return kind + ": " + message;
   }
 
   // ---- What the pit reads ----

@@ -9,14 +9,15 @@ import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixture
 import static com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures.TURRET_FRONT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Percent;
 import static org.wpilib.units.Units.RadiansPerSecond;
 
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
-import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -93,12 +94,12 @@ class LimitStopSimTest {
   }
 
   /** A turret run at shares of the battery, either way, its own switch at 90° on its right. */
-  private static final Output SPINNING = Output.dutyCycle("spinning", 0.15);
+  private static final Output SPINNING = Output.dutyCycle("spinning", Percent.of(15));
 
-  private static final Output SPINNING_BACK = Output.dutyCycle("spinning back", -0.15);
+  private static final Output SPINNING_BACK = Output.dutyCycle("spinning back", Percent.of(-15));
 
-  private static final Joint.Revolute SPUN =
-      JointRevoluteBuilder.builder(TURRET).outputs(List.of(SPINNING, SPINNING_BACK)).build();
+  private static final RevoluteJoint SPUN =
+      RevoluteJointBuilder.builder(TURRET).outputs(List.of(SPINNING, SPINNING_BACK)).build();
 
   private static final Sensor.Switch SPUN_RIGHT =
       JointFixtures.limit("turret right", SPUN, Sensor.Switch.Limit.End.UPPER, Math.toRadians(90));

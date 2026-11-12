@@ -5,8 +5,10 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.api.file.Directory;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.JavaPlugin;
 import org.gradle.api.provider.Property;
 import org.gradle.api.provider.Provider;
@@ -40,7 +42,9 @@ import org.wpilib.deployutils.deploy.target.RemoteTarget;
  * </ul>
  *
  * <p>They're staged as part of every build ({@code visorStage}), so a laptop that has built once
- * can deploy offline, and deployed with the robot program ({@code ./gradlew deploy}).
+ * can deploy offline, and deployed with the robot program ({@code ./gradlew deploy}). An archive
+ * whose SHA-256 isn't the one the Visor client was published with isn't staged: the build fails,
+ * saying so ({@link VisorReleaseCheck}).
  */
 public final class VisorPlugin implements Plugin<Project> {
   /** The Visor client the robot is built with, whose release goes with it. */
@@ -100,6 +104,9 @@ public final class VisorPlugin implements Plugin<Project> {
                   task.setGroup("build");
                   task.setDescription(
                       "Put Visor's release and its Spotter pack in the robot's deploy.");
+                  task.doFirst(
+                      "Check Visor's release against its client",
+                      new VisorReleaseCheck(release, clientJar(runtime)));
                   task.into(staged);
                   task.from(release, spec -> spec.into("visor"));
                   task.from(
@@ -147,6 +154,20 @@ public final class VisorPlugin implements Plugin<Project> {
                                 artifact.getFiles().set(project.fileTree(staged));
                               });
                     }));
+  }
+
+  /** The Visor client's jar on the robot's runtime classpath. */
+  static FileCollection clientJar(Configuration runtime) {
+    return runtime
+        .getIncoming()
+        .artifactView(view -> view.componentFilter(VisorPlugin::isClient))
+        .getFiles();
+  }
+
+  private static boolean isClient(ComponentIdentifier component) {
+    return component instanceof ModuleComponentIdentifier id
+        && id.getGroup().equals(CLIENT_GROUP)
+        && id.getModule().equals(CLIENT_NAME);
   }
 
   /** The version of the Visor client on the robot's runtime classpath. */

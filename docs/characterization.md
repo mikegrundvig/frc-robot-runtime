@@ -44,12 +44,13 @@ for all of them:
 is off, and how both grow with distance. It sets vision's trust in a camera:
 `VisionConfig.linearStdDevBaseline`, `angularStdDevBaseline`, `distanceExponent`,
 `headingConstrainedFactor`, the simulator's corner noise (`VisionSim`), and the camera's sight
-range (`CameraConfig.Sensor.sightRange`).
+range (`CameraConfig.ImageSensor.sightRange`).
 
 **Equipment:**
 
-- The camera, on the coprocessor the robot runs, with the same PhotonVision version, resolution,
-  exposure, and pipeline settings, and its lens calibrated at that resolution.
+- The camera, on the coprocessor the robot runs, with the same vision software and version
+  (PhotonVision, or Visor), resolution, exposure, and pipeline or configuration settings, and its
+  lens calibrated at that resolution.
 - A Systemcore running the robot program, to log the camera: it logs every tag a camera sees, with
   the tag's pose from the camera (`Vision/<camera>`). The robot itself is easiest; a camera on a
   tripod, on the robot's network, works as well.
@@ -112,7 +113,7 @@ millimeters. The configured baseline (0.02 m today) is larger on purpose: on the
 covers motion, timing, and the mount, which the bench doesn't see. So take the exponent from here,
 and compare cameras with `b`; set the baseline on the robot, starting from `b` and raising it until,
 in clean driving, the gate rejects about 1 in 1000 of a camera's measurements
-(`Vision/<camera>/Decisions`). Far more, and the baseline is too small.
+(`Vision/<camera>/MeasurementVerdicts`). Far more, and the baseline is too small.
 
 ### While moving
 
@@ -135,7 +136,7 @@ cameras the robot will use, at the exposure it will run: a shorter exposure blur
 ## Camera latency and time sync
 
 **What it measures:** how long a camera's result takes from the image's capture to reaching the
-robot (`CameraConfig.Sensor.latency`), how many results arrive per second (`frameRate`), and
+robot (`CameraConfig.ImageSensor.latency`), how many results arrive per second (`frameRate`), and
 whether the capture time the robot is given is right. It also checks `EstimatorConfig.historySeconds`
 and `futureToleranceSeconds`, and sets the simulator's latency spread (`VisionSim`).
 
@@ -183,19 +184,19 @@ PhotonVision.
 
 **What good looks like:** latency steady within a few milliseconds, with no long tail; a result
 100 ms late or more means a busy coprocessor or network. The capture time's error under about
-5 ms, and under about 2 ms if every fix corrects the heading (`EstimatorConfig.headingCorrection`
-`EVERY_FIX`): while the robot turns, each fix then leans on its capture time ([the consistency
+5 ms, and under about 2 ms since every fix corrects the heading (the default localizer's
+`HeadingCorrection.EVERY_FIX`): while the robot turns, each fix then leans on its capture time ([the consistency
 study](testing.md#the-simulators-late-stamps)). More than a loop (20 ms) means the time sync isn't
 working. On Visor, check chrony on the coprocessor ([visor.md](visor.md#what-the-boards-image-needs),
 *Checking the clock*); on PhotonVision, that the coprocessor runs the PhotonVision version the
 robot's PhotonLib expects, and that the robot's clock and PhotonVision's agree. Results applied "too late" or "from the
-future" in `Vision/<camera>/Decisions` say the same.
+future" in `Vision/<camera>/MeasurementVerdicts` say the same.
 
 ## Vision coprocessor capacity
 
 **What it measures:** how many cameras one vision coprocessor can run before their frame rate
 drops or their latency grows. It sets the frame rate and latency each camera gets on the robot
-(`CameraConfig.Sensor.frameRate` and `latency`, for that many cameras on one coprocessor), and how
+(`CameraConfig.ImageSensor.frameRate` and `latency`, for that many cameras on one coprocessor), and how
 many coprocessors the robot needs. Measure it on the model of coprocessor the robot will use.
 
 More images is more measurements, closer together: when it comes to a choice, keep the frame rate
@@ -231,9 +232,9 @@ and add a coprocessor.
 second) and its latency, worked out as in [camera latency](#camera-latency-and-time-sync). Write
 them in a table: cameras on the coprocessor, against each camera's frame rate and latency.
 
-**Where it goes:** each camera's `CameraConfig.Sensor` takes the frame rate and latency from the
+**Where it goes:** each camera's `CameraConfig.ImageSensor` takes the frame rate and latency from the
 step with as many cameras as one coprocessor carries on the robot. Cameras whose coprocessors carry
-different numbers of cameras need a `Sensor` each.
+different numbers of cameras need an `ImageSensor` each.
 
 **What good looks like:** every camera holding its own frame rate as cameras are added, and its
 latency within a few milliseconds of the single camera's. The step where any camera's frame rate
@@ -297,7 +298,7 @@ headings wrap at ±180°: count the whole turns.
 ## Tread friction
 
 **What it measures:** the tread's grip on carpet, new and worn: the coefficient of friction,
-`DrivetrainGeometry.ModuleType.wheelCoefficientOfFriction`. The robot's drive moves plan their
+`Drivetrain.Module.wheelCoefficientOfFriction`. The robot's drive moves plan their
 acceleration on it and its slip check judges by it, the simulator's grip comes from it, and with the
 center of gravity's height it sets where the wheels slip under acceleration, which the drive's
 current limit is chosen to stay under. Until it's measured, it's PathPlanner's default, 1.2, and
@@ -330,7 +331,7 @@ over pounds). Average the highest readings: the grip before it lets go is what a
 
 **Where it goes:** `wheelCoefficientOfFriction` takes the worn tread's, the worst the robot will
 play with, unless the team retreads before every event. Then redo the drive's current limit (the
-weight-transfer estimate in `Robots`) with it and the center of gravity's height.
+weight-transfer estimate in `ExampleRobot`'s comment on its drivetrain control) with it and the center of gravity's height.
 
 **What good looks like:** 1.0 to 1.3 for common treads on carpet. Over 1.5, the pull wasn't level
 (pulling up lightens the robot) or the carpet slid. A sideways pull drags the tread across its
@@ -341,7 +342,7 @@ near the scale while the robot is enabled, and the reading taken from the side o
 
 ## Feedforward
 
-**What it measures:** the drive's feedforward: `DrivetrainControl.Gains.driveKs`, the volts to
+**What it measures:** the drive's feedforward: `DrivetrainControl.SwerveGains.driveKs`, the volts to
 overcome friction, and `driveKv`, the volts per meter per second. These belong to a drivetrain
 design (modules, gearing, tread): robots built alike share them, measured on one. Measure again when
 any of those changes.
@@ -356,10 +357,11 @@ spinning wheels.
 **WPILib's SysId** measures them: it records the drivetrain under slowly rising voltage and under
 voltage steps, and fits kS, kV, and kA from the log. Follow
 [WPILib's SysId guide](https://docs.wpilib.org/en/stable/docs/software/advanced-controls/system-identification/index.html);
-the template doesn't have a SysId routine yet. The same tests on one module, lifted off the floor,
+the runtime has no SysId routine, by design
+([why](design-decisions.md#14-no-sysid-routine)). The same tests on one module, lifted off the floor,
 give the inertia of its wheel, gears, and motor, which the template estimates today
-(`DrivetrainGeometry.ModuleType.driveInertia`) and the simulator adds to the share of the robot's mass
-each wheel carries (`Body.mass`).
+(`Drivetrain.Module.driveInertia`) and the simulator adds to the share of the robot's mass
+each wheel carries (`Body.weight`).
 
 **Units:** SysId reports in the units the routine logged; the template's gains are in volts per
 meter per second.
@@ -374,15 +376,19 @@ A 2026 drivetrain's 0.7237 V per wheel rotation per second, with a 0.049 m wheel
 
 **Without SysId,** the template's own tools get close:
 
-- `driveKv` starts at `DrivetrainGeometry.ModuleType.idealDriveKv()`, the motor and gearing's ideal
-  (what the template's robot uses).
+- `driveKv` starts at the ideal of the drivetrain's slowest module (`Drivetrain.idealDriveKv()`,
+  from `Drivetrain.Module.idealDriveKv()`: the motor's nominal voltage over the module's free
+  speed), which the drivetrain seeds it with until a robot gives one (`.withDriveKv(2.6)`). One
+  under half or over twice the ideal is doubted at startup, and the doubt names the likely
+  mix-up when it is off by the ratio between two units (Tuner X's per-rotor-turn figure typed as
+  a plain number).
 - Then tune both live on the Pitwall page: with `driveKp` at zero, drive at a steady speed and
   compare each module's speed with its setpoint in AdvantageScope (`Drive/ModuleVelocities`
   against `Drive/SetpointsOptimized`). Raise kV until they match at speed; raise kS until slow
   moves start without lagging. Then put `driveKp` back, and commit what works.
 
-**What good looks like:** kV a few percent above the ideal (2.54 V per m/s on the template's
-robot); kS a few tenths of a volt or less (the 2026 code's was 0.145 V). The steering's gains are
+**What good looks like:** kV a few percent above the ideal (2.54 V per m/s for the example
+robot's modules); kS a few tenths of a volt or less (the 2026 code's was 0.145 V). The steering's gains are
 tuned, not characterized: tune them live, watching each module's angle
 (`Drive/Module<name>/SteerAngle`) against its setpoint.
 

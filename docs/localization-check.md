@@ -37,13 +37,36 @@ coordinates.
 
 Write each spot down: its number, its x, y and heading, and the tag it was measured from.
 
+## Averaging a logged pose
+
+Both parts below average `Localization/Pose` over a few seconds. Open the log in AdvantageScope,
+find the seconds you want on its timeline, and export the log (**File > Export Data**) to a
+spreadsheet. The pose comes out as its x and y, in meters, and its rotation, in radians. Average
+each column over the rows in those seconds, and turn the rotation into degrees (times 180 / π).
+Near a heading of 180° the rotation can jump between +π and −π from one row to the next: add 2π to
+the negative rows before averaging, or the average lands near 0°.
+
+## Where the robot thinks it's facing
+
+When the robot is put on the start its auto names, or a driver presses Back, its heading is a
+person's word, not a measurement. Until a camera backs that heading, the robot doesn't solve its
+images with it, and a camera whose heading disagrees is refused (the log's words: *its heading
+disagrees with an unbacked placement*). Three images that agree with each other then turn the
+heading to theirs. So a robot carried from its start to a spot facing another way corrects itself
+within a moment of seeing tags, and while it can't, Pitwall's localization line reads *Lost since
+it was placed: its heading is the suspect*.
+
+Before reading any spot, check that line says *Tracking tags*. If it says the heading is the
+suspect, the robot hasn't seen enough tags to correct itself: turn it so its cameras see more, or
+set it down facing its start's heading.
+
 ## 1. Standing
 
 For each spot:
 
 1. Put the robot in the outline by hand, disabled, square to the tape, within 5 mm.
 2. Leave it still for 5 s, its cameras on.
-3. In the log, average `Localization/Pose` over those 5 s, and note
+3. In the log, [average](#averaging-a-logged-pose) `Localization/Pose` over those 5 s, and note
    `Localization/PositionStdDevMeters`.
 
 **Passes when** at each spot, position is within **3 cm** and heading within **0.5°**, and at all
@@ -66,7 +89,7 @@ far the estimate moves once the robot is at rest, which needs no tape:
    strafing and a spin, past tags and away from them.
 2. Stop anywhere with tags in view, and hold still for 3 s.
 3. In the log, find the first loop at rest. Take the distance between `Localization/Pose` there
-   and its average over the last second.
+   and its [average](#averaging-a-logged-pose) over the last second.
 4. Do it five times, from different spots.
 
 **Passes when** each move is under **8 cm**, and heading moves under **1°**. That's what aligning
@@ -83,6 +106,7 @@ that happens after a spin points at the gyro's scale.
 | Off only facing one tag, or one camera's spots | That camera's [mount](calibration.md#a-cameras-mount), or that tag in the venue |
 | Worse the farther the tags are | [Lens calibration](calibration.md#done-elsewhere), then [camera noise](characterization.md#camera-noise) |
 | Heading off by the same angle everywhere | The camera mounts' yaw, or `minTagsForHeading` ([values.md](values.md)) |
+| The heading is the suspect since it was placed, and stays so with tags in view | [Where the robot thinks it's facing](#where-the-robot-thinks-its-facing): set it down facing its start, or face it downfield and press Back |
 | Standing passes, part 2 fails after fast driving | [Capture times](calibration.md#a-cameras-capture-time) |
 | Part 2 fails after spins only | [The gyro's scale](calibration.md#the-gyros-scale) |
 | Error well past twice the reported standard deviation | Camera noise characterization: the estimator trusts its images too much |

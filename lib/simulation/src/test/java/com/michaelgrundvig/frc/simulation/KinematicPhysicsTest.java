@@ -7,6 +7,7 @@ import static org.wpilib.units.Units.Kilograms;
 
 import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.Terrain;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Pose2d;
@@ -76,7 +77,7 @@ class KinematicPhysicsTest {
     assertThat(wheel.radiusMeters()).isEqualTo(TestRobot.RADIUS);
     assertThat(wheel.driveCurrentAmps()).isPositive();
     assertThat(wheel.steerLoadNewtonMeters()).isZero();
-    assertThat(wheel.loadNewtons()).isCloseTo(mass() * Physics.STANDARD_GRAVITY / 4, within(1e-9));
+    assertThat(wheel.loadNewtons()).isCloseTo(mass() * RobotMath.GRAVITY / 4, within(1e-9));
     assertThat(wheel.inContact()).isTrue();
     Pose2d pose = physics.chassis().pose();
     Translation2d under =

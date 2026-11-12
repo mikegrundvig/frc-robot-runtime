@@ -1,5 +1,7 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
+import static org.wpilib.units.Units.Meters;
+
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotConfigBuilder;
@@ -8,6 +10,7 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import org.wpilib.math.geometry.Translation3d;
@@ -31,8 +34,9 @@ final class ServoHoodRobot {
   static final Actuator.Servo WCP_0408 =
       Actuator.Servo.builder().from(0.168).to(0.268).force(50).speed(0.032).build();
 
-  static final Joint.Revolute HOOD =
-      Joint.pivot("hood", Part.CHASSIS, new Translation3d(-0.2, 0, 0.55), Joint.PITCH_UP)
+  static final RevoluteJoint HOOD =
+      Joint.pivot("hood", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(-0.2), Meters.of(0), Meters.of(0.55))
           .range(Range.degrees(0, 40))
           .rest(HOOD_DOWN)
           .positions(HOOD_DOWN, HOOD_LOB)

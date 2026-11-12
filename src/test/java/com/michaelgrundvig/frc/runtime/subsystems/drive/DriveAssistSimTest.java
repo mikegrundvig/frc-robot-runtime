@@ -30,7 +30,7 @@ import org.wpilib.math.geometry.Translation2d;
 @ExtendWith(RobotSim.class)
 class DriveAssistSimTest {
   private final DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM);
-  private final Drive drive = harness.drive;
+  private final SwerveDrive drive = harness.drive;
 
   /** What a stick at 0.4 asks of what one at 0.8 does: the deadband cut away, then squared. */
   private static final double SHAPED = Math.pow(0.3 / 0.7, 2);

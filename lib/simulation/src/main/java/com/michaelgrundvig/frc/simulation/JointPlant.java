@@ -106,7 +106,7 @@ public final class JointPlant {
     this.joint = joint;
     this.math = math;
     Drive drive = theDriveOf(math, joint);
-    Actuator.Motors motors = (Actuator.Motors) drive.actuator();
+    Actuator.MotorGroup motors = (Actuator.MotorGroup) drive.actuator();
     DCMotor allMotors = motors.model(drive.transmission().efficiency());
     gearing = Math.abs(drive.transmission().shaftRadiansPer(joint));
     inertia = math.inertia(joint, Map.of());
@@ -125,7 +125,7 @@ public final class JointPlant {
     tunedGravity = tunedGravity(math, joint);
     lowerStop = joint.range().map(Range::lower).orElse(Double.NEGATIVE_INFINITY);
     upperStop = joint.range().map(Range::upper).orElse(Double.POSITIVE_INFINITY);
-    motor.place(joint.restPosition(), 0);
+    motor.place(RobotMath.restPosition(joint), 0);
   }
 
   /**

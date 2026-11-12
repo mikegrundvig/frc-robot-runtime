@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.localization.BodyMotion;
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
@@ -19,6 +20,7 @@ import com.michaelgrundvig.frc.localization.LoopContext;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.PoseEstimator;
 import com.michaelgrundvig.frc.localization.PoseReset;
+import com.michaelgrundvig.frc.localization.SlipCheck;
 import com.michaelgrundvig.frc.localization.SwerveKinematicsModel;
 import com.michaelgrundvig.frc.localization.TagAllowlist;
 import com.michaelgrundvig.frc.localization.TagVerdict;
@@ -34,10 +36,12 @@ import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.field.Symmetry;
+import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -64,7 +68,7 @@ import org.wpilib.tunable.TunableRegistry;
 class VisionTest {
   private static final FieldModel FIELD =
       new FieldModel(
-          Fields.FRC_2026_REBUILT_WELDED.loadField(),
+          Rebuilt.GAME.layout(Fields.FRC_2026_REBUILT_WELDED.loadField()),
           Symmetry.ROTATED,
           List.of(),
           List.of(),
@@ -73,26 +77,17 @@ class VisionTest {
   private static final long T0 = 1_000_000_000L;
 
   private final CameraConfig camera =
-      CameraConfig.builder()
-          .name("front")
-          .forward(Inches.of(12))
-          .left(Inches.of(0))
-          .up(Inches.of(12))
-          .roll(Degrees.of(0))
-          .tiltUp(Degrees.of(15))
-          .yaw(Degrees.of(0))
-          .sensor(
-              CameraConfig.Sensor.builder()
-                  .widthPixels(1280)
-                  .heightPixels(800)
-                  .fieldOfView(Degrees.of(80))
-                  .fieldOfViewAcross(CameraConfig.Across.DIAGONAL)
-                  .frameRate(Hertz.of(30))
+      CameraConfig.of(
+              "front",
+              CameraConfig.ImageSensor.of(1280, 800, Hertz.of(30))
+                  .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
                   .latency(Milliseconds.of(30))
-                  .sightRange(Meters.of(7))
-                  .build())
+                  .sightRange(Meters.of(7)))
+          .at(Inches.of(12), Inches.of(0), Inches.of(12))
+          .facing(Degrees.of(15), Degrees.of(0))
+          .roll(Degrees.of(0))
           .noiseScale(1.0)
-          .build();
+          .measured();
 
   /** A camera that reports whatever the test scripts. */
   private static final class ScriptedCamera implements CameraIO {
@@ -139,7 +134,7 @@ class VisionTest {
    */
   private final PoseEstimator estimator =
       new PoseEstimator(
-          EstimatorConfig.DEFAULTS,
+          EstimatorConfig.defaults(),
           FIELD::contains,
           FIELD.tags().keySet(),
           new PoseReset(0, ROBOT, PoseCovariance.fromStdDevs(0.05, 0.05, 0.01), "placed"));
@@ -153,11 +148,15 @@ class VisionTest {
   /** Localization around that odometry: it solves each image as the robot was then. */
   private final LocalizationService localization =
       new LocalizationService(
-          estimator,
-          new SwerveKinematicsModel(definition.moduleTranslations()),
           FIELD,
           FIELD.terrain(),
           definition,
+          new DefaultLocalizer(
+              estimator,
+              new SwerveKinematicsModel(definition.moduleTranslations()),
+              FIELD.terrain(),
+              definition,
+              SlipCheck.Settings.defaults()),
           RobotLoop.PERIOD_SECONDS);
 
   private Vision vision;
@@ -166,7 +165,7 @@ class VisionTest {
   private Optional<Alliance> ourAlliance = Optional.empty();
 
   /** The vision settings as Pitwall would hand them over, tuned or not. */
-  private VisionConfig tuned = VisionConfig.DEFAULTS;
+  private VisionConfig tuned = VisionConfig.defaults();
 
   @BeforeEach
   void setUp() {
@@ -223,9 +222,9 @@ class VisionTest {
                 .pitchRadians(pitch)
                 .rollRadians(roll)
                 // Gravity, as an accelerometer tilted so feels it standing still.
-                .forwardAccelerationMetersPerSecSq(-ImuReadings.STANDARD_GRAVITY * Math.sin(pitch))
+                .forwardAccelerationMetersPerSecSq(-RobotMath.GRAVITY * Math.sin(pitch))
                 .leftAccelerationMetersPerSecSq(
-                    ImuReadings.STANDARD_GRAVITY * Math.sin(roll) * Math.cos(pitch))
+                    RobotMath.GRAVITY * Math.sin(roll) * Math.cos(pitch))
                 .yaws(YawSamples.of(new long[] {now}, new double[] {0.3}))
                 .build())
         .backupImu(ImuReadings.NONE)
@@ -262,8 +261,8 @@ class VisionTest {
     assertThat(front.acceptedTags()).isEmpty();
     assertThat(front.rejectedTags())
         .containsExactly(FIELD.tag(25).orElseThrow(), FIELD.tag(26).orElseThrow());
-    assertThat(front.rejectedReasons()).hasSize(2).allMatch(why -> !why.isBlank());
-    assertThat(front.rejectedReasons().get(0)).isEqualTo(front.rejectedReasons().get(1));
+    assertThat(front.rejectedVerdicts()).hasSize(2).allMatch(why -> !why.isBlank());
+    assertThat(front.rejectedVerdicts().get(0)).isEqualTo(front.rejectedVerdicts().get(1));
 
     loop();
 
@@ -273,10 +272,11 @@ class VisionTest {
   /** A tuned setting applies from the next loop's images. */
   @Test
   void theSettingsAreReadEveryLoop() {
-    tuned = VisionConfigBuilder.builder(VisionConfig.DEFAULTS).maxDistanceMeters(0.1).build();
+    // Nearer than any tag the camera sees, so every image is too far; above the least distance.
+    tuned = VisionConfigBuilder.builder(VisionConfig.defaults()).maxDistanceMeters(0.2).build();
     io.see(T0 + 200_000_000L, camera);
     loop();
-    tuned = VisionConfig.DEFAULTS;
+    tuned = VisionConfig.defaults();
     io.see(T0 + 220_000_000L, camera);
 
     loop();
@@ -295,6 +295,24 @@ class VisionTest {
     assertThat(vision.camera(0).accepted() + vision.camera(0).rejected()).isEqualTo(1);
   }
 
+  /**
+   * An image stamped in the future (a coprocessor's clock ahead, until it steps back) is left out
+   * of step, and doesn't make the good images after it look like the same image again.
+   */
+  @Test
+  void anImageStampedInTheFutureDoesNotHideTheImagesAfterIt() {
+    long now = estimator.estimate().timestampNanos();
+    io.see(now + 5_000_000_000L, camera);
+    loop();
+    assertThat(vision.camera(0).rejectedVerdicts())
+        .containsOnly("arrived 5000 ms before it was taken");
+
+    io.see(T0 + 200_000_000L, camera);
+    loop();
+
+    assertThat(vision.camera(0).accepted() + vision.camera(0).rejected()).isEqualTo(1);
+  }
+
   @Test
   void aCameraTurnedOffIsLeftOut() {
     vision.camera(0).enabled.set(false);
@@ -303,9 +321,10 @@ class VisionTest {
     loop();
 
     assertThat(vision.camera(0).accepted() + vision.camera(0).rejected()).isZero();
-    assertThat(vision.summary()).endsWith("no measurements yet");
+    assertThat(vision.summary())
+        .endsWith("no measurements yet; front used 0 of 1 images with tags (1: camera turned off)");
     assertThat(vision.camera(0).rejectedTags()).hasSize(2);
-    assertThat(vision.camera(0).rejectedReasons()).containsOnly("camera turned off");
+    assertThat(vision.camera(0).rejectedVerdicts()).containsOnly("camera turned off");
   }
 
   @Test
@@ -328,10 +347,8 @@ class VisionTest {
   void imagesWithoutACaptureTimeRaiseAnAlertWhileTheyKeepComing() {
     vision.close();
     CameraConfig onVisor =
-        CameraConfigBuilder.builder(camera)
-            .software(
-                CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-cam-video-index0").build())
-            .build();
+        camera.withSoftware(
+            CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-cam-video-index0"));
     vision =
         new Vision(
             List.of(onVisor),
@@ -508,7 +525,7 @@ class VisionTest {
     double crest = 0.165;
     FieldModel bumpy =
         new FieldModel(
-            Fields.FRC_2026_REBUILT_WELDED.loadField(),
+            Rebuilt.GAME.layout(Fields.FRC_2026_REBUILT_WELDED.loadField()),
             Symmetry.ROTATED,
             List.of(),
             List.of(),
@@ -546,17 +563,12 @@ class VisionTest {
   @Test
   void aCameraWhoseTagsLandOffShowsItInItsResidual() {
     CameraConfig reallyHigher =
-        CameraConfig.builder()
-            .name("front")
-            .forward(Inches.of(12))
-            .left(Inches.of(0))
-            .up(Inches.of(16))
+        CameraConfig.of("front", camera.sensor())
+            .at(Inches.of(12), Inches.of(0), Inches.of(16))
+            .facing(Degrees.of(15), Degrees.of(0))
             .roll(Degrees.of(0))
-            .tiltUp(Degrees.of(15))
-            .yaw(Degrees.of(0))
-            .sensor(camera.sensor())
             .noiseScale(1.0)
-            .build();
+            .measured();
     io.see(T0 + 200_000_000L, reallyHigher);
 
     loop();
@@ -578,7 +590,7 @@ class VisionTest {
     loop();
 
     assertThat(vision.camera(0).accepted() + vision.camera(0).rejected()).isZero();
-    assertThat(vision.camera(0).rejectedReasons())
+    assertThat(vision.camera(0).rejectedVerdicts())
         .containsOnly("arrived at least 300 ms after it was taken, more than 130 ms");
     assertThat(vision.camera(0).isOutOfStepAlertActive()).isTrue();
     assertThat(vision.camera(0).outOfStepAlertText())
@@ -589,7 +601,10 @@ class VisionTest {
     io.see(now + 5_000_000L, camera);
     loop();
     assertThat(vision.camera(0).accepted() + vision.camera(0).rejected()).isZero();
-    assertThat(vision.summary()).endsWith("no measurements yet, 2 images left out of step");
+    assertThat(vision.summary())
+        .endsWith(
+            "no measurements yet, 2 images left out of step; front used 0 of 2 images with tags"
+                + " (2: arrived out of step)");
   }
 
   /**
@@ -933,13 +948,16 @@ class VisionTest {
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).isTrue();
 
     // 10 cm off. Up past the tolerance, the alert comes down only under 0.8 of it.
-    tuned = VisionConfigBuilder.builder(VisionConfig.DEFAULTS).mountToleranceMeters(0.11).build();
+    tuned =
+        VisionConfigBuilder.builder(VisionConfig.defaults()).outOfCalibrationMeters(0.11).build();
     loop();
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).as("8.8 cm: still up").isTrue();
-    tuned = VisionConfigBuilder.builder(VisionConfig.DEFAULTS).mountToleranceMeters(0.13).build();
+    tuned =
+        VisionConfigBuilder.builder(VisionConfig.defaults()).outOfCalibrationMeters(0.13).build();
     loop();
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).as("10.4 cm: down").isFalse();
-    tuned = VisionConfigBuilder.builder(VisionConfig.DEFAULTS).mountToleranceMeters(0.11).build();
+    tuned =
+        VisionConfigBuilder.builder(VisionConfig.defaults()).outOfCalibrationMeters(0.11).build();
     loop();
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).as("11 cm: stays down").isFalse();
   }

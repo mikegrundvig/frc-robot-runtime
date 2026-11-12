@@ -19,6 +19,7 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -70,7 +71,7 @@ public final class JointExperiments {
   /** One joint's experiments: none for a joint with nothing named to step between. */
   static List<Experiment> of(JointMechanism mechanism, LiveConfig<MechanismControl> tuning) {
     Joint joint = mechanism.joint();
-    boolean turns = joint instanceof Joint.Revolute;
+    boolean turns = joint instanceof RevoluteJoint;
     String label = joint.label();
     List<Experiment> made = new ArrayList<>();
     if (tuning.get().loop() == MechanismControl.Loop.POSITION) {

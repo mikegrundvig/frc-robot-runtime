@@ -21,8 +21,15 @@ Run them in this order, since each leans on the ones before it:
 Then [check localization on the field](localization-check.md): taped spots, standing and just after
 driving, which tests all of these together.
 
-Run every procedure in utility mode, enabled, with the robot on the floor. The page refuses to run
-them on the field.
+The page lists its procedures in this order: the IMU's level, the gyro's scale, the wheel radius,
+one mount for each camera, then the capture times. The accelerometer check and the lenses aren't
+on the page at all.
+
+Run every procedure in utility mode, enabled, with the robot on the floor. Utility mode is the
+Driver Station's mode for work that isn't a match (it took the place of Test mode in 2027): choose
+**Utility** in the Driver Station's list of modes, then press **Enable**. In the simulator, choose
+Utility in Pitwall's Sim view. The page refuses to run the procedures in any other mode, while
+disabled, or with the field system connected.
 
 **Safety:** these drive the robot, spinning it in place or moving it between spots. Clear a circle
 around it and keep everyone out of it. One named person at the Driver Station does nothing but
@@ -32,7 +39,7 @@ at events. ([Characterization's safety rules](characterization.md#safety-first) 
 Two more have nothing to run on the page: [the robot's mass, center of gravity, and
 inertia](#the-robots-mass-center-of-gravity-and-inertia), measured by hand, and [a terrain
 crossing](#tilt-on-a-bump), read from a log. Put what they find in `Robots.java` the same way,
-with the date: `.mass(Pounds.of(131.2)) // measured YYYY-MM-DD` ([docs/values.md](values.md) says
+with the date: `.weight(Pounds.of(131.2)) // measured YYYY-MM-DD` ([docs/values.md](values.md) says
 how every value is measured, and where each belongs).
 
 ## The IMU reads level
@@ -42,8 +49,10 @@ how every value is measured, and where each belongs).
 Stand the robot still on a floor you trust to be level. The procedure averages the IMU's pitch and
 roll for two seconds, and should read within 1° of zero. If it doesn't, the IMU's mount calibration
 is off, and every tilt the robot reads is off by the same amount: tilt handling, bump detection,
-and every camera image solved on a tilted robot. Redo the Pigeon 2's mount calibration in Phoenix
-Tuner X, with the robot level ([on the robot](tuner-x.md)), then check again.
+and every camera image solved on a tilted robot. The Pigeon 2's mount pose is the orientation in
+the robot's definition, sent to it each time the program starts: run Tuner X's mount calibration
+with the robot level and copy its angles into the orientation ([tuner-x.md](tuner-x.md#what-the-robot-program-writes-over)), redeploy, and
+check again.
 
 When: after mounting or moving the IMU, and before each event.
 
@@ -64,8 +73,9 @@ size, not direction: wheels speeding up harder than the accelerometer feels the 
 seen sliding, whichever way it's turned, but a slide that keeps its speed and only turns is missed,
 and a jolt counts by its size alone.
 
-Mount each IMU in the robot's definition first, `Imus` in `Robots.java`, one `ImuMount` each for
-the gyro and the backup:
+Mount each IMU in the robot's definition first, one `ImuMount` each: the gyro's on the drivetrain's
+Pigeon 2, `PIGEON_2.can(CANIVORE, 1).at(mount)`, and the backup's on the robot,
+`.withBackupImu(mount)`:
 
 - **Where it sits:** `forward`, `left` and `up` from the robot's origin (the frame's center, on the
   floor), from CAD or a tape. An IMU off the center is swung around it as the robot turns, and
@@ -74,13 +84,12 @@ the gyro and the backup:
   robot's (forward, left, up). Level with x forward and z up is `Rotation3d.ZERO`; turned to face
   left, `new Rotation3d(0, 0, Math.PI / 2)`; upside down, `new Rotation3d(Math.PI, 0, 0)`.
 
-The Pigeon's own yaw, pitch, and roll follow the mount pose saved on it, which [its mount
-calibration](#the-imu-reads-level) sets in Tuner X: the code doesn't write the definition's
-orientation to it yet, so the two are set apart and must agree. They can disagree unseen: the
-Pigeon's pitch and roll follow its mount pose, while its accelerometer reads a case the definition
-doesn't know is tilted as gravity leaking into its level axes. When the slip check learns a bias
-past 1 m/s² standing still (`SlipCheck.Settings.largestBiasMetersPerSecSq`; a case tilted 6° leaks
-that much), an alert says to check that IMU's orientation in the robot's definition.
+The Pigeon's own yaw, pitch, and roll follow its mount pose, which the program sends it from the
+same orientation each time it starts, so the two can't disagree. Its accelerometer reads along its
+case whatever its mount pose, and the code turns it by the orientation. An orientation that is a
+little off still shows: when the slip check learns a bias past 1 m/s² standing still
+(`SlipCheck.Settings.largestBiasMetersPerSecSq`; a case tilted 6° leaks that much), an alert says to
+check that IMU's orientation in the robot's definition.
 
 Then, recording a log, in utility mode on a flat floor:
 
@@ -95,9 +104,9 @@ Then, recording a log, in utility mode on a flat floor:
 
 Check the backup IMU the same way, on `Drive/BackupGyro/AccelerationXMetersPerSecSq` and
 `AccelerationYMetersPerSecSq`. If forward reads on the y axis, or either reads backwards, that IMU's
-orientation is wrong: fix it in `Robots.java`, redeploy, and check again. Once all three pass, set
-`accelerometerChecked(true)` in that IMU's `ImuMount`, with the date:
-`.accelerometerChecked(true) // checked YYYY-MM-DD`. The simulator's robot is checked: its IMUs
+orientation is wrong: fix it in `Robots.java`, redeploy, and check again. Once all three pass, add
+`.accelerometerCheckPassed()` to that IMU's `ImuMount`, with the date:
+`.accelerometerCheckPassed() // checked YYYY-MM-DD`. The simulator's robot is checked: its IMUs
 read along their axes by construction.
 
 Then measure what the slip check allows for, once the accelerometer is checked, in the same log or a
@@ -107,7 +116,9 @@ accelerometer drift without a slide, should stay under 0.2 m/s throughout, and
 `Localization/UnexplainedJoltMetersPerSecSq` under the tread's grip. The slip check's tolerances
 (`SlipCheck.Settings`) were set against the simulator's accelerometer, whose noise, bias, and filter
 are guesses (CTRE publishes none of them for the Pigeon 2): if the slide passes 0.2 m/s, raise
-`speedToleranceMetersPerSecond` above what it reached, and say so in its comment.
+`speedToleranceMetersPerSecond` above what it reached, in the robot's `RobotConfig`
+(`.slipCheck(SlipCheckSettingsBuilder.builder(SlipCheck.Settings.defaults())
+.speedToleranceMetersPerSecond(...).build())`), and say so in its comment.
 
 When: after mounting or moving an IMU, or changing its orientation.
 
@@ -115,18 +126,20 @@ When: after mounting or moving an IMU, or changing its orientation.
 
 *Calibrate the gyro's scale (5 turns where cameras see tags).*
 
-Park the robot where its cameras see at least two tags at once, and clear a circle around it. It
-stands still for a second and a half while the cameras measure its heading, spins five turns in
-place, stops, and measures again. The gyro counts the turns; the cameras say exactly where it
-stopped. A gyro reading 0.3% high misreads five turns by 5.4°.
+Park the robot where its cameras see tags, and clear a circle around it. It stands still for a
+second and a half while the cameras measure its heading, spins five turns in place, stops, and
+measures again. Each tag a camera sees gives the robot's heading by itself, so it works on Visor's
+cameras, which send no multi-tag solution, as on PhotonVision's. The gyro counts the turns; the
+cameras say exactly where it stopped. A gyro reading 0.3% high misreads five turns by 5.4°.
 
-The result is a scale for the robot's wiring: `.gyroYawScale(0.99702)`. It already includes any
-scale the wiring had, so replace the old value. If the cameras don't measure the heading at least
-five times standing still, it says so: face more tags.
+The result is a scale for the drivetrain's gyro: `PIGEON_2.can(CANIVORE, 1).yawScale(0.99702)`.
+It already includes any scale the gyro had, so replace the old value. If the cameras don't measure the heading at least
+five times standing still, it says so: face where the cameras see tags.
 
-Until the gyro is calibrated, the estimator allows for its scale being off by about a degree a
-turn (`EstimatorConfig.headingStdDevDegreesPerTurn`, one standard deviation), the same error every
-turn. Once it is, lower that to what's left: [the scale's repeatability](characterization.md#repeatability-of-the-gyros-scale).
+Until the gyro is calibrated, the estimator allows for its scale being off by 3.6° a turn
+(`EstimatorConfig.headingStdDevDegreesPerTurn`, one standard deviation: a MEMS gyro's scale is
+within about 1% before anyone calibrates it). By default the estimator also works the scale out
+from the cameras as the robot drives (`gyroErrors`), so this is only how unsure it starts. Once it is, lower that to what's left: [the scale's repeatability](characterization.md#repeatability-of-the-gyros-scale).
 The backup IMU's allowance (`backupHeadingStdDevDegreesPerTurn`) is its own and stays: the procedure
 calibrates the gyro alone, and while the gyro is lost the backup turns odometry with its own
 uncalibrated scale.
@@ -158,9 +171,10 @@ pose is known within 5 cm. It stops after twenty seconds, or 600 sightings.
 
 The procedure finds the mount that puts every tag the camera saw at its real place. The report says
 how far the tags landed off (across the camera's line of sight, where it sees them sharply) before
-and after, how sure it is, and the camera's mount as the builder calls to put in its entry in
-`Robots`: `.forward(Inches.of(11.75)).left(Inches.of(11.77)).up(Inches.of(17.00))
-.roll(Degrees.of(0.0)).tiltUp(Degrees.of(10.0)).yaw(Degrees.of(45.0))`. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
+and after, how sure it is, and the camera's mount as the calls to put in its entry in `Robots`:
+`.at(Inches.of(11.75), Inches.of(11.77), Inches.of(17.00)).facing(Degrees.of(10.0),
+Degrees.of(45.0)).roll(Degrees.of(0.0)).measured()`, `.measured()` the call that marks the mount
+checked. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
 down 2° put a tag 3 m away in the same wrong place, and only tags at different distances tell them
 apart.
 
@@ -168,9 +182,11 @@ When: after mounting, bumping, or remounting a camera, and whenever the robot sa
 of calibration.
 
 How sure the mount is goes in the camera's entry too, as `.mountTolerance(...)`: the most it may
-still be off along and about each axis. Left out, it's 5 mm and 1°, the end of what a mount
-measured from CAD and checked lands within. After the procedure, run it five times from the same
-spots and give three times the spread of what they find. The default localizer starts each
+still be off along and about each axis. Left out, it's `MountTolerance.UNCHECKED`, 25 mm and 3°, a
+mount measured with a tape or read off CAD and never checked, and the robot says so at startup. The
+procedure's report ends with `.measured()`, `MountTolerance.MEASURED`, 5 mm and 1°, the end of
+what a mount measured from CAD and checked lands within. For a tighter one, run it five times from
+the same spots and give three times the spread of what they find. The default localizer starts each
 camera's turn on its mount as unsure as this and learns the rest while the robot drives
 ([below](#what-the-localizer-learns-of-a-mount)), so a mount a little off costs the pose little;
 the procedure is still what puts a camera right, and a tolerance smaller than the truth makes the
@@ -211,7 +227,7 @@ tolerance off, no calibration running, and another camera's measurement agreeing
 within the tolerance in the last two seconds. A heading off by a degree puts a tag 3 m away 5 cm
 off, the same way every time, which is just what a camera turned on its mount looks like.
 
-Past 5 cm (the vision configuration's `mountToleranceMeters`, which the pit can tune), the alert
+Past 5 cm (the vision configuration's `outOfCalibrationMeters`, which the pit can tune), the alert
 *Camera front-left is out of calibration: its tags land 10 cm off* says to recalibrate it. Until
 then, the part of the offset across the floor (beyond the tolerance, taken off in squares) is how
 much less the camera is trusted: it's added to each of its measurements' uncertainty
@@ -325,8 +341,8 @@ When: once the robot is built, and after a big change.
 
 How far past the ramp's slope the robot's IMU tilts crossing a bump or a ramp (bumpers,
 suspension, the IMU's mount). It checks the tilts at which the estimator trusts the wheels less
-(`EstimatorConfig.tiltStartDegrees` and `tiltZeroDegrees`), and sets the slope margin in
-`LocalizationService` (3° today).
+(`EstimatorConfig.tiltStartDegrees` and `tiltZeroDegrees`), and sets the slope margin
+(`EstimatorConfig.groundSlopeMarginDegrees`, 3° unless set).
 
 You need the robot running its program on its Systemcore, and a bump or ramp built to the field's
 drawings, on field carpet.

@@ -33,11 +33,11 @@ import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.record.MoveOutcome;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.record.MoveTarget;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
-import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
@@ -555,11 +555,11 @@ class JointMovesSimTest {
   }
 
   /**
-   * A configuration requires exactly the joints it names, and arrives when every one is there: the
-   * pivot out, the elevator clear, the roller within its band of its speed.
+   * A preset requires exactly the joints it names, and arrives when every one is there: the pivot
+   * out, the elevator clear, the roller within its band of its speed.
    */
   @Test
-  void aConfigurationMovesItsJointsTogether() {
+  void aPresetMovesItsJointsTogether() {
     Move intaking = sim.joints.goTo(INTAKING);
 
     double took = runToEnd(intaking, 3);
@@ -585,7 +585,7 @@ class JointMovesSimTest {
   }
 
   @Test
-  void runningAConfigurationHoldsItUntilCanceled() {
+  void runningAPresetHoldsItUntilCanceled() {
     Move run = sim.joints.run(INTAKING);
 
     sim.run(run, 2);
@@ -596,11 +596,11 @@ class JointMovesSimTest {
   }
 
   /**
-   * A configuration's outcome names the joints that ran, in the shape of one joint's line ("roller:
+   * A preset's outcome names the joints that ran, in the shape of one joint's line ("roller:
    * intaking: CANCELED"). Until 2026-10-11 it had no subject: "at intaking: CANCELED".
    */
   @Test
-  void aConfigurationsOutcomeNamesTheJointsThatRan() {
+  void aPresetsOutcomeNamesTheJointsThatRan() {
     Move run = sim.joints.run(INTAKING);
     sim.run(run, 2);
 
@@ -665,30 +665,30 @@ class JointMovesSimTest {
   @Test
   void aJointThatIsntTheRobotsOrIsntDrivenHasNoMechanism() {
     assertThatThrownBy(
-            () -> sim.joints.of(JointRevoluteBuilder.builder(PIVOT).label("stranger").build()))
+            () -> sim.joints.of(RevoluteJointBuilder.builder(PIVOT).label("stranger").build()))
         .hasMessage("stranger isn't one of joints' joints");
     assertThat(sim.joints.all()).containsExactly(pivot, roller, elevator, turret);
   }
 
   /**
-   * A configuration naming a joint the template doesn't drive (its motor needs another controller,
-   * say) is refused whenever it would start, saying why, and its joints that are driven stay where
-   * they are: the robot still runs, rather than failing as its commands are made.
+   * A preset naming a joint the template doesn't drive (its motor needs another controller, say) is
+   * refused whenever it would start, saying why, and its joints that are driven stay where they
+   * are: the robot still runs, rather than failing as its commands are made.
    */
   @Test
-  void aConfigurationNamingAJointNotDrivenIsRefusedWhenItWouldStart() {
-    Joint.Revolute hatch =
-        JointRevoluteBuilder.builder(PIVOT)
+  void aPresetNamingAJointNotDrivenIsRefusedWhenItWouldStart() {
+    RevoluteJoint hatch =
+        RevoluteJointBuilder.builder(PIVOT)
             .label("hatch")
-            .origin(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
+            .place(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .driven(Driven.NONE)
             .build();
-    Configuration open = Configuration.of("open", PIVOT.at(PIVOT_OUT), hatch.at(PIVOT_OUT));
+    Preset open = Preset.of("open", PIVOT.at(PIVOT_OUT), hatch.at(PIVOT_OUT));
     RobotDefinition withHatch =
         RobotDefinitionBuilder.builder(ROBOT)
             .joints(List.of(PIVOT, ROLLER, ELEVATOR, TURRET, hatch))
-            .configurations(List.of(INTAKING, open))
+            .presets(List.of(INTAKING, open))
             .build();
     JointsSimHarness hatched = new JointsSimHarness(withHatch);
     hatched.run(0.5);
@@ -711,21 +711,21 @@ class JointMovesSimTest {
     assertThat(hatched.joints.isAt(open).getAsBoolean()).isFalse();
   }
 
-  /** A configuration none of whose joints the template drives is refused just the same. */
+  /** A preset none of whose joints the template drives is refused just the same. */
   @Test
-  void aConfigurationOfNoDrivenJointIsRefusedJustTheSame() {
-    Joint.Revolute hatch =
-        JointRevoluteBuilder.builder(PIVOT)
+  void aPresetOfNoDrivenJointIsRefusedJustTheSame() {
+    RevoluteJoint hatch =
+        RevoluteJointBuilder.builder(PIVOT)
             .label("hatch")
-            .origin(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
+            .place(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .driven(Driven.NONE)
             .build();
-    Configuration shut = Configuration.of("shut", hatch.at(PIVOT_IN));
+    Preset shut = Preset.of("shut", hatch.at(PIVOT_IN));
     RobotDefinition withHatch =
         RobotDefinitionBuilder.builder(ROBOT)
             .joints(List.of(PIVOT, ROLLER, ELEVATOR, TURRET, hatch))
-            .configurations(List.of(INTAKING, shut))
+            .presets(List.of(INTAKING, shut))
             .build();
     JointsSimHarness hatched = new JointsSimHarness(withHatch);
 

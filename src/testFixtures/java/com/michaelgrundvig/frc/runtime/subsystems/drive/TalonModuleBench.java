@@ -12,9 +12,11 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
 import java.util.Optional;
 import java.util.function.BooleanSupplier;
 
@@ -31,7 +33,7 @@ public final class TalonModuleBench implements ModuleBench {
   private static final int STEER_ID = 18;
   private static final int ENCODER_ID = 19;
 
-  private static final DrivetrainGeometry.ModuleType MODULE =
+  private static final Drivetrain.Module MODULE =
       ExampleRobot.SIM.definition().drivetrain().module(0);
 
   /** How long a step waits for the drive's next frame, in seconds, before going on without it. */
@@ -58,7 +60,7 @@ public final class TalonModuleBench implements ModuleBench {
   }
 
   @Override
-  public Rig powerOn(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public Rig powerOn(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     return new TalonRig(gains, limits);
   }
 
@@ -105,7 +107,7 @@ public final class TalonModuleBench implements ModuleBench {
     private double wheelRotationsPerSecond;
     private double moduleRotations;
 
-    TalonRig(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+    TalonRig(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
       RobotSim.setEnabled(true);
       drive.setControl(new NeutralOut());
       steer.setControl(new NeutralOut());
@@ -116,17 +118,15 @@ public final class TalonModuleBench implements ModuleBench {
       drive.getPosition().waitForUpdate(FRAME_WAIT_SECONDS);
       drive.setPosition(0, SETTINGS_WAIT_SECONDS);
       SwerveWiring.ModuleWiring wiring =
-          SwerveWiring.ModuleWiring.builder()
-              .driveId(DRIVE_ID)
-              .steerId(STEER_ID)
-              .encoderOffset(Rotations.of(0))
-              .driveInverted(false)
-              .steerInverted(false)
-              .encoderInverted(false)
-              .encoderId(ENCODER_ID)
+          SwerveWiringModuleWiringBuilder.builder()
+              .drive(MechanismWiring.Controller.TALON_FX.can(DRIVE_ID))
+              .steering(MechanismWiring.Controller.TALON_FX.can(STEER_ID))
+              .encoder(MechanismWiring.CANCODER.can(ENCODER_ID).offset(Rotations.of(0)))
               .build();
       // No coupling: the wheel's reading is its drive's alone.
-      io = new ModuleIOTalonFX(wiring, bus, MODULE, 0, odometry, frames);
+      io =
+          new ModuleIOTalonFX(
+              wiring, bus, MODULE, 0, odometry, new ModuleStartup(5, Runnable::run), frames);
       io.configure(gains, limits);
       odometry.start();
       driveFrame = drive.getVelocity();

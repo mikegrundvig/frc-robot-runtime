@@ -29,10 +29,10 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.units.measure.Angle;
 
 /**
- * Driving with the sticks while the robot holds a heading ({@link Drive#facing}): a v3 {@link
+ * Driving with the sticks while the robot holds a heading ({@link SwerveDrive#facing}): a v3 {@link
  * Command} that runs until it's interrupted. The translation is the driver's, exactly as {@link
- * Drive#driven} drives it. The turning is the drivetrain's, toward the {@link Heading} worked out
- * again every loop from where the robot is, the field and the alliance.
+ * SwerveDrive#driven} drives it. The turning is the drivetrain's, toward the {@link Heading} worked
+ * out again every loop from where the robot is, the field and the alliance.
  *
  * <p>Each loop, the robot's turning rate is decided in this order:
  *
@@ -57,7 +57,7 @@ import org.wpilib.units.measure.Angle;
  */
 @CheckReturnValue
 public final class DriveAssist implements Command {
-  private final Drive drive;
+  private final SwerveDrive drive;
 
   /** Where the robot is to face. */
   private final Heading heading;
@@ -71,7 +71,7 @@ public final class DriveAssist implements Command {
    *
    * <p>Having no driver's sticks is not decided here. The assist asks the drive for them each time
    * it starts ({@link #whyNotNow}), so it does not matter whether the robot builds its assists
-   * before or after it hands the drive the sticks ({@link Drive#takeDriver}).
+   * before or after it hands the drive the sticks ({@link SwerveDrive#takeDriver}).
    */
   private final Optional<String> refused;
 
@@ -90,7 +90,7 @@ public final class DriveAssist implements Command {
   private OptionalInt offByShownForTenths = OptionalInt.empty();
 
   private DriveAssist(
-      Drive drive, Heading heading, double toleranceRadians, Optional<String> whyNot) {
+      SwerveDrive drive, Heading heading, double toleranceRadians, Optional<String> whyNot) {
     this.drive = drive;
     this.heading = heading;
     this.toleranceRadians = toleranceRadians;
@@ -105,12 +105,12 @@ public final class DriveAssist implements Command {
    */
   private Optional<String> whyNotNow() {
     if (drive.driver().isEmpty()) {
-      return Optional.of(Drive.NO_DRIVER);
+      return Optional.of(SwerveDrive.NO_DRIVER);
     }
     return refused;
   }
 
-  static DriveAssist facing(Drive drive, Heading heading) {
+  static DriveAssist facing(SwerveDrive drive, Heading heading) {
     return new DriveAssist(drive, heading, DriveMove.TURNED_RADIANS, Optional.empty());
   }
 
@@ -144,7 +144,7 @@ public final class DriveAssist implements Command {
    * past a place. It's a fact about the robot, so it's true or false whether or not this command is
    * running. Closed, it says how far off: "aimed at the Hub is false: 3.4° off the Hub"; or
    * "alliance unknown", or "on the Hub". Until the drive is handed the driver's sticks, the field
-   * and the alliance ({@link Drive#takeDriver}), it holds false and says so.
+   * and the alliance ({@link SwerveDrive#takeDriver}), it holds false and says so.
    */
   public Gate aimed() {
     if (aimed.isEmpty()) {
@@ -171,7 +171,7 @@ public final class DriveAssist implements Command {
   private boolean isAimed(Gate.Terms whyNot) {
     Optional<Driver> driver = drive.driver();
     if (driver.isEmpty()) {
-      whyNot.add(Drive.NO_DRIVER);
+      whyNot.add(SwerveDrive.NO_DRIVER);
       return false;
     }
     Driver sticks = driver.get();

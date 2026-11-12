@@ -6,6 +6,7 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,7 +42,7 @@ public final class PdhIOSim implements PdhIO {
       // The joint's motor controllers are numbered in the order its devices list them, the leader
       // first, whether or not a PDH channel feeds each.
       int controllersSoFar = 0;
-      for (CanDevice device : joint.devices()) {
+      for (CanDevice device : RobotMath.devices(joint)) {
         if (!device.kind().motorController()) {
           continue;
         }
@@ -58,9 +59,11 @@ public final class PdhIOSim implements PdhIO {
       for (int i = 0; i < wiring.modules().size(); i++) {
         ModuleIOSim module = drivetrain.moduleSim(i);
         SwerveWiring.ModuleWiring each = wiring.modules().get(i);
-        each.driveFeed()
+        each.drive()
+            .feed()
             .ifPresent(feed -> channels.add(new Channel(feed.channel(), module::driveSupplyAmps)));
-        each.steerFeed()
+        each.steering()
+            .feed()
             .ifPresent(feed -> channels.add(new Channel(feed.channel(), module::steerSupplyAmps)));
       }
     }

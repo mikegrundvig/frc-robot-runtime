@@ -21,10 +21,10 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,21 +38,21 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @ExtendWith(RobotSim.class)
 class ControllerRestartSimTest {
   /** The pivot, its position from a through-bore on Systemcore's port 1, which the robot reads. */
-  private static final Joint.Revolute ON_PORT =
+  private static final RevoluteJoint ON_PORT =
       PIVOT
           .absoluteEncoder(
               MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted())
           .retuned(old -> control(30, 1, profile(8, 30)));
 
   /** The pivot on a TalonFX that reads a CANcoder, seeded from it once at startup. */
-  private static final Joint.Revolute ON_CANCODER =
+  private static final RevoluteJoint ON_CANCODER =
       PIVOT
           .motors(motors -> motors.on(TALON_FX.can(21)))
           .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.3)))
           .retuned(old -> control(30, 1, profile(8, 30)));
 
   /** The pivot homed into its bottom stop. */
-  private static final Joint.Revolute HOMED =
+  private static final RevoluteJoint HOMED =
       PIVOT.retuned(control -> homed(control, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
 
   private static double degrees(double radians) {
@@ -202,7 +202,7 @@ class ControllerRestartSimTest {
   /**
    * The fixtures' turret, which turns freely, on a TalonFX that reads a CANcoder turning with it.
    */
-  private static final Joint.Revolute TURRET_ON_CANCODER =
+  private static final RevoluteJoint TURRET_ON_CANCODER =
       TURRET
           .motors(motors -> motors.on(TALON_FX.can(23)))
           .absoluteEncoder(CANCODER.can(35).offset(Rotations.of(0)))

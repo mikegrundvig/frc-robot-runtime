@@ -34,6 +34,9 @@ import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.PrismaticJointBuilder;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.io.IOException;
@@ -72,16 +75,16 @@ class ExampleRobotRecordedSimTest {
    * data port, geared to its drum; and its shooter on two Vortexes.
    */
   private static RobotDefinition sparks() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         unmotored(PIVOT)
             .motors(Motor.NEO.through(Gearing.of(25)).on(SPARK_MAX.can(32)))
             .absoluteEncoder(
                 encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.82)).closesLoop()));
-    Joint.Revolute arm =
+    RevoluteJoint arm =
         unmotored(ARM)
             .motors(Motor.NEO.through(Gearing.of(60)).on(SPARK_MAX.can(22)))
             .absoluteEncoder(encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.12))));
-    Joint.Prismatic elevator =
+    PrismaticJoint elevator =
         unmotored(ELEVATOR)
             .motors(
                 Motor.NEO_VORTEX
@@ -90,7 +93,7 @@ class ExampleRobotRecordedSimTest {
                     .on(SPARK_FLEX.can(20), SPARK_FLEX.can(21).clockwise()))
             .absoluteEncoder(
                 encoder -> encoder.on(DATA_PORT.offset(Rotations.of(0.31)).closesLoop()));
-    Joint.Revolute shooter =
+    RevoluteJoint shooter =
         unmotored(SHOOTER)
             .motors(
                 Motor.NEO_VORTEX
@@ -118,10 +121,11 @@ class ExampleRobotRecordedSimTest {
    */
   @Test
   void itsSessionIsAsRecorded() throws IOException {
-    Joint.Prismatic homing =
-        ELEVATOR
+    PrismaticJoint homing =
+        PrismaticJointBuilder.builder(ELEVATOR)
             .driven(
                 DrivenBuilder.builder(ELEVATOR.driven()).absoluteEncoder(Optional.empty()).build())
+            .build()
             .retuned(
                 control -> control.withHoming(Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
     RobotDefinition robot = ExampleRobot.COMPETITION.definition().with(homing);

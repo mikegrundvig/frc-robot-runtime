@@ -1,10 +1,10 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.Preset;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.List;
@@ -13,10 +13,10 @@ import org.littletonrobotics.junction.Logger;
 
 /**
  * The names behind the numbers in the log. What a joint did is logged as facts, and a fact names a
- * joint, an interlock, a sensor, a configuration, a position or an output by where it is in one of
- * the robot definition's lists. A person reading the raw log has no definition to look in, so each
- * of those lists is logged once here, in its own order, under {@code Robot/Names}: entry 2 of
- * {@code Robot/Names/Interlocks} is the interlock a holder calls interlock 2.
+ * joint, an interlock, a sensor, a preset, a position or an output by where it is in one of the
+ * robot definition's lists. A person reading the raw log has no definition to look in, so each of
+ * those lists is logged once here, in its own order, under {@code Robot/Names}: entry 2 of {@code
+ * Robot/Names/Interlocks} is the interlock a holder calls interlock 2.
  *
  * <p>The lists never change while the robot runs, so they are logged in the robot's first loop and
  * not again.
@@ -44,8 +44,7 @@ final class RecordedNames {
     Logger.recordOutput(
         "Robot/Names/Interlocks", names(definition.everyInterlock(), Interlock::toString));
     Logger.recordOutput("Robot/Names/Sensors", names(definition.everySensor(), Sensor::label));
-    Logger.recordOutput(
-        "Robot/Names/Configurations", names(definition.configurations(), Configuration::name));
+    Logger.recordOutput("Robot/Names/Presets", names(definition.presets(), Preset::name));
     for (Joint joint : definition.joints()) {
       Logger.recordOutput(
           "Robot/Names/Positions/" + joint.label(), names(joint.positions(), Position::name));

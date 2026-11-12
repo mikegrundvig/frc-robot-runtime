@@ -1,12 +1,14 @@
 package com.michaelgrundvig.frc.runtime;
 
 import com.michaelgrundvig.frc.localization.DefaultLocalizer;
+import com.michaelgrundvig.frc.localization.SlipCheck;
 import com.michaelgrundvig.frc.runtime.behavior.Bindings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.ControllerSettings;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.world.config.Finding;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.Preset;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,18 +22,19 @@ import org.wpilib.units.measure.Mass;
  * it is said once, in one place, so that nobody has to run a test to read it. What a robot's
  * configuration refuses never gets here, because such a robot does not start.
  *
- * <p>The doubts come from five places:
+ * <p>The doubts come from six places:
  *
  * <ul>
  *   <li>The robot's definition ({@code RobotDefinition.findings}): a named speed at its motors'
  *       free speed, a kG nobody tuned, a link that was never weighed.
  *   <li>Localization ({@link DefaultLocalizer#doubts}): treads said to grip so hard that the slip
  *       check cannot tell a slide from a collision.
+ *   <li>The cameras ({@link Vision#doubts}): a camera on Visor with no lens calibration, which
+ *       places nothing.
  *   <li>Each driven joint's motor controller settings ({@link ControllerSettings#findings}): a
  *       tuned gain far from what the joint's weight needs, a gravity offset at Phoenix's limit, an
  *       encoder that wraps near the joint's range.
- *   <li>The configurations the robot cannot run, each naming a joint that the template does not
- *       drive yet.
+ *   <li>The presets the robot cannot run, each naming a joint that the template does not drive yet.
  *   <li>The gamepads' bindings ({@link Bindings#doubts}): two commands bound to one button in the
  *       same way, which start together.
  * </ul>
@@ -47,11 +50,13 @@ final class Doubts {
   /**
    * Every doubt and note the robot says at startup: its definition's, then its bindings'.
    *
+   * @param slipCheck the robot's slip check settings, which the default localizer's doubt is of
    * @param robotMass the robot's mass: as weighed, or until it is, the season's maximum, which a
    *     note then names ({@code SeasonLimits.robotMass})
    */
-  static List<Finding> of(RobotDefinition definition, Mass robotMass, Bindings bindings) {
-    List<Finding> found = new ArrayList<>(of(definition, robotMass));
+  static List<Finding> of(
+      RobotDefinition definition, SlipCheck.Settings slipCheck, Mass robotMass, Bindings bindings) {
+    List<Finding> found = new ArrayList<>(of(definition, slipCheck, robotMass));
     found.addAll(bindings.doubts());
     return found;
   }
@@ -59,16 +64,18 @@ final class Doubts {
   /**
    * Every doubt and note that comes from the robot's definition, in the order of the list above.
    */
-  static List<Finding> of(RobotDefinition definition, Mass robotMass) {
+  static List<Finding> of(
+      RobotDefinition definition, SlipCheck.Settings slipCheck, Mass robotMass) {
     List<Finding> found = new ArrayList<>(definition.findings(robotMass));
-    found.addAll(DefaultLocalizer.doubts(definition));
+    found.addAll(DefaultLocalizer.doubts(definition, slipCheck));
+    found.addAll(Vision.doubts(definition));
     for (Joint joint : Joints.driven(definition)) {
       found.addAll(ControllerSettings.findings(definition.math(), joint));
     }
-    for (Configuration configuration : definition.configurations()) {
-      Optional<String> cannotRun = Optional.ofNullable(Joints.cantRun(definition, configuration));
+    for (Preset preset : definition.presets()) {
+      Optional<String> cannotRun = Optional.ofNullable(Joints.cantRun(definition, preset));
       if (cannotRun.isPresent()) {
-        found.add(Finding.doubt(configuration.name(), cannotRun.get()));
+        found.add(Finding.doubt(preset.name(), cannotRun.get()));
       }
     }
     return found.stream().filter(finding -> !finding.refused()).toList();

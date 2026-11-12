@@ -3,8 +3,8 @@ package com.michaelgrundvig.frc.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import com.michaelgrundvig.frc.localization.EstimatorConfig;
-import com.michaelgrundvig.frc.localization.EstimatorConfigBuilder;
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
+import com.michaelgrundvig.frc.localization.HeadingCorrection;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.localization.VisionConfigBuilder;
@@ -175,7 +175,7 @@ class VisionSimTest {
     for (CameraConfig camera : ExampleRobot.SIM.definition().cameras()) {
       assertThat(sim.robot().vision().mountOffsetMeters(camera.name()))
           .as(camera.name() + ": judged, and within the tolerance")
-          .isLessThan(ExampleRobot.SIM.vision().mountToleranceMeters());
+          .isLessThan(ExampleRobot.SIM.vision().outOfCalibrationMeters());
       assertThat(mostDoubted.get(camera.name())).as(camera.name()).isZero();
     }
     assertThat(activeAlerts()).noneMatch(text -> text.contains("out of calibration"));
@@ -204,14 +204,12 @@ class VisionSimTest {
   }
 
   /** The simulator's robot, its estimator correcting the heading this way. */
-  private static RobotConfig correcting(
-      EstimatorConfig.HeadingCorrection heading, VisionConfig vision) {
+  private static RobotConfig correcting(HeadingCorrection heading, VisionConfig vision) {
     return RobotConfigBuilder.builder(ExampleRobot.SIM)
         .vision(vision)
-        .estimator(
-            EstimatorConfigBuilder.builder(ExampleRobot.SIM.estimator())
-                .headingCorrection(heading)
-                .build())
+        .localizer(
+            DefaultLocalizer.with(
+                ExampleRobot.SIM.estimator(), ExampleRobot.SIM.slipCheck(), heading))
         .build();
   }
 
@@ -225,7 +223,7 @@ class VisionSimTest {
    *
    * @return each promise broken, with what was measured
    */
-  private List<String> turnedFourDegrees(EstimatorConfig.HeadingCorrection heading) {
+  private List<String> turnedFourDegrees(HeadingCorrection heading) {
     Transform3d turned = new Transform3d(0, 0, 0, new Rotation3d(0, 0, Math.toRadians(4)));
     sim.build(
         correcting(heading, ExampleRobot.SIM.vision()),
@@ -247,7 +245,7 @@ class VisionSimTest {
     RobotSim.setEnabled(false);
     mostDoubted.clear();
     VisionConfig asBefore =
-        VisionConfigBuilder.builder(ExampleRobot.SIM.vision()).mountToleranceMeters(0.5).build();
+        VisionConfigBuilder.builder(ExampleRobot.SIM.vision()).outOfCalibrationMeters(0.5).build();
     sim.build(
         correcting(heading, asBefore),
         SensorErrors.TYPICAL.withCameraMountError("front-left", turned));
@@ -281,7 +279,7 @@ class VisionSimTest {
    *
    * @return how far it stands out
    */
-  private double turnedTwoDegrees(EstimatorConfig.HeadingCorrection heading) {
+  private double turnedTwoDegrees(HeadingCorrection heading) {
     sim.build(
         correcting(heading, ExampleRobot.SIM.vision()),
         SensorErrors.TYPICAL.withCameraMountError(
@@ -301,11 +299,11 @@ class VisionSimTest {
    * not traced to its cause. This test shows which; it changes when one does, either way.
    */
   @ParameterizedTest
-  @EnumSource(EstimatorConfig.HeadingCorrection.class)
-  void aCameraTurnedOnItsMountCountsForLess(EstimatorConfig.HeadingCorrection heading) {
+  @EnumSource(HeadingCorrection.class)
+  void aCameraTurnedOnItsMountCountsForLess(HeadingCorrection heading) {
     List<String> broken = turnedFourDegrees(heading).stream().map(VisionSimTest::promise).toList();
 
-    if (heading == EstimatorConfig.HeadingCorrection.EVERY_FIX) {
+    if (heading == HeadingCorrection.EVERY_FIX) {
       assertThat(broken).as("the promises broken").containsExactly("a back camera", "last lap");
     } else {
       assertThat(broken).as("the promises broken").containsExactly("last lap");
@@ -329,8 +327,8 @@ class VisionSimTest {
    * measurements with a heading of their own (2.2).
    */
   @ParameterizedTest
-  @EnumSource(EstimatorConfig.HeadingCorrection.class)
-  void aCameraTurnedTwoDegreesStandsOutToo(EstimatorConfig.HeadingCorrection heading) {
+  @EnumSource(HeadingCorrection.class)
+  void aCameraTurnedTwoDegreesStandsOutToo(HeadingCorrection heading) {
     double standsOut = turnedTwoDegrees(heading);
 
     assertThat(standsOut).as("stands out").isBetween(1.4, 2.0);

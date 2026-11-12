@@ -2,7 +2,7 @@ package com.michaelgrundvig.frc.runtime;
 
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import org.wpilib.command3.Scheduler;
@@ -36,7 +36,7 @@ public interface ControlsMaker<T> {
       Scheduler scheduler,
       RobotDefinition robot,
       Joints joints,
-      Drive drive,
+      SwerveDrive drive,
       RecordingGamepad driver,
       RecordingGamepad operator,
       Autos autos);

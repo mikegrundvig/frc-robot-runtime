@@ -32,10 +32,11 @@ import com.michaelgrundvig.frc.runtime.GoldenFile;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -77,16 +78,16 @@ class JointsRecordedSimTest {
    * elevator on two, the second turned the other way; the roller on one.
    */
   private static RobotDefinition wired() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         PIVOT
             .motors(motors -> motors.on(TALON_FX.can(32).clockwise()))
             .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.2)).fused())
             .retuned(
                 control ->
                     MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
-    Joint.Prismatic elevator =
+    PrismaticJoint elevator =
         ELEVATOR.motors(motors -> motors.on(TALON_FX.can(20), TALON_FX.can(21).clockwise()));
-    Joint.Revolute roller = ROLLER.motors(motors -> motors.on(TALON_FX.can(31)));
+    RevoluteJoint roller = ROLLER.motors(motors -> motors.on(TALON_FX.can(31)));
     return ROBOT.with(pivot, elevator, roller);
   }
 
@@ -97,7 +98,7 @@ class JointsRecordedSimTest {
    */
   private static RobotDefinition sparks(boolean closed) {
     var port = DATA_PORT.offset(Rotations.of(0.1)).inverted();
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         unmotored(PIVOT)
             .motors(
                 Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(41).clockwise(), SPARK_MAX.can(42)))
@@ -110,14 +111,14 @@ class JointsRecordedSimTest {
                                 .withKs(0.2))
                         .homing(Optional.empty())
                         .build());
-    Joint.Prismatic elevator =
+    PrismaticJoint elevator =
         unmotored(ELEVATOR)
             .motors(
                 Motor.NEO_VORTEX
                     .through(gearing(10))
                     .drum(Inches.of(1))
                     .on(SPARK_FLEX.can(43), SPARK_FLEX.can(44).clockwise()));
-    Joint.Revolute roller =
+    RevoluteJoint roller =
         unmotored(ROLLER).motors(Motor.NEO_550.through(gearing(3)).on(SPARK_FLEX.can(45)));
     return ROBOT.with(pivot, elevator, roller);
   }
@@ -127,12 +128,12 @@ class JointsRecordedSimTest {
    * a TalonFXS, which it takes.
    */
   private static RobotDefinition odd() {
-    Joint.Revolute integral =
+    RevoluteJoint integral =
         unmotored(PIVOT)
             .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(41)))
             .retuned(control -> control.withKi(1));
-    Joint.Revolute level = TURRET.retuned(control -> control.withKg(0.3));
-    Joint.Revolute onFxs =
+    RevoluteJoint level = TURRET.retuned(control -> control.withKg(0.3));
+    RevoluteJoint onFxs =
         unmotored(ROLLER).motors(Motor.NEO_550.through(gearing(3)).on(TALON_FXS.can(31)));
     return ROBOT.with(integral, level, onFxs);
   }
@@ -142,7 +143,7 @@ class JointsRecordedSimTest {
    * as the simulator runs it wired to nothing, and worked out on the robot on a SPARK.
    */
   private static RobotDefinition lowering(boolean onSpark) {
-    Joint.Revolute pivot = PIVOT.retuned(control -> control.withKg(0.4, Degrees.of(-120)));
+    RevoluteJoint pivot = PIVOT.retuned(control -> control.withKg(0.4, Degrees.of(-120)));
     return ROBOT.with(
         onSpark
             ? unmotored(pivot).motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(41)))

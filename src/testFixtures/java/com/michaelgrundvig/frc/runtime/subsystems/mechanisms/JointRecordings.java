@@ -67,7 +67,7 @@ public final class JointRecordings {
                 rows,
                 math,
                 joint,
-                ((Actuator.Motors) math.drivesOf(joint).get(0).actuator()).motor());
+                ((Actuator.MotorGroup) math.drivesOf(joint).get(0).actuator()).motor());
         case SPARK_MAX, SPARK_FLEX -> spark(rows, math, joint);
       }
     }

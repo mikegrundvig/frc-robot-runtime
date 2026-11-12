@@ -13,6 +13,7 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismRotations;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.revrobotics.PersistMode;
@@ -231,6 +232,28 @@ public final class JointIOSpark implements JointIO {
    * @param pins the switches on them, from the robot's sensor wiring
    */
   public JointIOSpark(RobotMath math, Joint joint, ControllerPins pins) {
+    this(math, joint, pins, new Startup());
+  }
+
+  /**
+   * How a SPARK is sent its whole configuration at startup: reset to REV's defaults, the settings
+   * applied, and the result saved on it, so a brownout falls back to these settings. REV's
+   * simulated SPARKs take whatever they are sent, so the tests of a SPARK that doesn't stand in
+   * here.
+   */
+  static class Startup {
+    /** Sends one SPARK its whole configuration, waits for it, and returns its answer. */
+    REVLibError configure(SparkBase spark, SparkBaseConfig settings) {
+      return spark.configure(
+          settings, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters);
+    }
+  }
+
+  /**
+   * The same, with how the SPARKs are sent their configuration at startup. For the tests, which
+   * have a SPARK not take it ({@link Startup}).
+   */
+  JointIOSpark(RobotMath math, Joint joint, ControllerPins pins, Startup startup) {
     List<MechanismWiring.Device> wired =
         joint.driven().motors().map(Driven.Motors::controllers).orElse(List.of());
     if (wired.isEmpty()) {
@@ -258,13 +281,13 @@ public final class JointIOSpark implements JointIO {
     leader = open(port, wiredLeader.id());
     SparkBaseConfig leaderSettings = settings.leader();
     RevMechanism.limits(leaderSettings.limitSwitch, pins);
-    if (!savedAtStartup(leader, leaderSettings)) {
+    if (!confirmed(() -> startup.configure(leader, leaderSettings))) {
       neverConfirmed.add("motor " + wiredLeader.id());
     }
     List<SparkBase> following = new ArrayList<>();
     for (RevMechanism.Follower each : settings.followers()) {
       SparkBase follower = open(port, each.id());
-      if (!savedAtStartup(follower, each.config())) {
+      if (!confirmed(() -> startup.configure(follower, each.config()))) {
         neverConfirmed.add("motor " + each.id());
       }
       following.add(follower);
@@ -294,7 +317,7 @@ public final class JointIOSpark implements JointIO {
             model -> new DataPortEncoder(leader.getAbsoluteEncoder(), math.absoluteReader(model)));
     // Until an absolute encoder says otherwise (seedMotorOnce) or the joint is homed, the joint is
     // taken to be where its definition rests it.
-    motorEncoder.setPosition(rotations.toRotations(joint.restPosition()) * rotorRatio);
+    motorEncoder.setPosition(rotations.toRotations(RobotMath.restPosition(joint)) * rotorRatio);
   }
 
   /** Opens a SPARK of the joint's kind, driving a brushless motor. */
@@ -303,20 +326,6 @@ public final class JointIOSpark implements JointIO {
       return new SparkFlex(port, id, SparkLowLevel.MotorType.kBrushless);
     }
     return new SparkMax(port, id, SparkLowLevel.MotorType.kBrushless);
-  }
-
-  /**
-   * Sends a SPARK its whole configuration at startup and waits for it to confirm, trying a few
-   * times. The SPARK is first reset to REV's defaults, so nothing left on it from other code
-   * survives, and the result is saved on it, so a brownout falls back to these settings.
-   *
-   * @return whether the SPARK confirmed
-   */
-  private static boolean savedAtStartup(SparkBase spark, SparkBaseConfig settings) {
-    return confirmed(
-        () ->
-            spark.configure(
-                settings, ResetMode.kResetSafeParameters, PersistMode.kPersistParameters));
   }
 
   /** Whether a SPARK confirmed something it was sent at startup, after a few tries. */
@@ -632,10 +641,15 @@ public final class JointIOSpark implements JointIO {
     leader.setVoltage(volts);
   }
 
+  /**
+   * A share of 12 V, as a voltage: the same volts on a SPARK as on a TalonFX, whatever the battery
+   * reads (J9). A SPARK's own duty cycle is a share of 12 V only while its voltage compensation is
+   * on; a voltage request doesn't depend on that setting.
+   */
   @Override
   public void setDutyCycle(double share) {
     obeySoftLimitsAgain();
-    leader.setThrottle(share);
+    leader.setVoltage(share * Motor.NOMINAL_VOLTS);
   }
 
   @Override

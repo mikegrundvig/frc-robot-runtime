@@ -35,11 +35,19 @@ final class Detections {
    * @param allTags every tag of every image the camera read this loop, each image's tags following
    *     the image before's
    * @param firstTag where this image's tags start in that list
+   * @param allUnsolved the numbers of every tag the camera sent without poses this loop, image by
+   *     image as the tags are
+   * @param firstUnsolved where this image's start in that list
    * @param camera the camera's name
    */
   static TagDetections inImage(
-      CameraIO.Frame frame, CameraIO.SeenTag[] allTags, int firstTag, String camera) {
-    List<TagDetections.Tag> tags = new ArrayList<>();
+      CameraIO.Frame frame,
+      CameraIO.SeenTag[] allTags,
+      int firstTag,
+      int[] allUnsolved,
+      int firstUnsolved,
+      String camera) {
+    List<TagDetections.Sighting> tags = new ArrayList<>();
     List<Integer> usedByMultiTag = new ArrayList<>();
     // A list shorter than its images say is read as far as it goes.
     int end = Math.min(firstTag + frame.tagCount(), allTags.length);
@@ -54,13 +62,22 @@ final class Detections {
         usedByMultiTag.add(tag.id());
       }
     }
+    List<Integer> unsolved = new ArrayList<>(frame.unsolvedTagCount());
+    int unsolvedEnd = Math.min(firstUnsolved + frame.unsolvedTagCount(), allUnsolved.length);
+    for (int k = firstUnsolved; k < unsolvedEnd; k++) {
+      unsolved.add(allUnsolved[k]);
+    }
     // The pipeline's record takes null for an image without a multi-tag solution.
     return new TagDetections(
-        frame.timestampNanos(), camera, tags, multiTag(frame, usedByMultiTag).orElse(null));
+        frame.timestampNanos(),
+        camera,
+        tags,
+        multiTag(frame, usedByMultiTag).orElse(null),
+        unsolved);
   }
 
-  private static TagDetections.Tag detection(CameraIO.SeenTag tag) {
-    return new TagDetections.Tag(
+  private static TagDetections.Sighting detection(CameraIO.SeenTag tag) {
+    return new TagDetections.Sighting(
         tag.id(),
         List.of(
             new Translation2d(tag.corner0X(), tag.corner0Y()),

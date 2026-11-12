@@ -26,8 +26,8 @@ import org.wpilib.system.RobotController;
 
 /**
  * What the drivetrain's part of a robot loop costs: the bytes it allocates and the time it takes,
- * for its read before the commands run ({@link Drive#periodic}) and for the command that drives it.
- * The drive runs every 20 ms, so a change to it is measured here before and after.
+ * for its read before the commands run ({@link SwerveDrive#periodic}) and for the command that
+ * drives it. The drive runs every 20 ms, so a change to it is measured here before and after.
  *
  * <p>Three steady situations are measured: driven by the sticks, facing a place while the sticks
  * translate, and following a move's path. The simulated physics and localization are run but not
@@ -129,7 +129,7 @@ class DriveLoopCostSimTest {
    */
   static Cost measure(String what, Driving driving) {
     try (DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM)) {
-      Drive drive = harness.drive;
+      SwerveDrive drive = harness.drive;
       harness.simulation.place(NEAR_END);
       harness.loop();
       harness.localization.resetPose(NEAR_END);

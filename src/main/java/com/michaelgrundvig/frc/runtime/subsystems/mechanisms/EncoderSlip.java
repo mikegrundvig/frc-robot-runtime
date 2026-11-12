@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
-import com.michaelgrundvig.frc.world.robot.EncoderGap;
+import com.michaelgrundvig.frc.world.robot.EncoderGapCheck;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -9,16 +9,16 @@ import java.util.OptionalLong;
  * Notices when a joint's absolute encoder and its motor's count have come apart, which means one of
  * them slipped: a magnet loose on its shaft, or a belt that skipped.
  *
- * <p>The model says how far apart the two may be ({@link EncoderGap}). They are compared in every
- * loop that has both readings, and once they have been too far apart for a quarter of a second, one
- * is taken to have slipped. A single loop apart is not enough, because the two are not read at the
- * same instant.
+ * <p>The model says how far apart the two may be ({@link EncoderGapCheck}). They are compared in
+ * every loop that has both readings, and once they have been too far apart for a quarter of a
+ * second, one is taken to have slipped. A single loop apart is not enough, because the two are not
+ * read at the same instant.
  */
 final class EncoderSlip {
   /** How long the two must be apart before one is taken to have slipped, in nanoseconds. */
   static final long SLIP_NANOS = 250_000_000L;
 
-  private final EncoderGap gap;
+  private final EncoderGapCheck gap;
 
   /** Since when the two have been apart, in nanoseconds, or empty while they agree. */
   private OptionalLong apartSince = OptionalLong.empty();
@@ -26,7 +26,7 @@ final class EncoderSlip {
   /**
    * @param gap how far apart the two may be, from the model
    */
-  EncoderSlip(EncoderGap gap) {
+  EncoderSlip(EncoderGapCheck gap) {
     this.gap = gap;
   }
 

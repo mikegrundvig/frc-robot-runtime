@@ -11,9 +11,12 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Rotations;
 
 import com.ctre.phoenix6.SignalLogger;
+import com.michaelgrundvig.frc.runtime.coprocessors.Coprocessors;
+import com.michaelgrundvig.frc.runtime.coprocessors.VisorTuning;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.hardware.RobotHardware;
 import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
+import com.michaelgrundvig.frc.runtime.hardware.World;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedHardware;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIOPort;
@@ -26,9 +29,14 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOVisor;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorBoards;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorPorts;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.visor.CameraToTag;
+import com.michaelgrundvig.frc.visor.VisorFrame;
+import com.michaelgrundvig.frc.visor.VisorWire;
+import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
 import com.michaelgrundvig.frc.world.robot.Gearing;
@@ -40,10 +48,17 @@ import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,7 +68,8 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
-import org.wpilib.math.geometry.Translation3d;
+import org.junit.jupiter.api.io.TempDir;
+import org.wpilib.system.RobotController;
 import org.wpilib.util.AlertDataJNI;
 
 /**
@@ -63,8 +79,9 @@ import org.wpilib.util.AlertDataJNI;
  */
 class HardwareTest {
   /** A pivot on a TalonFX, its encoder and lower limit switch on Systemcore ports. */
-  private static final Joint.Revolute PIVOT =
-      Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+  private static final RevoluteJoint PIVOT =
+      Joint.pivot("pivot", Part.CHASSIS, Joint.PITCH_DOWN)
+          .at(Meters.of(0.25), Meters.of(0), Meters.of(0.32))
           .range(Range.degrees(0, 135))
           .rest(Degrees.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(11)))
@@ -74,8 +91,9 @@ class HardwareTest {
           .control(MechanismControl.position(30).withKg(0));
 
   /** An arm on a SPARK, its lower limit switch on the SPARK's own input. */
-  private static final Joint.Revolute ARM =
-      Joint.pivot("arm", Part.CHASSIS, new Translation3d(-0.2, 0, 0.4), Joint.PITCH_UP)
+  private static final RevoluteJoint ARM =
+      Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(-0.2), Meters.of(0), Meters.of(0.4))
           .range(Range.degrees(0, 90))
           .rest(Degrees.of(0))
           .motors(Motor.NEO.through(Gearing.of(50)).on(SPARK_MAX.can(12)))
@@ -89,8 +107,9 @@ class HardwareTest {
                   .withHoming(MechanismControl.Homing.assumeAtRest()));
 
   /** A roller whose motor has no controller named: it runs in the simulator alone. */
-  private static final Joint.Revolute ROLLER =
-      Joint.roller("roller", PIVOT, new Translation3d(0, 0, 0.35))
+  private static final RevoluteJoint ROLLER =
+      Joint.roller("roller", PIVOT)
+          .at(Meters.of(0), Meters.of(0), Meters.of(0.35))
           .outputs(Output.volts("intaking", 6))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(3)))
           .control(MechanismControl.velocity(0.02));
@@ -139,7 +158,13 @@ class HardwareTest {
   void aRobotsHardwareIsTheDevicesItsWiringNames() {
     Map<String, Sensor.Placed> sensors = sensors();
     try (Hardware hardware =
-            RobotContainer.hardware(RunMode.REAL, RunsOn.SYSTEMCORE, ROBOT, Optional.empty());
+            RobotContainer.hardware(
+                RunMode.REAL,
+                RunsOn.SYSTEMCORE,
+                ROBOT,
+                Optional.empty(),
+                VisorBoards.none(),
+                VisorPorts.ANY_FREE);
         AbsoluteEncoderIOPort encoder = (AbsoluteEncoderIOPort) hardware.absoluteEncoder(PIVOT);
         SensorIOPort lower =
             (SensorIOPort)
@@ -170,7 +195,13 @@ class HardwareTest {
   @Test
   void aRobotsPartWithNoWiringGetsNothingAndAnAlertSaysSo() {
     try (Hardware hardware =
-        RobotContainer.hardware(RunMode.REAL, RunsOn.SYSTEMCORE, ROBOT, Optional.empty())) {
+        RobotContainer.hardware(
+            RunMode.REAL,
+            RunsOn.SYSTEMCORE,
+            ROBOT,
+            Optional.empty(),
+            VisorBoards.none(),
+            VisorPorts.ANY_FREE)) {
       assertThat(hardware.drive().modules())
           .allMatch(module -> module.getClass().isAnonymousClass());
       assertThat(hardware.joint(ROLLER).getClass().isAnonymousClass()).isTrue();
@@ -200,7 +231,13 @@ class HardwareTest {
   void aLaptopOpensOnlyWhatsOnItsCanivore() {
     Map<String, Sensor.Placed> sensors = sensors();
     try (Hardware hardware =
-        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, ROBOT, Optional.empty())) {
+        RobotContainer.hardware(
+            RunMode.REAL,
+            RunsOn.DESKTOP,
+            ROBOT,
+            Optional.empty(),
+            VisorBoards.none(),
+            VisorPorts.ANY_FREE)) {
       assertThat(hardware).isInstanceOf(RobotHardware.class);
       List<Object> made = new ArrayList<>();
       made.add(hardware.joint(PIVOT));
@@ -225,8 +262,9 @@ class HardwareTest {
         .noneMatch(text -> text.startsWith("Not on this laptop's CANivore"));
 
     CanBus canivore = CanBus.canivore("bench");
-    Joint.Revolute onTheCanivore =
-        Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+    RevoluteJoint onTheCanivore =
+        Joint.pivot("pivot", Part.CHASSIS, Joint.PITCH_DOWN)
+            .at(Meters.of(0.25), Meters.of(0), Meters.of(0.32))
             .range(Range.degrees(0, 135))
             .rest(Degrees.of(0))
             .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(canivore, 11)))
@@ -244,7 +282,13 @@ class HardwareTest {
             .sensors(List.of(hopper))
             .build();
     try (Hardware hardware =
-        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, benched, Optional.empty())) {
+        RobotContainer.hardware(
+            RunMode.REAL,
+            RunsOn.DESKTOP,
+            benched,
+            Optional.empty(),
+            VisorBoards.none(),
+            VisorPorts.ANY_FREE)) {
       assertThat(hardware.joint(onTheCanivore)).isInstanceOf(JointIOTalon.class);
       assertThat(hardware.sensor(hopper)).isInstanceOf(SensorIOCanRange.class);
       assertThat(activeAlerts())
@@ -258,22 +302,118 @@ class HardwareTest {
    */
   @Test
   void aCameraOnVisorIsReadThroughVisor() {
-    List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
-    cameras.set(
-        0,
-        CameraConfigBuilder.builder(cameras.get(0)).software(CameraConfig.Software.VISOR).build());
-    RobotDefinition onVisor =
-        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-            .name("on Visor")
-            .cameras(cameras)
-            .build();
     try (Hardware hardware =
-        RobotContainer.hardware(RunMode.REAL, RunsOn.DESKTOP, onVisor, Optional.empty())) {
+        RobotContainer.hardware(
+            RunMode.REAL,
+            RunsOn.DESKTOP,
+            onVisor(),
+            Optional.empty(),
+            VisorBoards.none(),
+            VisorPorts.ANY_FREE)) {
       List<CameraIO> made = hardware.cameras();
       assertThat(made.get(0)).isInstanceOf(CameraIOVisor.class);
       assertThat(made.subList(1, made.size()))
           .allMatch(camera -> camera instanceof CameraIOPhotonVision);
       made.forEach(CameraIO::close);
+    }
+  }
+
+  /** The example robot with its first camera on Visor. */
+  private static RobotDefinition onVisor() {
+    List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
+    cameras.set(0, cameras.get(0).withSoftware(CameraConfig.Software.VISOR));
+    return RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
+        .name("on Visor")
+        .cameras(cameras)
+        .build();
+  }
+
+  /** A robot's coprocessors as its configuration lists them, and what a frame from here meets. */
+  private record Listed(String name, List<String> boards, boolean taken) {}
+
+  /**
+   * On a robot, the boards the coprocessors list reach Visor's frames, as the robot program wires
+   * them: with boards listed, a frame from a sender that isn't one is refused, and with none listed
+   * it is taken. Each row's frame comes from 127.0.0.1 to the port the robot listens on for Visor,
+   * one the system picked, so no other program on this computer can take the frame.
+   */
+  @Test
+  void aVisorFramesSenderIsCheckedAgainstTheListedCoprocessors(@TempDir Path deploy)
+      throws Exception {
+    List<Listed> rows =
+        List.of(
+            new Listed(
+                "a board listed elsewhere: refused", List.of("127.0.0.2:" + unusedPort()), false),
+            new Listed("no boards listed: taken", List.of(), true));
+    RobotDefinition robot = onVisor();
+    for (Listed row : rows) {
+      // No team number, so nothing is installed: the boards are only listed and watched.
+      try (Coprocessors coprocessors =
+              Coprocessors.on(
+                  row.boards(),
+                  VisorTuning.live(robot.cameras(), Map.of()),
+                  deploy,
+                  0,
+                  Rebuilt.GAME.officialField().tagSizeMeters(),
+                  deploy.resolve("kept"),
+                  () -> false,
+                  () -> false,
+                  () -> 0L);
+          Hardware hardware =
+              RobotContainer.hardware(
+                  RunMode.REAL,
+                  RunsOn.DESKTOP,
+                  robot,
+                  Optional.empty(),
+                  coprocessors.visorBoards(robot.cameras()),
+                  VisorPorts.ANY_FREE);
+          DatagramChannel visor = DatagramChannel.open()) {
+        List<CameraIO> made = hardware.cameras();
+        CameraIO camera = made.get(0);
+        int listening = ((RobotHardware) hardware).visorFramesPort().orElseThrow();
+        visor.send(frame(robot.cameras().get(0)), new InetSocketAddress("127.0.0.1", listening));
+        CameraIO.CameraIOInputs inputs = new CameraIO.CameraIOInputs();
+        String name = row.name();
+        Waits.until(
+            name + ": the frame taken or refused",
+            () -> camera.updateInputs(inputs),
+            () -> inputs.frames.length > 0 || !inputs.error.isEmpty());
+        if (row.taken()) {
+          assertThat(inputs.frames).as(name).hasSize(1);
+          assertThat(inputs.error).as(name).isEmpty();
+        } else {
+          assertThat(inputs.frames).as(name).isEmpty();
+          assertThat(inputs.error).as(name).contains("none of the robot's coprocessors has");
+        }
+        made.forEach(CameraIO::close);
+      }
+    }
+  }
+
+  /** A frame from the first camera, just taken, at its configured size, with one tag solved. */
+  private static ByteBuffer frame(CameraConfig camera) {
+    VisorFrame frame = new VisorFrame();
+    frame.setHeader(
+        0,
+        camera.sensor().widthPixels(),
+        camera.sensor().heightPixels(),
+        RobotController.getTime(),
+        0,
+        true,
+        false);
+    int solved = frame.addTag(7, 0, 80, new float[] {10, 20, 30, 20, 30, 40, 10, 40});
+    CameraToTag ahead = new CameraToTag();
+    ahead.set(3, 0.5, 0.25, 0, 0, 0, 1);
+    frame.setPoses(solved, ahead, 0.1f, ahead, 0.5f);
+    ByteBuffer bytes = ByteBuffer.allocate(VisorWire.MAX_BYTES);
+    VisorWire.encode(frame, bytes);
+    return bytes.flip();
+  }
+
+  /** A port nothing listens on: a listed board that never answers. */
+  private static int unusedPort() throws IOException {
+    try (ServerSocket socket = new ServerSocket(0)) {
+      return socket.getLocalPort();
     }
   }
 
@@ -286,7 +426,13 @@ class HardwareTest {
     try (SimulatedWorld world =
             new SimulatedWorld(RobotSim.FIELD, ROBOT, RobotSim.massOf(ROBOT), SensorErrors.NONE);
         Hardware hardware =
-            RobotContainer.hardware(RunMode.SIM, RunsOn.DESKTOP, ROBOT, Optional.of(world))) {
+            RobotContainer.hardware(
+                RunMode.SIM,
+                RunsOn.DESKTOP,
+                ROBOT,
+                Optional.<World>of(world),
+                VisorBoards.none(),
+                VisorPorts.ANY_FREE)) {
       assertThat(hardware).isInstanceOf(SimulatedHardware.class);
       assertThat(hardware.drive().modules())
           .containsExactlyElementsOf(world.drivetrainHardware().modules());
@@ -309,7 +455,13 @@ class HardwareTest {
   @Test
   void aReplaysHardwareIsNothing() {
     try (Hardware hardware =
-        RobotContainer.hardware(RunMode.REPLAY, RunsOn.DESKTOP, ROBOT, Optional.empty())) {
+        RobotContainer.hardware(
+            RunMode.REPLAY,
+            RunsOn.DESKTOP,
+            ROBOT,
+            Optional.empty(),
+            VisorBoards.none(),
+            VisorPorts.ANY_FREE)) {
       List<Object> made = new ArrayList<>(hardware.drive().modules());
       made.add(hardware.drive().gyro());
       made.add(hardware.joint(PIVOT));

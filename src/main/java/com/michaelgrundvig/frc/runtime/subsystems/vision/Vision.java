@@ -3,7 +3,9 @@ package com.michaelgrundvig.frc.runtime.subsystems.vision;
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 
 import com.michaelgrundvig.frc.localization.CaptureContext;
+import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
+import com.michaelgrundvig.frc.localization.ImageVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationService;
 import com.michaelgrundvig.frc.localization.Localizer;
@@ -11,22 +13,26 @@ import com.michaelgrundvig.frc.localization.MountCheck;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.TagAllowlist;
 import com.michaelgrundvig.frc.localization.TagDetections;
+import com.michaelgrundvig.frc.localization.TagSolver;
 import com.michaelgrundvig.frc.localization.Timestamps;
 import com.michaelgrundvig.frc.localization.Verdict;
 import com.michaelgrundvig.frc.localization.VisionConfig;
-import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.localization.VisionPipeline;
-import com.michaelgrundvig.frc.localization.VisionResult;
 import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
 import com.michaelgrundvig.frc.localization.calibration.CaptureTimeCalibration;
 import com.michaelgrundvig.frc.localization.calibration.HeadingAverage;
 import com.michaelgrundvig.frc.pitwall.Limits;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.pitwall.robot.SightingWords;
+import com.michaelgrundvig.frc.runtime.lib.Said;
+import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -83,6 +89,9 @@ import org.wpilib.util.Alert;
 public final class Vision implements AutoCloseable {
   /** The share of measurements accepted is shown to this many percent. */
   private static final double ACCEPTED_STEP_PERCENT = 5;
+
+  /** Where what an image's data threw is logged, with its stack. */
+  private static final String ERRORS_KEY = "Vision/Errors";
 
   /** The robot's pose is good enough to calibrate a camera against when it is within 5 cm. */
   private static final double CALIBRATION_POSE_STD_DEV_METERS = 0.05;
@@ -195,7 +204,7 @@ public final class Vision implements AutoCloseable {
         .number("linearStdDevBaseline", Limits.between(0.001, 1)) // meters
         .number("angularStdDevBaseline", Limits.between(0.001, 1)) // radians
         .number("distanceExponent", Limits.between(0, 4))
-        .number("mountToleranceMeters", Limits.between(0.01, 0.5))
+        .number("outOfCalibrationMeters", Limits.between(0.01, 0.5))
         .number("latencyMarginSeconds", Limits.between(0.01, 1));
   }
 
@@ -239,8 +248,9 @@ public final class Vision implements AutoCloseable {
 
   /**
    * From now on, every heading the cameras measure goes into this average, until stopped. It is a
-   * heading reference for calibrating the gyro. Only a measurement that has a heading of its own
-   * counts, which is a multi-tag solution, and the procedure takes them standing still.
+   * heading reference for calibrating the gyro, which the procedure takes standing still. Each tag
+   * an image sees says the robot's heading by itself, as in the spin test for capture times, so a
+   * camera that sends no multi-tag solution (Visor) gives one heading for each tag it sees.
    */
   public void collectHeadings(HeadingAverage into) {
     headings = Optional.of(into);
@@ -561,23 +571,40 @@ public final class Vision implements AutoCloseable {
    * are doubted by what its earlier tags showed, and localization is told that doubt first.
    */
   private void takeItsImages(Camera camera, PoseKnowledge known, long nowNanos) {
-    camera.read();
-    camera.checkMount(current.mountToleranceMeters());
+    camera.read(nowNanos);
+    camera.checkMount(current.outOfCalibrationMeters());
     localization.mountDoubt(camera.name(), camera.mountDoubtMeters(), camera.mountDistanceMeters());
-    // The IO logs every image's tags in one flat list, each image's following the one before's.
+    // The IO logs every image's tags in one flat list, each image's following the one before's,
+    // and its tags without poses the same way in another.
     int nextTag = 0;
+    int nextUnsolved = 0;
     for (CameraIO.Frame frame : camera.inputs.frames) {
       int firstTag = nextTag;
+      int firstUnsolved = nextUnsolved;
       nextTag += frame.tagCount();
+      nextUnsolved += frame.unsolvedTagCount();
       // One image's bad data costs that image, never the robot program. Whatever a camera sends
-      // that the checks miss ends here, logged as the image's outcome.
+      // that the checks miss ends here, logged as the image's verdict and counted as unreadable.
+      camera.imageStarts();
       try {
-        takeImage(camera, frame, firstTag, known, nowNanos);
+        takeImage(camera, frame, firstTag, firstUnsolved, known, nowNanos);
       } catch (RuntimeException thrown) {
-        camera.outcome("unusable data from the camera: " + thrown.getMessage());
+        camera.unreadable(Said.of(thrown));
+        logThrown(thrown);
       }
     }
     camera.logLoop(nowNanos);
+  }
+
+  /**
+   * Logs what an image's data threw, its kind and its stack ({@code Vision/Errors}), so the place
+   * the bad data broke is in the log beside the image's verdict. It happens only with bad data, so
+   * the text made here costs nothing in a loop that goes well.
+   */
+  private static void logThrown(RuntimeException thrown) {
+    StringWriter stack = new StringWriter();
+    thrown.printStackTrace(new PrintWriter(stack));
+    Logger.recordOutput(ERRORS_KEY, stack.toString());
   }
 
   // ---- One image ----
@@ -588,21 +615,37 @@ public final class Vision implements AutoCloseable {
    * calibration that is collecting them.
    */
   private void takeImage(
-      Camera camera, CameraIO.Frame frame, int firstTag, PoseKnowledge known, long nowNanos) {
+      Camera camera,
+      CameraIO.Frame frame,
+      int firstTag,
+      int firstUnsolved,
+      PoseKnowledge known,
+      long nowNanos) {
     long takenNanos = frame.timestampNanos();
     TagDetections detections =
-        Detections.inImage(frame, camera.inputs.tags, firstTag, camera.name());
+        Detections.inImage(
+            frame,
+            camera.inputs.tags,
+            firstTag,
+            camera.inputs.unsolvedTags,
+            firstUnsolved,
+            camera.name());
     List<Pose3d> tagsOnTheField = onTheField(detections);
     if (!camera.enabled.get()) {
-      camera.leftOut(tagsOnTheField, "camera turned off");
+      camera.leftOut(tagsOnTheField, Verdict.TURNED_OFF.words());
+      localization.leftOut(detections, Verdict.TURNED_OFF);
       return;
     }
     if (!camera.isNew(takenNanos)) {
-      camera.outcome("the same image again");
+      camera.imageHasAVerdict();
+      camera.verdict(Verdict.SEEN_BEFORE.words());
+      localization.leftOut(detections, Verdict.SEEN_BEFORE);
       return;
     }
     // An image that arrived before it was taken, or far later than its camera's images do, has
-    // the wrong capture time. Solved as of that time, it would put the robot where it wasn't.
+    // the wrong capture time. Solved as of that time, it would put the robot where it wasn't. Only
+    // an image in time is taken as the newest, so a wrong stamp in the future doesn't hide the
+    // images after it as old.
     boolean inTime =
         camera.arrivedInTime(
             takenNanos,
@@ -611,14 +654,15 @@ public final class Vision implements AutoCloseable {
             current.latencyMarginSeconds(),
             tagsOnTheField);
     if (!inTime) {
+      localization.leftOut(detections, Verdict.OUT_OF_STEP);
       return;
     }
+    camera.taken(takenNanos);
     Optional<Pose2d> poseThen = localization.poseAt(takenNanos);
     CaptureContext capture = localization.capture(takenNanos);
     collectItsCaptureTime(camera, detections, poseThen);
-    Optional<VisionMeasurement> measurement =
-        handToLocalization(camera, detections, tagsOnTheField);
-    collectItsHeading(measurement);
+    handToLocalization(camera, detections, tagsOnTheField);
+    collectItsHeadings(camera, detections, poseThen);
     // A camera on a joint is neither judged by its mount nor calibrated. Where it is is its
     // joint's to say. And without the robot's pose at the time, its tags can't be placed.
     boolean rigidlyMounted = camera.config.joint().isEmpty();
@@ -631,29 +675,26 @@ public final class Vision implements AutoCloseable {
   /**
    * Hands an image to localization, which solves it, and records what became of it. An image that
    * is held back is solved and logged all the same, and never applied.
-   *
-   * @return the measurement the image was solved into, or empty if the pipeline refused it
    */
-  private Optional<VisionMeasurement> handToLocalization(
+  private void handToLocalization(
       Camera camera, TagDetections detections, List<Pose3d> tagsOnTheField) {
     // Localization takes null for "every tag".
     @Nullable TagAllowlist onlyTags = trustedTags().orElse(null);
     Optional<Verdict> heldBack = whyHeldBack(camera, detections.timestampNanos());
-    VisionResult result;
+    ImageVerdict result;
     if (heldBack.isPresent()) {
       result = localization.hold(detections, onlyTags, heldBack.get());
     } else {
       result = localization.camera(detections, onlyTags);
     }
-    Optional<VisionMeasurement> measurement = Optional.ofNullable(result.measurement());
-    if (measurement.isEmpty()) {
-      camera.leftOut(tagsOnTheField, result.outcome());
+    camera.imageHasAVerdict();
+    if (result.measurement() == null) {
+      camera.leftOut(tagsOnTheField, result.described());
     } else if (heldBack.isPresent()) {
-      camera.leftOut(tagsOnTheField, heldBack.get().words() + ": " + result.outcome());
+      camera.leftOut(tagsOnTheField, heldBack.get().words() + ": " + result.described());
     } else {
-      camera.outcome(result.outcome());
+      camera.verdict(result.described());
     }
-    return measurement;
   }
 
   /** How far back the turn rate at an image's stamp is measured over, in nanoseconds. */
@@ -678,7 +719,7 @@ public final class Vision implements AutoCloseable {
     double yawRate =
         MathUtil.angleModulus(heading.getRadians() - before.get().getRotation().getRadians())
             / (RATE_SPAN_NANOS / 1e9);
-    for (TagDetections.Tag tag : detections.tags()) {
+    for (TagDetections.Sighting tag : detections.tags()) {
       field
           .tag(tag.id())
           .ifPresent(
@@ -693,13 +734,31 @@ public final class Vision implements AutoCloseable {
     }
   }
 
-  /** Gives a measurement's heading to the calibration collecting headings, if one is. */
-  private void collectItsHeading(Optional<VisionMeasurement> measurement) {
-    if (headings.isEmpty() || measurement.isEmpty()) {
+  /**
+   * Gives the robot's heading by each tag an image saw to the calibration collecting headings, if
+   * one is: of each tag's two views, the one nearer the estimate's heading at the image's stamp. A
+   * camera on a joint gives none: its mount moves.
+   */
+  private void collectItsHeadings(
+      Camera camera, TagDetections detections, Optional<Pose2d> poseThen) {
+    if (headings.isEmpty() || poseThen.isEmpty() || camera.config.joint().isPresent()) {
       return;
     }
-    if (measurement.get().covariance().hasHeading()) {
-      headings.get().add(measurement.get().pose().getRotation());
+    Rotation2d near = poseThen.get().getRotation();
+    for (TagDetections.Sighting tag : detections.tags()) {
+      Optional<Pose3d> place = field.tag(tag.id());
+      if (place.isEmpty()) {
+        continue;
+      }
+      headings
+          .get()
+          .add(
+              TagSolver.robotHeadingByTag(
+                  place.get(),
+                  tag.bestCameraToTag(),
+                  tag.altCameraToTag(),
+                  camera.config.robotToCamera(),
+                  near));
     }
   }
 
@@ -736,7 +795,7 @@ public final class Vision implements AutoCloseable {
       calibrating = Optional.of(mountCalibration.get().sightings());
     }
     boolean poseIsHeld = othersHoldThePose(camera, capture, known, takenNanos);
-    for (TagDetections.Tag tag : detections.tags()) {
+    for (TagDetections.Sighting tag : detections.tags()) {
       Pose3d seen =
           robotThen.transformBy(camera.config.robotToCamera()).transformBy(tag.bestCameraToTag());
       camera.saw(seen);
@@ -802,7 +861,7 @@ public final class Vision implements AutoCloseable {
   private boolean isSureEnoughAt(double distanceMeters, PoseKnowledge known) {
     double spreadAtTheTagMeters =
         Math.hypot(known.positionStdDevMeters(), distanceMeters * known.headingStdDevRadians());
-    return spreadAtTheTagMeters <= current.mountToleranceMeters();
+    return spreadAtTheTagMeters <= current.outOfCalibrationMeters();
   }
 
   /**
@@ -810,7 +869,7 @@ public final class Vision implements AutoCloseable {
    */
   private List<Pose3d> onTheField(TagDetections detections) {
     List<Pose3d> tags = new ArrayList<>(detections.tags().size());
-    for (TagDetections.Tag tag : detections.tags()) {
+    for (TagDetections.Sighting tag : detections.tags()) {
       field.tag(tag.id()).ifPresent(tags::add);
     }
     return tags;
@@ -828,12 +887,17 @@ public final class Vision implements AutoCloseable {
 
   /** Counts and logs what localization's update made of each camera's measurements. */
   public void record(List<FrameVerdict> frames) {
-    Camera.Fates fates = Camera.Fates.NOT_REPORTED;
-    if (localization.localizer().decisions().isPresent()) {
-      fates = Camera.Fates.REPORTED;
+    Camera.MeasurementVerdicts measurementVerdicts = Camera.MeasurementVerdicts.NOT_REPORTED;
+    if (localization.localizer().verdicts().isPresent()) {
+      measurementVerdicts = Camera.MeasurementVerdicts.REPORTED;
     }
     for (Camera camera : cameras) {
-      camera.record(frames, current.mountToleranceMeters(), field::tag, fates);
+      camera.record(frames, current.outOfCalibrationMeters(), field::tag, measurementVerdicts);
+    }
+    if (localization.localizer() instanceof DefaultLocalizer estimator) {
+      for (Camera camera : cameras) {
+        camera.logWhatTheEstimatorLearned(estimator);
+      }
     }
   }
 
@@ -849,10 +913,13 @@ public final class Vision implements AutoCloseable {
 
   /**
    * One line for the pit: which cameras are connected, how many of their measurements are accepted,
-   * to 5%, and how many images were left out because they arrived out of step.
+   * to 5%, how many images were left out because they arrived out of step, and the camera whose
+   * images with tags are used least: how many it used, of how many, and the reason most of the rest
+   * weren't, with its count. A camera whose every image is refused is named here, whatever the
+   * others do. No camera is named while every image with a tag was used.
    *
-   * <p>The images left out are counted exactly, since each is news, and the page hears of the line
-   * at most once a second.
+   * <p>The images are counted exactly, since each is news, and the page hears of the line at most
+   * once a second.
    */
   public String summary() {
     int connected = 0;
@@ -870,8 +937,8 @@ public final class Vision implements AutoCloseable {
       given += camera.given();
     }
     String measurements = accepted(accepts, rejects);
-    boolean fatesReported = localization.localizer().decisions().isPresent();
-    if (!fatesReported) {
+    boolean verdictsReported = localization.localizer().verdicts().isPresent();
+    if (!verdictsReported) {
       // The localizer doesn't say what it did with them, so no share accepted can be shown.
       measurements = given + " measurements given, how many were accepted is not reported";
     }
@@ -879,7 +946,58 @@ public final class Vision implements AutoCloseable {
     if (outOfStep > 0) {
       line += ", " + outOfStep + " images left out of step";
     }
+    Optional<Camera> worst = usedLeast();
+    if (worst.isPresent()) {
+      line += "; " + imagesUsed(worst.get());
+    }
     return line;
+  }
+
+  /**
+   * The camera that used the smallest share of its images with tags, of those that left any unused;
+   * the one with more images, of two alike. Empty while every image with a tag was used.
+   */
+  private Optional<Camera> usedLeast() {
+    Camera least = null;
+    double leastShare = Double.POSITIVE_INFINITY;
+    for (Camera camera : cameras) {
+      long withTags = camera.imagesWithTags();
+      if (withTags == 0 || camera.imagesUsed() >= withTags) {
+        continue;
+      }
+      double share = (double) camera.imagesUsed() / withTags;
+      boolean fewer = share < leastShare;
+      boolean asFewButMore =
+          share == leastShare && least != null && withTags > least.imagesWithTags();
+      if (fewer || asFewButMore) {
+        least = camera;
+        leastShare = share;
+      }
+    }
+    return Optional.ofNullable(least);
+  }
+
+  /**
+   * How a camera's images with tags fared: "front-left used 0 of 412 images with tags (398: ...)".
+   */
+  private static String imagesUsed(Camera camera) {
+    return camera.name() + " " + camera.imagesUsedWords();
+  }
+
+  /**
+   * What the cameras doubt of a robot, said as it starts: a camera that runs on Visor, with its
+   * device given, and no lens calibration, which places nothing.
+   */
+  public static List<Finding> doubts(RobotDefinition robot) {
+    List<Finding> found = new ArrayList<>();
+    for (CameraConfig camera : robot.cameras()) {
+      Optional<String> withoutALens = Camera.withoutALens(camera);
+      if (withoutALens.isPresent()) {
+        found.add(
+            Finding.doubt(camera.name(), "camera " + camera.name() + " " + withoutALens.get()));
+      }
+    }
+    return found;
   }
 
   /**
@@ -918,7 +1036,7 @@ public final class Vision implements AutoCloseable {
 
   /**
    * How far off, on average and lately, a camera's tags land: the latest 500 it saw while the
-   * robot's pose was known. Past the tolerance ({@code VisionConfig.mountToleranceMeters}), the
+   * robot's pose was known. Past the tolerance ({@code VisionConfig.outOfCalibrationMeters}), the
    * camera is out of calibration.
    *
    * @return NaN until the camera has seen 500 tags
@@ -952,6 +1070,11 @@ public final class Vision implements AutoCloseable {
   /** A camera, in the order of the cameras' configuration: its switch, alerts, and tallies. */
   Camera camera(int index) {
     return cameras.get(index);
+  }
+
+  /** Every camera, in the order of the cameras' configuration. */
+  List<Camera> cameras() {
+    return cameras;
   }
 
   @Override

@@ -354,7 +354,7 @@ class DisablingSimTest {
     pushTheDriversStickForward();
     sim.run(1);
     double drivenByTheSticks = metersFrom(stood);
-    sim.scheduler().schedule(sim.robot().driveCheck());
+    sim.scheduler().schedule(RobotPitwall.driveCheck(sim.robot().drive()));
     sim.run(1);
     List<String> runningWhileDisabled = running();
 
@@ -525,7 +525,7 @@ class DisablingSimTest {
   void aPitActionRunningInUtilityModeIsCanceledAtDisableAndDoesNotStartAgain() {
     enabledInTeleop();
     RobotSim.enable(RobotMode.UTILITY, true);
-    sim.pitwall().actions().requestStart(RobotContainer.DRIVE_CHECK);
+    sim.pitwall().actions().requestStart(RobotPitwall.DRIVE_CHECK);
     sim.run(1);
     List<String> runningInUtility = running();
     Pose2d atDisable = sim.world().truePose();
@@ -553,7 +553,7 @@ class DisablingSimTest {
   /** The drive check, as the Pitwall page shows it. */
   private Actions.State driveCheck() {
     for (Actions.State action : sim.pitwall().actions().view()) {
-      if (action.name().equals(RobotContainer.DRIVE_CHECK)) {
+      if (action.name().equals(RobotPitwall.DRIVE_CHECK)) {
         return action;
       }
     }

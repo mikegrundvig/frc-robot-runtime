@@ -84,9 +84,9 @@ public final class FakeTagCamera {
   /** What the camera sees now. */
   private TagDetections look(long nowNanos) {
     Pose3d cameraPose = robot.truePose3d().transformBy(camera.robotToCamera());
-    double halfView = camera.sensor().diagonalFieldOfView().in(Radians) / 2;
-    double range = camera.sensor().sightRange().in(Meters);
-    List<TagDetections.Tag> tags = new ArrayList<>();
+    double halfView = camera.diagonalFieldOfView().in(Radians) / 2;
+    double range = camera.sightRangeOrDefault().in(Meters);
+    List<TagDetections.Sighting> tags = new ArrayList<>();
     for (Tag tag : field.tags().values()) {
       Transform3d view = new Transform3d(cameraPose, tag.pose());
       double distance = view.getTranslation().getNorm();
@@ -108,7 +108,7 @@ public final class FakeTagCamera {
                           spread * noise.nextGaussian(),
                           spread * noise.nextGaussian())),
               view.getRotation());
-      tags.add(new TagDetections.Tag(tag.id(), CORNERS, seen, Transform3d.ZERO, AMBIGUITY));
+      tags.add(new TagDetections.Sighting(tag.id(), CORNERS, seen, Transform3d.ZERO, AMBIGUITY));
     }
     TagDetections.MultiTag multiTag = null;
     if (tags.size() >= 2) {
@@ -123,7 +123,7 @@ public final class FakeTagCamera {
                               spread * noise.nextGaussian(), spread * noise.nextGaussian(), 0)),
                   cameraPose.getRotation()),
               MULTI_TAG_REPROJECTION_PIXELS,
-              tags.stream().map(TagDetections.Tag::id).toList());
+              tags.stream().map(TagDetections.Sighting::id).toList());
     }
     return new TagDetections(nowNanos, camera.name(), tags, multiTag);
   }

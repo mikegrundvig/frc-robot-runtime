@@ -7,7 +7,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Meters;
 
-import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.pitwall.simulator.Component;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Fault;
@@ -28,6 +27,7 @@ import com.michaelgrundvig.frc.world.physical.Polygon2d;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -600,12 +600,10 @@ class FaultsTest {
 
     // Nose up (a negative pitch): forward. Left side up (a positive roll): left.
     assertThat(tilted.accelerationXMetersPerSecSq)
-        .isCloseTo(ImuReadings.STANDARD_GRAVITY * Math.sin(Math.toRadians(10)), within(1e-9));
+        .isCloseTo(RobotMath.GRAVITY * Math.sin(Math.toRadians(10)), within(1e-9));
     assertThat(tilted.accelerationYMetersPerSecSq)
         .isCloseTo(
-            ImuReadings.STANDARD_GRAVITY
-                * Math.sin(Math.toRadians(5))
-                * Math.cos(Math.toRadians(10)),
+            RobotMath.GRAVITY * Math.sin(Math.toRadians(5)) * Math.cos(Math.toRadians(10)),
             within(1e-9));
   }
 

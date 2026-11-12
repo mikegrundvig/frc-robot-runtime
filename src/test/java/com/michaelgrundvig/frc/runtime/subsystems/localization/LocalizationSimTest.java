@@ -7,7 +7,6 @@ import com.michaelgrundvig.frc.localization.DriveConditions;
 import com.michaelgrundvig.frc.localization.EstimatorConfig;
 import com.michaelgrundvig.frc.localization.EstimatorConfigBuilder;
 import com.michaelgrundvig.frc.localization.FrameVerdict;
-import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationGate;
 import com.michaelgrundvig.frc.localization.SlipCheck;
@@ -18,6 +17,7 @@ import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotConfigBuilder;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
+import com.michaelgrundvig.frc.runtime.TestWiring;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.runtime.sim.FakeCamera;
@@ -26,8 +26,8 @@ import com.michaelgrundvig.frc.simulation.SensorErrorsAccelErrorsBuilder;
 import com.michaelgrundvig.frc.simulation.SensorErrorsBuilder;
 import com.michaelgrundvig.frc.world.robot.ImuMount;
 import com.michaelgrundvig.frc.world.robot.ImuMountBuilder;
-import com.michaelgrundvig.frc.world.robot.Imus;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -72,7 +72,7 @@ class LocalizationSimTest {
   }
 
   private DriveSimHarness robot(SensorErrors errors) {
-    return robot(errors, EstimatorConfig.DEFAULTS);
+    return robot(errors, EstimatorConfig.defaults());
   }
 
   private DriveSimHarness robot(SensorErrors errors, EstimatorConfig config) {
@@ -206,7 +206,7 @@ class LocalizationSimTest {
   @Test
   void onABumpTheTiltDiscountsWheelsThatLostTheFloor() {
     EstimatorConfig ignoringTilt =
-        EstimatorConfigBuilder.builder(EstimatorConfig.DEFAULTS)
+        EstimatorConfigBuilder.builder(EstimatorConfig.defaults())
             .tiltStartDegrees(80)
             .tiltZeroDegrees(89)
             .build();
@@ -286,7 +286,7 @@ class LocalizationSimTest {
         new DriveSimHarness(
             ExampleRobot.SIM,
             SensorErrors.TYPICAL,
-            EstimatorConfig.DEFAULTS,
+            EstimatorConfig.defaults(),
             RobotSim.FIELD.terrain());
     return harness;
   }
@@ -421,7 +421,7 @@ class LocalizationSimTest {
     robot.drive(1.0, 1.0, 0, 0);
 
     double traveled = robot.simulation.truePose().getTranslation().getDistance(start);
-    double odometry = EstimatorConfig.DEFAULTS.translationStdDevPerMeter() * Math.sqrt(traveled);
+    double odometry = EstimatorConfig.defaults().translationStdDevPerMeter() * Math.sqrt(traveled);
     assertThat(speed).as("speeding up at its current limit, about 4.4 m/s²").isBetween(1.9, 2.3);
     assertThat(most[0]).as("no slip").isZero();
     assertThat(most[1]).as("nothing suspect").isLessThan(0.005);
@@ -535,17 +535,17 @@ class LocalizationSimTest {
   /** The simulator's robot as every robot starts: its IMUs' accelerometers not yet checked. */
   private static RobotConfig unchecked() {
     ImuMount gyro =
-        ImuMountBuilder.builder(ExampleRobot.SIM.definition().imus().gyro())
+        ImuMountBuilder.builder(ExampleRobot.SIM.definition().gyroMount())
             .accelerometerChecked(false)
             .build();
     ImuMount backup =
-        ImuMountBuilder.builder(ExampleRobot.SIM.definition().imus().backup().orElseThrow())
+        ImuMountBuilder.builder(ExampleRobot.SIM.definition().backupImu().orElseThrow())
             .accelerometerChecked(false)
             .build();
     return RobotConfigBuilder.builder(ExampleRobot.SIM)
         .definition(
-            RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-                .imus(Imus.builder().gyro(gyro).backup(backup).build())
+            RobotDefinitionBuilder.builder(TestWiring.gyroAt(ExampleRobot.SIM.definition(), gyro))
+                .backupImu(backup)
                 .build())
         .build();
   }
@@ -570,7 +570,7 @@ class LocalizationSimTest {
     }
     harness = new DriveSimHarness(unchecked(), turned);
     DriveSimHarness robot = harness;
-    robot.idle(SlipCheck.Settings.DEFAULTS.steadySeconds() + 0.5);
+    robot.idle(SlipCheck.Settings.defaults().steadySeconds() + 0.5);
     robot.simulation.grip(0.5);
     robot.drive(1.5, 1.0, 0, 0);
 
@@ -638,7 +638,7 @@ class LocalizationSimTest {
   void anUncheckedImuTiltedOnItsMountIsLearnedAsItsBias() {
     StoodThenDrove level = standThenDrive(0, 0);
     StoodThenDrove tilted = standThenDrive(1.7, 0);
-    StoodThenDrove vertical = standThenDrive(0, ImuReadings.STANDARD_GRAVITY);
+    StoodThenDrove vertical = standThenDrive(0, RobotMath.GRAVITY);
 
     assertThat(level.alert()).as("level").isFalse();
     for (StoodThenDrove leaking : List.of(tilted, vertical)) {
@@ -719,7 +719,7 @@ class LocalizationSimTest {
           }
         });
     robot.watchWith(camera);
-    robot.drive(SlipCheck.Settings.DEFAULTS.steadySeconds() + 0.5, 0, 0, 0);
+    robot.drive(SlipCheck.Settings.defaults().steadySeconds() + 0.5, 0, 0, 0);
     robot.stopWatching();
     blind.accept(robot);
     robot.watchWith(camera);

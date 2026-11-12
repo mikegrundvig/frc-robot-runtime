@@ -6,7 +6,6 @@ import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CANcoderConfiguration;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.controls.DutyCycleOut;
 import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VelocityVoltage;
@@ -19,6 +18,7 @@ import com.ctre.phoenix6.signals.ReverseLimitValue;
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixRestarts;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixStartup;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.robot.AbsoluteReader;
 import com.michaelgrundvig.frc.world.robot.Actuator;
@@ -55,9 +55,11 @@ import org.wpilib.units.measure.Angle;
  * <p><b>What it asks of the leader.</b> A position goes as a {@code PositionVoltage} with the
  * profile's speed, which the controller's own kV, kS and gravity terms turn into volts. A speed
  * goes as a {@code VelocityVoltage} on a slot of its own, which has the same gains without the kI:
- * kI is the position loop's alone. Requests use FOC, which needs a Phoenix Pro license, only when
- * the definition's motor is one of its FOC motors ({@code Motor.KRAKEN_X60_FOC}); otherwise this
- * runs on Phoenix 6 without a license.
+ * kI is the position loop's alone. A share of the battery goes as a {@code VoltageOut} of that
+ * share of 12 V, as a SPARK's does ({@link JointIO}'s J9), so every request the leader runs is a
+ * voltage, and its followers copy its motor voltage, which it sends every loop. Requests use FOC,
+ * which needs a Phoenix Pro license, only when the joint's controllers say {@code .foc()};
+ * otherwise this runs on Phoenix 6 without a license.
  *
  * <p><b>Where the joint is.</b> A controller counts its motor's turns from wherever it was powered
  * on, so at startup it has to be told where the joint is:
@@ -87,12 +89,6 @@ import org.wpilib.units.measure.Angle;
  * follow request again by itself.
  */
 public final class JointIOTalon implements JointIO {
-  /** At startup each device is sent its settings up to this many times, until it confirms them. */
-  private static final int STARTUP_TRIES = 5;
-
-  /** How long each of those tries waits for the device to confirm. Startup can afford the wait. */
-  private static final double STARTUP_TIMEOUT_SECONDS = 0.25;
-
   /**
    * A timeout of zero sends a setting and returns without waiting for the device to confirm it.
    * Everything sent while the robot's loop runs uses this, because a loop that waits on a device
@@ -115,7 +111,7 @@ public final class JointIOTalon implements JointIO {
    * Faults are read only ten times a second ({@link JointIO#HEALTH_LOOPS}), and the frame doubles
    * as proof that a follower is still on the bus.
    */
-  private static final double FAULTS_HZ = 4;
+  static final double FAULTS_HZ = 4;
 
   private final PhoenixTalon leader;
   private final List<FollowingTalon> followers;
@@ -131,6 +127,9 @@ public final class JointIOTalon implements JointIO {
 
   /** The devices that never confirmed their settings at startup, such as "motor 32, CANcoder 9". */
   private final String unconfigured;
+
+  /** How many times each device is sent its settings at startup. */
+  private final int startupTries;
 
   // The leader's signals, which it sends once a loop. They are refreshed together, each loop.
   private final BaseStatusSignal position;
@@ -176,7 +175,6 @@ public final class JointIOTalon implements JointIO {
   private final PositionVoltage positionRequest;
   private final VelocityVoltage velocityRequest;
   private final VoltageOut voltageRequest;
-  private final DutyCycleOut dutyCycleRequest;
 
   /**
    * A voltage that ignores the soft limits. Homing pushes the joint into a hard stop, and until the
@@ -221,12 +219,13 @@ public final class JointIOTalon implements JointIO {
   /** What the CANcoder says of its magnet, as far as trusting its reading goes. */
   private enum Magnet {
     /**
-     * No CANcoder, or it has not said yet: its health comes in a frame sent four times a second.
+     * No CANcoder, it has not said yet (its health comes in a frame sent four times a second), or
+     * Phoenix calls what it said invalid.
      */
     NOT_SAID,
     /** Red: the magnet is too close or too far, and the reading is not to be trusted. */
     BAD,
-    /** Anything else: the reading can be used. */
+    /** Green or orange: the reading can be used. */
     USABLE
   }
 
@@ -255,6 +254,17 @@ public final class JointIOTalon implements JointIO {
     /** Whether a device has sent the frame it sends as it starts, since this was last asked. */
     BooleanSupplier startFrames(int device, ParentDevice parent) {
       return parent.getResetOccurredChecker();
+    }
+
+    /**
+     * Sends a device its whole configuration at startup, and says whether it confirmed. Phoenix's
+     * simulated devices take whatever they are sent, so the tests of a device that doesn't stand in
+     * here.
+     *
+     * @param send the send, which waits for the device's answer
+     */
+    StatusCode send(int device, Supplier<StatusCode> send) {
+      return send.get();
     }
   }
 
@@ -338,18 +348,20 @@ public final class JointIOTalon implements JointIO {
     PhoenixMechanism.Settings settings = settingsFor.apply(ControllerSettings.control(joint));
     rotations = settings.rotations();
     CANBus bus = PhoenixMechanism.bus(wiredLeader.bus());
-    Motor motor = ((Actuator.Motors) drive.actuator()).motor();
+    Motor motor = ((Actuator.MotorGroup) drive.actuator()).motor();
     MechanismWiring.Controller kind = wiredLeader.controller();
 
     // From here on the devices are opened and told their settings, in this order: the leader, each
     // follower, then the CANcoder. A device that never confirms is noted and runs on its defaults.
+    // Each is tried a few times, or once on a CANivore that isn't seen, which none could answer.
+    startupTries = PhoenixStartup.tries(PhoenixStartup.busSeen(wiredLeader.bus()));
     List<String> neverConfirmed = new ArrayList<>();
     leader = PhoenixTalon.open(kind, wiredLeader.id(), bus, motor);
     configureLeader(settings.leader(), pins, wiredLeader.id(), neverConfirmed);
     List<PhoenixTalon> following = new ArrayList<>();
     for (PhoenixMechanism.FollowerSettings each : settings.followers()) {
       PhoenixTalon follower = PhoenixTalon.open(kind, each.id(), bus, motor);
-      following.add(startFollower(follower, each, neverConfirmed));
+      following.add(startFollower(follower, 1 + following.size(), each, neverConfirmed));
     }
     // The leader reads its own rotor unless its wiring has it read a CANcoder instead.
     boolean leaderReadsItsRotor =
@@ -393,7 +405,8 @@ public final class JointIOTalon implements JointIO {
       // to be where its definition rests it.
       leader
           .device()
-          .setPosition(rotations.toRotations(joint.restPosition()), STARTUP_TIMEOUT_SECONDS);
+          .setPosition(
+              rotations.toRotations(RobotMath.restPosition(joint)), PhoenixStartup.TIMEOUT_SECONDS);
     }
 
     position = leader.device().getPosition();
@@ -416,7 +429,6 @@ public final class JointIOTalon implements JointIO {
     velocityRequest =
         new VelocityVoltage(0).withEnableFOC(foc).withSlot(PhoenixMechanism.SPEED_SLOT);
     voltageRequest = new VoltageOut(0).withEnableFOC(foc);
-    dutyCycleRequest = new DutyCycleOut(0).withEnableFOC(foc);
     homingPush = new VoltageOut(0).withEnableFOC(foc).withIgnoreSoftwareLimits(true);
   }
 
@@ -427,7 +439,7 @@ public final class JointIOTalon implements JointIO {
   private void configureLeader(
       TalonFXConfiguration settings, ControllerPins pins, int id, List<String> neverConfirmed) {
     PhoenixMechanism.limits(settings.HardwareLimitSwitch, pins);
-    if (!confirmed(() -> leader.apply(settings, STARTUP_TIMEOUT_SECONDS))) {
+    if (!confirmed(LEADER, () -> leader.apply(settings, PhoenixStartup.TIMEOUT_SECONDS))) {
       neverConfirmed.add("motor " + id);
     }
   }
@@ -436,12 +448,18 @@ public final class JointIOTalon implements JointIO {
    * Sends a follower its own configuration, waits for it to confirm, and then tells it to follow
    * the leader. A follower needs its own current limits, neutral mode and direction: following
    * copies only the leader's output.
+   *
+   * @param number its number among the joint's devices ({@link Frames})
    */
-  private static PhoenixTalon startFollower(
+  private PhoenixTalon startFollower(
       PhoenixTalon follower,
+      int number,
       PhoenixMechanism.FollowerSettings settings,
       List<String> neverConfirmed) {
-    if (!confirmed(() -> follower.apply(settings.configuration(), STARTUP_TIMEOUT_SECONDS))) {
+    boolean tookIt =
+        confirmed(
+            number, () -> follower.apply(settings.configuration(), PhoenixStartup.TIMEOUT_SECONDS));
+    if (!tookIt) {
       neverConfirmed.add("motor " + settings.id());
     }
     follower.device().setControl(settings.request());
@@ -464,7 +482,8 @@ public final class JointIOTalon implements JointIO {
       boolean seedsTheRotor,
       List<String> neverConfirmed) {
     boolean tookIt =
-        confirmed(() -> device.getConfigurator().apply(settings, STARTUP_TIMEOUT_SECONDS));
+        confirmed(
+            number, () -> device.getConfigurator().apply(settings, PhoenixStartup.TIMEOUT_SECONDS));
     if (!tookIt) {
       neverConfirmed.add("CANcoder " + device.getDeviceID());
     }
@@ -512,16 +531,12 @@ public final class JointIOTalon implements JointIO {
   }
 
   /**
-   * Whether a device confirmed something it was sent at startup, after a few tries. Only for
-   * startup, where waiting is fine.
+   * Whether a device confirmed its configuration at startup, after as many tries as startup makes.
+   *
+   * @param device its number among the joint's devices ({@link Frames})
    */
-  private static boolean confirmed(Supplier<StatusCode> attempt) {
-    for (int i = 0; i < STARTUP_TRIES; i++) {
-      if (attempt.get().isOK()) {
-        return true;
-      }
-    }
-    return false;
+  private boolean confirmed(int device, Supplier<StatusCode> attempt) {
+    return PhoenixStartup.confirmed(startupTries, () -> frames.send(device, attempt));
   }
 
   private static Debounce silentAfterHalfASecond() {
@@ -534,12 +549,12 @@ public final class JointIOTalon implements JointIO {
   }
 
   /**
-   * Whether the definition's motors are driven with FOC, which needs Phoenix Pro. The catalog names
-   * its FOC motors so ({@code Motor.KRAKEN_X60_FOC} is "Kraken X60 FOC").
+   * Whether the definition's motors are driven with FOC, which needs Phoenix Pro: their controllers
+   * say {@code .foc()}.
    */
   static boolean foc(Drive drive) {
-    return drive.actuator() instanceof Actuator.Motors motors
-        && motors.motor().name().endsWith(" FOC");
+    return drive.actuator() instanceof Actuator.MotorGroup motors
+        && motors.commutation() == MechanismWiring.Commutation.FOC;
   }
 
   /**
@@ -575,7 +590,10 @@ public final class JointIOTalon implements JointIO {
     double besideRotor = readCancoderBesideRotor();
     seedRotorOnce(besideRotor, magnet);
 
-    inputs.connected = leaderAnswers.calculate(frames.refresh(LEADER, leaderSignals).isOK());
+    // A frame that didn't come leaves Phoenix's last reading standing, and says so in its status.
+    boolean leaderFramesCame = frames.refresh(LEADER, leaderSignals).isOK();
+    inputs.connected = leaderAnswers.calculate(leaderFramesCame);
+    inputs.fresh = leaderFramesCame;
     inputs.position = rotations.fromRotations(rotorRotationsThisLoop());
     inputs.velocity = rotations.fromRotations(velocity.getValueAsDouble());
     inputs.appliedVolts = motorVolts.getValueAsDouble();
@@ -621,10 +639,12 @@ public final class JointIOTalon implements JointIO {
     if (!frames.refresh(cancoder.get().number(), health).isOK()) {
       return Magnet.NOT_SAID;
     }
-    if (health.getValue() == MagnetHealthValue.Magnet_Red) {
-      return Magnet.BAD;
-    }
-    return Magnet.USABLE;
+    return switch (health.getValue()) {
+      case Magnet_Red -> Magnet.BAD;
+      // Phoenix calls the word invalid: the CANcoder hasn't said, as far as trusting it goes.
+      case Magnet_Invalid -> Magnet.NOT_SAID;
+      case Magnet_Green, Magnet_Orange -> Magnet.USABLE;
+    };
   }
 
   /**
@@ -737,9 +757,15 @@ public final class JointIOTalon implements JointIO {
     leader.device().setControl(voltageRequest.withOutput(volts));
   }
 
+  /**
+   * A share of 12 V, as a voltage: the same volts on a TalonFX as on a SPARK, whatever the battery
+   * reads (J9). It also keeps every request the leader runs a voltage, which its followers copy
+   * from the motor voltage it sends every loop. A Phoenix duty cycle would have them copy its duty
+   * cycle signal instead, which is trimmed to four times a second ({@link #sendOnlyWhatIsRead}).
+   */
   @Override
   public void setDutyCycle(double share) {
-    leader.device().setControl(dutyCycleRequest.withOutput(share));
+    leader.device().setControl(voltageRequest.withOutput(share * Motor.NOMINAL_VOLTS));
   }
 
   @Override

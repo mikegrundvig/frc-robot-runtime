@@ -41,12 +41,7 @@ class SensorGatesSimTest {
       JointFixtures.limit("pivot down", PIVOT, Sensor.Switch.Limit.End.LOWER, Math.toRadians(2));
 
   private static final Sensor.Rangefinder HOPPER =
-      Sensor.Rangefinder.builder()
-          .label("hopper range")
-          .part(Part.CHASSIS)
-          .range(Meters.of(1))
-          .fieldOfView(Degrees.of(27))
-          .build();
+      Sensor.Rangefinder.of("hopper range", Part.CHASSIS, Meters.of(1), Degrees.of(27));
 
   private static final RobotDefinition ROBOT =
       RobotDefinitionBuilder.builder(JointFixtures.ROBOT)

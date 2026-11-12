@@ -17,14 +17,15 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
 import com.michaelgrundvig.frc.world.robot.Drive;
 import com.michaelgrundvig.frc.world.robot.Driven;
-import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.Link;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -50,7 +51,7 @@ class RevMechanismTest {
 
   private static final MechanismControl CONTROL =
       MechanismControlBuilder.builder(ControllerSettings.control(PIVOT))
-          .softLimits(MechanismControl.SoftLimits.builder().lower(0.1).upper(2.2).build())
+          .softLimits(MechanismControl.SoftLimits.of(0.1, 2.2))
           .build();
 
   /** Two motor controllers of a kind, at 41, turning clockwise, and 42, the other way. */
@@ -95,7 +96,7 @@ class RevMechanismTest {
    */
   @Test
   void anUnweighedPivotsTunedKgPullsHardestAtItsGravityAngle() {
-    Joint.Revolute bare = JointRevoluteBuilder.builder(PIVOT).link(Link.unseen("bare arm")).build();
+    RevoluteJoint bare = RevoluteJointBuilder.builder(PIVOT).link(Link.unseen("bare arm")).build();
     Drive neo = JointFixtures.motors(bare, Motor.NEO, 2, JointFixtures.gearing(25));
     RobotMath math = RobotMath.of(ROBOT.body(), List.of(bare), List.of(), List.of(neo), List.of());
 
@@ -116,7 +117,7 @@ class RevMechanismTest {
    */
   @Test
   void anArmWhosePositiveLowersItRunsOnASpark() {
-    Joint.Revolute bare = JointRevoluteBuilder.builder(PIVOT).link(Link.unseen("bare arm")).build();
+    RevoluteJoint bare = RevoluteJointBuilder.builder(PIVOT).link(Link.unseen("bare arm")).build();
     Drive neo = JointFixtures.motors(bare, Motor.NEO, 2, JointFixtures.gearing(25));
     RobotMath math = RobotMath.of(ROBOT.body(), List.of(bare), List.of(), List.of(neo), List.of());
     MechanismControl lowering = CONTROL.withKg(0.4, Degrees.of(180));
@@ -201,7 +202,7 @@ class RevMechanismTest {
    */
   @Test
   void anElevatorsLoopClosesOnItsDataPortEncoderGearedToItsDrum() {
-    Joint.Prismatic elevator =
+    PrismaticJoint elevator =
         JointFixtures.unmotored(JointFixtures.ELEVATOR)
             .motors(
                 Motor.NEO_VORTEX
@@ -221,7 +222,7 @@ class RevMechanismTest {
     Sensor.Encoder absolute = Objects.requireNonNull(math.absoluteEncoder(elevator));
     MechanismControl limited =
         MechanismControlBuilder.builder(ControllerSettings.control(elevator))
-            .softLimits(MechanismControl.SoftLimits.builder().lower(0.05).upper(1.1).build())
+            .softLimits(MechanismControl.SoftLimits.of(0.05, 1.1))
             .build();
     ControllerPlan plan = ControllerPlan.of(math, elevator, limited);
     MechanismWiring.DataPortEncoder port =

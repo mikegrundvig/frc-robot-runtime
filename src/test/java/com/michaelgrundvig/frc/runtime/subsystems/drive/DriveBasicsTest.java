@@ -25,6 +25,7 @@ import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.geometry.Translation2d;
+import org.wpilib.math.kinematics.ChassisVelocities;
 
 /** Does the drivetrain go where the driver points it? */
 @ExtendWith(RobotSim.class)
@@ -49,7 +50,8 @@ class DriveBasicsTest {
     assertTrue(pose.getX() > 5.0, "moved " + pose.getX() + " m forward");
     assertEquals(0.0, pose.getY(), 0.02, "no sideways drift");
     assertEquals(0.0, pose.getRotation().getDegrees(), 0.5, "no turning");
-    double topSpeed = ExampleRobot.SIM.drivetrain().limits().maxLinearSpeed().baseUnitMagnitude();
+    double topSpeed =
+        ExampleRobot.SIM.drivetrain().limits().maxLinearSpeed().orElseThrow().baseUnitMagnitude();
     assertEquals(topSpeed, harness.drive.getRobotRelativeVelocities().vx, 0.05, "full stick");
   }
 
@@ -127,7 +129,7 @@ class DriveBasicsTest {
             inputs.odometryYawsRad = new double[] {Double.NaN};
           }
         };
-    try (Drive drive = drive("NaNImu", hardware(sendingNaN, fourModules()))) {
+    try (SwerveDrive drive = drive("NaNImu", hardware(sendingNaN, fourModules()))) {
       drive.periodic(true);
 
       assertTrue(drive.readings().gyro().reporting());
@@ -147,11 +149,96 @@ class DriveBasicsTest {
         };
     DriveHardware hardware =
         hardware(new GyroIO() {}, missed, new ModuleIO() {}, new ModuleIO() {}, new ModuleIO() {});
-    try (Drive drive = drive("Unconfigured", hardware)) {
+    try (SwerveDrive drive = drive("Unconfigured", hardware)) {
       drive.periodic(false);
 
       assertTrue(drive.isModuleUnconfiguredAlertActive(0));
       assertFalse(drive.isModuleUnconfiguredAlertActive(1));
+    }
+  }
+
+  /** A module that can be said not to have taken its settings, and that counts what it is told. */
+  private static final class Counted implements ModuleIO {
+    String unconfigured = "";
+    int drives;
+    int stops;
+
+    @Override
+    public void updateInputs(ModuleIOInputs inputs) {
+      inputs.driveConnected = true;
+      inputs.steerConnected = true;
+      inputs.unconfigured = unconfigured;
+    }
+
+    @Override
+    public void setDriveVelocity(double wheelRadPerSec, double feedforwardVolts) {
+      drives++;
+    }
+
+    @Override
+    public void stop() {
+      stops++;
+    }
+  }
+
+  /**
+   * While one module's devices haven't taken their settings, no module is driven, whatever is
+   * asked, and a move waits to begin: that module would run on its defaults, without its
+   * directions, gearing or current limits. Once they have, the drivetrain drives again. A device of
+   * the module is sent its settings again once it answers ({@code TalonModuleWiringTest}).
+   */
+  @Test
+  void aModuleWhoseDevicesHaventTakenTheirSettingsHoldsTheDrivetrainStill() {
+    Counted[] modules = {new Counted(), new Counted(), new Counted(), new Counted()};
+    modules[2].unconfigured = "CANcoder 9";
+    try (SwerveDrive drive = drive("HeldStill", hardware(new GyroIO() {}, modules))) {
+      drive.periodic(true);
+      drive.runVelocity(new ChassisVelocities(1, 0, 0));
+      boolean mayBeDriven = drive.isEnabled();
+      int[] drivesWhileHeld = new int[Module.COUNT];
+      for (int i = 0; i < Module.COUNT; i++) {
+        drivesWhileHeld[i] = modules[i].drives;
+      }
+
+      modules[2].unconfigured = "";
+      drive.periodic(true);
+      drive.runVelocity(new ChassisVelocities(1, 0, 0));
+
+      assertFalse(mayBeDriven, "a move waits to begin");
+      for (int i = 0; i < Module.COUNT; i++) {
+        assertEquals(0, drivesWhileHeld[i], Module.NAMES.get(i) + " driven while held");
+        assertTrue(modules[i].stops > 0, Module.NAMES.get(i) + " held still");
+        assertEquals(1, modules[i].drives, Module.NAMES.get(i) + " driven once configured");
+      }
+      assertTrue(drive.isEnabled(), "configured: it may be driven");
+    }
+  }
+
+  /** A CANcoder whose magnet is too close or too far says so: its angle can't be trusted. */
+  @Test
+  void aModuleWhoseMagnetIsRedRaisesItsAlert() {
+    ModuleIO red =
+        new ModuleIO() {
+          @Override
+          public void updateInputs(ModuleIOInputs inputs) {
+            inputs.encoderMagnet = MagnetHealth.RED;
+          }
+        };
+    ModuleIO orange =
+        new ModuleIO() {
+          @Override
+          public void updateInputs(ModuleIOInputs inputs) {
+            inputs.encoderMagnet = MagnetHealth.ORANGE;
+          }
+        };
+    DriveHardware hardware =
+        hardware(new GyroIO() {}, new ModuleIO() {}, red, orange, new ModuleIO() {});
+    try (SwerveDrive drive = drive("MagnetRed", hardware)) {
+      drive.periodic(false);
+
+      assertFalse(drive.isModuleMagnetRedAlertActive(0), "not said");
+      assertTrue(drive.isModuleMagnetRedAlertActive(1), "red");
+      assertFalse(drive.isModuleMagnetRedAlertActive(2), "orange still reads well");
     }
   }
 
@@ -162,7 +249,7 @@ class DriveBasicsTest {
    */
   @Test
   void commandsOnTheSticksAreBuiltBeforeTheRobotHandsThemOver() {
-    try (Drive drive = drive("NoSticks", hardware(new GyroIO() {}, fourModules()))) {
+    try (SwerveDrive drive = drive("NoSticks", hardware(new GyroIO() {}, fourModules()))) {
       Command driven = drive.driven();
       Gate aimed = drive.facing(Heading.field(Rotation2d.ZERO)).aimed();
 
@@ -189,7 +276,7 @@ class DriveBasicsTest {
             }
           };
     }
-    try (Drive drive = drive("Silent", hardware(new GyroIO() {}, connectedButSilent))) {
+    try (SwerveDrive drive = drive("Silent", hardware(new GyroIO() {}, connectedButSilent))) {
       drive.periodic(true);
       boolean afterOneLoop = drive.isOdometryStoppedAlertActive();
       for (int i = 0; i < 10; i++) {
@@ -230,7 +317,7 @@ class DriveBasicsTest {
             }
           };
     }
-    try (Drive drive = drive("OnThree", hardware(new GyroIO() {}, modules))) {
+    try (SwerveDrive drive = drive("OnThree", hardware(new GyroIO() {}, modules))) {
       drive.periodic(true);
       OdometrySample before = drive.readings().wheels().get(0);
       clock[0] += 20_000_000;
@@ -251,8 +338,8 @@ class DriveBasicsTest {
     }
   }
 
-  private Drive drive(String name, DriveHardware hardware) {
-    return new Drive(
+  private SwerveDrive drive(String name, DriveHardware hardware) {
+    return new SwerveDrive(
         name,
         hardware,
         ExampleRobot.SIM.definition(),

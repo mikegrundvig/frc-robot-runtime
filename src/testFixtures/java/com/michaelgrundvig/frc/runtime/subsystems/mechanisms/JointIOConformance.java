@@ -23,10 +23,14 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SensorWiring.Direction;
 import com.michaelgrundvig.frc.world.robot.SensorWiring.Polarity;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -221,45 +225,45 @@ public abstract class JointIOConformance {
   // The joints on the bench: the fixtures' joints, turned by the bench's motors on its controllers.
 
   /** The pivot on the bench's first controller, with room under its current limit. */
-  private Joint.Revolute pivot() {
+  private RevoluteJoint pivot() {
     return pivot(bench.controller(0));
   }
 
-  private Joint.Revolute pivot(MechanismWiring.Device... controllers) {
+  private RevoluteJoint pivot(MechanismWiring.Device... controllers) {
     return unmotored(PIVOT)
         .motors(bench.motor().through(gearing(25)).on(controllers))
         .retuned(control -> control.withStatorLimit(Amps.of(ROOMY_AMPS)));
   }
 
   /** The pivot with soft limits, {@link #LOWER} to {@link #UPPER}. */
-  private Joint.Revolute limitedPivot() {
+  private RevoluteJoint limitedPivot() {
     return pivot()
         .retuned(control -> control.withSoftLimits(Range.of(Radians.of(LOWER), Radians.of(UPPER))));
   }
 
   /** The elevator on two of the bench's controllers, through its drum. */
-  private Joint.Prismatic elevator(MechanismWiring.Device leader, MechanismWiring.Device follower) {
+  private PrismaticJoint elevator(MechanismWiring.Device leader, MechanismWiring.Device follower) {
     return unmotored(ELEVATOR)
         .motors(bench.motor().through(gearing(10)).drum(Inches.of(1)).on(leader, follower))
         .retuned(control -> control.withStatorLimit(Amps.of(ROOMY_AMPS)));
   }
 
   /** The roller, which runs at speeds. */
-  private Joint.Revolute roller() {
+  private RevoluteJoint roller() {
     return unmotored(ROLLER)
         .motors(bench.motor().through(gearing(3)).on(bench.controller(0)))
         .retuned(control -> control.withStatorLimit(Amps.of(ROOMY_AMPS)));
   }
 
   /** The turret, which turns freely. */
-  private Joint.Revolute turret() {
+  private RevoluteJoint turret() {
     return unmotored(TURRET)
         .motors(bench.motor().through(gearing(50)).on(bench.controller(0)))
         .retuned(control -> control.withStatorLimit(Amps.of(ROOMY_AMPS)));
   }
 
   /** A joint's control without its homing recipe: an absolute encoder says where the joint is. */
-  private static Joint.Revolute unhomed(Joint.Revolute joint) {
+  private static RevoluteJoint unhomed(RevoluteJoint joint) {
     return joint.retuned(
         control -> MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
   }
@@ -268,7 +272,7 @@ public abstract class JointIOConformance {
 
   /** Powers the driver on for a joint that is where its definition rests it. */
   private JointIO powerOn(Joint joint) {
-    return powerOn(joint, ControllerPins.NONE, joint.restPosition());
+    return powerOn(joint, ControllerPins.NONE, RobotMath.restPosition(joint));
   }
 
   /**
@@ -477,8 +481,8 @@ public abstract class JointIOConformance {
    */
   @Test
   void j4j20j24j25_itStartsNeutralReadingWhereItsDefinitionRestsIt() {
-    Joint.Revolute pivot = pivot();
-    double rest = pivot.restPosition();
+    RevoluteJoint pivot = pivot();
+    double rest = RobotMath.restPosition(pivot);
 
     powerOn(pivot, ControllerPins.NONE, 0.9);
     loops(JointIO.HEALTH_LOOPS);
@@ -603,6 +607,42 @@ public abstract class JointIOConformance {
     clause(JointClause.J23, () -> assertThat(least).as("J23").isNotNegative());
   }
 
+  /** A homing push on a joint held still, under a limit on the current through its motor. */
+  private record Stall(String what, double volts, double statorLimitAmps) {}
+
+  /**
+   * A homing push on a joint that cannot move draws the push's volts over the motor's windings, up
+   * to the stator limit: the evidence homing takes that a still joint is pushing on its stop
+   * ({@link JointHoming#STALL_SHARE}). Phoenix's simulated TalonFXS holds 70% of a limit that
+   * bites; every other driver reads within 5% of it.
+   */
+  @Test
+  void j41_aStalledPushDrawsItsVoltsOverTheWindingsUpToTheLimit() {
+    List<Stall> rows =
+        List.of(
+            new Stall("2 V, under a roomy limit", 2, ROOMY_AMPS),
+            new Stall("1 V, under a roomy limit", 1, ROOMY_AMPS),
+            new Stall("4 V, held to 20 A", 4, 20));
+
+    for (Stall row : rows) {
+      RevoluteJoint pivot =
+          pivot().retuned(control -> control.withStatorLimit(Amps.of(row.statorLimitAmps())));
+      JointIO io = powerOn(pivot);
+      rig().jointIs(0.8);
+      io.home(row.volts());
+      double stall = JointHoming.stallAmps(pivot, row.volts(), row.statorLimitAmps());
+      settles(
+          String.format(Locale.ROOT, "J41: %s draws about %.1f A", row.what(), stall),
+          () -> inputs.statorCurrentAmps > 0.6 * stall && inputs.statorCurrentAmps < 1.1 * stall);
+      // A push held at its limit raises the device's current-limit fault. It is left to clear, so
+      // the next scenario's devices start without it: a TalonFX sends its faults four times a
+      // second, and one from here would still stand as the next powers on.
+      io.stop();
+      eventually("its faults clear", () -> Arrays.stream(inputs.faults).allMatch(f -> f == 0));
+    }
+    assertThat(JointHoming.STALL_SHARE).as("homing's share, under all of these").isLessThan(0.6);
+  }
+
   /** A point of a profile asked of a joint that reads still at 0.8 rad. */
   private record Point(String what, double position, double velocity, double feedforwardVolts) {}
 
@@ -641,7 +681,7 @@ public abstract class JointIOConformance {
    */
   @Test
   void j6j7_aVelocityRunsTheVelocityLawWithoutKi() {
-    Joint.Revolute roller = roller();
+    RevoluteJoint roller = roller();
     JointIO io = powerOn(roller);
     rig().jointIs(0);
 
@@ -809,7 +849,7 @@ public abstract class JointIOConformance {
             pins(Polarity.NORMALLY_CLOSED, Polarity.NORMALLY_OPEN, true));
 
     for (ControllerPins pins : rows) {
-      JointIO io = powerOn(pivot(), pins, PIVOT.restPosition());
+      JointIO io = powerOn(pivot(), pins, RobotMath.restPosition(PIVOT));
       rig().jointIs(0.8);
       for (Direction direction : Direction.values()) {
         double toward = direction == Direction.FORWARD ? 2 : -2;
@@ -843,7 +883,7 @@ public abstract class JointIOConformance {
         powerOn(
             pivot(),
             pins(Polarity.NORMALLY_OPEN, Polarity.NORMALLY_OPEN, false),
-            PIVOT.restPosition());
+            RobotMath.restPosition(PIVOT));
     rig().jointIs(0.8);
     io.setVoltage(2);
     settlesAt("driven forward", 2);
@@ -864,7 +904,7 @@ public abstract class JointIOConformance {
     Assumptions.assumeTrue(
         elsewhere.isPresent(), bench.name() + " reads no limit from another device");
     ControllerPins pins = ControllerPins.NONE.with(Direction.FORWARD, elsewhere.orElseThrow());
-    JointIO io = powerOn(pivot(), pins, PIVOT.restPosition());
+    JointIO io = powerOn(pivot(), pins, RobotMath.restPosition(PIVOT));
     rig().jointIs(0.8);
     io.setVoltage(2);
     settlesAt("driven forward", 2);
@@ -903,7 +943,7 @@ public abstract class JointIOConformance {
    */
   @Test
   void j18_aRetunePutsItsGainsAndCurrentLimitsInForce() {
-    Joint.Revolute pivot = pivot();
+    RevoluteJoint pivot = pivot();
     JointIO io = powerOn(pivot);
     double here = 0.8;
     rig().jointIs(here);
@@ -974,7 +1014,7 @@ public abstract class JointIOConformance {
    */
   @Test
   void j19_aRetuneChangesNothingButGainsAndCurrentLimits() {
-    Joint.Revolute pivot = limitedPivot();
+    RevoluteJoint pivot = limitedPivot();
     JointIO io = powerOn(pivot);
     rig().jointIs(1.5);
     eventually("it reads between its limits", () -> reads(1.5));
@@ -1005,7 +1045,7 @@ public abstract class JointIOConformance {
   @Test
   void j31j32_aRestartedLeaderSaysSoOnceAndKeepsItsTuningAndSoftLimits() {
     needs(Ability.RESTART_THE_LEADER);
-    Joint.Revolute pivot = limitedPivot();
+    RevoluteJoint pivot = limitedPivot();
     JointIO io = powerOn(pivot);
     rig().jointIs(0.8);
     eventually("it reads", () -> reads(0.8));
@@ -1166,7 +1206,7 @@ public abstract class JointIOConformance {
     Optional<MechanismWiring.EncoderWiring> wiring = bench.encoderBesideTheCount();
     Assumptions.assumeTrue(
         wiring.isPresent(), bench.name() + " reads no absolute encoder beside its count");
-    Joint.Revolute pivot = pivot().absoluteEncoder(wiring.orElseThrow());
+    RevoluteJoint pivot = pivot().absoluteEncoder(wiring.orElseThrow());
     double poweredOnAt = Math.toRadians(60);
 
     powerOn(pivot, ControllerPins.NONE, poweredOnAt);
@@ -1199,7 +1239,7 @@ public abstract class JointIOConformance {
     Optional<MechanismWiring.EncoderWiring> wiring = bench.encoderTheLoopRunsOn();
     Assumptions.assumeTrue(
         wiring.isPresent(), bench.name() + " runs its loop on no absolute encoder");
-    Joint.Revolute pivot = unhomed(pivot()).absoluteEncoder(wiring.orElseThrow());
+    RevoluteJoint pivot = unhomed(pivot()).absoluteEncoder(wiring.orElseThrow());
     double poweredOnAt = Math.toRadians(60);
 
     powerOn(pivot, ControllerPins.NONE, poweredOnAt);

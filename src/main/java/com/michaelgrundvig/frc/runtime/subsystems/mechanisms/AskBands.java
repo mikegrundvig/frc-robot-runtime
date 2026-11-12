@@ -23,7 +23,7 @@ record AskBands(double position, double speedShare, double freeSpeed) {
     return switch (now) {
       case JointAsk.ToPosition toPosition -> moved <= position;
       case JointAsk.AtVelocity atVelocity -> moved <= speedBand(atVelocity.speed());
-      // A voltage or a share of the battery has nothing to reach, so the joint is doing either at
+      // A voltage or a duty cycle has nothing to reach, so the joint is doing either at
       // once whatever its size. A command with a law of its own asks a new voltage every loop.
       case JointAsk.AtVoltage atVoltage -> true;
       case JointAsk.AtDutyCycle atDutyCycle -> true;

@@ -8,13 +8,16 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A recording of a seeded session, row by row, beside the test that makes it: the session must come
  * out the same, numbers within a millionth and everything else exactly. With the environment
  * variable {@code GOLDEN_UPDATE=1} the test records the session instead, for a change meant to move
- * it; commit the file with the change, saying why it moved.
+ * it, and prints what recording it again changed; commit the file with the change, saying why it
+ * moved.
  */
 public final class GoldenFile {
   /** Close enough for the same arithmetic on another processor; far below any real change. */
@@ -37,7 +40,12 @@ public final class GoldenFile {
               .resolve(test.getPackageName().replace('.', '/'))
               .resolve(name);
       Files.createDirectories(file.getParent());
+      Optional<List<String>> before = Optional.empty();
+      if (Files.exists(file)) {
+        before = Optional.of(Files.readAllLines(file, StandardCharsets.UTF_8));
+      }
       Files.writeString(file, String.join("\n", actual) + "\n", StandardCharsets.UTF_8);
+      System.out.println(changes(name, header, before, actual));
       return;
     }
     List<String> expected = recorded(test, name);
@@ -51,6 +59,71 @@ public final class GoldenFile {
       }
     }
     assertThat(actual).as("rows").hasSameSizeAs(expected);
+  }
+
+  /**
+   * What recording again changed, in a line, for the one recording it: how many rows differ by the
+   * check's own tolerance, how many were added or removed, and the first that differs, column by
+   * column.
+   *
+   * @param header what each row's columns are, comma-separated, to name the columns that changed
+   * @param before the recording as it was; empty when there was none
+   */
+  static String changes(
+      String name, String header, Optional<List<String>> before, List<String> now) {
+    if (before.isEmpty()) {
+      return name + ": a new recording, " + now.size() + " rows";
+    }
+    List<String> was = before.get();
+    int common = Math.min(was.size(), now.size());
+    int changed = 0;
+    int first = -1;
+    for (int i = 0; i < common; i++) {
+      if (matches(was.get(i), now.get(i))) {
+        continue;
+      }
+      changed++;
+      if (first < 0) {
+        first = i;
+      }
+    }
+    String counts =
+        changed
+            + " of "
+            + common
+            + " rows changed, "
+            + Math.max(0, now.size() - was.size())
+            + " added, "
+            + Math.max(0, was.size() - now.size())
+            + " removed";
+    if (changed == 0) {
+      return name + ": " + counts;
+    }
+    return name
+        + ": "
+        + counts
+        + "; the first at row "
+        + first
+        + ": "
+        + columnsChanged(header, was.get(first), now.get(first));
+  }
+
+  /** Each column that differs between two rows, by its name: its value then, and now. */
+  private static String columnsChanged(String header, String was, String now) {
+    String[] names = header.split(",");
+    String[] before = was.split(",", -1);
+    String[] after = now.split(",", -1);
+    List<String> columns = new ArrayList<>();
+    for (int i = 0; i < Math.max(before.length, after.length); i++) {
+      String then = i < before.length ? before[i] : "";
+      String today = i < after.length ? after[i] : "";
+      if (matches(then, today)) {
+        continue;
+      }
+      String column = i < names.length ? names[i] : "column " + i;
+      columns.add(column + " " + then + " -> " + today);
+    }
+    return String.join(", ", columns);
   }
 
   private static List<String> recorded(Class<?> test, String name) throws IOException {

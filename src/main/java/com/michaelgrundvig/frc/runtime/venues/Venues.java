@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.runtime.venues;
 
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.FieldModel;
-import com.michaelgrundvig.frc.world.field.TagLayout;
 import com.michaelgrundvig.frc.world.field.Venue;
 import com.michaelgrundvig.frc.world.field.VenueCheck;
 import com.michaelgrundvig.frc.world.field.VenueFile;
@@ -186,7 +186,7 @@ public final class Venues implements AutoCloseable {
     try {
       venue = VenueFile.read(text);
     } catch (IllegalArgumentException e) {
-      return new Selection.Unusable(String.valueOf(e.getMessage()));
+      return new Selection.Unusable(Said.of(e));
     }
     List<String> problems = problems(venue);
     if (!problems.isEmpty()) {
@@ -218,9 +218,9 @@ public final class Venues implements AutoCloseable {
   /** The field model for a field: the game's, with the venue's tags or the official layout's. */
   private FieldModel model(Selection field) {
     if (field instanceof Selection.Surveyed surveyed) {
-      return game.model().apply(surveyed.venue().tagLayout(surveyed.base()));
+      return game.model().apply(surveyed.venue().tagLayout(game.layout(surveyed.base())));
     }
-    return game.model().apply(TagLayout.of(game.official()));
+    return game.officialField();
   }
 
   /** What the robot believes it plays on: a venue's name, or the official layout's. */
@@ -234,7 +234,7 @@ public final class Venues implements AutoCloseable {
     if (base.isEmpty()) {
       return List.of("it was measured against \"" + venue.base() + "\", not this game's field");
     }
-    return VenueCheck.problems(venue, base.get(), game.symmetry());
+    return VenueCheck.problems(venue, game.layout(base.get()), game.symmetry());
   }
 
   /** The official layout a venue was measured against, if it is one of this game's. */

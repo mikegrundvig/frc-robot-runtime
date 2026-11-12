@@ -17,9 +17,9 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
 import com.michaelgrundvig.frc.runtime.sim.PdhIOSim;
 import com.michaelgrundvig.frc.runtime.sim.SensorSimulation;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveInvariants;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.localization.LocalizationInvariants;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
@@ -37,13 +37,15 @@ import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.path.Keyframe;
 import com.michaelgrundvig.frc.world.robot.CanDevice;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.Preset;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import java.util.ArrayDeque;
@@ -77,16 +79,16 @@ import org.wpilib.units.Measure;
  * loop. Its report counts the loops each joint and drive move check had something to judge. Its
  * drive team presses, holds, taps and releases every button the robot's bindings record, both
  * gamepads' sticks wander, commands a team's code could schedule (each joint's moves, its outputs,
- * its configurations, a law of its own, now and then a target that isn't a number; the drivetrain's
- * moves to a pose, a heading, along a path, or at a speed until something holds) start and are
- * canceled, and the robot is disabled and enabled as a match does, and now and then as a brownout
- * or the drive team does, at any moment, mid-homing or mid-move, and its mode switched between
- * autonomous and teleop. With faults on, at random times something fails and later recovers: a
- * sensor tripped, blinded, silenced or its wire cut; a joint's motor controller silenced or
- * restarted, its encoder frozen, slipped or unplugged, the joint jammed, one of its motors' PDH
- * breakers tripped (its controller off the CAN bus without power, a leader's taking the joint with
- * it), or one of its followers off the CAN bus alone; and anything the simulator's controls can
- * fail (the drivetrain's modules and IMUs, the cameras, every camera at once, the robot shoved).
+ * its presets, a law of its own, now and then a target that isn't a number; the drivetrain's moves
+ * to a pose, a heading, along a path, or at a speed until something holds) start and are canceled,
+ * and the robot is disabled and enabled as a match does, and now and then as a brownout or the
+ * drive team does, at any moment, mid-homing or mid-move, and its mode switched between autonomous
+ * and teleop. With faults on, at random times something fails and later recovers: a sensor tripped,
+ * blinded, silenced or its wire cut; a joint's motor controller silenced or restarted, its encoder
+ * frozen, slipped or unplugged, the joint jammed, one of its motors' PDH breakers tripped (its
+ * controller off the CAN bus without power, a leader's taking the joint with it), or one of its
+ * followers off the CAN bus alone; and anything the simulator's controls can fail (the drivetrain's
+ * modules and IMUs, the cameras, every camera at once, the robot shoved).
  *
  * <p>Everything random comes from one {@link Random}, seeded, and the simulator's clock moves only
  * as it's stepped, so a seed runs the same every time: a failure names its seed and its loop, and
@@ -486,21 +488,19 @@ public final class Monkey {
     };
   }
 
-  /** A command a team's code could schedule, on a joint or a configuration. */
+  /** A command a team's code could schedule, on a joint or a preset. */
   private void command(Joints joints) {
     List<JointMechanism> all = joints.all();
-    List<Configuration> configurations = sim.robot().definition().configurations();
+    List<Preset> presets = sim.robot().definition().presets();
     Command command;
     if (random.nextInt(4) == 0) {
       command = driveCommand();
-    } else if (!configurations.isEmpty() && random.nextInt(8) == 0) {
-      Configuration configuration = configurations.get(random.nextInt(configurations.size()));
+    } else if (!presets.isEmpty() && random.nextInt(8) == 0) {
+      Preset preset = presets.get(random.nextInt(presets.size()));
       command =
           random.nextBoolean()
-              ? joints.goTo(configuration)
-              : joints
-                  .run(configuration)
-                  .withTimeout(Seconds.of(lasting(4) * RobotLoop.PERIOD_SECONDS));
+              ? joints.goTo(preset)
+              : joints.run(preset).withTimeout(Seconds.of(lasting(4) * RobotLoop.PERIOD_SECONDS));
     } else if (!all.isEmpty()) {
       command = jointCommand(all.get(random.nextInt(all.size())));
     } else {
@@ -515,7 +515,7 @@ public final class Monkey {
    * (now and then none, or two of a name, which it refuses), or at a speed until something holds.
    */
   private Command driveCommand() {
-    Drive drive = sim.drive();
+    SwerveDrive drive = sim.drive();
     double timeout = lasting(6) * RobotLoop.PERIOD_SECONDS;
     return switch (random.nextInt(6)) {
       case 0 -> drive.goTo(onTheField());
@@ -558,7 +558,7 @@ public final class Monkey {
     List<Output> outputs = new ArrayList<>(joint.outputs());
     outputs.add(Output.STOPPED);
     Output output = outputs.get(random.nextInt(outputs.size()));
-    int choice = random.nextInt(joint.holdsPositions() ? 10 : 5);
+    int choice = random.nextInt(RobotMath.holdsPositions(joint) ? 10 : 5);
     return switch (choice) {
       case 0 -> mechanism.run(output).withTimeout(Seconds.of(timeout));
       case 1 ->
@@ -582,7 +582,7 @@ public final class Monkey {
   /** A joint to a computed position: somewhere in its range, or a little past it. */
   private Move goTo(JointMechanism mechanism) {
     double to = somewhere(mechanism.joint());
-    return mechanism.joint() instanceof Joint.Revolute
+    return mechanism.joint() instanceof RevoluteJoint
         ? mechanism.goTo(Radians.of(to))
         : mechanism.goTo(Meters.of(to));
   }
@@ -605,7 +605,7 @@ public final class Monkey {
 
   /** A position or a speed in a joint's units, as a measure: radians or meters, a second or not. */
   private static Measure<?> measure(Joint joint, double value, boolean speed) {
-    boolean turns = joint instanceof Joint.Revolute;
+    boolean turns = joint instanceof RevoluteJoint;
     if (speed) {
       return turns ? RadiansPerSecond.of(value) : MetersPerSecond.of(value);
     }
@@ -824,10 +824,14 @@ public final class Monkey {
                 joint,
                 () -> truth.freeze(joint, true),
                 () -> truth.freeze(joint, false)));
-        double off = (random.nextDouble() * 2 - 1) * (joint instanceof Joint.Revolute ? 0.5 : 0.1);
+        double off = (random.nextDouble() * 2 - 1) * (joint instanceof RevoluteJoint ? 0.5 : 0.1);
         catalog.add(
             new Fault(
-                String.format(Locale.ROOT, "%s's encoder slipped %s", label, joint.shown(off)),
+                String.format(
+                    Locale.ROOT,
+                    "%s's encoder slipped %s",
+                    label,
+                    Position.Kind.of(joint).shown(off)),
                 joint,
                 () -> truth.slip(joint, off),
                 () -> truth.slip(joint, 0)));
@@ -931,7 +935,9 @@ public final class Monkey {
 
   /** A joint's motor controllers, the leader first. */
   private static List<CanDevice> motors(Joint joint) {
-    return joint.devices().stream().filter(device -> device.kind().motorController()).toList();
+    return RobotMath.devices(joint).stream()
+        .filter(device -> device.kind().motorController())
+        .toList();
   }
 
   /**

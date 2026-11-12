@@ -1,8 +1,8 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.Optional;
 
@@ -31,7 +31,7 @@ final class AbsoluteEncoderIOSim implements AbsoluteEncoderIO {
   AbsoluteEncoderIOSim(
       JointIOSim joint, Sensor.Encoder model, Optional<MechanismWiring.PortEncoder> port) {
     this.joint = joint;
-    double unitsPerTurn = joint.joint() instanceof Joint.Revolute ? 2 * Math.PI : 1;
+    double unitsPerTurn = joint.joint() instanceof RevoluteJoint ? 2 * Math.PI : 1;
     turnsPerUnit = Math.abs(model.ratio(joint.joint())) / unitsPerTurn;
     this.port = port;
   }

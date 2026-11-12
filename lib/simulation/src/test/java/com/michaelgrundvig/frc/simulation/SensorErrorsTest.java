@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.simulation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -89,6 +90,6 @@ class SensorErrorsTest {
   @Test
   void aPigeonsAccelerometerReadsTo2G() {
     assertThat(SensorErrors.AccelErrors.PIGEON_2.rangeMetersPerSecSq())
-        .isEqualTo(2 * Physics.STANDARD_GRAVITY);
+        .isEqualTo(2 * RobotMath.GRAVITY);
   }
 }

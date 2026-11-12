@@ -11,14 +11,13 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.Body;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
+import com.michaelgrundvig.frc.world.robot.DrivetrainBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryCornerBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainCornerBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainModuleBuilder;
 import com.michaelgrundvig.frc.world.robot.ImuMount;
-import com.michaelgrundvig.frc.world.robot.ImusBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import org.wpilib.math.geometry.Rotation2d;
@@ -40,7 +39,7 @@ final class TruthRig {
   /** The robot's mass, as the program on the season's field takes it. */
   final Mass robotMass;
 
-  final DrivetrainGeometry drivetrain;
+  final Drivetrain drivetrain;
   final DriveSimulation simulation;
   final ModuleIO[] modules;
   final Translation2d[] wheels;
@@ -58,32 +57,28 @@ final class TruthRig {
   }
 
   TruthRig(Body body, double frictionCoefficient, SensorErrors errors) {
-    this(body, frictionCoefficient, errors, ExampleRobot.SIM.definition().imus().gyro());
+    this(body, frictionCoefficient, errors, ExampleRobot.SIM.definition().gyroMount());
   }
 
   /** As above, its gyro mounted here. */
   TruthRig(Body body, double frictionCoefficient, SensorErrors errors, ImuMount gyro) {
     this.body = body;
     this.robotMass = Rebuilt.GAME.limits().robotMass(body);
-    DrivetrainGeometry template = ExampleRobot.SIM.definition().drivetrain();
-    List<DrivetrainGeometry.Corner> corners = new ArrayList<>();
-    for (DrivetrainGeometry.Corner corner : template.corners()) {
+    Drivetrain template = ExampleRobot.SIM.definition().drivetrain();
+    List<Drivetrain.Corner> corners = new ArrayList<>();
+    for (Drivetrain.Corner corner : template.corners()) {
       corners.add(
-          DrivetrainGeometryCornerBuilder.builder(corner)
+          DrivetrainCornerBuilder.builder(corner)
               .module(
-                  DrivetrainGeometryModuleTypeBuilder.builder(corner.module())
+                  DrivetrainModuleBuilder.builder(corner.module())
                       .wheelCoefficientOfFriction(frictionCoefficient)
                       .build())
               .build());
     }
-    drivetrain = DrivetrainGeometryBuilder.builder(template).corners(corners).build();
+    drivetrain = DrivetrainBuilder.builder(template).corners(corners).build();
     simulation =
         new DriveSimulation(
-            body,
-            robotMass,
-            drivetrain,
-            errors,
-            ImusBuilder.builder(ExampleRobot.SIM.definition().imus()).gyro(gyro).build());
+            body, robotMass, drivetrain, errors, gyro, ExampleRobot.SIM.definition().backupImu());
     modules = simulation.modules();
     wheels = drivetrain.moduleTranslations();
     limitDrives(control.limits().driveStatorCurrent().in(Amps));

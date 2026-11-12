@@ -4,6 +4,7 @@ import com.michaelgrundvig.frc.localization.CameraTrust;
 import com.michaelgrundvig.frc.localization.DefaultLocalizer;
 import com.michaelgrundvig.frc.localization.DriveConditions;
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
+import com.michaelgrundvig.frc.localization.HeadingDoubt;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.LocalizationGate;
 import com.michaelgrundvig.frc.localization.LocalizationOutput;
@@ -11,8 +12,10 @@ import com.michaelgrundvig.frc.localization.LocalizationService;
 import com.michaelgrundvig.frc.localization.Localizer;
 import com.michaelgrundvig.frc.localization.LocalizerReport;
 import com.michaelgrundvig.frc.localization.LoopContext;
+import com.michaelgrundvig.frc.localization.OdometryOnly;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.PoseReset;
+import com.michaelgrundvig.frc.localization.Recovered;
 import com.michaelgrundvig.frc.localization.Trust;
 import com.michaelgrundvig.frc.localization.WheelTrust;
 import com.michaelgrundvig.frc.localization.YawSource;
@@ -23,6 +26,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.Set;
+import org.jspecify.annotations.Nullable;
 import org.littletonrobotics.junction.Logger;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -113,13 +117,31 @@ public final class Localization implements AutoCloseable {
   /** What the pit reads in place of something the localizer does not report. */
   static final String NOT_REPORTED = "not reported by this localizer";
 
+  /**
+   * What the pit's line says while the cameras disagree with a placement no camera has backed: the
+   * heading is the suspect, and how the drive team fixes it. The cameras turn the estimate on their
+   * own once they agree; Back is the fallback.
+   */
+  static final String LOST_SINCE_PLACED =
+      "Lost since it was placed: its heading is the suspect. Set it down facing its start's"
+          + " heading, or face it straight downfield and press Back";
+
   /** What the scoring gate made of the estimate. */
   private enum Scoring {
     READY,
     NOT_READY,
-    /** The localizer does not report what the gate judges by, so the gate holds nothing back. */
+    /**
+     * The localizer does not report what the gate judges by: ready or not as the robot's
+     * configuration says ({@link ScoringWhenNotJudged}).
+     */
     NOT_JUDGED
   }
+
+  /** What the gate says while it can't judge the estimate. */
+  private final ScoringWhenNotJudged whenNotJudged;
+
+  /** Whether an estimate is good enough to score from: the robot's configuration's. */
+  private final LocalizationGate scoringGate;
 
   private Scoring scoring = Scoring.NOT_READY;
 
@@ -128,6 +150,9 @@ public final class Localization implements AutoCloseable {
 
   /** The options the localizer did not report in the last update, by name, for the log. */
   private final List<String> notReported = new ArrayList<>();
+
+  /** The latest recovery as last logged: each is logged once, as it's made. */
+  private @Nullable Recovered lastRecoveryLogged;
 
   /** How often the robot has been placed, which the log counts so a placement can be found. */
   private int placements;
@@ -167,6 +192,7 @@ public final class Localization implements AutoCloseable {
           "tagsWithoutPlaces",
           "Measurements from tags the field's layout doesn't have",
           Alert.Level.MEDIUM);
+  private final Alert notJudged;
   private final Alert imuOrientation =
       new Alert(
           "Localization",
@@ -177,9 +203,39 @@ public final class Localization implements AutoCloseable {
 
   /**
    * @param service localization itself, which this feeds and reports on from now on
+   * @param scoringGate whether an estimate is good enough to score from
+   * @param whenNotJudged what the scoring gate says while the localizer reports too little for it
+   *     to judge by
    */
-  public Localization(LocalizationService service) {
+  public Localization(
+      LocalizationService service,
+      LocalizationGate scoringGate,
+      ScoringWhenNotJudged whenNotJudged) {
     this.service = service;
+    this.scoringGate = scoringGate;
+    this.whenNotJudged = whenNotJudged;
+    notJudged =
+        new Alert(
+            "Localization", "scoringNotJudged", notJudgedText(whenNotJudged), Alert.Level.MEDIUM);
+  }
+
+  /**
+   * What the not-judged alert says: why the gate can't judge, what it says instead, and how else.
+   */
+  private static String notJudgedText(ScoringWhenNotJudged whenNotJudged) {
+    String why =
+        "Scoring isn't judged: the localizer doesn't report what the pose rests on, its health and"
+            + " how sure it is, so ";
+    return switch (whenNotJudged) {
+      case NOT_READY ->
+          why
+              + "the robot is never ready to score. RobotConfig's .withScoringWhenNotJudged(READY)"
+              + " lets scoring through without the gate";
+      case READY ->
+          why
+              + "the gate holds nothing back (RobotConfig's .withScoringWhenNotJudged(READY)): the"
+              + " robot scores from a pose nothing judged";
+    };
   }
 
   /**
@@ -267,19 +323,21 @@ public final class Localization implements AutoCloseable {
   /**
    * Holds the estimate to the scoring gate. The gate judges by what the pose rests on, the numbers
    * behind that, and how sure the pose is. A localizer that does not report all three cannot be
-   * judged, and the gate then holds nothing back: a team that chose such a localizer scores as
-   * teams without a gate do, and the pit's line says the pose was not judged.
+   * judged: the gate then says what the robot's configuration chose ({@link ScoringWhenNotJudged},
+   * not ready unless it chose otherwise), an alert says it isn't judging, and the pit's line says
+   * the pose was not judged.
    */
   private void judgeScoring(LocalizerReport report) {
     boolean canJudge =
         report.mode().isPresent() && report.health().isPresent() && report.covariance().isPresent();
     if (!canJudge) {
       scoring = Scoring.NOT_JUDGED;
+      notJudged.set(true);
       return;
     }
+    notJudged.set(false);
     Optional<String> whyNot =
-        LocalizationGate.SCORING.whyNot(
-            report.mode().get(), report.health().get(), report.covariance().get());
+        scoringGate.whyNot(report.mode().get(), report.health().get(), report.covariance().get());
     if (whyNot.isEmpty()) {
       scoring = Scoring.READY;
       return;
@@ -384,12 +442,17 @@ public final class Localization implements AutoCloseable {
   }
 
   /**
-   * Whether the estimate is good enough to score from, by {@link LocalizationGate#SCORING}. Bind
-   * scoring and aiming commands to it. With a localizer that reports too little to judge by, the
-   * gate holds nothing back, and this is true ({@link #scoring} says it was not judged).
+   * Whether the estimate is good enough to score from, by the robot's scoring gate. Bind scoring
+   * and aiming commands to it. With a localizer that reports too little to judge by, it is what the
+   * robot's configuration chose ({@link ScoringWhenNotJudged}), and {@link #scoring} says it was
+   * not judged.
    */
   public boolean readyToScore() {
-    return scoring != Scoring.NOT_READY;
+    return switch (scoring) {
+      case READY -> true;
+      case NOT_READY -> false;
+      case NOT_JUDGED -> whenNotJudged == ScoringWhenNotJudged.READY;
+    };
   }
 
   /** One line for the pit and the drive team: ready to score, or why not. */
@@ -397,7 +460,27 @@ public final class Localization implements AutoCloseable {
     return switch (scoring) {
       case READY -> "Ready to score";
       case NOT_READY -> "Not ready: " + notReadyBecause;
-      case NOT_JUDGED -> "Not judged: what the pose rests on is " + NOT_REPORTED;
+      case NOT_JUDGED -> notJudgedLine();
+    };
+  }
+
+  /** Why the robot isn't ready to score, for the log: empty while it is. */
+  private String notReadyBecause() {
+    if (readyToScore()) {
+      return "";
+    }
+    if (scoring == Scoring.NOT_JUDGED) {
+      return "not judged: what the pose rests on is " + NOT_REPORTED;
+    }
+    return notReadyBecause;
+  }
+
+  /** The pit's scoring line while the gate can't judge: what it says instead, and why. */
+  private String notJudgedLine() {
+    String why = "what the pose rests on is " + NOT_REPORTED;
+    return switch (whenNotJudged) {
+      case NOT_READY -> "Not judged, so not ready: " + why;
+      case READY -> "Not judged, so ready: " + why;
     };
   }
 
@@ -432,8 +515,15 @@ public final class Localization implements AutoCloseable {
         shownDegrees.getAsDouble());
   }
 
-  /** What the pose rests on, in the pit's words. */
-  private static String restsOn(LocalizationEstimate.Mode mode) {
+  /**
+   * What the pose rests on, in the pit's words. Lost while the heading is still the placement's,
+   * which no camera has backed, the heading is the suspect: a robot set down crooked or backwards
+   * believes its start's heading, and every image solved from it lands off.
+   */
+  private String restsOn(LocalizationEstimate.Mode mode) {
+    if (mode == LocalizationEstimate.Mode.LOST && headingDoubt() == HeadingDoubt.PLACEMENT) {
+      return LOST_SINCE_PLACED;
+    }
     return switch (mode) {
       case INITIALIZING -> "Not placed yet";
       case TRACKING -> "Tracking tags";
@@ -441,6 +531,14 @@ public final class Localization implements AutoCloseable {
       case LOST -> "Lost: recovering";
       case IMU_FAULT -> "Gyro lost";
     };
+  }
+
+  /** Whose word the heading rests on, unbacked: only the default localizer says. */
+  private HeadingDoubt headingDoubt() {
+    if (service.localizer() instanceof DefaultLocalizer ours) {
+      return ours.headingDoubt();
+    }
+    return HeadingDoubt.NONE;
   }
 
   /**
@@ -577,12 +675,35 @@ public final class Localization implements AutoCloseable {
       Logger.recordOutput("Localization/Rejected", health.rejected());
       Logger.recordOutput("Localization/VisionAgeSeconds", health.visionAgeSeconds());
     }
-    if (scoring != Scoring.NOT_JUDGED) {
-      boolean ready = scoring == Scoring.READY;
-      Logger.recordOutput("Localization/ReadyToScore", ready);
-      Logger.recordOutput("Localization/NotReadyBecause", ready ? "" : notReadyBecause);
+    Logger.recordOutput("Localization/ReadyToScore", readyToScore());
+    Logger.recordOutput("Localization/NotReadyBecause", notReadyBecause());
+    if (service.localizer() instanceof DefaultLocalizer ours) {
+      logWhatTheEstimatorDid(ours);
     }
     logWhatIsNotReported(report);
+  }
+
+  /**
+   * Logs what the default localizer's estimator learned and did, so a jump in the estimate can be
+   * explained from the log alone: the gyro's scale and drift as it has learned them, whether the
+   * heading is a driver's reset no camera has backed, how many resets there have been, what the
+   * latest recovery did and on what evidence, and where the wheels and the IMU alone put the robot
+   * ({@code OdometryOnlyPose}), beside {@code Pose}. Each camera's own are under {@code Vision/}.
+   */
+  private void logWhatTheEstimatorDid(DefaultLocalizer ours) {
+    Logger.recordOutput("Localization/GyroScalePercent", ours.gyroScalePercent());
+    Logger.recordOutput("Localization/GyroDriftDegreesPerMinute", ours.gyroDriftDegreesPerMinute());
+    Logger.recordOutput("Localization/HeadingInDoubt", ours.headingInDoubt());
+    Logger.recordOutput("Localization/HeadingResets", ours.headingResets());
+    Optional<Recovered> recovered = ours.lastRecovery();
+    if (recovered.isPresent() && recovered.get() != lastRecoveryLogged) {
+      lastRecoveryLogged = recovered.get();
+      Logger.recordOutput("Localization/RecoveredBy", lastRecoveryLogged.describe());
+    }
+    OdometryOnly wheels = ours.odometryOnly();
+    Logger.recordOutput(
+        "Localization/OdometryOnlyPose",
+        new Pose2d(wheels.xMeters(), wheels.yMeters(), new Rotation2d(wheels.headingRadians())));
   }
 
   /**
@@ -595,7 +716,7 @@ public final class Localization implements AutoCloseable {
     noteIfMissing("covariance", report.covariance());
     noteIfMissing("mode", report.mode());
     noteIfMissing("health", report.health());
-    noteIfMissing("decisions", localizer.decisions());
+    noteIfMissing("verdicts", localizer.verdicts());
     noteIfMissing("wheels", localizer.wheels());
     noteIfMissing("trust", localizer.trust());
     noteIfMissing("yawSource", localizer.yawSource());
@@ -649,6 +770,10 @@ public final class Localization implements AutoCloseable {
     return imusDisagree.get();
   }
 
+  boolean isNotJudgedAlertActive() {
+    return notJudged.get();
+  }
+
   boolean isImuOrientationAlertActive() {
     return imuOrientation.get();
   }
@@ -661,5 +786,6 @@ public final class Localization implements AutoCloseable {
     camerasWithoutPlaces.close();
     tagsWithoutPlaces.close();
     imuOrientation.close();
+    notJudged.close();
   }
 }

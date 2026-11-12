@@ -20,9 +20,10 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.SensorIOPort;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOVisor;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorBoards;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorClock;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
-import com.michaelgrundvig.frc.visor.NtpResponder;
-import com.michaelgrundvig.frc.visor.VisorReceiver;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorPorts;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.CanDevice;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
@@ -37,6 +38,7 @@ import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import org.jspecify.annotations.Nullable;
 import org.wpilib.system.RobotController;
 import org.wpilib.util.Alert;
@@ -55,10 +57,16 @@ public final class RobotHardware implements Hardware {
   /** Visor's frames and clock, for cameras on Visor; null until one is made. */
   private @Nullable VisorFeed visorFeed;
 
-  private @Nullable NtpResponder visorClock;
+  private @Nullable VisorClock visorClock;
 
   private final RobotDefinition definition;
   private final RobotMath math;
+
+  /** The robot's listed boards, and which each Visor camera is on: where frames may come from. */
+  private final VisorBoards visorBoards;
+
+  /** Where Visor's frames arrive and its coprocessors sync their clocks. */
+  private final VisorPorts visorPorts;
 
   /** The computer the program runs on, which decides what it can reach. */
   private final RunsOn runsOn;
@@ -92,21 +100,33 @@ public final class RobotHardware implements Hardware {
    * @param definition what the robot is, each part saying how it's wired
    * @param runsOn the computer the program runs on: on a laptop, only the devices on a CANivore are
    *     opened
+   * @param visorBoards the robot's listed coprocessors, and which each Visor camera is plugged into
+   *     as they report it ({@code Coprocessors.visorBoards}): what a Visor frame's sender is
+   *     checked against
    */
-  public RobotHardware(RobotDefinition definition, RunsOn runsOn) {
-    this.definition = definition;
+  public RobotHardware(RobotDefinition definition, RunsOn runsOn, VisorBoards visorBoards) {
+    this(definition, runsOn, visorBoards, VisorPorts.VISORS);
+  }
+
+  /**
+   * The same, listening for Visor on these ports: a test's, which the system picks.
+   *
+   * @param visorPorts where Visor's frames arrive and its coprocessors sync their clocks
+   */
+  public RobotHardware(
+      RobotDefinition definition, RunsOn runsOn, VisorBoards visorBoards, VisorPorts visorPorts) {
+    // A definition can reach the hardware without a RobotConfig, so it is checked here too.
+    this.definition = definition.checked();
     this.runsOn = runsOn;
+    this.visorBoards = visorBoards;
+    this.visorPorts = visorPorts;
     math = definition.math();
     Optional<SwerveWiring> wiring = definition.drivetrain().wiring();
     if (wiring.isPresent() && !runsOn.reaches(wiring.get().canBus())) {
       noteOutOfReach("the drivetrain");
       wiring = Optional.empty();
     }
-    phoenix =
-        wiring.map(
-            reached ->
-                new PhoenixDrivetrain(
-                    reached, definition.drivetrain(), definition.imus().gyro().orientation()));
+    phoenix = wiring.map(reached -> new PhoenixDrivetrain(reached, definition.drivetrain()));
     noDrivetrain.set(phoenix.isEmpty() && definition.drivetrain().wiring().isEmpty());
   }
 
@@ -129,14 +149,14 @@ public final class RobotHardware implements Hardware {
    * is nothing.
    */
   private GyroIO backupImu() {
-    if (definition.imus().backup().isEmpty()) {
+    if (definition.backupImu().isEmpty()) {
       return new GyroIO() {};
     }
     if (!runsOn.hasSystemcoresOwnParts()) {
       noteOutOfReach("the backup IMU");
       return new GyroIO() {};
     }
-    return new GyroIOSystemcore(definition.imus().backup().get().orientation());
+    return new GyroIOSystemcore(definition.backupImu().get().orientation());
   }
 
   /**
@@ -147,7 +167,7 @@ public final class RobotHardware implements Hardware {
   public JointIO joint(Joint joint) {
     List<MechanismWiring.Device> controllers =
         joint.driven().motors().map(Driven.Motors::controllers).orElse(List.of());
-    if (!controllers.isEmpty() && !reachesAll(joint.devices())) {
+    if (!controllers.isEmpty() && !reachesAll(RobotMath.devices(joint))) {
       noteOutOfReach(joint.label());
       return new JointIO() {};
     }
@@ -298,7 +318,10 @@ public final class RobotHardware implements Hardware {
   /**
    * Each camera as its definition says it's read: through PhotonVision, by its name, or through
    * Visor, by its place in the list. With any camera on Visor, the robot also listens for Visor's
-   * frames and answers its coprocessors' clock sync ({@link NtpResponder}), once for all of them.
+   * frames and answers its coprocessors' clock sync ({@link VisorClock}), once for all of them. A
+   * Visor frame is believed only for one of these cameras, at its configured size, and from where
+   * it can be: one of the robot's listed boards, and its own once a board reports it ({@link
+   * VisorFeed}).
    */
   @Override
   public List<CameraIO> cameras() {
@@ -321,11 +344,23 @@ public final class RobotHardware implements Hardware {
   private VisorFeed visor() {
     VisorFeed feed = visorFeed;
     if (feed == null) {
-      feed = VisorFeed.listen(VisorReceiver.DEFAULT_PORT);
+      feed = VisorFeed.listen(visorPorts.frames(), definition.cameras(), visorBoards);
       visorFeed = feed;
-      visorClock = NtpResponder.start(NtpResponder.DEFAULT_PORT, RobotController::getTime);
+      visorClock = VisorClock.start(visorPorts.clock(), RobotController::getTime);
     }
     return feed;
+  }
+
+  /**
+   * The port Visor's frames arrive on, as bound: empty until a camera on Visor has opened it. On
+   * ports the system picks, the one it picked.
+   */
+  public OptionalInt visorFramesPort() {
+    VisorFeed feed = visorFeed;
+    if (feed == null) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(feed.port());
   }
 
   @Override

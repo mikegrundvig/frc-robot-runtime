@@ -9,8 +9,8 @@ import static org.wpilib.units.Units.RPM;
 
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveAssist;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.field.Heading;
@@ -22,13 +22,13 @@ import org.wpilib.command3.Command;
  * (DocExamplesTest): the shooter's feed runs only while the robot is aimed.
  */
 final class Aiming {
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final Joints joints;
   private final JointMechanism shooter;
   private final JointMechanism feeder;
   private final JointMechanism indexer;
 
-  Aiming(Drive drive, Joints joints) {
+  Aiming(SwerveDrive drive, Joints joints) {
     this.drive = drive;
     this.joints = joints;
     shooter = joints.of(SHOOTER);

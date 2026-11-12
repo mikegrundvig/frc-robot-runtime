@@ -85,7 +85,17 @@ class VisorPluginTest {
         }
         """
             .formatted(controller, server.getPort(), controller));
-    released("2099.1.2");
+    released("2099.1.2", Hash.ITS_OWN);
+  }
+
+  /** What the client's jar says of its release's SHA-256. */
+  private enum Hash {
+    /** The archive's own, as a release publishes the client. */
+    ITS_OWN,
+    /** Another archive's: the one in the repository was replaced. */
+    ANOTHERS,
+    /** None: a client built without its release. */
+    NONE
   }
 
   @AfterEach
@@ -119,6 +129,31 @@ class VisorPluginTest {
     assertThat(project.resolve("build/visor/deploy/spotter-packs/visor/pack.yaml")).exists();
   }
 
+  /** An archive the client wasn't published with is never staged, nor deployed. */
+  @Test
+  void aReleaseWhoseHashIsntTheClientsIsRefused() throws Exception {
+    record Row(String why, Hash hash, String says) {}
+    List<Row> rows =
+        List.of(
+            new Row(
+                "the archive in the repository was replaced",
+                Hash.ANOTHERS,
+                "its Visor client was published with: it isn't that release, so it isn't staged"),
+            new Row(
+                "a client that names no hash",
+                Hash.NONE,
+                "names no SHA-256 for its release, so visor-2099.1.2-linux-arm64.tar.gz can't be"
+                    + " checked"));
+    for (Row row : rows) {
+      released("2099.1.2", row.hash());
+
+      BuildResult result = runner("assemble").buildAndFail();
+
+      assertThat(result.getOutput()).as(row.why()).contains(row.says());
+      assertThat(project.resolve("build/visor/deploy/visor")).as(row.why()).doesNotExist();
+    }
+  }
+
   @Test
   void aTargetTheDeployDoesntHaveIsNamed() throws Exception {
     write(
@@ -132,26 +167,38 @@ class VisorPluginTest {
   }
 
   /**
-   * A release in the project's own repository, as the FRC libraries' holds one: the client, and
-   * beside it its release, an archive as the release workflow makes one, the program and the pack.
+   * A release in the project's own repository, as the FRC libraries' holds one: the client, naming
+   * its release's SHA-256 as the hash says, and beside it its release, an archive as the release
+   * workflow makes one, the program and the pack.
    */
-  private void released(String version) throws Exception {
+  private void released(String version, Hash hash) throws Exception {
     String group = "repo/com/michaelgrundvig/frc/";
+    write(group + "visor/" + version + "/visor-" + version + ".pom", pom("visor", version, "pom"));
+    Path archive =
+        project.resolve(group + "visor/" + version + "/visor-" + version + "-linux-arm64.tar.gz");
+    archive(version, archive);
+    String named =
+        switch (hash) {
+          case ITS_OWN -> VisorReleaseCheck.sha256(archive.toFile());
+          case ANOTHERS -> "0".repeat(64);
+          case NONE -> "";
+        };
     write(
         group + "frc-visor-client/" + version + "/frc-visor-client-" + version + ".pom",
         pom("frc-visor-client", version, "jar"));
     Files.write(
         project.resolve(
             group + "frc-visor-client/" + version + "/frc-visor-client-" + version + ".jar"),
-        emptyJar());
-    write(group + "visor/" + version + "/visor-" + version + ".pom", pom("visor", version, "pom"));
+        clientJar(version, named));
+  }
+
+  /** A release's archive, as the release workflow makes one: the program and the pack. */
+  private void archive(String version, Path archive) throws Exception {
     Path contents = Files.createDirectories(project.resolve("release"));
     Files.writeString(contents.resolve("visor"), "program " + version + "\n");
     Files.createDirectories(contents.resolve("spotter/visor"));
     Files.writeString(contents.resolve("spotter/visor/pack.yaml"), "pack: visor\n");
     Files.writeString(contents.resolve("spotter/visor/status"), "#!/bin/sh\necho {}\n");
-    Path archive =
-        project.resolve(group + "visor/" + version + "/visor-" + version + "-linux-arm64.tar.gz");
     Process tar =
         new ProcessBuilder("tar", "-czf", archive.toString(), "-C", contents.toString(), ".")
             .inheritIO()
@@ -173,10 +220,14 @@ class VisorPluginTest {
         .formatted(artifact, version, packaging);
   }
 
-  private static byte[] emptyJar() throws IOException {
+  /** The client's jar: only what its build writes of its version and its release's SHA-256. */
+  private static byte[] clientJar(String version, String releaseSha256) throws IOException {
     ByteArrayOutputStream bytes = new ByteArrayOutputStream();
     try (var jar = new java.util.jar.JarOutputStream(bytes)) {
       jar.putNextEntry(new java.util.jar.JarEntry("META-INF/"));
+      jar.putNextEntry(new java.util.jar.JarEntry(VisorReleaseCheck.RESOURCE));
+      String properties = "version=" + version + "\n" + VisorReleaseCheck.KEY + "=" + releaseSha256;
+      jar.write((properties + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
     return bytes.toByteArray();
   }

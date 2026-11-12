@@ -1,35 +1,45 @@
-package com.michaelgrundvig.frc.runtime.subsystems.vision;
+package com.michaelgrundvig.frc.runtime.sim;
 
 import static com.michaelgrundvig.frc.simulation.KnownGap.Check.stillOpen;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Hertz;
+import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
 import com.michaelgrundvig.frc.simulation.Consistency;
 import com.michaelgrundvig.frc.simulation.KnownGap;
 import com.michaelgrundvig.frc.simulation.Seeds;
+import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Tag;
+import com.michaelgrundvig.frc.world.field.TagFamily;
+import com.michaelgrundvig.frc.world.field.TagLayout;
+import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.photonvision.PhotonCamera;
 import org.photonvision.targeting.PhotonPipelineResult;
 import org.photonvision.targeting.PhotonTrackedTarget;
 import org.photonvision.targeting.TargetCorner;
+import org.wpilib.fields.Fields;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
-import org.wpilib.math.util.Units;
 import org.wpilib.simulation.SimHooks;
 import org.wpilib.system.RobotController;
 
@@ -44,8 +54,12 @@ import org.wpilib.system.RobotController;
 @SimulationTest
 @ExtendWith(RobotSim.class)
 class CameraTruthSimTest {
-  /** An AprilTag's black square, 36h11 as FRC prints it: 6.5 in. */
-  private static final double TAG_SIZE = Units.inchesToMeters(6.5);
+  /** The simulator's field with tags 8 in on a side, where the season's are 6.5 in. */
+  private static final FieldModel EIGHT_INCH_TAGS =
+      Rebuilt.field(
+              TagLayout.of(
+                  Fields.FRC_2026_REBUILT_WELDED.loadField(), TagFamily.TAG_36H11, Inches.of(8)))
+          .withoutElements();
 
   /** Where the robot stands: level, turned, and tilted on a ramp. */
   private static final List<Pose3d> SURVEYED =
@@ -60,19 +74,27 @@ class CameraTruthSimTest {
 
   private static final List<CameraConfig> CAMERAS = ExampleRobot.SIM.definition().cameras();
 
+  /** The season's field, its tags 6.5 in, and the same field with 8 in tags. */
+  static Stream<Arguments> fields() {
+    return Stream.of(
+        Arguments.argumentSet("6.5 in tags", RobotSim.FIELD),
+        Arguments.argumentSet("8 in tags", EIGHT_INCH_TAGS));
+  }
+
   /**
-   * Every tag corner every camera sees lands within 0.01 px of the pinhole's: the camera's pose
-   * from the robot's and its mount, the tag's corners from its pose and size, projected through
-   * intrinsics from the configured resolution and diagonal field of view. The field of view spans
-   * the image from its first pixel's center to its last's, around a principal point at its middle,
-   * as PhotonVision lays out a camera given only those.
+   * Every tag corner every camera sees lands within 0.01 px of the pinhole's, at the field's tag
+   * size: the camera's pose from the robot's and its mount, the tag's corners from its pose and
+   * size, projected through intrinsics from the configured resolution and diagonal field of view.
+   * The field of view spans the image from its first pixel's center to its last's, around a
+   * principal point at its middle, as PhotonVision lays out a camera given only those.
    */
-  @Test
-  void exactCornersLandWhereAPinholeCameraPutsThem() {
+  @ParameterizedTest
+  @MethodSource("fields")
+  void exactCornersLandWhereAPinholeCameraPutsThem(FieldModel field) {
     int corners = 0;
     for (Pose3d robot : SURVEYED) {
-      for (Seen seen : render(robot)) {
-        Pinhole pinhole = new Pinhole(seen.config(), robot);
+      for (Seen seen : render(robot, field)) {
+        Pinhole pinhole = new Pinhole(seen.config(), robot, field.tagSizeMeters());
         double[][] expected = pinhole.corners(seen.tag());
         for (TargetCorner corner : seen.target().getDetectedCorners()) {
           double nearest = Double.POSITIVE_INFINITY;
@@ -94,7 +116,7 @@ class CameraTruthSimTest {
   void eachTagsSolveIsWhereTheTagIs() {
     int tags = 0;
     for (Pose3d robot : SURVEYED) {
-      for (Seen seen : render(robot)) {
+      for (Seen seen : render(robot, RobotSim.FIELD)) {
         Pose3d camera = robot.transformBy(seen.config().robotToCamera());
         Transform3d truth = new Transform3d(camera, seen.tag());
         Transform3d solved = seen.target().getBestCameraToTarget();
@@ -121,7 +143,7 @@ class CameraTruthSimTest {
   void aTagIsSeenJustInsideTheImageAndNotJustOutside() {
     Pose3d robot = SURVEYED.get(0);
     double step = Math.toRadians(0.01);
-    List<Seen> all = render(robot);
+    List<Seen> all = render(robot, RobotSim.FIELD);
     for (Seen seen : all) {
       int id = seen.target().getFiducialId();
       double edge = turnToTheEdge(seen.config(), robot, seen.tag());
@@ -184,7 +206,7 @@ class CameraTruthSimTest {
     double spread = Math.sqrt(sumSquares / n - mean * mean);
 
     assertThat(n).isGreaterThan(500);
-    assertThat(mean).isCloseTo(config.sensor().latency().in(Milliseconds), within(0.5));
+    assertThat(mean).isCloseTo(config.latencyOrDefault().in(Milliseconds), within(0.5));
     assertThat(spread)
         .isCloseTo(
             VisionSim.LATENCY_STD_DEV_MILLIS, within(0.1 * VisionSim.LATENCY_STD_DEV_MILLIS));
@@ -229,12 +251,14 @@ class CameraTruthSimTest {
   /** A tag one camera saw, as it truly sits, and what the camera made of it. */
   private record Seen(CameraConfig config, Pose3d tag, PhotonTrackedTarget target) {}
 
-  /** What every camera sees from here, noise off, over half a second: each tag once. */
-  private static List<Seen> render(Pose3d robot) {
+  /**
+   * What every camera sees from here on this field, noise off, over half a second: each tag once.
+   */
+  private static List<Seen> render(Pose3d robot, FieldModel field) {
     List<Seen> seen = new ArrayList<>();
-    Map<Integer, Tag> tags = RobotSim.FIELD.tags();
+    Map<Integer, Tag> tags = field.tags();
     for (CameraConfig config : CAMERAS) {
-      List<PhotonPipelineResult> results = run(config, robot, 0.5, VisionSim.Noise.NONE);
+      List<PhotonPipelineResult> results = run(config, robot, 0.5, VisionSim.Noise.NONE, field);
       for (PhotonPipelineResult result : results.subList(results.size() - 1, results.size())) {
         for (PhotonTrackedTarget target : result.getTargets()) {
           seen.add(
@@ -248,21 +272,22 @@ class CameraTruthSimTest {
 
   /** Whether this camera sees this tag from here, noise off. */
   private static boolean sees(CameraConfig config, Pose3d robot, int id) {
-    List<PhotonPipelineResult> results = run(config, robot, 0.2, VisionSim.Noise.NONE);
+    List<PhotonPipelineResult> results =
+        run(config, robot, 0.2, VisionSim.Noise.NONE, RobotSim.FIELD);
     return results.get(results.size() - 1).getTargets().stream()
         .anyMatch(target -> target.getFiducialId() == id);
   }
 
   private static List<PhotonPipelineResult> run(CameraConfig config, Pose3d robot, double seconds) {
-    return run(config, robot, seconds, VisionSim.Noise.TYPICAL);
+    return run(config, robot, seconds, VisionSim.Noise.TYPICAL, RobotSim.FIELD);
   }
 
-  /** Every image one camera sends over this long, the robot standing here. */
+  /** Every image one camera sends over this long, the robot standing here on this field. */
   private static List<PhotonPipelineResult> run(
-      CameraConfig config, Pose3d robot, double seconds, VisionSim.Noise noise) {
+      CameraConfig config, Pose3d robot, double seconds, VisionSim.Noise noise, FieldModel field) {
     List<PhotonPipelineResult> results = new ArrayList<>();
     try (VisionSim vision =
-        new VisionSim(RobotSim.FIELD, Map.of(), camera -> Seeds.camera(1, camera), noise)) {
+        new VisionSim(field, Map.of(), camera -> Seeds.camera(1, camera), noise)) {
       PhotonCamera camera = ((CameraIOPhotonVision) vision.camera(config)).camera();
       for (int loop = 0; loop < Math.round(seconds / 0.02); loop++) {
         RobotSim.stepClock();
@@ -290,7 +315,7 @@ class CameraTruthSimTest {
     double outside = -Math.PI / 2;
     for (int i = 0; i < 60; i++) {
       double yaw = (inside + outside) / 2;
-      if (new Pinhole(config, turned(robot, yaw)).inTheImage(tag)) {
+      if (new Pinhole(config, turned(robot, yaw), RobotSim.FIELD.tagSizeMeters()).inTheImage(tag)) {
         inside = yaw;
       } else {
         outside = yaw;
@@ -299,9 +324,13 @@ class CameraTruthSimTest {
     return (inside + outside) / 2;
   }
 
-  /** A perfect pinhole camera, as configured, mounted on the robot where it stands. */
+  /**
+   * A perfect pinhole camera, as configured, mounted on the robot where it stands, on a field of
+   * tags this size.
+   */
   private static final class Pinhole {
     private final Pose3d camera;
+    private final double tagSize;
     private final double fx;
     private final double fy;
     private final double cx;
@@ -310,12 +339,13 @@ class CameraTruthSimTest {
     private final double width;
     private final double height;
 
-    Pinhole(CameraConfig config, Pose3d robot) {
+    Pinhole(CameraConfig config, Pose3d robot, double tagSize) {
+      this.tagSize = tagSize;
       camera = robot.transformBy(config.robotToCamera());
-      CameraConfig.Sensor sensor = config.sensor();
+      CameraConfig.ImageSensor sensor = config.sensor();
       width = sensor.widthPixels();
       height = sensor.heightPixels();
-      double halfDiagonal = Math.tan(sensor.diagonalFieldOfView().in(Degrees) * Math.PI / 360);
+      double halfDiagonal = Math.tan(config.diagonalFieldOfView().in(Degrees) * Math.PI / 360);
       double diagonal = Math.hypot(width, height);
       cx = (width - 1) / 2;
       cy = (height - 1) / 2;
@@ -347,8 +377,8 @@ class CameraTruthSimTest {
     double[][] corners(Pose3d tag) {
       double[][] corners = new double[4][];
       int i = 0;
-      for (double left : new double[] {-TAG_SIZE / 2, TAG_SIZE / 2}) {
-        for (double up : new double[] {-TAG_SIZE / 2, TAG_SIZE / 2}) {
+      for (double left : new double[] {-tagSize / 2, tagSize / 2}) {
+        for (double up : new double[] {-tagSize / 2, tagSize / 2}) {
           Translation3d onTheField =
               tag.transformBy(new Transform3d(new Translation3d(0, left, up), Rotation3d.ZERO))
                   .getTranslation();

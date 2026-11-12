@@ -18,6 +18,7 @@ import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Driven.AbsoluteEncoder;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,7 +34,7 @@ class AbsoluteSeedingSimTest {
   private static final MechanismWiring.PortEncoder PORT_1 =
       MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted();
 
-  private static final Joint.Revolute ON_PORT =
+  private static final RevoluteJoint ON_PORT =
       PIVOT.absoluteEncoder(PORT_1).retuned(old -> control(30, 1, profile(8, 30)));
 
   private static JointsSimHarness sim(Joint joint) {

@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.world.field.Element;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.physical.Material;
 import com.michaelgrundvig.frc.world.physical.Polygon2d;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
@@ -51,7 +52,7 @@ class ContactTest {
   private static final double FREE_SPEED =
       12 * TestRobot.MOTOR.Kv / TestRobot.GEARING * TestRobot.RADIUS;
 
-  private static final Material STEEL = Material.builder().name("steel").build();
+  private static final Material STEEL = Material.of("steel");
   private static final Polygon2d WALLS =
       Polygon2d.rectangle(Translation2d.ZERO, new Translation2d(LENGTH, WIDTH));
   private static final Polygon2d POST =
@@ -290,7 +291,7 @@ class ContactTest {
             sliding.wheelSpeedMetersPerSecond() * Math.cos(Math.toRadians(60)), within(0.05));
     // The share of the treads' rolling that goes into the wall slides on the carpet, which loads
     // each motor with that share of the carpet's grip.
-    double gripNewtons = 1.2 * TestRobot.MASS.in(Kilograms) * Physics.STANDARD_GRAVITY / 4;
+    double gripNewtons = 1.2 * TestRobot.MASS.in(Kilograms) * RobotMath.GRAVITY / 4;
     double loadNewtons = Math.sin(Math.toRadians(60)) * gripNewtons;
     double ampsForThatLoad =
         loadNewtons * TestRobot.RADIUS / (TestRobot.GEARING * TestRobot.MOTOR.Kt);

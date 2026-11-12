@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.runtime.examples;
 
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.path.Keyframe;
@@ -19,7 +19,7 @@ final class PlaceMoves {
   // @start region=places
   static final Place PICKUP = Place.at("Pickup", new Pose2d(5, 2, Rotation2d.CCW_90DEG));
 
-  static void moves(Drive drive) {
+  static void moves(SwerveDrive drive) {
     DriveMove toTower = drive.goTo(Rebuilt.TOWER);
     DriveMove leg = drive.follow(Keyframe.at(PICKUP), Keyframe.at(Rebuilt.TOWER));
   }

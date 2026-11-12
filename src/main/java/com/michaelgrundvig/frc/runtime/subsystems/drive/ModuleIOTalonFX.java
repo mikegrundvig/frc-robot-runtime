@@ -11,6 +11,7 @@ import com.ctre.phoenix6.StatusCode;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CANcoderConfiguration;
 import com.ctre.phoenix6.configs.TalonFXConfiguration;
+import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VelocityVoltage;
@@ -19,13 +20,16 @@ import com.ctre.phoenix6.hardware.ParentDevice;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.FeedbackSensorSourceValue;
 import com.ctre.phoenix6.signals.InvertedValue;
+import com.ctre.phoenix6.signals.MagnetHealthValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
 import com.ctre.phoenix6.signals.SensorDirectionValue;
 import com.michaelgrundvig.frc.runtime.behavior.Debounce;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixRestarts;
+import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixStartup;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,8 +48,9 @@ import org.wpilib.units.measure.Voltage;
  * and a CANcoder reading the module's angle. The drivetrain's configuration gives the gearing,
  * gains and limits. The robot's wiring gives the CAN IDs, the directions and the encoder's offset.
  *
- * <p><b>No Phoenix Pro license is needed.</b> The steering motor closes its loop on the CANcoder as
- * a remote sensor, and no request uses FOC.
+ * <p><b>No Phoenix Pro license is needed</b> unless the wiring says {@code .foc()}. The steering
+ * motor closes its loop on the CANcoder as a remote sensor, and a request uses FOC only where its
+ * motor's controller says {@code .foc()}: the drive's speed, the steering's angle, or both.
  *
  * <p><b>Units.</b> The gearing is configured on the motor controllers, so the drive reports in
  * rotations of the wheel and the steering in rotations of the module. This class turns those into
@@ -57,19 +62,22 @@ import org.wpilib.units.measure.Voltage;
  * speed the drive is asked to hold, so the wheel keeps its speed over the floor while the module
  * steers ({@link #setDriveVelocity}).
  *
+ * <p><b>Settings that weren't taken.</b> Each device is sent its whole configuration as the robot
+ * starts. One that doesn't confirm is named in the inputs ({@link ModuleIOInputs#unconfigured}),
+ * and the drivetrain holds still while any is. Once that device answers, it is sent its whole
+ * configuration again, on a thread of its own, until it confirms ({@link DeviceSettings}).
+ *
  * <p><b>Restarts.</b> A TalonFX that loses power and comes back keeps its settings, and counts its
  * rotor from zero. Phoenix says when the drive's has sent the frame it sends as it starts, and the
  * inputs say so for that one loop ({@link ModuleIOInputs#driveRestarted}), so the drivetrain does
  * not take the wheel's count starting again for travel.
+ *
+ * <p><b>The CANcoder's magnet.</b> What the CANcoder says of its magnet, and its faults, are read
+ * ten times a second ({@link #HEALTH_LOOPS}). Reading them costs no CAN traffic: a CANcoder sends
+ * them whether or not anything reads them, since its frames are not trimmed here.
  */
 final class ModuleIOTalonFX implements ModuleIO {
   private static final double TWO_PI = 2 * Math.PI;
-
-  /** At startup each device is sent its settings up to this many times, until it confirms them. */
-  private static final int TRIES = 5;
-
-  /** How long each of those tries waits for the device to confirm. Startup can afford the wait. */
-  private static final double STARTUP_TIMEOUT_SECONDS = 0.25;
 
   /**
    * A timeout of zero sends a setting and returns without waiting for the device to confirm it.
@@ -88,34 +96,54 @@ final class ModuleIOTalonFX implements ModuleIO {
    */
   private static final double SILENT_AFTER_SECONDS = 0.5;
 
+  /**
+   * The CANcoder's magnet and faults are read once in this many loops, ten times a second: a magnet
+   * that has slipped stays slipped, and a few readings a second show it.
+   */
+  static final int HEALTH_LOOPS = 5;
+
+  /** Each of the module's devices, as the tests stand in for sending one its settings. */
+  enum Device {
+    DRIVE,
+    STEER,
+    ENCODER
+  }
+
   private final TalonFX drive;
   private final TalonFX steer;
+  private final CANcoder encoder;
 
-  /** Drive motor rotations for one rotation of the wheel. */
+  /** SwerveDrive motor rotations for one rotation of the wheel. */
   private final double driveGearing;
 
-  /** Drive motor rotations for one turn of the module, with the wheel held still. */
+  /** SwerveDrive motor rotations for one turn of the module, with the wheel held still. */
   private final double couplingRatio;
 
   private final double wheelRadiusMeters;
 
-  // Each motor's whole configuration. The constructor fills in what the wiring and the gearing
-  // decide. The gains and current limits are filled in by configure(), which then sends them.
+  /** Where the module hears its devices and sends them their settings ({@link Frames}). */
+  private final Frames frames;
+
+  // Each device's whole configuration. The constructor fills in what the wiring and the gearing
+  // decide. The motors' gains and current limits are filled in by configure(), which then sends
+  // them.
+  private final CANcoderConfiguration encoderConfig;
   private final TalonFXConfiguration driveConfig = new TalonFXConfiguration();
   private final TalonFXConfiguration steerConfig = new TalonFXConfiguration();
 
-  /**
-   * Whether the motor controllers have been sent their whole configuration yet. The first time, at
-   * startup, it is sent whole and waited for. After that, only the gains and limits are sent.
-   */
-  private boolean configured;
+  /** Whether each device has taken its whole configuration, and sending it again until it has. */
+  private final DeviceSettings driveSettings;
 
-  /** The devices that didn't confirm their configuration at startup, for the drivetrain's alert. */
-  private final List<String> unconfigured = new ArrayList<>();
+  private final DeviceSettings steerSettings;
+  private final DeviceSettings encoderSettings;
+
+  /** How many times each device is sent its settings at startup. */
+  private final int startupTries;
 
   /**
-   * The same devices as one line of text, such as "drive motor 3, CANcoder 9". Kept beside the list
-   * so the loop hands the inputs a string without building one.
+   * The devices that haven't taken their whole configuration, as one line of text, such as "drive
+   * motor 3, CANcoder 9". Worked out again only when one takes it, so the loop hands the inputs a
+   * string without building one.
    */
   private String unconfiguredNames = "";
 
@@ -130,6 +158,8 @@ final class ModuleIOTalonFX implements ModuleIO {
   private final StatusSignal<Voltage> steerVolts;
   private final StatusSignal<Current> steerStatorCurrent;
   private final StatusSignal<Angle> encoderAbsolute;
+  private final StatusSignal<MagnetHealthValue> encoderMagnet;
+  private final StatusSignal<Integer> encoderFaults;
 
   // The odometry thread's readings since the last loop, oldest first. One time per reading, and
   // for each reading the drive's position, the module's angle and the steering's current.
@@ -155,18 +185,35 @@ final class ModuleIOTalonFX implements ModuleIO {
   /** The module's turning speed as last read, in rotations per second, for the coupling. */
   private double steerRotationsPerSecond;
 
+  /** What the CANcoder last said of its magnet, and its faults: read every few loops. */
+  private MagnetHealth magnetHealth = MagnetHealth.NOT_SAID;
+
+  private int faults;
+
+  /** How many loops the module has been read in, to read the CANcoder's health every few. */
+  private int loops;
+
   /**
-   * Where the module hears that its drive's controller started again: the frame a device sends as
-   * it starts. On a robot this is Phoenix, as here.
+   * Where the module hears its devices, and sends them their settings. On a robot this is Phoenix,
+   * as here.
    *
-   * <p>CTRE's simulated devices never restart. So the test of what the module does when its drive
-   * restarts puts its own in this one's place, which says the drive started again, as the joints'
-   * tests do ({@code JointIOTalon.Frames}).
+   * <p>CTRE's simulated devices never restart, and always take what they are sent. So the tests of
+   * what the module does when its drive restarts, or when a device doesn't take its settings, put
+   * their own in this one's place, as the joints' tests do ({@code JointIOTalon.Frames}).
    */
   static class Frames {
     /** Whether the drive has sent the frame it sends as it starts, since this was last asked. */
     BooleanSupplier driveStartFrames(ParentDevice drive) {
       return drive.getResetOccurredChecker();
+    }
+
+    /**
+     * Sends one of the module's devices its whole configuration, and says whether it confirmed.
+     *
+     * @param send the send, which waits for the device's answer
+     */
+    StatusCode send(Device device, Supplier<StatusCode> send) {
+      return send.get();
     }
   }
 
@@ -176,44 +223,57 @@ final class ModuleIOTalonFX implements ModuleIO {
    * @param hardware the modules' gearing and wheel
    * @param couplingRatio drive motor rotations per module turn, with the wheel held still
    * @param odometry the thread that reads the drive's and steering's positions at 250 Hz
+   * @param startup how many times each device is tried at startup, and where a send while the robot
+   *     runs waits for its answer
    */
   ModuleIOTalonFX(
       SwerveWiring.ModuleWiring wiring,
       CANBus bus,
-      DrivetrainGeometry.ModuleType hardware,
+      Drivetrain.Module hardware,
       double couplingRatio,
-      PhoenixOdometryThread odometry) {
-    this(wiring, bus, hardware, couplingRatio, odometry, new Frames());
+      PhoenixOdometryThread odometry,
+      ModuleStartup startup) {
+    this(wiring, bus, hardware, couplingRatio, odometry, startup, new Frames());
   }
 
   /**
-   * The same, with where the drive's start frame is heard. For the tests, which restart the drive
-   * there ({@link Frames}).
+   * The same, with where the module hears its devices and sends them their settings. For the tests,
+   * which restart the drive there, or have a device not take its settings ({@link Frames}).
    */
   ModuleIOTalonFX(
       SwerveWiring.ModuleWiring wiring,
       CANBus bus,
-      DrivetrainGeometry.ModuleType hardware,
+      Drivetrain.Module hardware,
       double couplingRatio,
       PhoenixOdometryThread odometry,
+      ModuleStartup startup,
       Frames frames) {
-    drive = new TalonFX(wiring.driveId(), bus);
-    steer = new TalonFX(wiring.steerId(), bus);
-    int encoderId = wiring.encoderId().orElseThrow();
-    CANcoder encoder = new CANcoder(encoderId, bus);
+    this.frames = frames;
+    startupTries = startup.tries();
+    MechanismWiring.Cancoder cancoder = cancoderOf(wiring);
+    int driveId = wiring.drive().id();
+    int steerId = wiring.steering().id();
+    int encoderId = cancoder.id();
+    drive = new TalonFX(driveId, bus);
+    steer = new TalonFX(steerId, bus);
+    encoder = new CANcoder(encoderId, bus);
     driveGearing = hardware.driveGearing().ratio();
     this.couplingRatio = couplingRatio;
     wheelRadiusMeters = hardware.wheelRadius().in(Meters);
+    driveSettings = new DeviceSettings("drive motor " + driveId, startup.sender());
+    steerSettings = new DeviceSettings("steering motor " + steerId, startup.sender());
+    encoderSettings = new DeviceSettings("CANcoder " + encoderId, startup.sender());
 
     // The CANcoder is configured here. The motors' configurations are only filled in: configure()
     // sends them, once it has added the gains and limits.
-    CANcoderConfiguration encoderConfig = encoderSettings(wiring);
-    if (!tryUntilOk(
-        () -> encoder.getConfigurator().apply(encoderConfig, STARTUP_TIMEOUT_SECONDS))) {
-      noteUnconfigured("CANcoder " + encoderId);
-    }
+    encoderConfig = encoderSettings(cancoder);
+    encoderSettings.sentAtStartup(confirmedAtStartup(Device.ENCODER));
+    noteWhatIsUnconfigured();
     fillInDriveSettings(wiring);
     fillInSteerSettings(wiring, encoderId, hardware.steerGearing().ratio());
+    // FOC is asked for on every request to a motor whose wiring says .foc(), as a joint's are.
+    velocityRequest.withEnableFOC(saysFoc(wiring.drive()));
+    positionRequest.withEnableFOC(saysFoc(wiring.steering()));
 
     drivePosition = drive.getPosition();
     driveVelocity = drive.getVelocity();
@@ -226,7 +286,12 @@ final class ModuleIOTalonFX implements ModuleIO {
     steerVolts = steer.getMotorVoltage();
     steerStatorCurrent = steer.getStatorCurrent();
     encoderAbsolute = encoder.getAbsolutePosition();
-    setSignalRates(encoder);
+    encoderMagnet = encoder.getMagnetHealth();
+    encoderFaults = encoder.getFaultField();
+    setDriveSignalRates();
+    setSteerSignalRates();
+    setEncoderSignalRates();
+    ParentDevice.optimizeBusUtilizationForAll(drive, steer);
 
     // The thread reads its own copies of the signals, so it never shares one with this loop.
     odometryTimes = odometry.timestamps();
@@ -239,15 +304,42 @@ final class ModuleIOTalonFX implements ModuleIO {
   }
 
   /**
+   * The module's CANcoder. A TalonFX steers by one, so the robot's definition refuses a module of
+   * TalonFXs without one before this is built.
+   */
+  /** What the drive motor was last told. For the tests, which read its requests back. */
+  ControlRequest driveAsked() {
+    return drive.getAppliedControl();
+  }
+
+  /** What the steering motor was last told. For the tests, which read its requests back. */
+  ControlRequest steerAsked() {
+    return steer.getAppliedControl();
+  }
+
+  /** Whether a motor's controller is wired to drive it with FOC, which needs Phoenix Pro. */
+  private static boolean saysFoc(MechanismWiring.Device device) {
+    return device.commutation() == MechanismWiring.Commutation.FOC;
+  }
+
+  private static MechanismWiring.Cancoder cancoderOf(SwerveWiring.ModuleWiring wiring) {
+    if (wiring.encoder() instanceof MechanismWiring.Cancoder cancoder) {
+      return cancoder;
+    }
+    throw new IllegalArgumentException(
+        "a TalonFX steers by a CANcoder, and this module's encoder is on a data port");
+  }
+
+  /**
    * The CANcoder's settings: its offset and direction from the wiring, so that it reads zero with
    * the wheel pointing straight ahead, and a wrap point of half a turn, so that it reads from half
    * a turn one way to half a turn the other.
    */
-  private static CANcoderConfiguration encoderSettings(SwerveWiring.ModuleWiring wiring) {
+  private static CANcoderConfiguration encoderSettings(MechanismWiring.Cancoder cancoder) {
     CANcoderConfiguration settings = new CANcoderConfiguration();
-    settings.MagnetSensor.MagnetOffset = wiring.encoderOffset().in(Rotations);
+    settings.MagnetSensor.MagnetOffset = cancoder.offset().in(Rotations);
     settings.MagnetSensor.SensorDirection =
-        wiring.encoderInverted()
+        cancoder.turnsClockwise()
             ? SensorDirectionValue.Clockwise_Positive
             : SensorDirectionValue.CounterClockwise_Positive;
     settings.MagnetSensor.AbsoluteSensorDiscontinuityPoint = 0.5;
@@ -262,7 +354,7 @@ final class ModuleIOTalonFX implements ModuleIO {
    */
   private void fillInDriveSettings(SwerveWiring.ModuleWiring wiring) {
     driveConfig.MotorOutput.NeutralMode = NeutralModeValue.Brake;
-    driveConfig.MotorOutput.Inverted = direction(wiring.driveInverted());
+    driveConfig.MotorOutput.Inverted = direction(wiring.drive());
     driveConfig.Feedback.SensorToMechanismRatio = driveGearing;
     driveConfig.CurrentLimits.StatorCurrentLimitEnable = true;
     driveConfig.CurrentLimits.SupplyCurrentLimitEnable = true;
@@ -285,7 +377,7 @@ final class ModuleIOTalonFX implements ModuleIO {
   private void fillInSteerSettings(
       SwerveWiring.ModuleWiring wiring, int encoderId, double steerGearing) {
     steerConfig.MotorOutput.NeutralMode = NeutralModeValue.Brake;
-    steerConfig.MotorOutput.Inverted = direction(wiring.steerInverted());
+    steerConfig.MotorOutput.Inverted = direction(wiring.steering());
     steerConfig.Feedback.FeedbackSensorSource = FeedbackSensorSourceValue.RemoteCANcoder;
     steerConfig.Feedback.FeedbackRemoteSensorID = encoderId;
     steerConfig.Feedback.RotorToSensorRatio = steerGearing;
@@ -296,8 +388,7 @@ final class ModuleIOTalonFX implements ModuleIO {
   }
 
   /**
-   * Sets how often the devices send each signal, to keep the CAN bus's load down. There are three
-   * rates:
+   * How often the devices send each signal, to keep the CAN bus's load down. There are three rates:
    *
    * <ul>
    *   <li><b>250 Hz</b> ({@link PhoenixOdometryThread#FREQUENCY_HZ}) for what the odometry thread
@@ -313,51 +404,78 @@ final class ModuleIOTalonFX implements ModuleIO {
    * </ul>
    *
    * <p>Then Phoenix is told to stop every frame of the motor controllers whose rate was not set
-   * here.
+   * here. Each device's rates are set again when it takes its settings after startup: one that
+   * wasn't on the bus then never heard them.
    */
-  private void setSignalRates(CANcoder encoder) {
-    BaseStatusSignal.setUpdateFrequencyForAll(
-        PhoenixOdometryThread.FREQUENCY_HZ, drivePosition, steerPosition, steerStatorCurrent);
-    BaseStatusSignal.setUpdateFrequencyForAll(
-        PhoenixDrivetrain.ENCODER_FREQUENCY_HZ, encoder.getPosition(), encoder.getVelocity());
+  private void setDriveSignalRates() {
+    BaseStatusSignal.setUpdateFrequencyForAll(PhoenixOdometryThread.FREQUENCY_HZ, drivePosition);
     BaseStatusSignal.setUpdateFrequencyForAll(
         RobotLoop.FREQUENCY_HZ,
         driveVelocity,
         driveVolts,
         driveStatorCurrent,
         driveSupplyCurrent,
-        driveTorqueLimited,
-        steerVelocity,
-        steerVolts,
-        encoderAbsolute);
-    ParentDevice.optimizeBusUtilizationForAll(drive, steer);
+        driveTorqueLimited);
+  }
+
+  private void setSteerSignalRates() {
+    BaseStatusSignal.setUpdateFrequencyForAll(
+        PhoenixOdometryThread.FREQUENCY_HZ, steerPosition, steerStatorCurrent);
+    BaseStatusSignal.setUpdateFrequencyForAll(RobotLoop.FREQUENCY_HZ, steerVelocity, steerVolts);
+  }
+
+  private void setEncoderSignalRates() {
+    BaseStatusSignal.setUpdateFrequencyForAll(
+        PhoenixDrivetrain.ENCODER_FREQUENCY_HZ, encoder.getPosition(), encoder.getVelocity());
+    BaseStatusSignal.setUpdateFrequencyForAll(RobotLoop.FREQUENCY_HZ, encoderAbsolute);
   }
 
   /**
-   * Which way a motor turns for a positive output, as Phoenix says it: counterclockwise, unless the
-   * wiring says the motor is inverted.
+   * Which way a motor turns for a positive output, as Phoenix says it: counterclockwise, seen
+   * facing its shaft, unless its wiring says {@code .clockwise()}.
    */
-  private static InvertedValue direction(boolean inverted) {
-    if (inverted) {
+  private static InvertedValue direction(MechanismWiring.Device motor) {
+    if (motor.turnsClockwise()) {
       return InvertedValue.Clockwise_Positive;
     }
     return InvertedValue.CounterClockwise_Positive;
   }
 
-  /** Notes a device that didn't confirm its configuration at startup. */
-  private void noteUnconfigured(String device) {
-    unconfigured.add(device);
-    unconfiguredNames = String.join(", ", unconfigured);
+  /**
+   * One whole send of a device's configuration as it stands now, which waits for the device to
+   * confirm. A motor's configuration is copied here, on the loop, so tuning that changes it while
+   * the send waits on the sender can't change what is sent.
+   */
+  private Supplier<StatusCode> wholeConfiguration(Device device) {
+    return switch (device) {
+      case DRIVE -> {
+        TalonFXConfiguration whole = driveConfig.clone();
+        yield () -> drive.getConfigurator().apply(whole, PhoenixStartup.TIMEOUT_SECONDS);
+      }
+      case STEER -> {
+        TalonFXConfiguration whole = steerConfig.clone();
+        yield () -> steer.getConfigurator().apply(whole, PhoenixStartup.TIMEOUT_SECONDS);
+      }
+      case ENCODER ->
+          () -> encoder.getConfigurator().apply(encoderConfig, PhoenixStartup.TIMEOUT_SECONDS);
+    };
   }
 
-  /** Configuring at startup, where waiting is fine: tries a few times before giving up. */
-  static boolean tryUntilOk(Supplier<StatusCode> attempt) {
-    for (int i = 0; i < TRIES; i++) {
-      if (attempt.get().isOK()) {
-        return true;
+  /** Sends a device its whole configuration at startup, as many times as startup tries. */
+  private boolean confirmedAtStartup(Device device) {
+    return PhoenixStartup.confirmed(
+        startupTries, () -> frames.send(device, wholeConfiguration(device)));
+  }
+
+  /** Works out the line of devices that haven't taken their whole configuration. */
+  private void noteWhatIsUnconfigured() {
+    List<String> missing = new ArrayList<>();
+    for (DeviceSettings device : List.of(driveSettings, steerSettings, encoderSettings)) {
+      if (device.missing()) {
+        missing.add(device.name());
       }
     }
-    return false;
+    unconfiguredNames = String.join(", ", missing);
   }
 
   /**
@@ -388,6 +506,19 @@ final class ModuleIOTalonFX implements ModuleIO {
     }
   }
 
+  /**
+   * What a CANcoder's word on its magnet means to the robot. A reading Phoenix calls invalid says
+   * nothing about the magnet.
+   */
+  static MagnetHealth magnetHealth(MagnetHealthValue said) {
+    return switch (said) {
+      case Magnet_Green -> MagnetHealth.GREEN;
+      case Magnet_Orange -> MagnetHealth.ORANGE;
+      case Magnet_Red -> MagnetHealth.RED;
+      case Magnet_Invalid -> MagnetHealth.NOT_SAID;
+    };
+  }
+
   @Override
   public void updateInputs(ModuleIOInputs inputs) {
     // The signals are listed at each call, not kept in an array made once. Measured on Phoenix
@@ -402,10 +533,12 @@ final class ModuleIOTalonFX implements ModuleIO {
                 driveTorqueLimited)
             .isOK();
     boolean steerAnswered =
-        BaseStatusSignal.refreshAll(
-                steerPosition, steerVelocity, steerVolts, steerStatorCurrent, encoderAbsolute)
+        BaseStatusSignal.refreshAll(steerPosition, steerVelocity, steerVolts, steerStatorCurrent)
             .isOK();
+    boolean encoderAnswered = BaseStatusSignal.refreshAll(encoderAbsolute).isOK();
     steerRotationsPerSecond = steerVelocity.getValueAsDouble();
+    sendSettingsAgainOnceAnswered(driveAnswered, steerAnswered, encoderAnswered);
+    readEncoderHealthEveryFewLoops();
 
     inputs.driveConnected = driveConnected.calculate(driveAnswered);
     inputs.driveRestarted = driveRestarts.happened();
@@ -430,15 +563,94 @@ final class ModuleIOTalonFX implements ModuleIO {
     inputs.driveSupplyCurrentAmps = Math.abs(driveSupplyCurrent.getValueAsDouble());
     inputs.driveTorqueLimited = Boolean.TRUE.equals(driveTorqueLimited.getValue());
 
-    inputs.steerConnected = steerConnected.calculate(steerAnswered);
-    inputs.steerAngle = Rotation2d.fromRotations(encoderAbsolute.getValueAsDouble());
+    inputs.steerConnected = steerConnected.calculate(steerAnswered && encoderAnswered);
+    // The CANcoder reads from half a turn one way to half a turn the other, with its offset.
+    double moduleRotations = encoderAbsolute.getValueAsDouble();
+    inputs.steerAngle = Rotation2d.fromRotations(moduleRotations);
+    inputs.steerAngleRotations = moduleRotations;
     inputs.steerVelocityRadPerSec = TWO_PI * steerRotationsPerSecond;
     inputs.steerAppliedVolts = steerVolts.getValueAsDouble();
     inputs.steerStatorCurrentAmps =
         mostAmps(odometrySteerCurrent, steerStatorCurrent.getValueAsDouble());
+    inputs.encoderMagnet = magnetHealth;
+    inputs.encoderFaults = faults;
 
     drainOdometryReadings(inputs);
     inputs.unconfigured = unconfiguredNames;
+  }
+
+  /**
+   * Sends each device that hasn't taken its settings its whole configuration again, once it
+   * answers, and takes the answers that have come. A motor that takes them is sent the gains and
+   * limits as they are now too, in case the pit tuned them while the send waited.
+   */
+  private void sendSettingsAgainOnceAnswered(
+      boolean driveAnswered, boolean steerAnswered, boolean encoderAnswered) {
+    if (driveSettings.wantsSendingAgain(driveAnswered)) {
+      driveSettings.sendAgain(sentWithItsRates(Device.DRIVE));
+    }
+    if (steerSettings.wantsSendingAgain(steerAnswered)) {
+      steerSettings.sendAgain(sentWithItsRates(Device.STEER));
+    }
+    if (encoderSettings.wantsSendingAgain(encoderAnswered)) {
+      encoderSettings.sendAgain(sentWithItsRates(Device.ENCODER));
+    }
+    boolean driveTookIt = driveSettings.answerCame();
+    boolean steerTookIt = steerSettings.answerCame();
+    boolean encoderTookIt = encoderSettings.answerCame();
+    if (driveTookIt) {
+      retune(drive, driveConfig);
+    }
+    if (steerTookIt) {
+      retune(steer, steerConfig);
+    }
+    if (driveTookIt || steerTookIt || encoderTookIt) {
+      noteWhatIsUnconfigured();
+    }
+  }
+
+  /**
+   * A send for the sender: a device's whole configuration, as it stands now, and once the device
+   * confirms it, the rates of the signals read from it. A device that wasn't on the bus as the
+   * robot started never heard them.
+   *
+   * @return the send, which says whether the device confirmed its configuration
+   */
+  private BooleanSupplier sentWithItsRates(Device device) {
+    Supplier<StatusCode> whole = wholeConfiguration(device);
+    return () -> {
+      if (!frames.send(device, whole).isOK()) {
+        return false;
+      }
+      switch (device) {
+        case DRIVE -> {
+          setDriveSignalRates();
+          drive.optimizeBusUtilization();
+        }
+        case STEER -> {
+          setSteerSignalRates();
+          steer.optimizeBusUtilization();
+        }
+        case ENCODER -> setEncoderSignalRates();
+      }
+      return true;
+    };
+  }
+
+  /** Reads what the CANcoder says of its magnet, and its faults, once in {@link #HEALTH_LOOPS}. */
+  private void readEncoderHealthEveryFewLoops() {
+    boolean readsHealthThisLoop = loops % HEALTH_LOOPS == 0;
+    loops++;
+    if (!readsHealthThisLoop) {
+      return;
+    }
+    // A reading that didn't come leaves the last one standing.
+    if (encoderMagnet.refresh().getStatus().isOK()) {
+      magnetHealth = magnetHealth(encoderMagnet.getValue());
+    }
+    if (encoderFaults.refresh().getStatus().isOK()) {
+      faults = encoderFaults.getValue();
+    }
   }
 
   /**
@@ -477,15 +689,15 @@ final class ModuleIOTalonFX implements ModuleIO {
    * robot loop that waits on a device stutters.
    */
   @Override
-  public void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+  public void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
     fillInGains(gains);
     fillInCurrentLimits(limits);
-    if (!configured) {
+    if (driveSettings.state() == DeviceSettings.State.NOT_YET_SENT) {
       configureAtStartup();
-      configured = true;
       return;
     }
-    retuneWhileRunning();
+    retune(drive, driveConfig);
+    retune(steer, steerConfig);
   }
 
   /**
@@ -494,7 +706,7 @@ final class ModuleIOTalonFX implements ModuleIO {
    * rotation is 2π times the wheel's radius in meters. The steering's kP and kD are given per
    * radian, and Phoenix wants them per rotation: one rotation is 2π radians.
    */
-  private void fillInGains(DrivetrainControl.Gains gains) {
+  private void fillInGains(DrivetrainControl.SwerveGains gains) {
     driveConfig.Slot0.kP = gains.driveKp() * TWO_PI * wheelRadiusMeters;
     steerConfig.Slot0.kP = gains.steerKp() * TWO_PI;
     steerConfig.Slot0.kD = gains.steerKd() * TWO_PI;
@@ -526,26 +738,21 @@ final class ModuleIOTalonFX implements ModuleIO {
 
   /**
    * Sends each motor controller its whole configuration and waits for it to confirm. One that
-   * doesn't is noted, for the drivetrain's alert.
+   * doesn't is noted, for the drivetrain's alert, and sent it again once it answers.
    */
   private void configureAtStartup() {
-    if (!tryUntilOk(() -> drive.getConfigurator().apply(driveConfig, STARTUP_TIMEOUT_SECONDS))) {
-      noteUnconfigured("drive motor " + drive.getDeviceID());
-    }
-    if (!tryUntilOk(() -> steer.getConfigurator().apply(steerConfig, STARTUP_TIMEOUT_SECONDS))) {
-      noteUnconfigured("steering motor " + steer.getDeviceID());
-    }
+    driveSettings.sentAtStartup(confirmedAtStartup(Device.DRIVE));
+    steerSettings.sentAtStartup(confirmedAtStartup(Device.STEER));
+    noteWhatIsUnconfigured();
   }
 
   /**
-   * Sends the gains and the current limits, which are all that tuning changes, without waiting for
-   * the motor controllers to confirm.
+   * Sends a motor the gains and the current limits, which are all that tuning changes, without
+   * waiting for it to confirm.
    */
-  private void retuneWhileRunning() {
-    drive.getConfigurator().apply(driveConfig.Slot0, NO_WAIT_SECONDS);
-    drive.getConfigurator().apply(driveConfig.CurrentLimits, NO_WAIT_SECONDS);
-    steer.getConfigurator().apply(steerConfig.Slot0, NO_WAIT_SECONDS);
-    steer.getConfigurator().apply(steerConfig.CurrentLimits, NO_WAIT_SECONDS);
+  private static void retune(TalonFX motor, TalonFXConfiguration config) {
+    motor.getConfigurator().apply(config.Slot0, NO_WAIT_SECONDS);
+    motor.getConfigurator().apply(config.CurrentLimits, NO_WAIT_SECONDS);
   }
 
   @Override

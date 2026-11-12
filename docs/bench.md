@@ -115,8 +115,8 @@ CANivore isn't seen.
 
 1. **The robot's entry** in `Robots.java` lists the board and a camera on Visor, as the robot's
    will ([visor.md](visor.md#putting-a-camera-on-visor)). The board is
-   `new BoardDefinition("10.TE.AM.11", List.of("visor"))` in its `coprocessors(...)`. The camera's
-   `device` is from `visor cameras` on the board.
+   `"10.TE.AM.11"`, added with `.withCoprocessors(...)`. The camera's
+   `device` is a name `visor cameras --names` prints on the board.
 2. **The team number**, stored once: `./gradlew setTeamNumber -PteamNumber=NNNN`. The laptop goes
    by it as Systemcore would, and without it the robot installs nothing of Visor's.
 3. **The network:** the board and the laptop on the radio or one switch. Give the laptop the
@@ -145,13 +145,13 @@ Before the first enable, every session:
 - [ ] **On blocks.** Every wheel clear of the table and of hands, cables and tools.
 - [ ] **A hand on the main breaker** (or the battery's disconnect) whenever the robot is enabled.
   Ctrl+C in the terminal also stops it: the devices disable as the program ends.
-- [ ] **Current limits low.** The test chassis's are named `BENCH_LIMITS` (20 A, 1.5 m/s). Raise
+- [ ] **Current limits low.** The test chassis's control is named `BENCH` (20 A, 1.5 m/s). Raise
   them on purpose, in code, before driving on the floor.
 - [ ] **Tuning off** until you mean to tune, and then one value at a time.
 - [ ] **The banner lists what you expect**: the devices and their CAN IDs, on the right CANivore.
 - [ ] **Enable at a crawl first.** Push the stick a little: every wheel should point the same way
-  and roll forward. One rolling backward is a drive inverted wrongly; one pointing elsewhere is
-  its module's zero.
+  and roll forward. One rolling backward has its drive's `.clockwise()` wrong; one pointing
+  elsewhere is its module's zero.
 - [ ] Students stand back from the chassis while it's enabled.
 
 ## Troubleshooting
@@ -162,6 +162,6 @@ Before the first enable, every session:
 | Devices print `CAN frame not received`, the CANivore is seen | Wrong CAN IDs, a device unpowered, or a CAN wiring break. Compare the banner's IDs with Tuner X's device list. |
 | `Device firmware could not be retrieved` or a firmware version error | The device isn't on 26.70.x firmware. Flash it in Tuner X Preview. |
 | Enabled, but nothing moves; devices are seen | The FRC lock: factory-default the devices in Tuner X. |
-| `UnlicensedFeatureInUse`, or "device may not behave as expected" | A Phoenix Pro feature without a Pro license: a motor written `_FOC`, or FUSED or SYNC CANcoder feedback. Use the plain motor (`Motor.KRAKEN_X60`) and leave the feedback as it is. |
+| `UnlicensedFeatureInUse`, or "device may not behave as expected" | A Phoenix Pro feature without a Pro license: a controller written `.foc()`, or FUSED or SYNC CANcoder feedback. Drop `.foc()` and leave the feedback as it is. |
 | `-PhwSim needs Windows or Linux` | macOS has no hardware-attached library. Use a Windows laptop. |
-| A wheel spins the wrong way, or points the wrong way at rest | Its drive inversion or its module's zero, in the robot's definition. The test chassis keeps both in its block of values to check. |
+| A wheel spins the wrong way, or points the wrong way at rest | Its drive's direction (`.clockwise()`, or not) or its module's zero, where its corner is written in the robot's drivetrain. The test chassis marks both "Unconfirmed" on the line above each corner. |

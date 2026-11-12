@@ -7,6 +7,7 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.world.robot.CanDevice;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -65,7 +66,7 @@ final class DeadChannels {
    */
   DeadChannels(Joint joint, MechanismControl.DeadChannel deadChannel) {
     label = joint.label();
-    fed = joint.devices().stream().filter(device -> device.feed().isPresent()).toList();
+    fed = RobotMath.devices(joint).stream().filter(device -> device.feed().isPresent()).toList();
     channels = new int[fed.size()];
     for (int i = 0; i < fed.size(); i++) {
       channels[i] = fed.get(i).feed().orElseThrow().channel();

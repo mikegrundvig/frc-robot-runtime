@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime;
 
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.runtime.lib.timing.LoopMonitor;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import java.io.File;
@@ -20,8 +21,9 @@ import org.wpilib.util.Alert;
 
 /**
  * Whether the robot loop keeps up, and its log with it; and, on a robot or in a replay of one,
- * whether its commands run. {@link Robot} starts and finishes each loop here, and the robot's
- * container marks the sections of the loop on {@link #monitor()}.
+ * whether its sections run without throwing. {@link Robot} starts and finishes each loop here, and
+ * the robot's container marks the sections of the loop on {@link #monitor()}. Each section runs
+ * under a guard that hands what it throws to {@link #threw}.
  *
  * <p>It raises four alerts:
  *
@@ -34,9 +36,9 @@ import org.wpilib.util.Alert;
  *   <li><b>The log drive.</b> The drive the log goes to is missing, cannot be written, or is nearly
  *       full. It is checked once a second on a thread of its own, so that a drive which hangs never
  *       stalls the robot loop.
- *   <li><b>Commands threw</b> ({@link #threw}), on a robot or in a replay of one. Each place they
- *       threw from is listed once. The code has a bug, so the alert stays raised for the rest of
- *       the session.
+ *   <li><b>The loop threw</b> ({@link #threw}), on a robot or in a replay of one. Each place it
+ *       threw from is listed once, with the section of the loop it was in. The code has a bug, so
+ *       the alert stays raised for the rest of the session.
  * </ul>
  */
 final class LoopHealth implements AutoCloseable {
@@ -47,20 +49,41 @@ final class LoopHealth implements AutoCloseable {
   static final long MIN_FREE_BYTES = 500L * 1024 * 1024;
 
   /**
-   * How many loops in a row the commands may throw, on a robot or in a replay of one, before the
-   * program ends. It is half a second.
+   * How many loops in a row may fail, on a robot or in a replay of one, before the program ends. It
+   * is half a second.
    *
-   * <p>A command that throws once costs one loop. Code that throws every loop (a binding's
-   * condition, a default command, a scheduler's periodic task that threw and so is over) leaves
-   * nothing running while the robot drives on with its last outputs. Then it is better that the
-   * program ends, and restarts, than that it runs on wedged.
+   * <p>A loop fails when a section the robot's control depends on throws: one that reads sensors,
+   * the commands, or the outputs ({@link LoopSection.Part}). A loop with several such throws is one
+   * failed loop. A section aside from control, such as the Pitwall page or the dashboard, never
+   * fails a loop, however often it throws: the robot drives the same without it.
+   *
+   * <p>A failed loop costs one loop. Code that fails every loop (a binding's condition, a default
+   * command, a sensor's reading that always throws) leaves the robot standing still or running
+   * nothing. Then it is better that the program ends, and restarts, than that it runs on wedged.
    */
   static final int FAILING_LOOPS = 25;
 
-  private static final String ERRORS_KEY = "Errors/Commands";
+  /** Where the log has what the loop threw: each throw's section and what it said. */
+  private static final String ERRORS_KEY = "Errors/Loop";
+
+  /** Where the log has the stack of each place the loop threw from, the first time it does. */
+  private static final String STACK_KEY = "Errors/LoopStack";
+
+  /** How this loop is going, as far as throws go. */
+  enum ThisLoop {
+    /** Nothing the robot's control depends on has thrown. */
+    WELL,
+    /** The commands or the outputs threw. The loop has failed. */
+    FAILED,
+    /**
+     * A section that reads sensors threw. The loop has failed, and this loop's readings can't be
+     * trusted: the commands don't run, and the outputs go idle.
+     */
+    ON_UNTRUSTED_READINGS
+  }
 
   /**
-   * A place that commands threw from.
+   * A place that the loop threw from.
    *
    * @param kind the exception's class
    * @param stack its stack
@@ -80,18 +103,21 @@ final class LoopHealth implements AutoCloseable {
   private final Alert logDrive = new Alert("Loop", "logDrive", "", Alert.Level.HIGH);
   private final Alert threw = new Alert("Loop", "threw", "", Alert.Level.HIGH);
 
-  // Commands that threw.
+  // What the loop threw.
 
-  /** Each place commands threw from. Each is reported once. */
+  /** What a throw does in this loop: in the simulator and tests it ends the program. */
+  private Robot.AfterAThrow afterAThrow = Robot.AfterAThrow.ENDS_THE_PROGRAM;
+
+  /** Each place the loop threw from. Each is reported once. */
   private final Set<Site> reported = new HashSet<>();
 
-  /** What the alert lists: each place commands threw from, once, in the order they first did. */
+  /** What the alert lists: each place the loop threw from, once, in the order they first did. */
   private final List<String> threwFrom = new ArrayList<>();
 
-  /** How many loops in a row the commands have thrown in, up to and including this one. */
+  /** How many loops in a row have failed, up to and including this one. */
   private int failingLoops;
 
-  private boolean threwThisLoop;
+  private ThisLoop thisLoop = ThisLoop.WELL;
 
   // The log drive.
 
@@ -121,9 +147,20 @@ final class LoopHealth implements AutoCloseable {
     return last;
   }
 
-  /** A loop begins. */
-  void start(long nowNanos) {
+  /**
+   * A loop begins.
+   *
+   * @param afterAThrow what a throw does in this loop ({@link Robot#afterAThrow})
+   */
+  void start(long nowNanos, Robot.AfterAThrow afterAThrow) {
+    this.afterAThrow = afterAThrow;
+    thisLoop = ThisLoop.WELL;
     monitor.start(nowNanos);
+  }
+
+  /** How this loop is going so far, as far as throws go. */
+  ThisLoop thisLoop() {
+    return thisLoop;
   }
 
   /**
@@ -141,10 +178,9 @@ final class LoopHealth implements AutoCloseable {
       loggingBehind.set(true);
     }
     showLogDrive();
-    if (!threwThisLoop) {
+    if (thisLoop == ThisLoop.WELL) {
       failingLoops = 0;
     }
-    threwThisLoop = false;
   }
 
   private void logTiming() {
@@ -221,62 +257,80 @@ final class LoopHealth implements AutoCloseable {
   }
 
   /**
-   * The commands threw this loop, on a robot or in a replay of one ({@link Robot#loop}). What threw
-   * may be a command, a binding's condition, or anything else the scheduler runs. The scheduler has
-   * already ended a command that threw, and the command that started it, and the robot carries on
-   * without them.
+   * A section of the loop threw ({@link LoopSection}). Each section's guard calls this from its
+   * catch, and the sections after it run on.
    *
-   * <p>Every throw is logged ({@code Errors/Commands}, with the stack). Each place that commands
-   * threw from is reported once, as a Driver Station error with the stack and in the alert.
+   * <p>In the simulator and in tests this throws the exception on at once, which ends the program,
+   * so that a bug fails there. On a robot, and in a replay of one, the throw is logged ({@code
+   * Errors/Loop}), and each place the loop threw from is reported once: as a Driver Station error
+   * with the stack, in the log ({@code Errors/LoopStack}), and in the alert. What the exception
+   * suppressed, as one joint's throw does another's, is reported the same way.
    *
-   * @throws RuntimeException the same exception, on the {@value #FAILING_LOOPS}th loop in a row
-   *     whose commands threw. The program then ends, and restarts, which is better than running on
-   *     with nothing running.
+   * <p>What it does to the rest of the loop is the section's to say ({@link LoopSection.Part}).
+   *
+   * @throws RuntimeException the same exception, in the simulator and tests, or in the {@value
+   *     #FAILING_LOOPS}th loop in a row to fail. The program then ends, and restarts, which is
+   *     better than running on wedged.
    */
-  void threw(RuntimeException e) {
-    threwThisLoop = true;
-    failingLoops++;
-    StackTraceElement[] frames = e.getStackTrace();
-    StringWriter stack = new StringWriter();
-    e.printStackTrace(new PrintWriter(stack));
-    Logger.recordOutput(ERRORS_KEY, stack.toString());
-
-    boolean isANewSite = reported.add(new Site(e.getClass(), List.of(frames)));
-    if (isANewSite) {
-      report(e, frames);
-    }
-    if (failingLoops >= FAILING_LOOPS) {
-      DriverStationErrors.reportError(
-          "Commands threw in " + FAILING_LOOPS + " loops in a row: the program ends, and restarts",
-          frames);
+  void threw(LoopSection section, RuntimeException e) {
+    if (afterAThrow == Robot.AfterAThrow.ENDS_THE_PROGRAM) {
       throw e;
     }
+    Logger.recordOutput(ERRORS_KEY, section.label() + ": " + Said.withKind(e));
+    reportIfNew(section, e);
+    for (Throwable alsoThrown : e.getSuppressed()) {
+      reportIfNew(section, alsoThrown);
+    }
+    failTheLoopIfItCounts(section, e);
   }
 
-  /** Reports a place commands threw from: to the Driver Station, and in the alert's list. */
-  private void report(RuntimeException e, StackTraceElement[] frames) {
-    DriverStationErrors.reportError(
-        "Commands threw " + what(e) + ". The robot carries on without them", frames);
+  /** Reports a place the loop threw from, if it hasn't thrown from there before. */
+  private void reportIfNew(LoopSection section, Throwable thrown) {
+    StackTraceElement[] frames = thrown.getStackTrace();
+    boolean isANewSite = reported.add(new Site(thrown.getClass(), List.of(frames)));
+    if (!isANewSite) {
+      return;
+    }
+    StringWriter stack = new StringWriter();
+    thrown.printStackTrace(new PrintWriter(stack));
+    Logger.recordOutput(STACK_KEY, section.label() + ": " + stack);
+    String what = section.label() + " threw " + Said.withKind(thrown);
+    DriverStationErrors.reportError(what + ". The robot carries on", frames);
     String where = frames.length > 0 ? ", at " + frames[0] : "";
-    threwFrom.add(what(e) + where);
+    threwFrom.add(what + where);
     threw.setText(
-        "Commands threw, and the robot carried on without them: "
+        "The loop threw, and the robot carried on: "
             + String.join("; ", threwFrom)
             + ". Fix the code: the stack is in the Driver Station's log");
     threw.set(true);
   }
 
   /**
-   * What was thrown, by its kind and what it says: "IllegalStateException: no reading yet". An
-   * exception that says nothing is named by its kind alone.
+   * Marks this loop failed, if the section is one the robot's control depends on, and ends the
+   * program if too many loops in a row have.
    */
-  private static String what(RuntimeException e) {
-    String message = e.getMessage();
-    String kind = e.getClass().getSimpleName();
-    if (message == null || message.isBlank()) {
-      return kind;
+  private void failTheLoopIfItCounts(LoopSection section, RuntimeException e) {
+    LoopSection.Part part = section.part();
+    if (part == LoopSection.Part.ASIDE) {
+      return;
     }
-    return kind + ": " + message;
+    boolean firstFailureThisLoop = thisLoop == ThisLoop.WELL;
+    if (part == LoopSection.Part.READS) {
+      thisLoop = ThisLoop.ON_UNTRUSTED_READINGS;
+    } else if (firstFailureThisLoop) {
+      thisLoop = ThisLoop.FAILED;
+    }
+    if (!firstFailureThisLoop) {
+      return;
+    }
+    failingLoops++;
+    if (failingLoops < FAILING_LOOPS) {
+      return;
+    }
+    DriverStationErrors.reportError(
+        "The loop failed " + FAILING_LOOPS + " times in a row: the program ends, and restarts",
+        e.getStackTrace());
+    throw e;
   }
 
   /** One line for the pit: how long loops take, and whether they keep up. */
@@ -322,6 +376,11 @@ final class LoopHealth implements AutoCloseable {
               drive, free >> 20));
     }
     return Optional.empty();
+  }
+
+  /** Whether a thread watches the log drive ({@link #watchLogDrive}). */
+  boolean watchesTheLogDrive() {
+    return driveWatch.isPresent();
   }
 
   boolean isOverrunAlertActive() {

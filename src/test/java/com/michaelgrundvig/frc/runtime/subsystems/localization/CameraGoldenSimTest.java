@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.localization;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.michaelgrundvig.frc.localization.FrameVerdict;
+import com.michaelgrundvig.frc.localization.ImageVerdict;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.TagAllowlist;
@@ -10,7 +11,6 @@ import com.michaelgrundvig.frc.localization.Verdict;
 import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.localization.VisionConfigBuilder;
 import com.michaelgrundvig.frc.localization.VisionMeasurement;
-import com.michaelgrundvig.frc.localization.VisionResult;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.GoldenFile;
 import com.michaelgrundvig.frc.runtime.RobotSim;
@@ -67,12 +67,12 @@ class CameraGoldenSimTest {
     Session session = session();
 
     assertThat(session.images())
-        .extracting(VisionResult::refused)
+        .extracting(ImageVerdict::refused)
         .as("spinning, and a task's tags")
         .contains(Verdict.TURNING, Verdict.UNTRUSTED_TAGS);
     assertThat(session.images())
         .filteredOn(image -> image.measurement() != null)
-        .extracting(VisionResult::outcome)
+        .extracting(ImageVerdict::described)
         .anyMatch(outcome -> outcome.endsWith("with heading"))
         .anyMatch(outcome -> outcome.startsWith("heading-constrained"));
     assertThat(session.frames())
@@ -82,7 +82,7 @@ class CameraGoldenSimTest {
   }
 
   /** What the session did: a row per loop, image and measurement, and the records behind them. */
-  private record Session(List<String> rows, List<VisionResult> images, List<FrameVerdict> frames) {}
+  private record Session(List<String> rows, List<ImageVerdict> images, List<FrameVerdict> frames) {}
 
   private static Session session() {
     List<String> rows = new ArrayList<>();
@@ -98,7 +98,9 @@ class CameraGoldenSimTest {
       robot.watchWith(cameras);
       // A pit that turned the turning limit down, so a spin refuses images.
       robot.service.vision(
-          VisionConfigBuilder.builder(VisionConfig.DEFAULTS).maxYawRateRadiansPerSecond(2).build());
+          VisionConfigBuilder.builder(VisionConfig.defaults())
+              .maxYawRateRadiansPerSecond(2)
+              .build());
       // Times from the session's start: the simulator's clock starts wherever the tests before
       // left it.
       long start = RobotController.getTime();
@@ -146,12 +148,12 @@ class CameraGoldenSimTest {
   }
 
   /** An image as solved: how, or why not, in the log's words, and the measurement it made. */
-  private static String imageRow(VisionResult image, long start) {
+  private static String imageRow(ImageVerdict image, long start) {
     VisionMeasurement measurement = image.measurement();
     Verdict refused = image.refused();
     String solved = measurement != null ? measurement.solver().name() : String.valueOf(refused);
     // The outcome's own commas would split it into columns.
-    String outcome = image.outcome().replace(',', ';');
+    String outcome = image.described().replace(',', ';');
     String head =
         String.format(
             Locale.ROOT,

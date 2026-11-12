@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.robot.ImuMount;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import org.junit.jupiter.api.Test;
-import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation2d;
 
 /**
@@ -17,7 +17,7 @@ import org.wpilib.math.geometry.Translation2d;
  * simplest motor controllers ({@link TestRobot.Controllers}).
  */
 class AccelerometerTruthTest {
-  private static final double G = Physics.STANDARD_GRAVITY;
+  private static final double G = RobotMath.GRAVITY;
   private static final double STEP = 0.004;
 
   /** Sampled at 100 Hz, but nothing else: no filter, noise, bias, mount error, or range. */
@@ -30,13 +30,8 @@ class AccelerometerTruthTest {
   /** A part on the robot, mounted level with its x axis forward, here. */
   private AccelerometerModel mounted(SensorErrors.AccelErrors errors, Translation2d place) {
     ImuMount mount =
-        ImuMount.builder()
-            .forward(Meters.of(place.getX()))
-            .left(Meters.of(place.getY()))
-            .up(Meters.of(0.08))
-            .orientation(Rotation3d.ZERO)
-            .accelerometerChecked(true)
-            .build();
+        ImuMount.at(Meters.of(place.getX()), Meters.of(place.getY()), Meters.of(0.08))
+            .accelerometerCheckPassed();
     return new AccelerometerModel(physics.chassis(), errors, mount, 7);
   }
 

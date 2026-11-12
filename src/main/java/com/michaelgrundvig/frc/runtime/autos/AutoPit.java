@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.autos;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.Start;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -18,6 +19,9 @@ import java.util.Optional;
  * the robot loop, so it reads only what the loop already holds.
  */
 public final class AutoPit {
+  /** The card's name on the Pit view, which no other card may have. */
+  public static final String NAME = "auto";
+
   private final Autos autos;
 
   AutoPit(Autos autos) {
@@ -27,7 +31,7 @@ public final class AutoPit {
   /** The autos' card, for {@code pitwall.devices().add(...)}. */
   public static Devices.Device device(Autos autos) {
     AutoPit pit = new AutoPit(autos);
-    return Devices.Device.named("auto", "Autonomous", pit::card)
+    return Devices.Device.named(NAME, "Autonomous", pit::card)
         .choose("auto", pit::choose)
         .autonomous();
   }
@@ -54,14 +58,13 @@ public final class AutoPit {
               "Chosen", "takes effect when the robot is disabled", Devices.Level.NOTE));
     }
 
-    boolean somethingIsWrong = failure.isPresent() || refusal.isPresent();
-    Devices.Level level = somethingIsWrong ? Devices.Level.PROBLEM : Devices.Level.OK;
     List<Devices.Option> options = new ArrayList<>();
     for (String name : autos.names()) {
       options.add(new Devices.Option(name, name));
     }
     Devices.Choice choice = new Devices.Choice("auto", "Auto", options, autos.requested());
-    return new Devices.Card(chosen.name(), level, lines, List.of(choice));
+    return Devices.Card.of(chosen.name(), Devices.Level.of(lines), lines)
+        .withChoices(List.of(choice));
   }
 
   /**
@@ -74,7 +77,7 @@ public final class AutoPit {
     try {
       autos.choose(value);
     } catch (IllegalArgumentException e) {
-      throw new Devices.Refused(String.valueOf(e.getMessage()));
+      throw new Devices.Refused(Said.of(e));
     }
     return "Chose " + value + ": the robot takes it at the start of a loop while disabled";
   }

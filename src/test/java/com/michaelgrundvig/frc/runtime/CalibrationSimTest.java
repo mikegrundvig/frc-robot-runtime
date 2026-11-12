@@ -3,18 +3,23 @@ package com.michaelgrundvig.frc.runtime;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
+import com.michaelgrundvig.frc.pitwall.Actions;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.wpilib.command3.Command;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Transform3d;
@@ -54,6 +59,52 @@ class CalibrationSimTest {
     return matcher.results().mapToDouble(match -> Double.parseDouble(match.group())).toArray();
   }
 
+  /**
+   * The page lists its procedures in the guide's order (docs/calibration.md's numbered list), each
+   * after the ones it leans on. Each row is a procedure as the guide's list names it and as the
+   * page's action does; a camera's mount is one action for each camera on the chassis.
+   */
+  @Test
+  void thePageListsTheProceduresInTheGuidesOrder() throws IOException {
+    record Procedure(String inTheGuide, String onThePage) {}
+    List<Procedure> inOrder =
+        List.of(
+            new Procedure("**The IMU reads level**", "Check the IMU reads level"),
+            new Procedure("**The gyro's scale**", "Calibrate the gyro's scale"),
+            new Procedure("**The wheel radius**", "Calibrate the wheel radius"),
+            new Procedure("**Camera mounts**", "Calibrate the front-left camera's mount"),
+            new Procedure("**Camera mounts**", "Calibrate the front-right camera's mount"),
+            new Procedure("**Camera mounts**", "Calibrate the back-left camera's mount"),
+            new Procedure("**Camera mounts**", "Calibrate the back-right camera's mount"),
+            new Procedure("**Cameras' capture times**", "Calibrate the cameras' capture times"));
+    build(SensorErrors.NONE, true);
+    Actions actions = new Actions(inputs -> {});
+
+    sim.robot().calibration().addTo(actions, sim.scheduler());
+
+    List<String> onThePage = actions.view().stream().map(Actions.State::name).toList();
+    assertThat(onThePage).hasSize(inOrder.size());
+    for (int i = 0; i < inOrder.size(); i++) {
+      assertThat(onThePage.get(i)).startsWith(inOrder.get(i).onThePage());
+    }
+    Path guide = Path.of(System.getProperty("frc.projectDir", "."), "docs", "calibration.md");
+    List<String> guidesList =
+        Files.readAllLines(guide).stream().filter(line -> line.matches("\\d+\\. .*")).toList();
+    List<Integer> steps =
+        inOrder.stream().map(procedure -> stepOf(guidesList, procedure.inTheGuide())).toList();
+    assertThat(steps).as("the guide's steps, in the page's order").isSorted();
+  }
+
+  /** Where in the guide's numbered list a procedure is, by the bold words that name it. */
+  private static int stepOf(List<String> guidesList, String named) {
+    for (int step = 0; step < guidesList.size(); step++) {
+      if (guidesList.get(step).contains(named)) {
+        return step;
+      }
+    }
+    throw new AssertionError("docs/calibration.md's list has no " + named);
+  }
+
   @Test
   void theWheelRadiusIsFoundBySpinningInPlace() {
     build(SensorErrors.NONE.withWheelRadiusScale(0.98), false); // tread worn 2%
@@ -65,8 +116,23 @@ class CalibrationSimTest {
     assertThat(numbers(report)[0]).as("inches").isCloseTo(2 * 0.98, within(0.005));
   }
 
-  @Test
-  void theGyrosScaleIsFoundAgainstTheCameras() {
+  /** The robot's cameras, every one on this software. */
+  private static RobotConfig everyCameraOn(CameraConfig.Software software) {
+    RobotConfig robot = ExampleRobot.SIM;
+    for (CameraConfig camera : ExampleRobot.SIM.definition().cameras()) {
+      robot = robot.with(camera.withSoftware(software));
+    }
+    return robot;
+  }
+
+  /**
+   * The gyro's scale, found against the cameras' headings, on PhotonVision's cameras, which send a
+   * multi-tag solution, and on Visor's, which send each tag with its own pose and nothing else: the
+   * procedure takes each tag's heading by itself, so it needs no multi-tag solution.
+   */
+  @ParameterizedTest
+  @EnumSource(Cameras.class)
+  void theGyrosScaleIsFoundAgainstTheCameras(Cameras cameras) {
     SensorErrors gyroHigh =
         SensorErrors.NONE.withGyros(
             SensorErrors.GyroErrors.builder()
@@ -74,7 +140,7 @@ class CalibrationSimTest {
                 .driftDegreesPerMinute(0)
                 .noiseDegrees(0)
                 .build());
-    build(gyroHigh, true);
+    sim.build(everyCameraOn(cameras.software), gyroHigh);
     sim.run(1.0); // placed, and the cameras settle
 
     String report = run(sim.robot().calibration().gyroScale(), 60);
@@ -95,6 +161,18 @@ class CalibrationSimTest {
       assertThat(alert.activeStartTime != 0 && alert.text.contains("out of calibration"))
           .as(alert.text)
           .isFalse();
+    }
+  }
+
+  /** The software every camera of the robot runs, for the procedures that need its headings. */
+  enum Cameras {
+    PHOTONVISION(CameraConfig.Software.PHOTONVISION),
+    VISOR(CameraConfig.Software.VISOR);
+
+    final CameraConfig.Software software;
+
+    Cameras(CameraConfig.Software software) {
+      this.software = software;
     }
   }
 
@@ -159,8 +237,7 @@ class CalibrationSimTest {
             .findFirst()
             .orElseThrow();
     sim.build(
-        ExampleRobot.SIM.with(
-            CameraConfigBuilder.builder(frontLeft).software(CameraConfig.Software.VISOR).build()),
+        ExampleRobot.SIM.with(frontLeft.withSoftware(CameraConfig.Software.VISOR)),
         SensorErrors.NONE);
     sim.run(1.0);
     offsetClock("front-left", 25);
@@ -241,15 +318,18 @@ class CalibrationSimTest {
     String report = sim.robot().calibration().lastResult();
     assertThat(report)
         .startsWith("front-left: tags landed")
-        .contains("In Robots, the front-left camera's mount: .forward(Inches.of(");
-    String line = report.substring(report.indexOf(".forward("));
+        .contains("In Robots, the front-left camera's mount: .at(Inches.of(");
+    String line = report.substring(report.indexOf(".at("));
     double[] mount = numbers(line);
     // Configured at (11.75, 11.75, 21) in, roll 0, tilted up 10, turned 45: really 4 in lower.
     assertThat(mount[0]).as("forward").isCloseTo(11.75, within(0.4));
     assertThat(mount[1]).as("left").isCloseTo(11.75, within(0.4));
     assertThat(mount[2]).as("up").isCloseTo(17.0, within(0.4));
-    assertThat(mount[4]).as("tilted up").isCloseTo(10, within(0.5));
-    assertThat(mount[5]).as("turned").isCloseTo(45, within(0.5));
+    assertThat(mount[3]).as("tilted up").isCloseTo(10, within(0.5));
+    assertThat(mount[4]).as("turned").isCloseTo(45, within(0.5));
+    assertThat(line)
+        .as("it ends with the call that marks the mount checked")
+        .containsPattern("\\.measured\\(\\) // measured \\S+$");
     assertThat(numbers(report)[0]).as("tags landed off, cm").isGreaterThan(5);
     assertThat(numbers(report)[1]).as("and with the mount found").isLessThan(3);
   }

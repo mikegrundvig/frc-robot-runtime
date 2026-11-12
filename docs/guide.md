@@ -85,7 +85,7 @@ RobotProgram.start(
 ```
 
 The first argument answers "which robot is this?". The second is the season's field, which the
-model already describes. The third is the class that holds the robot's behaviour. The guide's
+model already describes, down to its tags' family and size. The third is the class that holds the robot's behaviour. The guide's
 robot has `ExampleControls`. Yours is called `Controls`.
 
 **The robot's description** is a class of constants. The guide's is `ExampleRobot`. It has an
@@ -106,35 +106,41 @@ The body is the frame, the bumpers, the overall height and, once the robot is we
 This is the guide's robot:
 
 ```java fragment
-Body.builder()
-    .frameLength(Inches.of(27.5))
-    .frameWidth(Inches.of(27.5))
-    .overallHeight(Inches.of(30))
-    // ... the bumpers ...
-    .build();
+Body.frame(Inches.of(27.5), Inches.of(27.5), Inches.of(30))
+    .bumpers(Inches.of(4), Inches.of(2.5), Inches.of(5.75))
 ```
 
-Until it's weighed the weight is left out, and the program takes the season's maximum and says so
-at startup. Weighed, it's one more line, `.weight(Pounds.of(131.2))`.
+`Body.frame` takes what every body has: its length, its width and its overall height. The rest is
+said by a verb each, once: the bumpers' thickness, bottom and top, and its inertia and center of
+mass. Until it's weighed the weight is left out, and the program takes the season's maximum and says
+so at startup. Weighed, it's one more line, `.weight(Pounds.of(131.2))`.
 
-Every value is set by name, so you cannot swap the length and the width by accident. Most carry
-their unit, like `Inches.of(27.5)`. A few are bare numbers whose unit you have to know. You will
-meet two below. A `Translation3d` is a point in meters, and a gain is a plain number. The builder
-also asks for each required value in turn, so the code does not compile if you leave one out; the
-optional ones, such as the weight, come after them.
+Most values carry their unit, like `Inches.of(27.5)`. A few are bare numbers whose unit you have to
+know. You will meet two below. A `Translation3d` is a point in meters, where a link's box is
+centered, and a gain is a plain number.
 
 The drivetrain is described the same way. You give the swerve modules, where they sit on the
 frame, and how they are driven. A swerve module is one wheel that can both spin and steer.
 
 ```java
-private static final DrivetrainGeometry DRIVETRAIN =
-    DrivetrainGeometry.inset(MODULES, BODY, Inches.of(2.625)).control(DRIVING);
+private static final Drivetrain DRIVETRAIN =
+    Drivetrain.inset(MODULES, BODY, Inches.of(2.625)).control(DRIVING);
 ```
 
 `MODULES` holds the motors, the gear ratios and the wheel size. `DRIVING` holds the limits and
-the gains. One of those limits is the stator current, which is the current flowing through the
-motor's windings. It sets how hard the motor can push, so limiting it keeps the wheels from
-spinning on the carpet.
+the gains. It starts from the template's, `DrivetrainControl.defaults()`, and says only what this
+robot changes: `.withMaxSpeed(MetersPerSecond.of(4.4))`. One of those limits is the stator
+current, which is the current flowing through the motor's windings. It sets how hard the motor can
+push, so limiting it keeps the wheels from spinning on the carpet. A gain copied from Tuner X is
+given in Tuner X's unit, `.withSteerKp(Volts.per(Rotation).of(100))`, and the program converts it.
+
+The guide's robot runs in the simulator alone, so its drivetrain says nothing of its wiring. A real
+robot's says it the way a joint names its motors: its Pigeon 2 first, then each corner's drive
+motor, steering motor and CANcoder, `.gyro(PIGEON_2.can(CANIVORE, 1))`, then
+`.frontLeft(TALON_FX.can(CANIVORE, 23), TALON_FX.can(CANIVORE, 24),
+CANCODER.can(CANIVORE, 12).offset(Rotations.of(0.107)))`, and on to `.backRight(...)`. A device
+that turns the other way says `.clockwise()`, as a joint's motor does
+([values.md](values.md#swervewiringmodulewiring)).
 
 The description also lists the cameras and where each is mounted. The cameras look for AprilTags,
 which are the square black and white markers placed around the field at known spots. Seeing one
@@ -150,13 +156,14 @@ the guide's intake out of the frame, with its two named places above it:
 public static final Position PIVOT_IN = Position.degrees("in", 1.5);
 public static final Position PIVOT_OUT = Position.degrees("out", 130);
 
-public static final Joint.Revolute PIVOT =
-    Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+public static final RevoluteJoint PIVOT =
+    Joint.pivot("pivot", Part.CHASSIS, Joint.PITCH_DOWN)
+        .at(Meters.of(0.25), Meters.of(0), Meters.of(0.32))
         .range(Range.degrees(0, 135))
         .rest(PIVOT_IN) // its hard stops, and where it rests
         .carries(
             Link.box(
-                "intake arm", new Translation3d(0, 0, 0.2), new Translation3d(0.05, 0.55, 0.36)))
+                "intake arm", new Translation3d(0, 0, 0.2), Meters.of(0.05), Meters.of(0.55), Meters.of(0.36)))
         .positions(PIVOT_IN, PIVOT_OUT)
         .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(32).pdh(4, Amps.of(40))))
         .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))
@@ -168,8 +175,9 @@ public static final Joint.Revolute PIVOT =
 Read it one call at a time.
 
 **Where it is.** `Joint.pivot(...)` gives the joint its name, which is what the logs will call
-it. It says the joint hangs from the chassis. It says where the axle is, in meters forward, left
-and up from the robot's origin on the floor. The last argument is the axis it turns about.
+it. It says the joint hangs from the chassis, and the axis it turns about. `.at(...)` says where
+the axle is, forward, left and up from the robot's origin on the floor, in any unit, as a camera's
+place is. Left out, the joint sits at its parent's origin, and the robot says so as it starts.
 
 **Its travel.** `.range(...)` is the hard stops, the angles where metal meets metal. `.rest(...)`
 is where the joint sits when the robot is switched on. `.carries(...)` is the thing it moves,
@@ -236,20 +244,20 @@ While the elevator is at 32 inches or lower, the arm stops at the edge of that b
 elevator rises past 32 inches, the arm carries on. You can tell both joints to move at once and
 the rule sorts out the order.
 
-### Configurations
+### Presets
 
-A configuration is a name for several joints at once. This one is the intake deployed and
+A preset is a name for several joints at once. This one is the intake deployed and
 running:
 
 ```java
-public static final Configuration INTAKE =
-    Configuration.of("intake", PIVOT.at(PIVOT_OUT), ROLLER.at(INTAKING));
+public static final Preset INTAKE =
+    Preset.of("intake", PIVOT.at(PIVOT_OUT), ROLLER.at(INTAKING));
 ```
 
-The description checks it against the interlocks. A configuration that ran the roller with the
+The description checks it against the interlocks. A preset that ran the roller with the
 pivot stowed would be refused.
 
-The robot's description ends by listing its joints, its sensors and its configurations. One that
+The robot's description ends by listing its joints, its sensors and its presets. One that
 is not listed is not part of the robot.
 
 ### A practice robot
@@ -319,10 +327,10 @@ RobotDefinition[test].joints: roller's intaking, 5000 rpm, is 2.5 times its free
 its motors can't turn it that fast; give it a speed under that
 ```
 
-A configuration that runs the roller while the pivot is stowed, which breaks the interlock:
+A preset that runs the roller while the pivot is stowed, which breaks the interlock:
 
 ```text
-configuration rolling runs roller, but roller runs only when pivot at least run, and pivot is at
+preset rolling runs roller, but roller runs only when pivot at least run, and pivot is at
 1.5°, where it rests
 ```
 
@@ -350,12 +358,12 @@ You never write the loop, but everything you write runs inside it, so it helps t
 ### One pass
 
 Fifty times a second the runtime makes one pass. These are the four steps, from the runtime's
-`Robot.loop`, with the timing code between them left out:
+`Robot.loop`, with the timing code and the guards around them left out:
 
 ```java fragment
 pitwall.periodic();
 container.periodic();
-runTheCommands(container, scheduler, loopHealth, afterAThrow);
+runTheCommands(container, scheduler, loopHealth);
 container.afterCommands();
 ```
 
@@ -365,10 +373,9 @@ Second, the robot looks at the world. This is that step, from `RobotContainer.pe
 
 ```java fragment
 takeThePitsChoices(enabled);
-Optional<Pose2d> placed = matchField.read(enabled);
-stepTheSimulatedWorld(placed);
-startOrEndTheAuto();
-readTheSensors(enabled);
+placed = readTheMatch(enabled);
+drive.periodic(enabled);
+readTheJoints(enabled);
 localize(placed, enabled);
 judgeTheField();
 ```
@@ -391,6 +398,13 @@ no command asked anything, it does what it does when idle, which comes up below.
 The order matters. Sensors are read before commands run, so a command always decides on fresh
 readings. Joints are told after commands run, so what a command asks takes effect on the same
 pass.
+
+Each of those steps runs inside a `try` of its own. In the simulator and in your tests, anything
+that throws stops the program at once, so a bug fails where you can see it. On the robot, a step
+that throws is reported in an alert (`Loop/threw`), and the rest of the pass still runs: one bug
+doesn't end a match. Only a pass that fails 25 times in a row ends the program, and it restarts. If a sensor's reading throws, the commands skip that pass and the robot stands still for
+it, since half its readings are old.
+[Why won't it move?](mechanisms.md#4-why-wont-it-move) has the details.
 
 ### Enabled, disabled, autonomous, teleop
 
@@ -442,7 +456,7 @@ public ExampleControls(
     Scheduler scheduler,
     RobotDefinition robot,
     Joints joints,
-    Drive drive,
+    SwerveDrive drive,
     RecordingGamepad driver,
     RecordingGamepad operator,
     Autos autos) {
@@ -666,7 +680,7 @@ half is missing under `Gates/ready to feed/Blocking`, and names it in
 `Gates/ready to feed/BlockingText`.
 
 On the pass both are true, the wait ends. `joints.run(FEEDING)` runs the feeder and the indexer
-together at their feeding speeds. `FEEDING` is a configuration from the description.
+together at their feeding speeds. `FEEDING` is a preset from the description.
 `onlyWhile(ready)` checks the gate on every pass.
 
 Say the robot gets bumped and its aim swings off. `ready` turns false, the feed is cancelled on
@@ -779,7 +793,10 @@ default, so there is always a safe choice. The pit chooses an auto on Pitwall be
 
 The start place gets checked. Before the match, the robot compares where it thinks it is with
 the chosen auto's start, and the status says something like "Ready on Left: 2 cm, 1° off". If the
-robot was set down on the wrong mark, you find out while you can still move it.
+robot was set down on the wrong mark, you find out while you can still move it. The robot also
+takes its heading on your word when it is set down, until a camera backs it. If it is set down
+crooked or backwards, so that no camera agrees, the status says its heading is the suspect. Set it
+down facing its start's heading, or face it straight downfield and press Back.
 [autos.md](autos.md) covers choosing, logging and testing them.
 
 ## Running it with no robot

@@ -27,7 +27,7 @@ roller,leader,Slot1,kA,4.147434025049431E-4
 roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
-hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+hood,leader,CurrentLimits,SupplyCurrentLimit,30.0,A
 hood,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 hood,leader,Slot0,kP,188.49555921538757
 hood,leader,Slot0,kV,4.640371229698378
@@ -148,7 +148,7 @@ roller,leader,Slot1,kA,4.147434025049431E-4
 roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
-hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+hood,leader,CurrentLimits,SupplyCurrentLimit,30.0,A
 hood,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 hood,leader,Slot0,kP,188.49555921538757
 hood,leader,Slot0,kV,4.640371229698378
@@ -269,7 +269,7 @@ roller,leader,Slot1,kA,4.147434025049431E-4
 roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
-hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+hood,leader,CurrentLimits,SupplyCurrentLimit,30.0,A
 hood,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 hood,leader,Slot0,kP,188.49555921538757
 hood,leader,Slot0,kV,4.640371229698378
@@ -407,7 +407,7 @@ roller,leader,Slot1,kA,4.147434025049431E-4
 roller,leader,Slot1,GravityType,Arm_Cosine
 hood,leader,MotorOutput,NeutralMode,Brake
 hood,leader,CurrentLimits,StatorCurrentLimit,40.0,A
-hood,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
+hood,leader,CurrentLimits,SupplyCurrentLimit,30.0,A
 hood,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 hood,leader,Slot0,kP,188.49555921538757
 hood,leader,Slot0,kV,4.640371229698378

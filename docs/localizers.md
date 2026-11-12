@@ -31,7 +31,8 @@ is written to be enough to implement a localizer without reading either of ours.
   second at least, and is empty outside what the localizer keeps.
 - **Odometry (L6 to L8).** With odometry alone the pose moves as the wheels and the gyro say. A
   lost gyro, a wheel that did not report and a loop with no readings are all ordinary.
-- **Placing the robot (L9, L10).** After `place`, the pose is the placed pose.
+- **Placing the robot (L9, L10).** After `place`, the pose is the placed pose. After
+  `resetHeading`, the pose faces the given heading and stays where it stood.
 - **Measurements (L11 to L16).** A measurement that agrees is used, and never overshot. It is
   applied at its capture time. One with no heading does not turn the estimate. Bad data costs one
   measurement, never the loop.
@@ -61,7 +62,7 @@ A localizer must give a pose. It may also report more. Each option is one method
 | `covariance()` | How sure the pose is |
 | `mode()` | What the pose rests on: tags seen lately, odometry alone, nothing yet |
 | `health()` | The numbers behind the mode |
-| `decisions()` | What became of each measurement |
+| `verdicts()` | What became of each measurement |
 | `fieldVelocities()` | How the robot moves over the field |
 | `wheels()` | How far the wheels are trusted: tilt, ground slope, slip, a collision |
 | `trust()` | How far each camera is trusted, and tags it has no place for |
@@ -75,8 +76,8 @@ about what is missing. This is what it does:
 | `covariance()` | Pitwall's Localization line says how sure the pose is "is not reported by this localizer". The World view draws no uncertainty ellipse. No image is solved using the pose's heading, so every image is solved from its tags alone. No camera's mount is checked or calibrated against the pose. |
 | `mode()` | The Localization line does not say what the pose rests on. No camera's mount is checked or calibrated. |
 | `health()` | Its numbers are left out of the log. |
-| `covariance()`, `mode()` or `health()` | The scoring gate cannot judge the pose. It holds nothing back, and the Scoring line reads "Not judged". `readyToScore` is true. |
-| `decisions()` | Each measurement is logged and drawn as "given to the localizer", not as accepted or rejected. The Cameras line counts measurements given, with no share accepted. No camera's mount is checked. |
+| `covariance()`, `mode()` or `health()` | The scoring gate cannot judge the pose. `readyToScore` is false, so scoring waits, unless the robot chose `.withScoringWhenNotJudged(READY)` in its `RobotConfig`, which lets it through as a robot without a gate does. The Scoring line reads "Not judged, so not ready" (or "so ready"), and an alert says the gate isn't judging. |
+| `verdicts()` | Each measurement is logged and drawn as "given to the localizer", not as accepted or rejected. The Cameras line counts measurements given, with no share accepted. No camera's mount is checked. |
 | `fieldVelocities()` | The robot's speed comes from the wheels and its turning from the IMU. |
 | `wheels()` | Tilt, slope and slip are left out of the log. Nothing warns of an IMU mounted another way than the robot's description says. |
 | `trust()` | Nothing warns of cameras or tags the localizer cannot keep apart. |
@@ -110,38 +111,43 @@ its Javadoc says how. The ones worth knowing:
 - It gives each loop's measurements to WPILib oldest first. WPILib discards its newer corrections
   when it is handed an older measurement.
 - A measurement with no heading is given a heading standard deviation of a million radians.
+- A measurement from a single tag keeps the heading the pipeline solved it with, and its standard
+  deviation (`angularStdDevBaseline` times the tag's distance squared). On Visor's cameras, which
+  send no multi-tag solution, those are the only headings the cameras give, and the study shows
+  what dropping them costs (below).
+- It drops a measurement whose pose isn't a number, which would turn WPILib's estimate to NaN for
+  good, and a wheel reading no newer than the last, which WPILib would take out of order.
 - Its state standard deviations are WPILib's defaults, 0.1 m and 0.1 rad, unless you give your
   own.
 
 ## Choosing one
 
-A robot chooses its localizer in its own block, with one line. This is the guide's robot on
+A robot chooses its localizer in its own block, with one verb. This is the guide's robot on
 WPILib's estimator:
 
 ```java
 public static final RobotConfig ON_WPILIB =
-    RobotConfig.builder()
-        .definition(ExampleRobot.SIM.definition())
-        .vision(ExampleRobot.SIM.vision())
-        .estimator(EstimatorConfig.DEFAULTS)
-        .localizer(WpilibLocalizer::new)
-        .build();
+    RobotConfig.of(ExampleRobot.SIM.definition()).withLocalizer(WpilibLocalizer::new);
 ```
 
-Leave the line out and the robot gets the default localizer. `Main` does not change either way.
+Leave the verb out and the robot gets the default localizer. `Main` does not change either way.
+
+WPILib's estimator reports too little for the scoring gate to judge the pose, so a robot on it is
+never ready to score unless its block also says
+`.withScoringWhenNotJudged(ScoringWhenNotJudged.READY)`: then the gate holds nothing back.
 
 `estimator` is the default localizer's tuning. A robot on another localizer still has it, unused.
 To tune WPILib's estimator, give it state standard deviations:
 
 ```java fragment
-.localizer(WpilibLocalizer.with(0.03, Math.toRadians(1)))
+.withLocalizer(WpilibLocalizer.with(0.03, Math.toRadians(1)))
 ```
 
 With WPILib's estimator chosen, Pitwall's status lines read:
 
 ```
 Localization   What the pose rests on and how sure it is: not reported by this localizer
-Scoring        Not judged: what the pose rests on is not reported by this localizer
+Scoring        Not judged, so not ready: what the pose rests on is not reported by this localizer
 Cameras        4 of 4 cameras connected, 212 measurements given, how many were accepted is not reported
 ```
 
@@ -177,7 +183,7 @@ Then choose it in your robot's block, with a `LocalizerMaker`. A constructor tha
 robot's definition and the field is one:
 
 ```java fragment
-.localizer(WpilibLocalizer::new)
+.withLocalizer(WpilibLocalizer::new)
 ```
 
 Two things to know before you start.
@@ -205,7 +211,7 @@ class WpilibLocalizerConformanceTest extends LocalizerConformance {
 Name the options your localizer reports after the maker, such as `Option.COVARIANCE`. The suite
 runs the clauses for those, and checks that the rest really are empty.
 
-Both localizers here pass it. The default one passes all 21 scenarios. WPILib's passes the 16
+Both localizers here pass it. The default one passes all 27 scenarios. WPILib's passes the 22
 that every localizer must, and the 5 for options it does not report are skipped.
 
 The suite does not check accuracy. For that, run the estimator study on your localizer.
@@ -214,7 +220,7 @@ The suite does not check accuracy. For that, run the estimator study on your loc
 
 The template has a study that runs both localizers on the same simulated robot and scores each
 against the simulator's true pose. Every contender is run through the `Localizer` interface. It
-is in the template's [docs/estimator-comparison.md](../../docs/estimator-comparison.md), and
+is in the template's [docs/estimator-comparison.md](https://github.com/mikegrundvig/frc-robot-template/blob/main/docs/estimator-comparison.md), and
 `./gradlew estimatorStudy` runs it.
 
 What it found, in simulation only:
@@ -242,7 +248,22 @@ What it found, in simulation only:
   centimeters after a shove, or after the cameras were blind while the wheels slipped.
 - Most of each difference comes from how images are solved and filtered, not from the estimator.
   Fed the very same measurements, the two estimators are close in most scenarios.
-- The study did not measure a robot that chose `WpilibLocalizer`. Such a robot's images are solved
-  without the gyro's heading, which none of the study's contenders did with this pipeline.
+- A robot that chose `WpilibLocalizer` was measured too (`--localizer=wpilib`), on PhotonVision's
+  cameras and on Visor's (`--software=visor`), which send each tag with its own pose and no
+  multi-tag solution. Its images are solved from their tags alone. In clean driving it holds the
+  pose to 0.9 cm on PhotonVision and 1.5 cm on Visor, against the default localizer's 0.7 cm on
+  both. Set down on its start 30° off the start's heading, or backwards, it finds its heading
+  from the cameras in 0.4 and 0.6 s on PhotonVision, 1.3 and 1.7 s on Visor.
+- On Visor every heading the cameras give is a single tag's, so what `WpilibLocalizer` does with
+  one decides whether a wrong heading is ever corrected. It keeps it, at the pipeline's standard
+  deviation. Behind the strong teams' filter, which ignores one tag's heading, WPILib's estimator
+  on Visor never corrects one: set down 30° off, it stays 30° off for the whole run (60 cm RMS),
+  and it is 2.0 cm off in clean driving against 1.5 cm with the single tags' headings kept.
+- The default localizer takes a placement's heading as a person's word: no image is solved with it
+  until a camera's own heading agrees, and a camera's that disagrees counts against it. Before,
+  a placement was trusted to its 2°. Set down backwards on PhotonVision, it took 21 s to find its
+  heading (2.2 m RMS); on Visor, set down 30° off it took 20 s (1.4 m RMS) and backwards it never
+  did (5.4 m RMS). Now each finds it in 0.1 s on PhotonVision and 0.2 s on Visor, and clean
+  driving is unchanged.
 
 No real robot was involved. Do not quote a number from it as a fact about your robot.

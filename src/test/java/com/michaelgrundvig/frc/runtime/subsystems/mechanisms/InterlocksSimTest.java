@@ -29,14 +29,15 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.Preset;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -66,13 +67,13 @@ class InterlocksSimTest {
       Interlock.that(PIVOT).keepsOut(Range.degrees(40, 80)).when(ELEVATOR.atMost(ELEVATOR_CLEAR));
 
   /** The pivot out and the elevator clear: the order between them is the interlock's. */
-  static final Configuration DEPLOYED =
-      Configuration.of("deployed", PIVOT.at(PIVOT_OUT), ELEVATOR.at(ELEVATOR_CLEAR));
+  static final Preset DEPLOYED =
+      Preset.of("deployed", PIVOT.at(PIVOT_OUT), ELEVATOR.at(ELEVATOR_CLEAR));
 
   static final RobotDefinition GUARDED =
       RobotDefinitionBuilder.builder(ROBOT)
           .name("guarded")
-          .configurations(List.of(DEPLOYED))
+          .presets(List.of(DEPLOYED))
           .interlocks(List.of(ROLLER_ONLY_WHEN_OUT, PIVOT_CLEARS_ELEVATOR))
           .build();
 
@@ -122,7 +123,7 @@ class InterlocksSimTest {
    * on once it's clear. No planner: the interlock orders them.
    */
   @Test
-  void aConfigurationMovesInTheOrderTheInterlocksAllow() {
+  void aPresetMovesInTheOrderTheInterlocksAllow() {
     Move deploy = sim.joints.goTo(DEPLOYED);
     sim.scheduler.schedule(deploy);
     double[] furthestWhileLow = {0};
@@ -286,7 +287,7 @@ class InterlocksSimTest {
     RobotDefinition inBlocks =
         RobotDefinitionBuilder.builder(ROBOT)
             .name("guarded in blocks")
-            .configurations(List.of(DEPLOYED))
+            .presets(List.of(DEPLOYED))
             .build()
             .with(
                 ROLLER.runsOnlyWhen(PIVOT.atLeast(PIVOT_RUN)),
@@ -309,7 +310,7 @@ class InterlocksSimTest {
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT)
             .name("spun up")
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(List.of(Interlock.that(PIVOT).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000)))))
             .build();
     JointsSimHarness spun = new JointsSimHarness(robot);
@@ -334,7 +335,7 @@ class InterlocksSimTest {
   static final RobotDefinition LIFT_WAITS =
       RobotDefinitionBuilder.builder(ROBOT)
           .name("lift waits")
-          .configurations(List.of())
+          .presets(List.of())
           .interlocks(List.of(Interlock.that(ELEVATOR).runsOnlyWhen(PIVOT.atLeast(PIVOT_RUN))))
           .build();
 
@@ -416,7 +417,7 @@ class InterlocksSimTest {
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT)
             .name("end region")
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(
                 List.of(
                     Interlock.that(PIVOT)
@@ -485,10 +486,10 @@ class InterlocksSimTest {
   }
 
   /** The pivot with a share of the battery to run at: a quarter of it, up. */
-  static final Output PIVOT_NUDGE = Output.dutyCycle("nudge", 0.25);
+  static final Output PIVOT_NUDGE = Output.dutyCycle("nudge", Percent.of(25));
 
-  static final Joint.Revolute NUDGED =
-      JointRevoluteBuilder.builder(PIVOT).outputs(List.of(PIVOT_PUSH, PIVOT_NUDGE)).build();
+  static final RevoluteJoint NUDGED =
+      RevoluteJointBuilder.builder(PIVOT).outputs(List.of(PIVOT_PUSH, PIVOT_NUDGE)).build();
 
   /**
    * The same at a duty cycle, a pivot of its own with one, kept out of the same region: at the
@@ -500,7 +501,7 @@ class InterlocksSimTest {
         RobotDefinitionBuilder.builder(ROBOT)
             .name("nudged")
             .joints(List.of(NUDGED, ELEVATOR))
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(
                 List.of(
                     Interlock.that(NUDGED)
@@ -728,7 +729,7 @@ class InterlocksSimTest {
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT)
             .name("spun up")
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(List.of(Interlock.that(PIVOT).runsOnlyWhen(ROLLER.upToSpeed(RPM.of(1000)))))
             .build();
     Map<Joint, Silenceable> ios = new HashMap<>();
@@ -803,14 +804,14 @@ class InterlocksSimTest {
    */
   @Test
   void aJointThatTurnsFreelyIsKeptOutTheWayItsProfileGoes() {
-    Joint.Revolute turret =
+    RevoluteJoint turret =
         TURRET.retuned(
             old -> JointFixtures.assumed(control(20, 0.5, Optional.empty(), Optional.empty(), 40)));
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT)
             .name("turret kept out")
             .joints(List.of(PIVOT, ROLLER, ELEVATOR, turret))
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(
                 List.of(
                     Interlock.that(turret)
@@ -847,7 +848,7 @@ class InterlocksSimTest {
   @Test
   void anInterlockTheTemplateCantEnforceIsRefused() {
     var hatch =
-        JointRevoluteBuilder.builder(PIVOT)
+        RevoluteJointBuilder.builder(PIVOT)
             .label("hatch")
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .driven(Driven.NONE)
@@ -855,7 +856,7 @@ class InterlocksSimTest {
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT)
             .joints(List.of(PIVOT, ROLLER, ELEVATOR, TURRET, hatch))
-            .configurations(List.of())
+            .presets(List.of())
             .interlocks(List.of(Interlock.that(ROLLER).runsOnlyWhen(hatch.atLeast(PIVOT_RUN))))
             .build();
 

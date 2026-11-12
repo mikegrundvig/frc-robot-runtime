@@ -7,7 +7,7 @@ import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.physical.Inertia;
 import com.michaelgrundvig.frc.world.robot.Body;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import java.util.List;
@@ -26,28 +26,22 @@ final class TestRobot {
   static final Mass MASS = Kilograms.of(68);
 
   static final Body BODY =
-      Body.builder()
-          .frameLength(Inches.of(27.5))
-          .frameWidth(Inches.of(27.5))
-          .overallHeight(Inches.of(30))
-          .bumperThickness(Inches.of(3.5))
-          .bumperBottom(Inches.of(2.5))
-          .bumperTop(Inches.of(5.75))
+      Body.frame(Inches.of(27.5), Inches.of(27.5), Inches.of(30))
+          .bumpers(Inches.of(3.5), Inches.of(2.5), Inches.of(5.75))
           .weight(MASS)
           .inertia(
               Body.Turning.tensor(
                   Inertia.builder().ixx(6.7).iyy(6.7).izz(6.7).ixy(0).ixz(0).iyz(0).build()))
-          .cg(new Translation3d(0, 0, 0.15))
-          .build();
+          .cg(new Translation3d(0, 0, 0.15));
 
-  static final DrivetrainGeometry DRIVETRAIN =
-      DrivetrainGeometry.inset(
-          DrivetrainGeometry.ModuleType.builder()
+  static final Drivetrain DRIVETRAIN =
+      Drivetrain.inset(
+          Drivetrain.Module.builder()
               .driveMotor(Motor.KRAKEN_X60)
               .steerMotor(Motor.KRAKEN_X60)
               .wheelRadius(Inches.of(2))
-              .driveGearing(Gearing.builder().ratio(6.75).efficiency(1.0).build())
-              .steerGearing(Gearing.builder().ratio(150.0 / 7).efficiency(1.0).build())
+              .driveGearing(Gearing.of(6.75))
+              .steerGearing(Gearing.of(150.0 / 7))
               .couplingRatio(0)
               .wheelCoefficientOfFriction(1.2)
               .driveInertia(KilogramSquareMeters.of(0.001))

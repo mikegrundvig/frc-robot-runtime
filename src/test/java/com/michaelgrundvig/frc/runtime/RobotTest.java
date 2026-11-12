@@ -8,14 +8,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
+import com.michaelgrundvig.frc.runtime.dashboard.DashboardStream;
+import com.michaelgrundvig.frc.runtime.hardware.Simulation;
+import com.michaelgrundvig.frc.runtime.hardware.World;
+import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.Scenarios;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
+import com.michaelgrundvig.frc.runtime.sim.SimulatorWiring;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.io.TempDir;
+import org.littletonrobotics.junction.LogDataReceiver;
+import org.littletonrobotics.junction.wpilog.WPILOGWriter;
 import org.wpilib.driverstation.Alliance;
 import org.wpilib.driverstation.MatchState;
 import org.wpilib.hardware.hal.AllianceStationID;
@@ -130,17 +139,21 @@ class RobotTest {
 
   @Test
   void theSimulatorStartsInTheScenarioAskedFor() {
-    assertSame(
-        Scenarios.named("collision"),
-        Robot.scenarioAskedFor(RunMode.SIM, Optional.of("collision")).orElseThrow());
-    assertEquals(Optional.empty(), Robot.scenarioAskedFor(RunMode.SIM, Optional.empty()));
+    Scenario collision = Scenarios.named("collision");
+    assertEquals(
+        Optional.of(new Simulation.ScenarioAsked(collision.name(), collision.description())),
+        Robot.simulation(RunMode.SIM, Optional.of("collision")).orElseThrow().scenario());
+    assertEquals(
+        Optional.empty(),
+        Robot.simulation(RunMode.SIM, Optional.empty()).orElseThrow().scenario(),
+        "the simulator, in no scenario");
   }
 
+  /** Only the simulator's mode has the simulator: a replay runs what its log recorded. */
   @Test
   void aReplayRunsWhatItsLogRecordedNeverAScenario() {
-    assertEquals(
-        Optional.empty(), Robot.scenarioAskedFor(RunMode.REPLAY, Optional.of("collision")));
-    assertEquals(Optional.empty(), Robot.scenarioAskedFor(RunMode.REAL, Optional.of("collision")));
+    assertEquals(Optional.empty(), Robot.simulation(RunMode.REPLAY, Optional.of("collision")));
+    assertEquals(Optional.empty(), Robot.simulation(RunMode.REAL, Optional.of("collision")));
   }
 
   @Test
@@ -148,7 +161,7 @@ class RobotTest {
     IllegalArgumentException refused =
         assertThrows(
             IllegalArgumentException.class,
-            () -> Robot.scenarioAskedFor(RunMode.SIM, Optional.of("colision")));
+            () -> Robot.simulation(RunMode.SIM, Optional.of("colision")));
 
     String message = String.valueOf(refused.getMessage());
     assertTrue(message.contains("camera-low, camera-turned"), message);
@@ -192,20 +205,33 @@ class RobotTest {
   /** Asked for by name, a scenario stops a program that has nothing to apply it through. */
   @Test
   void aScenarioWithoutTheSimulatorsControlsStopsTheProgram() {
-    IllegalStateException refused =
-        assertThrows(
-            IllegalStateException.class,
-            () ->
-                Robot.startScenario(
-                    Optional.of(Scenarios.named("collision")), Optional.empty(), Optional.empty()));
+    SimulatorWiring simulator = SimulatorWiring.start(SensorErrors.NONE, Optional.of("collision"));
+    try (World world = madeWithoutCameras(simulator)) {
+      IllegalStateException refused =
+          assertThrows(
+              IllegalStateException.class,
+              () -> Robot.startScenario(Optional.of(simulator), Optional.empty()));
 
-    assertTrue(
-        String.valueOf(refused.getMessage()).contains("needs the simulated world"),
-        refused.getMessage());
+      assertTrue(
+          String.valueOf(refused.getMessage()).contains("needs Pitwall's simulator controls"),
+          refused.getMessage());
+    }
     assertEquals(
         Optional.empty(),
-        Robot.startScenario(Optional.empty(), Optional.empty(), Optional.empty()),
+        Robot.startScenario(Optional.empty(), Optional.empty()),
+        "no simulator: nothing to do");
+    assertEquals(
+        Optional.empty(),
+        Robot.startScenario(Optional.of(SimulatorWiring.of(SensorErrors.NONE)), Optional.empty()),
         "none asked for: nothing to do");
+  }
+
+  /** The world the simulator makes for the robot without cameras. */
+  private static World madeWithoutCameras(SimulatorWiring simulator) {
+    return simulator.world(
+        RobotSim.FIELD,
+        RobotSim.WITHOUT_CAMERAS.definition(),
+        RobotSim.massOf(RobotSim.WITHOUT_CAMERAS.definition()));
   }
 
   /**
@@ -214,21 +240,14 @@ class RobotTest {
    */
   @Test
   void aScenarioStartsWithItsSensorFaults() {
-    try (SimulatedWorld world =
-        new SimulatedWorld(
-            RobotSim.FIELD,
-            RobotSim.WITHOUT_CAMERAS.definition(),
-            RobotSim.massOf(RobotSim.WITHOUT_CAMERAS.definition()),
-            SensorErrors.TYPICAL)) {
+    SimulatorWiring simulator =
+        SimulatorWiring.start(SensorErrors.TYPICAL, Optional.of("exact-sensors"));
+    try (World world = madeWithoutCameras(simulator)) {
       Components components = new Components(said -> {});
-      world.addTo(components);
+      world.addControlsTo(components);
 
       List<Setting> events =
-          Robot.startScenario(
-                  Optional.of(Scenarios.named("exact-sensors")),
-                  Optional.of(world),
-                  Optional.of(components))
-              .orElseThrow();
+          Robot.startScenario(Optional.of(simulator), Optional.of(components)).orElseThrow();
 
       assertEquals(List.of(), events);
       assertTrue(components.on().contains("Gyro: Errors"), components.on().toString());
@@ -248,6 +267,21 @@ class RobotTest {
     assertTrue(
         String.valueOf(refused.getMessage()).contains("no component named Gyro"),
         refused.getMessage());
+  }
+
+  /**
+   * The dashboards' stream is guarded wherever it streams, so a throw in NetworkTables' publisher
+   * stops the stream and not the log: thinned on a robot's field, every loop in the simulator.
+   */
+  @Test
+  void theDashboardsStreamIsGuardedOnARobotAndInTheSimulator(@TempDir Path logs) {
+    for (RunMode mode : List.of(RunMode.REAL, RunMode.SIM)) {
+      List<LogDataReceiver> receivers = Robot.logReceivers(mode, logs);
+      assertEquals(
+          List.of(WPILOGWriter.class, DashboardStream.class),
+          receivers.stream().map(LogDataReceiver::getClass).toList(),
+          mode + ": the log's file, and the guarded stream");
+    }
   }
 
   @Test

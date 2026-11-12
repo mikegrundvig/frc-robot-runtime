@@ -7,14 +7,14 @@ import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometryModuleTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainControlSwerveGainsBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainModuleBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
-import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
 import com.revrobotics.PersistMode;
 import com.revrobotics.REVLibError;
 import com.revrobotics.RelativeEncoder;
@@ -43,8 +43,8 @@ import org.wpilib.math.system.DCMotor;
 @ExtendWith(RobotSim.class)
 class ModuleIOSparkTest {
   /** REV's MAXSwerve: a Vortex driving through the template's gearing, a NEO 550 steering. */
-  private static final DrivetrainGeometry.ModuleType MAX_SWERVE =
-      DrivetrainGeometryModuleTypeBuilder.builder(
+  private static final Drivetrain.Module MAX_SWERVE =
+      DrivetrainModuleBuilder.builder(
               ExampleRobot.SIM.definition().drivetrain().corners().get(0).module())
           .driveMotor(Motor.NEO_VORTEX)
           .steerMotor(Motor.NEO_550)
@@ -53,18 +53,16 @@ class ModuleIOSparkTest {
 
   private static ModuleIOSpark module(int drive, int steer, double offsetTurns) {
     return new ModuleIOSpark(
-        SwerveWiring.ModuleWiring.builder()
-            .driveId(drive)
-            .steerId(steer)
-            .encoderOffset(Rotations.of(offsetTurns))
-            .driveInverted(false)
-            .steerInverted(true)
-            .encoderInverted(true)
+        SwerveWiringModuleWiringBuilder.builder()
+            .drive(MechanismWiring.Controller.SPARK_FLEX.can(drive))
+            .steering(MechanismWiring.Controller.SPARK_MAX.can(steer).clockwise())
+            .encoder(MechanismWiring.DATA_PORT.offset(Rotations.of(offsetTurns)).inverted())
             .build(),
         CANPort.CAN_S0,
         MechanismWiring.Controller.SPARK_FLEX,
         MechanismWiring.Controller.SPARK_MAX,
-        MAX_SWERVE);
+        MAX_SWERVE,
+        new ModuleStartup(5, Runnable::run));
   }
 
   /**
@@ -238,8 +236,8 @@ class ModuleIOSparkTest {
     SparkFlex drive = (SparkFlex) io.drive();
     SparkMax steer = (SparkMax) io.steer();
     DrivetrainControl control = ExampleRobot.SIM.drivetrain();
-    DrivetrainControl.Gains tunedGains =
-        DrivetrainControlGainsBuilder.builder(control.gains())
+    DrivetrainControl.SwerveGains tunedGains =
+        DrivetrainControlSwerveGainsBuilder.builder(control.gains())
             .driveKp(2 * control.gains().driveKp())
             .steerKp(2 * control.gains().steerKp())
             .build();
@@ -296,7 +294,7 @@ class ModuleIOSparkTest {
     double kPAtStartup = drive.configAccessor.closedLoop.getP(ClosedLoopSlot.kSlot0);
     int ampsAtStartup = drive.configAccessor.getSmartCurrentLimit();
     io.configure(
-        DrivetrainControlGainsBuilder.builder(control.gains())
+        DrivetrainControlSwerveGainsBuilder.builder(control.gains())
             .driveKp(2 * control.gains().driveKp())
             .build(),
         control.limits());

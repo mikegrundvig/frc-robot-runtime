@@ -39,6 +39,7 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismRotations;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
@@ -570,8 +571,8 @@ public final class PhoenixMechanism {
                   + " directions in the wiring), so that positive raises it; its gravity angle is"
                   + " then %s",
               joint.label(),
-              joint.shown(angle),
-              joint.shown(Math.IEEEremainder(Math.PI - angle, 2 * Math.PI))));
+              Position.Kind.of(joint).shown(angle),
+              Position.Kind.of(joint).shown(Math.IEEEremainder(Math.PI - angle, 2 * Math.PI))));
     }
     return Math.max(-MAX_GRAVITY_OFFSET, Math.min(MAX_GRAVITY_OFFSET, offset));
   }
@@ -611,7 +612,7 @@ public final class PhoenixMechanism {
                   + " horizontal in CAD",
               joint.label(),
               shown(offset),
-              joint.shown((MAX_GRAVITY_OFFSET - Math.abs(offset)) * 2 * Math.PI),
+              Position.Kind.of(joint).shown((MAX_GRAVITY_OFFSET - Math.abs(offset)) * 2 * Math.PI),
               joint.label()));
     }
     return Math.max(-MAX_GRAVITY_OFFSET, Math.min(MAX_GRAVITY_OFFSET, offset));

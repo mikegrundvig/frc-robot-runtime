@@ -20,6 +20,8 @@ import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,11 +40,11 @@ class EncoderLoopSimTest {
       MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted();
 
   /** Its encoder tells its motor where it is, once. */
-  private static final Joint.Revolute SEEDED =
+  private static final RevoluteJoint SEEDED =
       PIVOT.absoluteEncoder(PORT_1).retuned(old -> control(30, 1, profile(8, 30)));
 
   /** Its loop closes on its encoder. */
-  private static final Joint.Revolute CLOSED =
+  private static final RevoluteJoint CLOSED =
       SEEDED.absoluteEncoder(encoder -> encoder.on(PORT_1.closesLoop()));
 
   private static JointsSimHarness sim(Joint joint) {
@@ -87,7 +89,7 @@ class EncoderLoopSimTest {
   }
 
   /** An elevator's through-bore on port 2, geared nine to one down from its 1 in drum. */
-  private static final Joint.Prismatic ELEVATOR_SEEDED =
+  private static final PrismaticJoint ELEVATOR_SEEDED =
       ELEVATOR
           .absoluteEncoder(
               Driven.AbsoluteEncoder.of()

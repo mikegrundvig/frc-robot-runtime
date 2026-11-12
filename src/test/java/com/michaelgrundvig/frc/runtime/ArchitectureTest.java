@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime;
 import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.fields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -10,8 +11,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.revrobotics.spark.SparkLowLevel;
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.Dependency;
+import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaCodeUnit;
 import com.tngtech.archunit.core.domain.JavaConstructorCall;
 import com.tngtech.archunit.core.domain.JavaField;
 import com.tngtech.archunit.core.domain.JavaMethodCall;
@@ -58,6 +62,25 @@ class ArchitectureTest {
 
   /** The runtime's own code. */
   private static final String RUNTIME = "com.michaelgrundvig.frc.runtime..";
+
+  /** The robot's coprocessors: Spotter's boards, and Visor installed on them. */
+  private static final String COPROCESSORS = "com.michaelgrundvig.frc.runtime.coprocessors..";
+
+  /** The simulator: the simulated world, behind the IO interfaces. */
+  private static final String SIM = "com.michaelgrundvig.frc.runtime.sim..";
+
+  /** The simulator's classes: the runtime's, and the simulation library's. */
+  private static final String[] SIMULATOR = {SIM, "com.michaelgrundvig.frc.simulation.."};
+
+  /**
+   * The one call into the simulator the robot program makes: {@code Robot.simulation}, in the
+   * simulator's mode.
+   */
+  private static final String SIMULATOR_FACTORY =
+      "com.michaelgrundvig.frc.runtime.Robot.simulation";
+
+  /** The vision package, whose Visor IO reads Visor's frames. */
+  private static final String VISION = "com.michaelgrundvig.frc.runtime.subsystems.vision";
 
   /**
    * What runs the same on the robot, in a replay, and in each of the simulator's worlds side by
@@ -231,21 +254,70 @@ class ArchitectureTest {
         .check(PRODUCTION_CODE);
   }
 
+  /**
+   * Spotter, the coprocessors' monitor, is reached through the coprocessors' package alone: it
+   * watches the boards through Spotter's manager and maps what it says onto the runtime's own words
+   * ({@code BoardHealth}), so a change to Spotter touches one package.
+   */
   @Test
-  void theSimulatorStaysOutOfTheRobotsCode() {
+  void onlyTheCoprocessorsNameSpotter() {
     noClasses()
         .that()
-        .resideInAPackage("com.michaelgrundvig.frc.runtime.*..")
+        .resideInAPackage(RUNTIME)
         .and()
-        .resideOutsideOfPackages("com.michaelgrundvig.frc.runtime.sim..")
+        .resideOutsideOfPackage(COPROCESSORS)
         .should()
         .dependOnClassesThat()
-        .resideInAnyPackage(
-            "com.michaelgrundvig.frc.runtime.sim..", "com.michaelgrundvig.frc.simulation..")
+        .resideInAPackage("com.michaelgrundvig.frc.spotter..")
+        .because(
+            "Spotter spread through the runtime means a change to it touches every package that"
+                + " names it: the coprocessors' package reaches it and hands the rest the runtime's"
+                + " own types")
+        .check(PRODUCTION_CODE);
+  }
+
+  /**
+   * Visor's client is named in three places: the coprocessors' package, which installs and
+   * configures Visor on the boards; the vision package's Visor IO, which reads its frames, answers
+   * its clock and knows where it streams; and the simulator, whose cameras on Visor's path send
+   * Visor's own frames.
+   */
+  @Test
+  void onlyTheCoprocessorsAndVisorsIoNameVisor() {
+    noClasses()
+        .that()
+        .resideInAPackage(RUNTIME)
+        .and()
+        .resideOutsideOfPackages(COPROCESSORS, SIM)
+        .and(not(visionsVisorIo()))
+        .should()
+        .dependOnClassesThat()
+        .resideInAPackage("com.michaelgrundvig.frc.visor..")
+        .because(
+            "Visor spread through the runtime means a change to it touches every package that"
+                + " names it: the vision package's Visor IO (VisorFeed, VisorClock, VisorPorts,"
+                + " CameraIOVisor) hands the rest the runtime's own types")
+        .check(PRODUCTION_CODE);
+  }
+
+  /**
+   * The robot program, its top level too, reaches the simulator in one place: the call that makes
+   * the simulator in its mode ({@code Robot.simulation}). Everything else sees the simulated world
+   * through the hardware package's {@code Simulation} and {@code World}, as it sees a robot's
+   * devices through the IO interfaces.
+   */
+  @Test
+  void theSimulatorStaysOutOfTheRobotsCode() {
+    classes()
+        .that()
+        .resideInAPackage(RUNTIME)
+        .and()
+        .resideOutsideOfPackage(SIM)
+        .should(reachTheSimulatorOnlyThrough(SIMULATOR_FACTORY))
         .because(
             "robot code that reaches the simulator runs differently on the robot than in it: the"
                 + " simulated world plugs in behind the IO interfaces, through"
-                + " com.michaelgrundvig.frc.runtime.sim")
+                + " com.michaelgrundvig.frc.runtime.sim, made by Robot.simulation alone")
         .check(PRODUCTION_CODE);
   }
 
@@ -290,6 +362,57 @@ class ArchitectureTest {
             !type.isArray()
                 && type.getPackageName().startsWith("com.revrobotics.")
                 && SparkLowLevel.class.isAssignableFrom(type.reflect()));
+  }
+
+  /**
+   * The vision package's Visor IO: its classes named for Visor ({@code VisorFeed}, {@code
+   * VisorClock}, ...) and {@code CameraIOVisor}, with their nested classes.
+   */
+  private static DescribedPredicate<JavaClass> visionsVisorIo() {
+    return DescribedPredicate.describe(
+        "are the vision package's Visor IO",
+        type -> {
+          if (!type.getPackageName().equals(VISION)) {
+            return false;
+          }
+          String outermost = type.getName().substring(VISION.length() + 1).split("\\$")[0];
+          return outermost.startsWith("Visor") || outermost.equals("CameraIOVisor");
+        });
+  }
+
+  /**
+   * Depends on the simulator's classes nowhere but in what one method does: a field, a signature, a
+   * type parameter, a cast or an access anywhere else is a dependency on the simulator.
+   *
+   * @param factory the method allowed to reach it, by its owner's full name and its own
+   */
+  private static ArchCondition<JavaClass> reachTheSimulatorOnlyThrough(String factory) {
+    DescribedPredicate<JavaClass> simulator = resideInAnyPackage(SIMULATOR);
+    return new ArchCondition<>("reach the simulator only through " + factory) {
+      @Override
+      public void check(JavaClass type, ConditionEvents events) {
+        for (Dependency dependency : type.getDirectDependenciesFromSelf()) {
+          if (!simulator.test(dependency.getTargetClass())) {
+            continue;
+          }
+          if (madeBy(dependency, factory)) {
+            continue;
+          }
+          events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+        }
+      }
+    };
+  }
+
+  /** Whether a dependency is an access that a method makes, from inside its body. */
+  private static boolean madeBy(Dependency dependency, String method) {
+    for (JavaAccess<?> access : dependency.convertTo(JavaAccess.class)) {
+      JavaCodeUnit origin = access.getOrigin();
+      if ((origin.getOwner().getName() + "." + origin.getName()).equals(method)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** A thread, or what hands work to one: a Timer, an executor, a CompletableFuture. */

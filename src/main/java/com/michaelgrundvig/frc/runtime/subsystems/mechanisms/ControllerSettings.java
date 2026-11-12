@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.runtime.lib.phoenix.PhoenixMechanism;
 import com.michaelgrundvig.frc.runtime.lib.rev.RevMechanism;
 import com.michaelgrundvig.frc.world.config.Finding;
@@ -50,7 +51,7 @@ public final class ControllerSettings {
     } catch (IllegalArgumentException e) {
       // The plan and the helpers refuse by throwing, as the robot does at startup: said here,
       // once, as found.
-      return List.of(Finding.refused(joint.label(), String.valueOf(e.getMessage())));
+      return List.of(Finding.refused(joint.label(), Said.of(e)));
     }
     return notes.stream().map(note -> Finding.doubt(joint.label(), note)).toList();
   }

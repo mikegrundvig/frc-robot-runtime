@@ -143,13 +143,13 @@ final class ExampleCommands {
     return pivot.goTo(PIVOT_OUT).onlyIf(intakeClear); // checked once: REFUSED if false
   }
 
-  // @start region=configurations
-  /** Every joint of a configuration to its place, requiring exactly those joints. */
+  // @start region=presets
+  /** Every joint of a preset to its place, requiring exactly those joints. */
   Command stow() {
     return joints.goTo(STOWED);
   }
 
-  /** Whether every joint of a configuration is at its place. */
+  /** Whether every joint of a preset is at its place. */
   Gate stowed() {
     return joints.isAt(STOWED);
   }

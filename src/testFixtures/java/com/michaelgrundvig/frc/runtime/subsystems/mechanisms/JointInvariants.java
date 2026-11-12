@@ -13,6 +13,8 @@ import com.michaelgrundvig.frc.world.robot.Interlock.KeepsOut.Side;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -185,7 +187,7 @@ public final class JointInvariants {
   /** How far a joint may stray from where it's held: its control's stay band. */
   private static double band(Joint joint) {
     MechanismControl.Bands kind =
-        joint instanceof Joint.Revolute ? JointMechanism.ANGLE_BANDS : JointMechanism.LENGTH_BANDS;
+        joint instanceof RevoluteJoint ? JointMechanism.ANGLE_BANDS : JointMechanism.LENGTH_BANDS;
     return ControllerSettings.control(joint).bands().orElse(kind).stay();
   }
 
@@ -240,7 +242,7 @@ public final class JointInvariants {
       String found = null;
       for (JointMechanism mechanism : joints.all()) {
         Joint joint = mechanism.joint();
-        if (!joint.holdsPositions()) {
+        if (!RobotMath.holdsPositions(joint)) {
           continue;
         }
         WatchedJoint io = io(joint);
@@ -282,7 +284,7 @@ public final class JointInvariants {
                       Locale.ROOT,
                       "run to a position while %s, its motor at %s as it stopped knowing",
                       mechanism.stateShown(),
-                      joint.shown(from[0]));
+                      Position.Kind.of(joint).shown(from[0]));
                 }
                 default -> "run at a " + told.kind() + " while " + mechanism.stateShown();
               };
@@ -346,7 +348,7 @@ public final class JointInvariants {
                     + " was driven on toward "
                     + limit.label()
                     + ", tripped, its goal "
-                    + kind.joint().shown(mechanism.goal())
+                    + Position.Kind.of(kind.joint()).shown(mechanism.goal())
                     + ": its IO was told "
                     + told;
           }
@@ -463,9 +465,9 @@ public final class JointInvariants {
                   Locale.ROOT,
                   "%s is at %s, %s past the edge it's kept to, where %s is allowed: %s",
                   joint.getName(),
-                  keeps.joint().shown(at),
-                  keeps.joint().shown(past(at)),
-                  keeps.joint().shown(allowed),
+                  Position.Kind.of(keeps.joint()).shown(at),
+                  Position.Kind.of(keeps.joint()).shown(past(at)),
+                  Position.Kind.of(keeps.joint()).shown(allowed),
                   keeps);
         }
       }
@@ -641,7 +643,7 @@ public final class JointInvariants {
       }
       WatchedJoint.Told last = told.get(told.size() - 1);
       boolean closesOnPort =
-          joint.holdsPositions()
+          RobotMath.holdsPositions(joint)
               && joint
                   .driven()
                   .absoluteEncoder()
@@ -684,7 +686,7 @@ public final class JointInvariants {
             power.reads() && io.connected() && Math.abs(io.supplyAmps()) > dead.drawing().in(Amps);
         long allowed = Math.round(dead.time().in(Seconds) * 1e9);
         List<String> flagged = mechanism.deadChannels();
-        for (CanDevice device : joint.devices()) {
+        for (CanDevice device : RobotMath.devices(joint)) {
           if (device.feed().isEmpty()) {
             continue;
           }

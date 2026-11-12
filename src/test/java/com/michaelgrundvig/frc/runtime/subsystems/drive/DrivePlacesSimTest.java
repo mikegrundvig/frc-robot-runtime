@@ -27,7 +27,7 @@ import org.wpilib.math.geometry.Rotation2d;
 @ExtendWith(RobotSim.class)
 class DrivePlacesSimTest {
   private final DriveSimHarness harness = new DriveSimHarness(ExampleRobot.SIM);
-  private final Drive drive = harness.drive;
+  private final SwerveDrive drive = harness.drive;
 
   /** Beside the middle of the field, so blue's and red's images are a short drive apart. */
   private static final Pose2d MIDDLE = new Pose2d(8.27, 4.03, Rotation2d.ZERO);

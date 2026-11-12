@@ -10,10 +10,10 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.KinematicPhysics;
 import com.michaelgrundvig.frc.simulation.WheelDrive;
 import com.michaelgrundvig.frc.simulation.WheelTruth;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.DrivetrainControlSwerveGainsBuilder;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,7 +22,7 @@ import org.wpilib.math.geometry.Rotation2d;
 /** A simulated module's steering answers to its configuration, as a motor controller does. */
 @ExtendWith(RobotSim.class)
 class ModuleIOSimTest {
-  private static final DrivetrainGeometry GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
+  private static final Drivetrain GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
   private static final DrivetrainControl DRIVETRAIN = ExampleRobot.SIM.drivetrain();
 
   /** The simulator's step: a fifth of a 20 ms loop. */
@@ -45,7 +45,7 @@ class ModuleIOSimTest {
 
   /** A module as configured, with the steering's current limit tuned to this. */
   private static ModuleIOSim module(double steerLimitAmps) {
-    ModuleIOSim module = new ModuleIOSim(GEOMETRY.module(0), wheel(), 0, 0);
+    ModuleIOSim module = new ModuleIOSim(GEOMETRY, 0, wheel(), 0, 0);
     module.configure(
         DRIVETRAIN.gains(),
         DrivetrainControlLimitsBuilder.builder(DRIVETRAIN.limits())
@@ -123,9 +123,9 @@ class ModuleIOSimTest {
    * last 20 ms over the largest in the first 20. Small enough to stay under the current limit.
    */
   private static double growth(double steerKp) {
-    ModuleIOSim module = new ModuleIOSim(GEOMETRY.module(0), wheel(), 0, 0);
+    ModuleIOSim module = new ModuleIOSim(GEOMETRY, 0, wheel(), 0, 0);
     module.configure(
-        DrivetrainControlGainsBuilder.builder(DRIVETRAIN.gains()).steerKp(steerKp).build(),
+        DrivetrainControlSwerveGainsBuilder.builder(DRIVETRAIN.gains()).steerKp(steerKp).build(),
         DRIVETRAIN.limits());
     module.setSteerAngle(Rotation2d.fromDegrees(0.1));
     double first = 0;

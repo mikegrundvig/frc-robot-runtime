@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Meters;
 
-import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
@@ -13,6 +12,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.KnownGap;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.simulation.WheelTruth;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -76,7 +76,7 @@ class TractionTruthSimTest {
           .isCloseTo(0, within(0.5));
     }
 
-    double gripLimit = SLICK * ImuReadings.STANDARD_GRAVITY;
+    double gripLimit = SLICK * RobotMath.GRAVITY;
     double least = accelerations.stream().mapToDouble(Double::doubleValue).min().orElseThrow();
     double most = accelerations.stream().mapToDouble(Double::doubleValue).max().orElseThrow();
     assertThat(accelerations)
@@ -116,7 +116,7 @@ class TractionTruthSimTest {
       onsets[wheel] = template.force(slipping);
     }
 
-    double g = ImuReadings.STANDARD_GRAVITY;
+    double g = RobotMath.GRAVITY;
     double h = template.body.cgHeight().in(Meters);
     double wheelbase = template.wheels[0].getX() - template.wheels[2].getX();
     double front = template.effectiveMass() * MU * g / 4 / (1 + 2 * MU * h / wheelbase);
@@ -149,7 +149,7 @@ class TractionTruthSimTest {
     double m = rig.mass();
     double h = rig.body.cgHeight().in(Meters);
     double wheelbase = rig.wheels[0].getX() - rig.wheels[2].getX();
-    double front = m * ImuReadings.STANDARD_GRAVITY / 4 - m * acceleration * h / (2 * wheelbase);
+    double front = m * RobotMath.GRAVITY / 4 - m * acceleration * h / (2 * wheelbase);
     WheelTruth frontLeft = rig.simulation.physics().wheel(0);
     WheelTruth backLeft = rig.simulation.physics().wheel(2);
     assertThat(acceleration).as("speeding up").isGreaterThan(4);
@@ -184,7 +184,7 @@ class TractionTruthSimTest {
     TruthRig rig =
         new TruthRig(
             ExampleRobot.SIM.definition().body(), MU, SensorErrors.NONE.withSteerOffset(0, 10));
-    double kv = ExampleRobot.SIM.drivetrain().gains().driveKv();
+    double kv = ExampleRobot.SIM.drivetrain().gains().driveKv().orElseThrow();
     rig.steer(Rotation2d.ZERO);
     rig.run(0.5);
     for (ModuleIO module : rig.modules) {

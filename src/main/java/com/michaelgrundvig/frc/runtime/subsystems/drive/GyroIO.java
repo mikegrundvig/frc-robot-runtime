@@ -8,7 +8,21 @@ public interface GyroIO {
   @AutoLog
   class GyroIOInputs {
     public boolean connected = false;
+
+    /**
+     * The robot's heading as the gyro has counted it, counterclockwise. A gyro that restarts counts
+     * from zero again; the hardware layer takes up the count where it left off, so the heading
+     * carries on across the restart rather than jumping ({@link #restarted}).
+     */
     public Rotation2d yaw = Rotation2d.ZERO;
+
+    /**
+     * Whether the gyro restarted since the last loop: its power came loose, or its CAN bus browned
+     * out. True in exactly one loop for each restart. The robot's turn while it was off and in that
+     * loop is not counted: the heading stands where it was, and goes on from there.
+     */
+    public boolean restarted = false;
+
     public double yawVelocityRadPerSec = 0.0;
 
     /**

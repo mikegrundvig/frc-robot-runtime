@@ -18,10 +18,11 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Move;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.ControllerPlan;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -37,7 +38,7 @@ import org.wpilib.simulation.SimDeviceSim;
  */
 @ExtendWith(RobotSim.class)
 class ControllerEmulatorTest {
-  private static final Joint.Revolute TUNED =
+  private static final RevoluteJoint TUNED =
       PIVOT.retuned(control -> control.withKs(0.2).withKi(2).withKd(1.5));
 
   private static final ControllerPlan PLAN =
@@ -102,7 +103,7 @@ class ControllerEmulatorTest {
   @Test
   void theSimulatorsSparkIsAskedWhatTheRobotsIs() {
     MechanismWiring.Device wired = SPARK_MAX.can(62);
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         unmotored(PIVOT)
             .motors(Motor.NEO.through(gearing(25)).on(wired))
             .retuned(control -> control.withKs(0.2).withKd(1.5));
@@ -110,7 +111,7 @@ class ControllerEmulatorTest {
     JointIOSpark onRobot = new JointIOSpark(robot.math(), pivot, ControllerPins.NONE);
     JointIO simulated = new JointSimulation(robot).io(pivot);
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    double rest = PIVOT.restPosition();
+    double rest = RobotMath.restPosition(PIVOT);
 
     onRobot.updateInputs(inputs);
     onRobot.setPosition(rest, 0.4, 0.25);
@@ -141,7 +142,7 @@ class ControllerEmulatorTest {
    */
   @Test
   void anUnwiredNeoJointIsEmulatedAsASpark() {
-    Joint.Revolute onNeo = unmotored(PIVOT);
+    RevoluteJoint onNeo = unmotored(PIVOT);
     List<Double> unwired = voltsGoingOut(onNeo.motors(Motor.NEO.through(gearing(25))));
     List<Double> onSpark =
         voltsGoingOut(onNeo.motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(32))));
@@ -155,15 +156,15 @@ class ControllerEmulatorTest {
    * The volts the simulator puts across a damped pivot each loop, for half a second, asked toward
    * 30° past where it rests.
    */
-  private static List<Double> voltsGoingOut(Joint.Revolute motored) {
-    Joint.Revolute pivot = motored.retuned(control -> control.withKd(1.5));
+  private static List<Double> voltsGoingOut(RevoluteJoint motored) {
+    RevoluteJoint pivot = motored.retuned(control -> control.withKd(1.5));
     JointIO simulated = new JointSimulation(ROBOT.with(pivot)).io(pivot);
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
     List<Double> volts = new ArrayList<>();
     for (int loop = 0; loop < 25; loop++) {
       simulated.updateInputs(inputs);
       volts.add(inputs.appliedVolts);
-      simulated.setPosition(PIVOT.restPosition() + Math.toRadians(30), 0, 0);
+      simulated.setPosition(RobotMath.restPosition(PIVOT) + Math.toRadians(30), 0, 0);
       ((JointIOSim) simulated).step(0.02, 0);
     }
     return volts;

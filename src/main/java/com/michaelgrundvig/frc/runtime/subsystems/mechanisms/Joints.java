@@ -5,11 +5,11 @@ import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.record.ControlSentences;
 import com.michaelgrundvig.frc.world.record.GateTerm;
 import com.michaelgrundvig.frc.world.robot.Condition;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Drive;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Interlock;
@@ -17,6 +17,7 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismRotations;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.Preset;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -48,11 +49,10 @@ import org.wpilib.util.Alert;
  *
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=look-up}
  *
- * <p><b>Configurations.</b> A configuration names a place or an output for each of several joints.
- * Its joints move there together, and {@code joints.run(FEEDING)} holds them there, outputs
- * included:
+ * <p><b>Presets.</b> A preset names a place or an output for each of several joints. Its joints
+ * move there together, and {@code joints.run(FEEDING)} holds them there, outputs included:
  *
- * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=configurations}
+ * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=presets}
  *
  * <p><b>Gates.</b> Any condition the model can say is a gate: where a joint is, how fast it runs,
  * or what a sensor reads, such as {@code joints.gate("coral in claw", CLAW_BEAM.tripped())} ({@link
@@ -405,7 +405,7 @@ public final class Joints implements AutoCloseable {
     try {
       MechanismRotations.of(joint, math.drivesOf(joint).get(0));
     } catch (IllegalArgumentException e) {
-      return String.valueOf(e.getMessage());
+      return Said.of(e);
     }
     return null;
   }
@@ -477,7 +477,7 @@ public final class Joints implements AutoCloseable {
       return Optional.empty();
     }
     // A joint that holds no positions, such as a roller, has no use for knowing where it is.
-    if (!joint.holdsPositions()) {
+    if (!RobotMath.holdsPositions(joint)) {
       return Optional.empty();
     }
     return encoder;
@@ -572,68 +572,63 @@ public final class Joints implements AutoCloseable {
   }
 
   /**
-   * Moves a configuration's joints to their named places together, each on its own profile, and
-   * ends when every one is there; it requires exactly the joints it names. A joint it runs at an
-   * output is there at once for a voltage or a duty cycle, and within its band for a speed. One
-   * that names a joint the template doesn't drive is refused whenever it would start, saying why:
-   * the robot still runs, and the startup's doubts name it.
+   * Moves a preset's joints to their named places together, each on its own profile, and ends when
+   * every one is there; it requires exactly the joints it names. A joint it runs at an output is
+   * there at once for a voltage or a duty cycle, and within its band for a speed. One that names a
+   * joint the template doesn't drive is refused whenever it would start, saying why: the robot
+   * still runs, and the startup's doubts name it.
    */
-  public Move goTo(Configuration configuration) {
-    return Move.configuration(
-        configuration,
-        mechanisms(configuration),
-        new MovePlan.GoTo(),
-        refused(configuration),
-        scheduler,
-        definition);
+  public Move goTo(Preset preset) {
+    return Move.preset(
+        preset, mechanisms(preset), new MovePlan.GoTo(), refused(preset), scheduler, definition);
   }
 
   /**
-   * Holds a configuration's joints at their named places and outputs until canceled: {@code
-   * driver.rightTrigger().whileTrue(joints.run(FEEDING))}. Refused, as {@link #goTo(Configuration)}
-   * is, if it names a joint the template doesn't drive.
+   * Holds a preset's joints at their named places and outputs until canceled: {@code
+   * driver.rightTrigger().whileTrue(joints.run(FEEDING))}. Refused, as {@link #goTo(Preset)} is, if
+   * it names a joint the template doesn't drive.
    */
-  public Move run(Configuration configuration) {
-    return Move.configuration(
-        configuration,
-        mechanisms(configuration),
+  public Move run(Preset preset) {
+    return Move.preset(
+        preset,
+        mechanisms(preset),
         new MovePlan.Run(Optional.empty()),
-        refused(configuration),
+        refused(preset),
         scheduler,
         definition);
   }
 
   /**
-   * Why a configuration's move cannot run, if it cannot. Either one of its places is not its
-   * joint's own, which is refused as a move to such a place is ({@link Refusals}: thrown as the
-   * robot starts), or it names joints the template does not drive.
+   * Why a preset's move cannot run, if it cannot. Either one of its places is not its joint's own,
+   * which is refused as a move to such a place is ({@link Refusals}: thrown as the robot starts),
+   * or it names joints the template does not drive.
    */
-  private Optional<String> refused(Configuration configuration) {
-    for (Condition.At target : configuration.targets()) {
+  private Optional<String> refused(Preset preset) {
+    for (Condition.At target : preset.targets()) {
       Optional<String> notOwn =
           Refusals.asBuilt(scheduler, Optional.ofNullable(definition.whyNotOwn(target)));
       if (notOwn.isPresent()) {
         return notOwn;
       }
     }
-    return Optional.ofNullable(undriven(definition, configuration));
+    return Optional.ofNullable(undriven(definition, preset));
   }
 
   /**
-   * A gate on a configuration: every joint it names at its named place, or running at its named
-   * output, "at stowed". Never true for one that names a joint the template doesn't drive.
+   * A gate on a preset: every joint it names at its named place, or running at its named output,
+   * "at stowed". Never true for one that names a joint the template doesn't drive.
    */
-  public Gate isAt(Configuration configuration) {
+  public Gate isAt(Preset preset) {
     List<Gate> terms = new ArrayList<>();
-    for (Condition.At target : configuration.targets()) {
+    for (Condition.At target : preset.targets()) {
       terms.add(isAt(target));
     }
-    return Gate.all("at " + configuration.name(), terms.toArray(Gate[]::new));
+    return Gate.all("at " + preset.name(), terms.toArray(Gate[]::new));
   }
 
   /**
-   * A gate on one of a configuration's targets: its joint at its named place, or running at its
-   * named output. For a joint the template does not drive, it is a gate that never holds.
+   * A gate on one of a preset's targets: its joint at its named place, or running at its named
+   * output. For a joint the template does not drive, it is a gate that never holds.
    */
   private Gate isAt(Condition.At target) {
     JointMechanism mechanism = byJoint.get(target.joint());
@@ -700,9 +695,9 @@ public final class Joints implements AutoCloseable {
       return Refusals.gate(scheduler, name, noMechanism(at.joint()));
     }
     if (at.isOutput()) {
-      return mechanism.isAt(name, mechanism.joint().output(at.name()));
+      return mechanism.isAt(name, RobotMath.output(mechanism.joint(), at.name()));
     }
-    return mechanism.isAt(name, mechanism.joint().position(at.name()));
+    return mechanism.isAt(name, RobotMath.position(mechanism.joint(), at.name()));
   }
 
   /**
@@ -710,13 +705,11 @@ public final class Joints implements AutoCloseable {
    * saying why, while the joint doesn't know where it is.
    */
   private BiPredicate<JointView, Gate.Terms> whetherItIs(String name, Condition.OnJoint where) {
-    GateTerm unknown =
-        new GateTerm(
-            GateTerm.Kind.JOINT_POSITION_UNKNOWN, definition.joints().indexOf(where.joint()));
-    String unknownShown = ControlSentences.gateTerm(definition, name, unknown, List.of());
+    WhereUnknown unknown =
+        new WhereUnknown(definition, name, definition.joints().indexOf(where.joint()));
     return (view, why) -> {
       if (!view.knowsWhere()) {
-        why.add(unknown, unknownShown);
+        unknown.addTo(why, view);
         return false;
       }
       return where.holdsAt(view.position());
@@ -757,20 +750,19 @@ public final class Joints implements AutoCloseable {
   }
 
   /**
-   * Why a configuration can't run, or null when it can: the joints it names that the template
-   * doesn't drive, each with why ({@link #whyNotDriven}). The startup's doubts list these.
+   * Why a preset can't run, or null when it can: the joints it names that the template doesn't
+   * drive, each with why ({@link #whyNotDriven}). The startup's doubts list these.
    */
-  public static @Nullable String cantRun(RobotDefinition definition, Configuration configuration) {
-    String undriven = undriven(definition, configuration);
-    return undriven == null ? null : configuration.name() + " can't run: " + undriven;
+  public static @Nullable String cantRun(RobotDefinition definition, Preset preset) {
+    String undriven = undriven(definition, preset);
+    return undriven == null ? null : preset.name() + " can't run: " + undriven;
   }
 
-  /** The joints a configuration names that the template doesn't drive, each with why; or null. */
-  private static @Nullable String undriven(
-      RobotDefinition definition, Configuration configuration) {
+  /** The joints a preset names that the template doesn't drive, each with why; or null. */
+  private static @Nullable String undriven(RobotDefinition definition, Preset preset) {
     RobotMath math = definition.math();
     List<String> undriven = new ArrayList<>();
-    for (Condition.At target : configuration.targets()) {
+    for (Condition.At target : preset.targets()) {
       String why = whyNotDriven(math, target.joint());
       if (why != null) {
         undriven.add(target.joint().label() + " has no mechanism: " + why);
@@ -836,11 +828,23 @@ public final class Joints implements AutoCloseable {
   /**
    * Reads every joint, then every sensor, then the PDH: once a loop, before the command scheduler
    * runs. Then says what's wrong in its alerts.
+   *
+   * <p>Each joint is read on its own, so a joint whose reading throws doesn't keep the others from
+   * starting their loop. What it threw is thrown on once every joint is read, with what any other
+   * joint threw suppressed in it, and the sensors and the PDH are not read this loop.
    */
   public void read(long nowNanos, boolean enabled) {
     names.logOnce();
+    Optional<RuntimeException> threw = Optional.empty();
     for (JointMechanism joint : joints) {
-      joint.read(nowNanos, enabled);
+      try {
+        joint.read(nowNanos, enabled);
+      } catch (RuntimeException e) {
+        threw = together(threw, e);
+      }
+    }
+    if (threw.isPresent()) {
+      throw threw.get();
     }
     sensors.read();
     power.read();
@@ -886,20 +890,47 @@ public final class Joints implements AutoCloseable {
     pdhSilent.close();
   }
 
-  /** Applies what the commands asked of each joint, or its idle: once a loop, after them. */
+  /**
+   * Applies what the commands asked of each joint, or its idle: once a loop, after them.
+   *
+   * <p>Each joint is written on its own, so one joint's bug never stops another's output. A joint
+   * whose write throws keeps what its motor controller was last told. What it threw is thrown on
+   * once every joint is written, with what any other joint threw suppressed in it.
+   */
   public void write() {
+    Optional<RuntimeException> threw = Optional.empty();
     for (JointMechanism joint : joints) {
-      joint.write();
+      try {
+        joint.write();
+      } catch (RuntimeException e) {
+        threw = together(threw, e);
+      }
+    }
+    if (threw.isPresent()) {
+      throw threw.get();
     }
   }
 
+  /** The first exception a loop over the joints threw, with each one after it suppressed in it. */
+  private static Optional<RuntimeException> together(
+      Optional<RuntimeException> first, RuntimeException next) {
+    if (first.isEmpty()) {
+      return Optional.of(next);
+    }
+    // One exception thrown twice, by two joints sharing it, can't be suppressed in itself.
+    if (first.get() != next) {
+      first.get().addSuppressed(next);
+    }
+    return first;
+  }
+
   /**
-   * The mechanism of each of a configuration's targets' joints, in the targets' order: empty for a
-   * joint the template does not drive.
+   * The mechanism of each of a preset's targets' joints, in the targets' order: empty for a joint
+   * the template does not drive.
    */
-  private List<Optional<JointMechanism>> mechanisms(Configuration configuration) {
+  private List<Optional<JointMechanism>> mechanisms(Preset preset) {
     List<Optional<JointMechanism>> mechanisms = new ArrayList<>();
-    for (Condition.At target : configuration.targets()) {
+    for (Condition.At target : preset.targets()) {
       mechanisms.add(Optional.ofNullable(byJoint.get(target.joint())));
     }
     return mechanisms;

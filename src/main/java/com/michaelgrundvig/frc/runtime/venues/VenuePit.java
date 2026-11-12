@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.venues;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.Venue;
 import com.michaelgrundvig.frc.world.field.VenueFile;
 import com.michaelgrundvig.frc.world.game.Game;
@@ -23,6 +24,9 @@ import java.util.Optional;
  * itself is read in the robot loop, so it reads only what the server threads have published.
  */
 public final class VenuePit {
+  /** The card's name on the Pit view, which no other card may have. */
+  public static final String NAME = "venue";
+
   /** The value of the option that stands for the official layout. */
   static final String OFFICIAL = "official";
 
@@ -52,7 +56,7 @@ public final class VenuePit {
   public static Devices.Device device(
       VenueStore store, VenueIODisk disk, Venues venues, Game game) {
     VenuePit pit = new VenuePit(store, disk, venues, game);
-    return Devices.Device.named("venue", "Field", pit::card)
+    return Devices.Device.named(NAME, "Field", pit::card)
         .upload("survey", "Upload venue", pit::upload)
         .choose("venue", pit::choose)
         .download("file", "Download venue file", pit::download);
@@ -86,18 +90,8 @@ public final class VenuePit {
               "Chosen", "takes effect when the robot is disabled", Devices.Level.NOTE));
     }
     Devices.Choice choice = new Devices.Choice("venue", "Venue", options, selected);
-    return new Devices.Card(venues.active(), cardLevel(), lines, List.of(choice));
-  }
-
-  /** How the card as a whole reads: as the worst of what it says about the selection. */
-  private Devices.Level cardLevel() {
-    if (venues.unusable().isPresent()) {
-      return Devices.Level.PROBLEM;
-    }
-    if (venues.practiceOnField() || venues.notInGit()) {
-      return Devices.Level.WARNING;
-    }
-    return Devices.Level.OK;
+    return Devices.Card.of(venues.active(), Devices.Level.of(lines), lines)
+        .withChoices(List.of(choice));
   }
 
   /**
@@ -142,7 +136,7 @@ public final class VenuePit {
       }
       return VenueFile.read(text);
     } catch (IllegalArgumentException e) {
-      throw new Devices.Refused(String.valueOf(e.getMessage()));
+      throw new Devices.Refused(Said.of(e));
     }
   }
 

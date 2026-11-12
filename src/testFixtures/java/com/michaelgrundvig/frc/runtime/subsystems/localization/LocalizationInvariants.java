@@ -9,7 +9,7 @@ import com.michaelgrundvig.frc.localization.LocalizationGate;
 import com.michaelgrundvig.frc.localization.OdometrySample;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
@@ -60,7 +60,7 @@ public final class LocalizationInvariants {
   static final double JUMP_SLACK_METERS = 0.01;
 
   private final Localization localization;
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final Supplier<List<FrameVerdict>> frames;
   private final BooleanSupplier blind;
   private final boolean cameras;
@@ -101,7 +101,7 @@ public final class LocalizationInvariants {
    */
   public LocalizationInvariants(
       Localization localization,
-      Drive drive,
+      SwerveDrive drive,
       Supplier<List<FrameVerdict>> frames,
       BooleanSupplier blind,
       boolean cameras,

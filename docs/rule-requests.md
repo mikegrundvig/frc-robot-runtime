@@ -21,11 +21,14 @@ Each entry says:
 - **Natural fix:** avaje-jsonb's `Jsonb.instance().type(Object.class)`.
 - **Workaround cost:** about 520 lines of hand-written JSON (`JsonText`, `Json`, `VenueFile.quoted`)
   and their tests.
-- **Status:** fixed 2026-10-07: the model reads and writes JSON with avaje-jsonb.
+- **Status:** fixed 2026-10-07: the model reads and writes JSON with avaje-jsonb (`VenueJson`). The
+  allow-list test is gone, and so are `JsonText`, `Json` and `VenueFile.quoted`: `model/`'s
+  `ArchitectureTest` now only keeps the model's packages apart, and Gradle keeps the model to
+  WPILib's math and units and its few other libraries.
 
 ## The documentation processor's allow-list banned `com.sun.source`
 
-- **Rule:** the documentation processor's `itNeedsNothingButJava` (`pitwall/docs-processor`'s
+- **Rule:** the documentation processor's `itNeedsNothingButJava` (`model/docs-processor`'s
   `ArchitectureTest`), an allow-list, deleted 2026-10-07: Gradle already keeps it to Java.
 - **Blocked:** the compiler's own Javadoc trees (`DocTrees`, in `com.sun.source`).
 - **Natural fix:** read each record's Javadoc with `DocTrees.getDocCommentTree`.

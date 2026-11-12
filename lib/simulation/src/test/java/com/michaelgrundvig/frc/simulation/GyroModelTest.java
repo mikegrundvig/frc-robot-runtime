@@ -3,7 +3,7 @@ package com.michaelgrundvig.frc.simulation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
-import com.michaelgrundvig.frc.world.robot.Imus;
+import com.michaelgrundvig.frc.world.robot.ImuMount;
 import java.util.Objects;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Pose2d;
@@ -25,7 +25,7 @@ class GyroModelTest {
         physics.chassis(),
         errors,
         new AccelerometerModel(
-            physics.chassis(), SensorErrors.AccelErrors.IDEAL, Imus.UNCHECKED.gyro(), 2),
+            physics.chassis(), SensorErrors.AccelErrors.IDEAL, ImuMount.UNCHECKED, 2),
         1);
   }
 

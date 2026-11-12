@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
+import static com.michaelgrundvig.frc.world.robot.MechanismWiring.CANCODER;
 import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TALON_FX;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -8,14 +9,15 @@ import static org.wpilib.units.Units.Rotations;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.TestWiring;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.PdhIO;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.PdhIOInputsAutoLogged;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
-import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -33,32 +35,15 @@ class PdhIOSimTest {
     List<SwerveWiring.ModuleWiring> modules = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
       modules.add(
-          SwerveWiring.ModuleWiring.builder()
-              .driveId(10 + 2 * i)
-              .steerId(11 + 2 * i)
-              .encoderOffset(Rotations.of(0))
-              .driveInverted(false)
-              .steerInverted(false)
-              .encoderInverted(false)
-              .encoderId(20 + i)
-              .driveFeed(Pdh.feed(2 * i, Amps.of(40)))
-              .steerFeed(Pdh.feed(2 * i + 1, Amps.of(40)))
+          SwerveWiringModuleWiringBuilder.builder()
+              .drive(TALON_FX.can(10 + 2 * i).pdh(2 * i, Amps.of(40)))
+              .steering(TALON_FX.can(11 + 2 * i).pdh(2 * i + 1, Amps.of(40)))
+              .encoder(CANCODER.can(20 + i).offset(Rotations.of(0)))
               .build());
     }
     RobotDefinition template = ExampleRobot.SIM.definition();
     return RobotDefinitionBuilder.builder(template)
-        .drivetrain(
-            template
-                .drivetrain()
-                .wired(
-                    SwerveWiring.builder()
-                        .canBus(CanBus.SYSTEMCORE)
-                        .driveController(TALON_FX)
-                        .steerController(TALON_FX)
-                        .gyroId(30)
-                        .gyroYawScale(1.0)
-                        .modules(modules)
-                        .build()))
+        .drivetrain(TestWiring.wired(template.drivetrain(), SwerveWiring.PIGEON_2.can(30), modules))
         .pdh(Pdh.can(1))
         .build();
   }

@@ -2,7 +2,8 @@ package com.michaelgrundvig.frc.runtime;
 
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.LocalizationEstimate;
-import com.michaelgrundvig.frc.localization.VisionDecision;
+import com.michaelgrundvig.frc.localization.MeasurementVerdict;
+import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.pitwall.Pitwall;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
@@ -12,6 +13,7 @@ import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
+import com.michaelgrundvig.frc.runtime.sim.SimulatorWiring;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveHardware;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.AbsoluteEncoderIO;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointIO;
@@ -58,6 +60,9 @@ public final class SimulatedRobot implements AutoCloseable {
   private final LoopHealth loopHealth = new LoopHealth();
   private final RobotContainer container;
 
+  /** The simulator the robot was built with, which made its world. */
+  private final SimulatorWiring simulator;
+
   /**
    * Builds the robot, disabled on the blue alliance's station 2, as the drive team leaves it.
    *
@@ -87,6 +92,7 @@ public final class SimulatedRobot implements AutoCloseable {
     // Made after the Driver Station's data is reset, which clears a gamepad's axes.
     driver = new GamepadSim(0);
     pitwall = Pitwall.start(robot.name(), 0);
+    simulator = SimulatorWiring.of(errors);
     container =
         Robot.assemble(
             RunMode.SIM,
@@ -96,7 +102,7 @@ public final class SimulatedRobot implements AutoCloseable {
             Rebuilt.GAME,
             ControlsMaker.NONE,
             pitwall,
-            errors,
+            Optional.of(simulator),
             loopHealth,
             Optional.empty(),
             hardware -> watchingCameras(hardware, robot, watched));
@@ -235,11 +241,11 @@ public final class SimulatedRobot implements AutoCloseable {
   }
 
   /**
-   * What the robot's localizer decided about each camera measurement it was given in the last loop.
-   * Empty for a localizer that does not report its decisions.
+   * The robot's localizer's verdict on each camera measurement it was given in the last loop. Empty
+   * for a localizer that does not report its verdicts.
    */
-  public List<VisionDecision> visionDecisions() {
-    return container.localization().service().localizer().decisions().orElse(List.of());
+  public List<MeasurementVerdict> measurementVerdicts() {
+    return container.localization().service().localizer().verdicts().orElse(List.of());
   }
 
   /**
@@ -256,9 +262,7 @@ public final class SimulatedRobot implements AutoCloseable {
   }
 
   private SimulatedWorld world() {
-    return container
-        .world()
-        .orElseThrow(() -> new IllegalStateException("only the simulator has a world"));
+    return simulator.made();
   }
 
   /**
@@ -287,7 +291,7 @@ public final class SimulatedRobot implements AutoCloseable {
 
   /** Where the robot really is. */
   public Pose2d truePose() {
-    return container.simulation().orElseThrow().truePose();
+    return world().truePose();
   }
 
   /** How much less a camera is trusted for its mount, in meters ({@code MountCheck}). */
@@ -298,6 +302,11 @@ public final class SimulatedRobot implements AutoCloseable {
   /** How far, on average, a camera's latest tags landed off; NaN until judged. */
   public double mountOffsetMeters(String camera) {
     return container.vision().mountOffsetMeters(camera);
+  }
+
+  /** How sure the robot's localizer is of its pose; empty for one that does not say. */
+  public Optional<PoseCovariance> covariance() {
+    return container.localization().service().localizer().covariance();
   }
 
   /**

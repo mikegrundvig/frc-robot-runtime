@@ -3,8 +3,8 @@ package com.michaelgrundvig.frc.runtime.examples;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import java.util.Random;
@@ -20,11 +20,11 @@ final class Explorer {
   /** Straight ahead at 1.5 m/s. */
   static final ChassisVelocities FORWARD = new ChassisVelocities(1.5, 0, 0);
 
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final Gate bumped;
   private final Random random;
 
-  Explorer(Drive drive, Joints joints, Sensor.Switch frontBumper, Random random) {
+  Explorer(SwerveDrive drive, Joints joints, Sensor.Switch frontBumper, Random random) {
     this.drive = drive;
     this.random = random;
     bumped = joints.gate("bumped", frontBumper.tripped());

@@ -22,6 +22,7 @@ import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -46,7 +47,7 @@ class JointPositionLostSimTest {
   private static final MechanismWiring.PortEncoder PORT_1 =
       MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted();
 
-  private static final Joint.Revolute PIVOT_ON_ITS_ENCODER =
+  private static final RevoluteJoint PIVOT_ON_ITS_ENCODER =
       PIVOT
           .absoluteEncoder(PORT_1)
           .retuned(old -> control(30, 1, profile(8, 30)))

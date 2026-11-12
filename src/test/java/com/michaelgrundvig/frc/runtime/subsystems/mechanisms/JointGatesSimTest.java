@@ -19,6 +19,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
@@ -182,7 +183,7 @@ class JointGatesSimTest {
   }
 
   @Test
-  void aConfigurationsGateIsEveryJointAtItsPlace() {
+  void aPresetsGateIsEveryJointAtItsPlace() {
     Gate atIntaking = sim.joints.isAt(INTAKING);
     sim.loop();
     List<String> blocking = atIntaking.blocking();
@@ -192,6 +193,63 @@ class JointGatesSimTest {
     assertThat(atIntaking.name()).isEqualTo("at intaking");
     assertThat(blocking).containsExactly("pivot at out", "roller at intaking", "elevator at clear");
     assertThat(atIntaking.getAsBoolean()).isTrue();
+  }
+
+  /**
+   * What the pivot's gates on where it is read at one moment.
+   *
+   * @param held whether each held: at out, at least run, ready, and at its goal
+   * @param blocking what held the first two false
+   */
+  private record Seen(String when, List<Boolean> held, List<List<String>> blocking) {}
+
+  /**
+   * Every gate on where the pivot is holds false while its motor controller's readings aren't this
+   * loop's: from the first loop a frame doesn't come (stale, the controller not yet called silent),
+   * through its silence, until it answers again. The gates on a place say the controller isn't
+   * answering. Until 2026-11-09 "pivot at out" held on the last reading through it all, "pivot
+   * ready" through the first half second, and the gate on "at least run" said the pivot didn't know
+   * where it was.
+   */
+  @Test
+  void gatesOnWhereAJointIsHoldFalseWhileItsControllerIsStaleOrSilent() {
+    Gate atOut = pivot.isAt(PIVOT_OUT);
+    Gate out = sim.joints.gate(PIVOT.atLeast(PIVOT_RUN));
+    Gate ready = pivot.isReady();
+    Gate atGoal = pivot.isAtGoal();
+    Function<String, Seen> look =
+        when ->
+            new Seen(
+                when,
+                List.of(
+                    atOut.getAsBoolean(),
+                    out.getAsBoolean(),
+                    ready.getAsBoolean(),
+                    atGoal.getAsBoolean()),
+                List.of(atOut.blocking(), out.blocking()));
+    sim.run(pivot.goTo(PIVOT_OUT), 1.2);
+    List<Seen> seen = new ArrayList<>();
+
+    seen.add(look.apply("answering"));
+    sim.simulation.silence(PIVOT, true);
+    sim.loop();
+    seen.add(look.apply("a frame late"));
+    sim.run(0.6);
+    seen.add(look.apply("silent"));
+    sim.simulation.silence(PIVOT, false);
+    sim.run(0.1);
+    seen.add(look.apply("answering again"));
+
+    List<Boolean> all = List.of(true, true, true, true);
+    List<Boolean> none = List.of(false, false, false, false);
+    List<List<String>> nothing = List.of(List.of(), List.of());
+    List<String> silent = List.of("pivot isn't answering");
+    assertThat(seen)
+        .containsExactly(
+            new Seen("answering", all, nothing),
+            new Seen("a frame late", none, List.of(silent, silent)),
+            new Seen("silent", none, List.of(silent, silent)),
+            new Seen("answering again", all, nothing));
   }
 
   @Test

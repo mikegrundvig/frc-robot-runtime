@@ -1,5 +1,6 @@
 package com.michaelgrundvig.frc.runtime.venues;
 
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import java.io.IOException;
 import java.util.Optional;
 
@@ -55,7 +56,7 @@ public final class VenueIODisk implements VenueIO {
       }
       return new Selection(text.get(), "", store.committed(text.get()));
     } catch (IOException | RuntimeException e) {
-      return new Selection("", String.valueOf(e.getMessage()), true);
+      return new Selection("", Said.of(e), true);
     }
   }
 }

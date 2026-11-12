@@ -6,8 +6,8 @@ import org.wpilib.math.geometry.Rotation2d;
 
 /**
  * One swerve module's door to hardware: a simulated module, a real one, or nothing (in replay,
- * where the inputs come from the log). Drive values are at the wheel, in radians, so the wheel
- * radius (which changes with wear) lives in one place: {@link Module}.
+ * where the inputs come from the log). SwerveDrive values are at the wheel, in radians, so the
+ * wheel radius (which changes with wear) lives in one place: {@link Module}.
  *
  * <h2>The contract</h2>
  *
@@ -42,9 +42,18 @@ import org.wpilib.math.geometry.Rotation2d;
  *       then in radians, and the module's angle then in radians. A driver that reads no faster than
  *       the loop gives one reading a loop.
  *   <li><b>M17.</b> {@link ModuleIOInputs#unconfigured} is empty when every device took its
- *       settings at startup.
+ *       settings at startup. A device that didn't is named there, and is sent its whole
+ *       configuration again once it answers, until it confirms; then it leaves the list. The
+ *       drivetrain holds still while any device is named.
  *   <li><b>M18.</b> {@link ModuleIOInputs#driveTorqueLimited} is true when the drive's stator limit
  *       held it since the last loop, where the device says so. A SPARK does not, and reads false.
+ *   <li><b>M19.</b> {@link ModuleIOInputs#steerAngleRotations} is the steering's angle (M3) in
+ *       rotations, from half a turn one way to half a turn the other: what a CANcoder's absolute
+ *       position reads in Phoenix Tuner X, its offset applied.
+ *   <li><b>M20.</b> {@link ModuleIOInputs#encoderMagnet} is what the absolute encoder last said of
+ *       its magnet, where it says (a CANcoder), and {@link MagnetHealth#NOT_SAID} where it doesn't.
+ *       {@link ModuleIOInputs#encoderFaults} is its fault field, 0 for none or for an encoder that
+ *       has none.
  * </ul>
  *
  * <p><b>Requests</b>
@@ -82,6 +91,21 @@ import org.wpilib.math.geometry.Rotation2d;
  * </ul>
  */
 public interface ModuleIO {
+  /**
+   * What an absolute encoder says of its magnet: how far it is from the sensor. A CANcoder says it
+   * as a colour, as Phoenix Tuner X shows it.
+   */
+  enum MagnetHealth {
+    /** The encoder doesn't say (a SPARK's, the simulator's), hasn't yet, or said nothing valid. */
+    NOT_SAID,
+    /** Well placed. */
+    GREEN,
+    /** A little close or far: the reading is still good. */
+    ORANGE,
+    /** Too close or too far: the reading is not to be trusted. */
+    RED
+  }
+
   @AutoLog
   class ModuleIOInputs {
     public boolean driveConnected = false;
@@ -117,6 +141,12 @@ public interface ModuleIO {
     /** From the absolute encoder: valid at power-on, no homing needed. */
     public Rotation2d steerAngle = Rotation2d.ZERO;
 
+    /**
+     * The same angle in rotations, from -0.5 to 0.5: the number to read when zeroing a module
+     * (docs/tuner-x.md), the same as a CANcoder's absolute position in Phoenix Tuner X.
+     */
+    public double steerAngleRotations = 0.0;
+
     public double steerVelocityRadPerSec = 0.0;
     public double steerAppliedVolts = 0.0;
 
@@ -140,11 +170,21 @@ public interface ModuleIO {
     public double[] odometrySteerAnglesRad = new double[] {};
 
     /**
-     * The module's devices that didn't take their configuration at startup, such as "drive motor 3,
-     * CANcoder 9", or empty: they run on their defaults, without the configured directions,
-     * gearing, or current limits.
+     * The module's devices that haven't taken their configuration, such as "drive motor 3, CANcoder
+     * 9", or empty: they run on their defaults, without the configured directions, gearing, or
+     * current limits, and the drivetrain holds still until they have taken it.
      */
     public String unconfigured = "";
+
+    /**
+     * What the steering's absolute encoder last said of its magnet: a magnet that slipped or sits
+     * too far from the sensor reads red, and looks otherwise just like a module with the wrong
+     * zero.
+     */
+    public MagnetHealth encoderMagnet = MagnetHealth.NOT_SAID;
+
+    /** The absolute encoder's active faults, as its vendor numbers them: 0 for none. */
+    public int encoderFaults = 0;
   }
 
   default void updateInputs(ModuleIOInputs inputs) {}
@@ -153,7 +193,7 @@ public interface ModuleIO {
    * Sets the motor controllers' gains and current limits: at startup, and again whenever tuning
    * changes them.
    */
-  default void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {}
+  default void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {}
 
   /** Closed-loop wheel velocity on the motor controller, plus robot-computed feedforward. */
   default void setDriveVelocity(double wheelRadPerSec, double feedforwardVolts) {}

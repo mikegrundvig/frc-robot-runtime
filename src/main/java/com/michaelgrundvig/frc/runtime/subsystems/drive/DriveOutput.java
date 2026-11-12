@@ -25,8 +25,8 @@ import org.wpilib.units.measure.Mass;
  * #mayBeDriven}). This is the one place the wheels are told anything, so no command, pit tool or
  * simulator control drives a disabled robot.
  *
- * <p>It logs what it asks of the wheels as {@code Drive/Setpoints}, and what the modules were told
- * in the end as {@code Drive/SetpointsOptimized}.
+ * <p>It logs what it asks of the wheels as {@code SwerveDrive/Setpoints}, and what the modules were
+ * told in the end as {@code SwerveDrive/SetpointsOptimized}.
  */
 final class DriveOutput {
   /** No wheel is told anything: what the log shows while the robot is disabled. */

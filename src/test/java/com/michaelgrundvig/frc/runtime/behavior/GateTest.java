@@ -11,6 +11,11 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
@@ -290,9 +295,9 @@ class GateTest {
     broken[0] = false;
     loop();
 
-    assertThat(aimedWhy).containsExactly("aimed threw: IllegalStateException");
+    assertThat(aimedWhy).containsExactly("aimed threw: java.lang.IllegalStateException");
     assertThat(readyWhy).containsExactly("aimed");
-    assertThat(settledWhy).containsExactly("aimed threw: IllegalStateException");
+    assertThat(settledWhy).containsExactly("aimed threw: java.lang.IllegalStateException");
     assertThat(ready.getAsBoolean()).isTrue();
   }
 
@@ -363,6 +368,103 @@ class GateTest {
             List.of("target seen threw: no reading yet" + fix),
             List.of("target seen threw: sensor unplugged" + fix));
     assertThat(loops[0]).as("the scheduler ran every loop").isEqualTo(1 + 3 * thrown.length);
+  }
+
+  /**
+   * Two gates of one name share their alert. It is raised while either throws, and lowered only
+   * once neither does, whichever stops first. Until 2026-11-09 the first to stop lowered it while
+   * the other still threw.
+   */
+  @Test
+  void theAlertOfOneNameStaysRaisedWhileAnyGateOfTheNameThrows() {
+    boolean[] firstThrows = {false};
+    boolean[] secondThrows = {false};
+    List<Gate> twoOfAName =
+        List.of(
+            Gate.of(scheduler, "two of a name", () -> holdsUnless(firstThrows[0])),
+            Gate.of(scheduler, "two of a name", () -> holdsUnless(secondThrows[0])));
+    // Which of the two throws in each loop, the first's and then the second's.
+    boolean[][] steps = {
+      {true, false}, {true, true}, {false, true}, {false, false},
+      {false, true}, {true, true}, {true, false}, {false, false}
+    };
+
+    List<Boolean> raised = new ArrayList<>();
+    for (boolean[] step : steps) {
+      firstThrows[0] = step[0];
+      secondThrows[0] = step[1];
+      loop();
+      raised.add(raisedFor("two of a name"));
+    }
+
+    assertThat(raised).containsExactly(true, true, true, false, true, true, true, false);
+    assertThat(twoOfAName).as("holding, once neither throws").allMatch(Gate::getAsBoolean);
+  }
+
+  /**
+   * Gates of one name read on many threads at once, as a gate made once the robot runs is worked
+   * out on whichever thread reads it, first throw together, share one alert, and count right:
+   * raised while they throw, lowered once none does.
+   */
+  @Test
+  void gatesOfOneNameReadOnManyThreadsShareOneAlertThatCountsRight() throws Exception {
+    loop(); // the robot runs, so each gate is worked out as it's read
+    int threads = 8;
+    boolean[] throwing = {false};
+    List<Gate> gates = new ArrayList<>();
+    for (int i = 0; i < threads; i++) {
+      gates.add(Gate.of(scheduler, "read everywhere", () -> holdsUnless(throwing[0])));
+    }
+
+    throwing[0] = true;
+    readAtOnceOnThreadsOfTheirOwn(gates);
+    List<String> raisedWhileTheyThrow = raised();
+    throwing[0] = false;
+    readAtOnceOnThreadsOfTheirOwn(gates);
+    boolean raisedOnceNoneThrows = raisedFor("read everywhere");
+
+    assertThat(raisedWhileTheyThrow)
+        .as("one alert, for the name")
+        .filteredOn(text -> text.startsWith("read everywhere threw"))
+        .hasSize(1);
+    assertThat(raisedOnceNoneThrows).isFalse();
+  }
+
+  /** Reads each gate on a thread of its own, all starting at once, and waits for every one. */
+  private static void readAtOnceOnThreadsOfTheirOwn(List<Gate> gates) throws Exception {
+    CountDownLatch start = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(gates.size());
+    try {
+      List<Future<Boolean>> read = new ArrayList<>();
+      for (Gate gate : gates) {
+        read.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  return gate.getAsBoolean();
+                }));
+      }
+      start.countDown();
+      for (Future<Boolean> each : read) {
+        each.get(10, TimeUnit.SECONDS);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  /** A gate's condition that holds, unless it throws. */
+  private static boolean holdsUnless(boolean throwing) {
+    if (throwing) {
+      throw new IllegalStateException("broken on purpose");
+    }
+    return true;
+  }
+
+  /** Whether the alert of the gates of a name is raised now. */
+  private static boolean raisedFor(String name) {
+    return Arrays.stream(AlertSim.getActive())
+        .anyMatch(alert -> alert.group.equals("Gates") && alert.text.startsWith(name + " threw"));
   }
 
   /** The gates' alerts raised now. */

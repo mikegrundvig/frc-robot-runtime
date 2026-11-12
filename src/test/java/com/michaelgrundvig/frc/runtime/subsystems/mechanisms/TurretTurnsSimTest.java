@@ -12,10 +12,10 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.record.MoveReason;
-import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
@@ -33,8 +33,8 @@ class TurretTurnsSimTest {
   /** Facing back, named a whole turn round from 180°. */
   private static final Position BACK = Position.degrees("back", -180);
 
-  private static final Joint.Revolute TURRET =
-      JointRevoluteBuilder.builder(JointFixtures.TURRET)
+  private static final RevoluteJoint TURRET =
+      RevoluteJointBuilder.builder(JointFixtures.TURRET)
           .range(Range.degrees(-200, 200))
           .positions(List.of(TURRET_FRONT, BACK))
           .build();
@@ -43,7 +43,7 @@ class TurretTurnsSimTest {
   private static final RobotDefinition ROBOT =
       RobotDefinitionBuilder.builder(JointFixtures.ROBOT)
           .joints(List.of(PIVOT, TURRET))
-          .configurations(List.of())
+          .presets(List.of())
           .build();
 
   private final JointsSimHarness sim = new JointsSimHarness(ROBOT);

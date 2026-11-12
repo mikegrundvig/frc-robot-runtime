@@ -33,19 +33,22 @@ import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
+import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.math.system.DCMotor;
 
 /**
@@ -58,8 +61,9 @@ class JointIOSimTest {
   private static final double STEP = 0.02;
 
   /** An arm with no mass, its kG tuned: 0.4 V, its weight pulling hardest at its zero. */
-  private static final Joint.Revolute BARE_ARM =
-      Joint.pivot("bare arm", Part.CHASSIS, new Translation3d(0.1, 0, 0.4), Joint.PITCH_UP)
+  private static final RevoluteJoint BARE_ARM =
+      Joint.pivot("bare arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(0.1), Meters.of(0), Meters.of(0.4))
           .range(Range.degrees(-120, 90))
           .rest(Degrees.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
@@ -70,8 +74,9 @@ class JointIOSimTest {
                   .withHoming(MechanismControl.Homing.assumeAtRest()));
 
   /** An elevator with no mass, its kG tuned: 0.5 V all along it. */
-  private static final Joint.Prismatic BARE_LIFT =
-      Joint.elevator("bare lift", Part.CHASSIS, new Translation3d(-0.2, 0, 0.1))
+  private static final PrismaticJoint BARE_LIFT =
+      Joint.elevator("bare lift", Part.CHASSIS)
+          .at(Meters.of(-0.2), Meters.of(0), Meters.of(0.1))
           .range(Range.meters(0, 1))
           .rest(Meters.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(10)).drum(Inches.of(1)))
@@ -126,9 +131,9 @@ class JointIOSimTest {
 
   private static MechanismControl pivotControl(Optional<Double> kG) {
     MechanismControl seeded = control(30, 1, profile(8, 30));
-    return MechanismControl.builder()
+    return MechanismControlBuilder.builder()
         .loop(MechanismControl.Loop.POSITION)
-        .gains(MechanismControl.Gains.builder().kP(30).kI(0).kD(1).kS(0).kG(kG).build())
+        .gains(MechanismControlGainsBuilder.builder().kP(30).kI(0).kD(1).kS(0).kG(kG).build())
         .currentLimits(seeded.currentLimits())
         .neutralMode(seeded.neutralMode())
         .deadChannel(seeded.deadChannel())
@@ -147,7 +152,7 @@ class JointIOSimTest {
     sim.updateInputs(inputs);
 
     assertThat(inputs.connected).isTrue();
-    assertThat(inputs.position).isEqualTo(PIVOT.restPosition());
+    assertThat(inputs.position).isEqualTo(RobotMath.restPosition(PIVOT));
     assertThat(inputs.velocity).isZero();
     assertThat(inputs.unconfigured).isEmpty();
   }
@@ -328,7 +333,7 @@ class JointIOSimTest {
    */
   @Test
   void anArmsWeightPullsHardestAtTheAngleGiven() {
-    Joint.Revolute arm = BARE_ARM.retuned(control -> control.withKg(0.4, Degrees.of(-90)));
+    RevoluteJoint arm = BARE_ARM.retuned(control -> control.withKg(0.4, Degrees.of(-90)));
     MechanismControl feedbackAlone = blocks(arm).withKg(0);
     double hardest = Math.toRadians(-90);
 
@@ -376,7 +381,7 @@ class JointIOSimTest {
    */
   @Test
   void itRefusesAJointTheRobotWouldRefuse() {
-    Joint.Revolute turned =
+    RevoluteJoint turned =
         BARE_ARM.retuned(
             control ->
                 control
@@ -421,7 +426,7 @@ class JointIOSimTest {
   /**
    * The fixtures' turret, which turns freely, on a TalonFX that reads a CANcoder turning with it.
    */
-  private static final Joint.Revolute TURRET_ON_CANCODER =
+  private static final RevoluteJoint TURRET_ON_CANCODER =
       TURRET
           .motors(motors -> motors.on(TALON_FX.can(23)))
           .absoluteEncoder(CANCODER.can(35).offset(Rotations.of(0)));
@@ -512,8 +517,9 @@ class JointIOSimTest {
   }
 
   /** An elevator on two TalonFXs, fed from the PDH's channels 0 and 1, its kG holding it. */
-  private static final Joint.Prismatic WIRED_LIFT =
-      Joint.elevator("wired lift", Part.CHASSIS, new Translation3d(0, 0.2, 0.1))
+  private static final PrismaticJoint WIRED_LIFT =
+      Joint.elevator("wired lift", Part.CHASSIS)
+          .at(Meters.of(0), Meters.of(0.2), Meters.of(0.1))
           .range(Range.meters(0, 1.2))
           .rest(Meters.of(0))
           .motors(

@@ -2,7 +2,7 @@ package com.michaelgrundvig.frc.simulation;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.michaelgrundvig.frc.world.robot.Imus;
+import com.michaelgrundvig.frc.world.robot.ImuMount;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -86,10 +86,7 @@ class DeterminismTruthTest {
             chassis,
             errors.gyro(),
             new AccelerometerModel(
-                chassis,
-                errors.accelerometer(),
-                Imus.UNCHECKED.gyro(),
-                Seeds.gyroAccelerometer(seed)),
+                chassis, errors.accelerometer(), ImuMount.UNCHECKED, Seeds.gyroAccelerometer(seed)),
             Seeds.gyro(seed));
     MessageDigest digest = MessageDigest.getInstance("SHA-256");
     for (int step = 0; step < 1500; step++) {

@@ -1,5 +1,8 @@
 package com.michaelgrundvig.frc.toolconfigs;
 
+import com.michaelgrundvig.frc.toolconfigs.advantagescope.AdvantageScopeAssets;
+import java.io.File;
+import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 import org.gradle.api.Plugin;
@@ -30,18 +33,17 @@ import org.gradle.jvm.toolchain.JavaToolchainService;
  * edit (and a clean, a merge, or a pull never trips it up). A strict plugin, for a tool whose GUI
  * rewrites its file, would refuse one ({@link ToolConfigTask#getStrict}).
  *
- * <p>Its task, {@code advantageScopeAssets}, runs the writer ({@code
- * com.michaelgrundvig.frc.world.bridges.AdvantageScopeAssets}) on the compiled program, which only
- * builds the robots' configuration records and writes files: no robot program, HAL, NetworkTables
- * or simulator. The writer is the robot model's ({@code model/}) and the robots are the program's
- * ({@code frc.robot.ToolRobots}), so it runs on the program's runtime classpath, which carries
- * both: the program's classes, and the world model's jar among its libraries. It's wired into
- * {@code build}, never into {@code run} or {@code test}, so the simulator and the edit-and-test
- * loop never wait on it.
+ * <p>Its task, {@code advantageScopeAssets}, runs the writer ({@link AdvantageScopeAssets}) on the
+ * compiled program, which only builds the robots' configuration records and writes files: no robot
+ * program, HAL, NetworkTables or simulator. The writer is this plugin's, in its own jar, and the
+ * robots are the program's ({@code frc.robot.ToolRobots}), so it runs on the program's runtime
+ * classpath, which carries the program's classes and the world model's jar it's built on, with the
+ * plugin's jar after them. It's wired into {@code build}, never into {@code run} or {@code test},
+ * so the simulator and the edit-and-test loop never wait on it.
  */
 public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
-  /** The writer the task runs: the world model's, found on the program's runtime classpath. */
-  static final String WRITER = "com.michaelgrundvig.frc.world.bridges.AdvantageScopeAssets";
+  /** The writer the task runs: the plugin's own, in its jar. */
+  static final Class<AdvantageScopeAssets> WRITER = AdvantageScopeAssets.class;
 
   /**
    * The writer's heap. It builds a few records and writes about 130 kB: measured (2026-10-01) to
@@ -60,7 +62,7 @@ public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
 
     /**
      * The robot program's catalog of its robots, a {@code
-     * com.michaelgrundvig.frc.world.bridges.RobotCatalog}: {@code frc.robot.ToolRobots} by default.
+     * com.michaelgrundvig.frc.world.tools.RobotCatalog}: {@code frc.robot.ToolRobots} by default.
      */
     public abstract Property<String> getCatalog();
 
@@ -79,6 +81,7 @@ public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
         .convention(project.getLayout().getProjectDirectory().dir("ascope_assets"));
 
     SourceSet main = project.getExtensions().getByType(SourceSetContainer.class).getByName("main");
+    File writerJar = jarOf(WRITER);
     TaskProvider<ToolConfigTask> assets =
         project
             .getTasks()
@@ -89,7 +92,8 @@ public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
                   task.setGroup("build");
                   task.setDescription(
                       "Generate AdvantageScope's robot assets (ascope_assets/) from Robots.java.");
-                  task.getRuntimeClasspath().from(main.getRuntimeClasspath());
+                  // The program first: its robots and the model they're built on, then the writer.
+                  task.getRuntimeClasspath().from(main.getRuntimeClasspath(), writerJar);
                   task.getProgram()
                       .from(
                           main.getOutput()
@@ -98,7 +102,8 @@ public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
                               .matching(classes -> classes.exclude("**/BuildConstants*")));
                   task.getProgram().from(main.getOutput().getResourcesDir());
                   task.getLibraries().from(main.getRuntimeClasspath().minus(main.getOutput()));
-                  task.getMainClass().set(WRITER);
+                  task.getLibraries().from(writerJar);
+                  task.getMainClass().set(WRITER.getName());
                   task.getLauncher()
                       .convention(
                           project
@@ -150,5 +155,17 @@ public final class AdvantageScopeAssetsPlugin implements Plugin<Project> {
                               .file(".gradle/tool-configs/advantagescope-assets.sha256"));
                 });
     project.getTasks().named("build").configure(build -> build.dependsOn(assets));
+  }
+
+  /**
+   * Where a class of this plugin's was loaded from: its jar, or in a build of the plugin itself,
+   * its classes' folder.
+   */
+  private static File jarOf(Class<?> writer) {
+    try {
+      return new File(writer.getProtectionDomain().getCodeSource().getLocation().toURI());
+    } catch (URISyntaxException e) {
+      throw new IllegalStateException("the plugin's own jar has no path: " + e.getMessage(), e);
+    }
   }
 }

@@ -19,8 +19,8 @@ import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.simulation.SensorErrorsBuilder;
 import com.michaelgrundvig.frc.world.field.Bump;
 import com.michaelgrundvig.frc.world.field.Terrain;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import java.util.List;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -113,7 +113,7 @@ class DriveSimulationTest {
   @Test
   void aDriftingGyroTurnsTheEstimateWhileTheRobotSitsStill() {
     EstimatorConfig considering =
-        EstimatorConfigBuilder.builder(EstimatorConfig.DEFAULTS)
+        EstimatorConfigBuilder.builder(EstimatorConfig.defaults())
             .gyroErrors(EstimatorConfig.GyroErrors.CONSIDERED)
             .build();
     harness = new DriveSimHarness(ExampleRobot.SIM, gyro(1.0, 10.0), considering);
@@ -230,7 +230,7 @@ class DriveSimulationTest {
   @Test
   void onAKnownRampOdometryCountsTheWheelsTravelAtTheSlope() {
     DriveSimHarness robot =
-        new DriveSimHarness(ExampleRobot.SIM, SensorErrors.NONE, EstimatorConfig.DEFAULTS, RAMP);
+        new DriveSimHarness(ExampleRobot.SIM, SensorErrors.NONE, EstimatorConfig.defaults(), RAMP);
     harness = robot;
     Pose2d start = new Pose2d(3.4, 4, Rotation2d.ZERO);
     robot.simulation.place(start);
@@ -270,7 +270,7 @@ class DriveSimulationTest {
 
   /** The four drive motors' push at their stator limit, in newtons. */
   private static double limitForceNewtons() {
-    DrivetrainGeometry.ModuleType modules = ExampleRobot.SIM.definition().drivetrain().module(0);
+    Drivetrain.Module modules = ExampleRobot.SIM.definition().drivetrain().module(0);
     DCMotor motor = modules.driveMotor().model();
     return 4
         * motor.Kt
@@ -281,7 +281,7 @@ class DriveSimulationTest {
 
   /** The robot's mass with its wheels' own inertia as mass at their treads, in kilograms. */
   private static double effectiveKilograms(double kilograms) {
-    DrivetrainGeometry.ModuleType modules = ExampleRobot.SIM.definition().drivetrain().module(0);
+    Drivetrain.Module modules = ExampleRobot.SIM.definition().drivetrain().module(0);
     double radius = modules.wheelRadius().in(Meters);
     return kilograms
         + 4 * modules.driveInertiaOrDefault().in(KilogramSquareMeters) / (radius * radius);

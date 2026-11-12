@@ -30,7 +30,7 @@ class DeadChannelsTest {
           });
 
   private final DeadChannels arm =
-      new DeadChannels(PowerSimTest.ARM, MechanismControl.DeadChannel.DEFAULTS);
+      new DeadChannels(PowerSimTest.ARM, MechanismControl.DeadChannel.defaults());
 
   private long now;
 
@@ -103,7 +103,7 @@ class DeadChannelsTest {
   /** A joint whose block says no channel has none to check. */
   @Test
   void aJointWithNoChannelsHasNoneToCheck() {
-    assertThat(new DeadChannels(JointFixtures.PIVOT, MechanismControl.DeadChannel.DEFAULTS).any())
+    assertThat(new DeadChannels(JointFixtures.PIVOT, MechanismControl.DeadChannel.defaults()).any())
         .isFalse();
   }
 }

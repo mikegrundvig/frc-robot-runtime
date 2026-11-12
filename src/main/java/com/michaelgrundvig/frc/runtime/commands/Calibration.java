@@ -12,11 +12,11 @@ import com.michaelgrundvig.frc.localization.calibration.LevelCheck;
 import com.michaelgrundvig.frc.localization.calibration.WheelRadiusCalibration;
 import com.michaelgrundvig.frc.pitwall.Actions;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.localization.Localization;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -124,12 +124,12 @@ public final class Calibration {
   /** A camera's mount is sure when its angles are known to within half a degree. */
   private static final double MOUNT_SURE_DEGREES = 0.5;
 
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final Vision vision;
   private final Localization localization;
   private final List<CameraConfig> cameras;
   private final Optional<SwerveWiring> wiring;
-  private final DrivetrainGeometry drivetrain;
+  private final Drivetrain drivetrain;
   private final Supplier<LocalDate> today;
   private String lastResult = "None run yet";
 
@@ -141,12 +141,12 @@ public final class Calibration {
    * @param today the date, which each result is noted with
    */
   public Calibration(
-      Drive drive,
+      SwerveDrive drive,
       Vision vision,
       Localization localization,
       List<CameraConfig> cameras,
       Optional<SwerveWiring> wiring,
-      DrivetrainGeometry drivetrain,
+      Drivetrain drivetrain,
       Supplier<LocalDate> today) {
     this.drive = drive;
     this.vision = vision;
@@ -163,8 +163,9 @@ public final class Calibration {
   }
 
   /**
-   * Adds every procedure to the Pitwall page's actions. Each is named with what it asks of the
-   * drive team: how long it takes, and where the robot needs to be.
+   * Adds every procedure to the Pitwall page's actions, in the order docs/calibration.md runs them.
+   * Each is named with what it asks of the drive team: how long it takes, and where the robot needs
+   * to be.
    *
    * @param scheduler the robot's own scheduler, which runs the procedures
    */
@@ -174,7 +175,13 @@ public final class Calibration {
             + WHEEL_SPIN_RADIANS_PER_SECOND / WHEEL_SPIN_RAMP;
     // The time is said to the next five seconds up.
     double wheelSpinSecondsSaid = 5 * Math.ceil(wheelSpinSeconds / 5);
+    // The page lists the procedures in the order docs/calibration.md runs them, each after the
+    // ones it leans on: the IMU's level, the gyro's scale, the wheel radius, each camera's mount,
+    // then the capture times. The accelerometer check and the lenses aren't run from the page.
     actions
+        .add(
+            format("Check the IMU reads level (%.0f s, on a level floor)", LEVEL_SECONDS),
+            Actions.command(() -> scheduler, this::level))
         .add(
             format("Calibrate the gyro's scale (%d turns where cameras see tags)", GYRO_SPIN_TURNS),
             Actions.command(() -> scheduler, this::gyroScale))
@@ -182,16 +189,7 @@ public final class Calibration {
             format(
                 "Calibrate the wheel radius (%.0f slow turns in place, about %.0f s)",
                 WHEEL_SPIN_TURNS, wheelSpinSecondsSaid),
-            Actions.command(() -> scheduler, this::wheelRadius))
-        .add(
-            format(
-                "Calibrate the cameras' capture times (spins both ways, about %.0f s, where cameras"
-                    + " see tags)",
-                2 * CAPTURE_SPIN_SECONDS + 2 * SETTLE_SECONDS),
-            Actions.command(() -> scheduler, this::captureTimes))
-        .add(
-            format("Check the IMU reads level (%.0f s, on a level floor)", LEVEL_SECONDS),
-            Actions.command(() -> scheduler, this::level));
+            Actions.command(() -> scheduler, this::wheelRadius));
     for (CameraConfig camera : cameras) {
       // A camera on a joint is not calibrated here: where it is depends on where its joint is.
       if (camera.joint().isEmpty()) {
@@ -200,6 +198,12 @@ public final class Calibration {
             Actions.command(() -> scheduler, () -> cameraMount(camera.name())));
       }
     }
+    actions.add(
+        format(
+            "Calibrate the cameras' capture times (spins both ways, about %.0f s, where cameras"
+                + " see tags)",
+            2 * CAPTURE_SPIN_SECONDS + 2 * SETTLE_SECONDS),
+        Actions.command(() -> scheduler, this::captureTimes));
   }
 
   /** The name of the Pitwall action that calibrates a camera's mount, from the camera's name. */
@@ -261,9 +265,9 @@ public final class Calibration {
   // ---- The gyro's scale ----
 
   /**
-   * Measures the gyro's scale, by spinning five whole turns in place where the cameras see several
-   * tags. The heading the cameras measure before and after is the reference the gyro's turn is
-   * compared with.
+   * Measures the gyro's scale, by spinning five whole turns in place where the cameras see tags.
+   * The heading the cameras measure before and after, each tag by itself, is the reference the
+   * gyro's turn is compared with.
    */
   public Command gyroScale() {
     return drive
@@ -329,12 +333,12 @@ public final class Calibration {
   }
 
   private String gyroScaleResult(GyroScaleCalibration spin) {
-    double configured = wiring.map(SwerveWiring::gyroYawScale).orElse(1.0);
+    double configured = wiring.map(each -> each.gyro().yawScale()).orElse(1.0);
     double scale = configured * spin.scale();
     String readsHighOrLow = spin.scale() < 1 ? "high" : "low";
     return format(
         "Gyro scale %.5f: it reads %.2f%% %s over %d turns (%.1f° off). In the"
-            + " robot's wiring: .gyroYawScale(%.5f) // measured %s",
+            + " drivetrain's gyro: PIGEON_2.can(bus, id).yawScale(%.5f) // measured %s",
         scale,
         Math.abs(1 / spin.scale() - 1) * 100,
         readsHighOrLow,
@@ -360,7 +364,7 @@ public final class Calibration {
   private static String noReference(HeadingAverage headings) {
     return format(
         "Gyro scale: the cameras measured the heading %d times standing still; it needs %d. Face"
-            + " where they see two or more tags.",
+            + " where they see tags.",
         headings.count(), MIN_HEADINGS);
   }
 
@@ -543,9 +547,9 @@ public final class Calibration {
     }
     return format(
         "%s: tags landed %.1f cm off, %.1f cm with the mount found (%d sightings; to within %.2f"
-            + " in and %.2f°).%s In Robots, the %s camera's mount: .forward(Inches.of(%.2f))"
-            + ".left(Inches.of(%.2f)).up(Inches.of(%.2f)).roll(Degrees.of(%.1f))"
-            + ".tiltUp(Degrees.of(%.1f)).yaw(Degrees.of(%.1f)) // measured %s",
+            + " in and %.2f°).%s In Robots, the %s camera's mount: .at(Inches.of(%.2f),"
+            + " Inches.of(%.2f), Inches.of(%.2f)).facing(Degrees.of(%.1f), Degrees.of(%.1f))"
+            + ".roll(Degrees.of(%.1f)).measured() // measured %s",
         camera.name(),
         solved.residualBeforeMeters() * 100,
         solved.residualAfterMeters() * 100,
@@ -557,10 +561,10 @@ public final class Calibration {
         Meters.of(mount.getX()).in(Inches),
         Meters.of(mount.getY()).in(Inches),
         Meters.of(mount.getZ()).in(Inches),
-        Math.toDegrees(turn.getX()),
         // The configuration's tilt is positive upward, and a rotation about y is positive downward.
         -Math.toDegrees(turn.getY()),
         Math.toDegrees(turn.getZ()),
+        Math.toDegrees(turn.getX()),
         today.get());
   }
 

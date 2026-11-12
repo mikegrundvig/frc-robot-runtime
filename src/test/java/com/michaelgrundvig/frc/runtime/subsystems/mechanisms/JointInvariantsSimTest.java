@@ -14,14 +14,16 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.examples.ExampleMonkey;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Interlock;
 import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointPrismaticBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.PrismaticJointBuilder;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.LinkedHashMap;
@@ -41,17 +43,14 @@ import org.wpilib.system.RobotController;
 @ExtendWith(RobotSim.class)
 class JointInvariantsSimTest {
   /** The pivot stowed and the elevator down: the pivot swings in through 80° to 40°. */
-  static final Configuration STOWED =
-      Configuration.of("stowed", PIVOT.at(PIVOT_IN), ELEVATOR.at(ELEVATOR_DOWN));
+  static final Preset STOWED = Preset.of("stowed", PIVOT.at(PIVOT_IN), ELEVATOR.at(ELEVATOR_DOWN));
 
   /**
    * The interlocks' robot, the pivot kept out of 40° to 80° while the elevator is below "clear",
    * stowing.
    */
   static final RobotDefinition GUARDED =
-      RobotDefinitionBuilder.builder(InterlocksSimTest.GUARDED)
-          .configurations(List.of(STOWED))
-          .build();
+      RobotDefinitionBuilder.builder(InterlocksSimTest.GUARDED).presets(List.of(STOWED)).build();
 
   /** A robot's joints in the simulator, each loop checked as the monkey checks it. */
   private static final class Checked {
@@ -138,8 +137,8 @@ class JointInvariantsSimTest {
    * An elevator carrying 15 kg that coasts when told nothing, its profile braking at 50 m/s², more
    * than its motors can against its weight, kept out of its lowest 0.3 m while the pivot is in.
    */
-  static final Joint.Prismatic WEIGHED =
-      JointPrismaticBuilder.builder(ELEVATOR)
+  static final PrismaticJoint WEIGHED =
+      PrismaticJointBuilder.builder(ELEVATOR)
           .link(JointFixtures.link("carriage", 15, new Translation3d(0, 0, 0.1)))
           .build()
           .retuned(
@@ -153,7 +152,7 @@ class JointInvariantsSimTest {
       RobotDefinitionBuilder.builder(JointFixtures.ROBOT)
           .name("weighed")
           .joints(List.of(PIVOT, JointFixtures.ROLLER, WEIGHED, JointFixtures.TURRET))
-          .configurations(List.of())
+          .presets(List.of())
           .interlocks(
               List.of(
                   Interlock.that(WEIGHED)
@@ -193,7 +192,7 @@ class JointInvariantsSimTest {
    * The weighed elevator on a leader and a follower, its loop soft: kG holds its weight on both
    * motors, and on one, its loop makes up the rest only some 6 cm below where it's held.
    */
-  static final Joint.Prismatic SOFT =
+  static final PrismaticJoint SOFT =
       WEIGHED
           .motors(motors -> motors.on(TALON_FX.can(20), TALON_FX.can(21)))
           .retuned(old -> JointFixtures.assumed(control(5, 0.5, profile(1.2, 5))));
@@ -257,7 +256,7 @@ class JointInvariantsSimTest {
   }
 
   /** The pivot, its loop closed on its through-bore on port 1. */
-  static final Joint.Revolute LOOPED =
+  static final RevoluteJoint LOOPED =
       PIVOT
           .absoluteEncoder(MechanismWiring.PortEncoder.dutyCycle(1))
           .retuned(old -> control(30, 1, profile(8, 30)))

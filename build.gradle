@@ -323,6 +323,7 @@ ext.published = [
     license: "BSD 3-Clause License",
 ]
 apply from: "gradle/publishing.gradle"
+apply from: "gradle/builder-docs.gradle"
 // The plugin (build-logic/) is published with the runtime, when this is the build that runs.
 if (gradle.parent == null) {
     tasks.named("publishToFrcMaven") {

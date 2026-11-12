@@ -55,13 +55,14 @@ A mechanism is one block of constants. This is a pivot with a motor, an absolute
 profiled position loop, from `ExampleRobot`:
 
 ```java
-public static final Joint.Revolute PIVOT =
-    Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+public static final RevoluteJoint PIVOT =
+    Joint.pivot("pivot", Part.CHASSIS, Joint.PITCH_DOWN)
+        .at(Meters.of(0.25), Meters.of(0), Meters.of(0.32))
         .range(Range.degrees(0, 135))
         .rest(PIVOT_IN) // its hard stops, and where it rests
         .carries(
             Link.box(
-                "intake arm", new Translation3d(0, 0, 0.2), new Translation3d(0.05, 0.55, 0.36)))
+                "intake arm", new Translation3d(0, 0, 0.2), Meters.of(0.05), Meters.of(0.55), Meters.of(0.36)))
         .positions(PIVOT_IN, PIVOT_OUT)
         .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(32).pdh(4, Amps.of(40))))
         .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.82)))
@@ -84,9 +85,11 @@ fusion. You never touch a `TalonFXConfiguration` or a `SparkBaseConfig`.
 
 ### Constants
 
-There is no constants file. A value lives in the block of the thing it describes. Records are
-built through staged builders that ask for each required value by name, so two values cannot swap
-places and a missing one does not compile.
+There is no constants file. A value lives in the block of the thing it describes. Each part
+starts from a factory that takes what the part can't do without (`Body.frame(length, width,
+height)`, `RobotDefinition.of(name, body, drivetrain)`, `Gearing.of(25)`), so a missing one does
+not compile. Everything else is one verb each (`.weight(...)`, `.withCameras(...)`,
+`.efficiency(...)`), or is left out and takes its default.
 
 Most values carry a unit type. A few do not, and you should know which. A `Translation3d` is
 meters. A gain is a bare number in volts per the joint's own unit, so `position(30)` is 30 V per
@@ -211,7 +214,7 @@ command keeps running the whole time.
 If the joint an interlock reads is unhomed, faulted or silent, the interlock assumes the worst
 and holds. A lost sensor does the same.
 
-The description checks interlocks against each other and against every configuration at startup.
+The description checks interlocks against each other and against every preset at startup.
 Two rules that would leave two joints holding each other for good are refused as a deadlock.
 
 Soft limits are separate and still exist, in the joint's control. They go to the motor
@@ -228,7 +231,7 @@ capture time with latency compensation.
 What differs in the default estimator:
 
 - The state is a position and a heading offset. The gyro owns short-term heading, and cameras
-  only correct its slow drift.
+  only correct its slow drift and its scale.
 - Every camera measurement is gated against the estimate before it is applied. A misread tag is
   rejected and does not move the pose.
 - When several rejected measurements agree with each other, from independent sources (two
@@ -239,19 +242,25 @@ What differs in the default estimator:
   trust for that step.
 - A late measurement is applied in order. The estimator rewinds, applies it and replays, so
   arrival order does not change the result.
-- The robot reads each tag's corners and both candidate poses from PhotonVision, with the
-  capture time, and works from those.
+- The robot reads each tag's corners and both candidate poses from the camera's vision program,
+  PhotonVision or Visor, with the capture time, and works from those. Visor never solves tags
+  together, so with it the pipeline solves each image with the gyro's heading, or tag by tag.
+- A heading a person gives, by placing the robot on its start or pressing Back, is taken as their
+  word: no image is solved with it until a camera's own heading agrees, and a camera that disagrees
+  counts against it. A robot set down crooked finds its heading from the tags.
 - It says what it rests on, such as tracking or dead reckoning, and how sure it is.
 
 You do not call `addVisionMeasurement`, and there are no standard deviations to hand-tune per
 tag count. The tuning is in `EstimatorConfig` and `VisionConfig`, and
-[values.md](values.md) says what each number means. Cameras are PhotonVision only.
+[values.md](values.md) says what each number means. A camera runs PhotonVision or Visor, the
+runtime's own AprilTag program ([visor.md](visor.md)); each camera says which in its block
+(`.software(...)`).
 
 **You can have `SwerveDrivePoseEstimator` back.** The estimator sits behind an interface,
 `Localizer`, and WPILib's is the second implementation. One line in the robot's block chooses it:
 
 ```java fragment
-.localizer(WpilibLocalizer::new)
+.withLocalizer(WpilibLocalizer::new)
 ```
 
 It gets the same wheel readings the default one gets, and camera measurements from the same
@@ -278,7 +287,7 @@ through them when the move starts.
 ```java
 static final Place PICKUP = Place.at("Pickup", new Pose2d(5, 2, Rotation2d.CCW_90DEG));
 
-static void moves(Drive drive) {
+static void moves(SwerveDrive drive) {
   DriveMove toTower = drive.goTo(Rebuilt.TOWER);
   DriveMove leg = drive.follow(Keyframe.at(PICKUP), Keyframe.at(Rebuilt.TOWER));
 }
@@ -473,7 +482,7 @@ tunes it live. An auto is a Java method.
 - Reading a path tool's files ([stand-ins.md](stand-ins.md#waiting-on)), and steering a path around
   obstacles.
 - Choosing an auto from the driver station, and keeping the choice across a restart.
-- Moving between configurations by a route.
+- Moving between presets by a route.
 - A bench bypass for interlocks.
 - A string potentiometer on an elevator.
 - Live tuning of a joint's feedforward, profile and named places.
@@ -493,7 +502,7 @@ the block's wiring. `JointMechanism` then gives it moves, gates and interlocks a
 joint.
 
 **A new driver.** A driver for another motor controller is a new `JointIO`. `JointIO`'s Javadoc
-numbers what a driver must keep, J1 to J40, and the conformance suite checks each clause. You give
+numbers what a driver must keep, J1 to J41, and the conformance suite checks each clause. You give
 the suite a bench for your driver (`JointBench`), and it passes or writes down where it differs. A
 swerve module's driver has the same in `ModuleIO`.
 
@@ -516,10 +525,11 @@ interface is in the runtime, beside the drivers that exist.
 - Power: REV's Power Distribution Hub.
 - Gyro: a Pigeon 2, with Systemcore's own IMU as a backup.
 - Drivetrain: swerve, on TalonFX modules with CANcoders or on SPARK modules.
-- Vision: PhotonVision.
+- Vision: PhotonVision, or Visor, the runtime's own AprilTag program, on a coprocessor
+  ([visor.md](visor.md)). Each camera names its own in its block (`.software(...)`).
 
-A Phoenix Pro license is not assumed. The guide's drivetrain runs without FOC, and its steering
-reads the CANcoder as a remote sensor.
+A Phoenix Pro license is not assumed. The guide's drivetrain runs without FOC (a licensed
+controller turns it on with `.foc()`), and its steering reads the CANcoder as a remote sensor.
 
 ## Reading the code to check a claim
 
@@ -530,7 +540,7 @@ Open these first.
   comment says what a loop does.
 - `Move` and `Outcome` are how a move ends and what it reports.
 - `Gate` is the trigger with a name and a reason.
-- `Drive`, `DriveMove` and `PathFollower` are the drivetrain's moves and the control law.
+- `SwerveDrive`, `DriveMove` and `PathFollower` are the drivetrain's moves and the control law.
 - `Localizer`, in the localization library (`localization/`), is the estimator's contract. `DefaultLocalizer` and
   `PoseEstimator` are the default estimator, `WpilibLocalizer` is WPILib's, and
   `LocalizationService` runs the loop around whichever the robot chose.

@@ -15,7 +15,8 @@ import com.michaelgrundvig.frc.runtime.sim.DriveSimulation;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.runtime.sim.Scenario;
 import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
+import com.michaelgrundvig.frc.runtime.sim.SimulatorWiring;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.FieldModel;
@@ -104,6 +105,10 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
   private @Nullable GamepadSim operator;
   private @Nullable Pitwall pitwall;
   private @Nullable RobotContainer container;
+
+  /** The simulator the robot was built with, which made its world in the simulator's mode. */
+  private @Nullable SimulatorWiring simulator;
+
   private @Nullable LoopHealth loopHealth;
 
   @Override
@@ -218,6 +223,9 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
     Pitwall page = Pitwall.start(robot.name(), 0);
     pitwall = page;
     loopHealth = health;
+    // The simulator, for the simulator's mode: the robot leaves it unused in the others.
+    SimulatorWiring wiring = SimulatorWiring.of(errors);
+    simulator = wiring;
     container =
         Robot.assemble(
             mode,
@@ -227,7 +235,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
             game,
             controls,
             page,
-            errors,
+            Optional.of(wiring),
             health,
             Optional.empty(),
             watched);
@@ -260,16 +268,15 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   /** The simulator's physics: where the robot really is. */
   public DriveSimulation simulation() {
-    return robot()
-        .simulation()
-        .orElseThrow(() -> new IllegalStateException("only the simulator has physics"));
+    return world().drivetrain();
   }
 
   /** The simulated world: the robot's physics and its cameras, which scenarios act on. */
   public SimulatedWorld world() {
-    return robot()
-        .world()
-        .orElseThrow(() -> new IllegalStateException("only the simulator has a world"));
+    if (robot().world().isEmpty()) {
+      throw new IllegalStateException("only the simulator has a world");
+    }
+    return Objects.requireNonNull(simulator).made();
   }
 
   /**
@@ -314,7 +321,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
   }
 
   /** The robot's drivetrain. */
-  public Drive drive() {
+  public SwerveDrive drive() {
     return robot().drive();
   }
 
@@ -370,15 +377,15 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
    * One robot loop, as WPILib's runs it: the clock moves a loop's time, WPILib reads the Driver
    * Station's newest data (which is how the simulator's controls on the Pitwall page reach the
    * robot, a loop after they're asked), then the robot runs {@link Robot#loop}, then WPILib's
-   * tunables update. What the robot's commands throw, it throws, so a bug fails its test.
+   * tunables update. What the loop throws, it throws, so a bug fails its test.
    */
   public void loop() {
     loop(Robot.AfterAThrow.ENDS_THE_PROGRAM);
   }
 
   /**
-   * One robot loop as on a robot: what the robot's commands throw is reported, and the robot
-   * carries on without them ({@link Robot#loop}).
+   * One robot loop as on a robot: what the loop throws is reported, and the robot carries on past
+   * it ({@link Robot#loop}).
    */
   void loopOnRobot() {
     loop(Robot.AfterAThrow.CARRIES_ON);

@@ -24,10 +24,10 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.world.record.MoveReason;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Driven;
-import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
@@ -51,22 +51,22 @@ import org.wpilib.math.geometry.Translation3d;
 @ExtendWith(RobotSim.class)
 class RefusalsSimTest {
   /** A hatch the robot has, which nothing drives: the template has no mechanism of it. */
-  private static final Joint.Revolute HATCH =
-      JointRevoluteBuilder.builder(PIVOT)
+  private static final RevoluteJoint HATCH =
+      RevoluteJointBuilder.builder(PIVOT)
           .label("hatch")
-          .origin(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
+          .place(new Transform3d(new Translation3d(-0.2, 0, 0.3), Rotation3d.ZERO))
           .link(JointFixtures.link("hatch", 1, new Translation3d()))
           .driven(Driven.NONE)
           .build();
 
   /** A joint of no robot's. */
-  private static final Joint.Revolute STRANGER =
-      JointRevoluteBuilder.builder(PIVOT).label("stranger").build();
+  private static final RevoluteJoint STRANGER =
+      RevoluteJointBuilder.builder(PIVOT).label("stranger").build();
 
   private static final RobotDefinition WITH_HATCH =
       RobotDefinitionBuilder.builder(ROBOT)
           .joints(List.of(PIVOT, ROLLER, ELEVATOR, TURRET, HATCH))
-          .configurations(List.of(INTAKING))
+          .presets(List.of(INTAKING))
           .build();
 
   private final JointsSimHarness sim = new JointsSimHarness(WITH_HATCH);
@@ -125,7 +125,7 @@ class RefusalsSimTest {
             () -> sim.joints.gate(PIVOT.between(PIVOT_OUT, ELEVATOR_CLEAR))),
         new CantBe(
             "pivot has no position clear at 0.4 m: it has in, run, out",
-            () -> sim.joints.goTo(Configuration.of("wrong", PIVOT.at(ELEVATOR_CLEAR)))),
+            () -> sim.joints.goTo(Preset.of("wrong", PIVOT.at(ELEVATOR_CLEAR)))),
         new CantBe(
             "roller has no output push: it has intaking, outtaking, ejecting, and stopped",
             () -> roller.isAt(PIVOT_PUSH)),

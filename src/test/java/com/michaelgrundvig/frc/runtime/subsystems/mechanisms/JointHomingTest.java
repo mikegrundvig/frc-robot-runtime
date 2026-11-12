@@ -12,6 +12,8 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.Stat
 import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
+import com.michaelgrundvig.frc.world.robot.MechanismControlHomingToHardStopBuilder;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
@@ -31,6 +33,40 @@ import org.junit.jupiter.api.Test;
 class JointHomingTest {
   private static final long LOOP = 20_000_000L;
 
+  /** The limit on the current through the joints' motors, in amps. */
+  private static final double STATOR_LIMIT = 40;
+
+  /** What a joint reads in a loop, as a test hands it to its homing. */
+  private static final class Reading implements JointHoming.Pushed {
+    boolean answers = true;
+    double position;
+    double velocity;
+    double amps;
+
+    @Override
+    public boolean answersThisLoop() {
+      return answers;
+    }
+
+    @Override
+    public double position() {
+      return position;
+    }
+
+    @Override
+    public double velocity() {
+      return velocity;
+    }
+
+    @Override
+    public double statorCurrentAmps() {
+      return amps;
+    }
+  }
+
+  /** What the joint reads this loop. */
+  private final Reading reading = new Reading();
+
   /** Where each homing told its joint it is. */
   private final List<Double> found = new ArrayList<>();
 
@@ -42,7 +78,13 @@ class JointHomingTest {
 
   private JointHoming homing(Joint joint, @Nullable Homing recipe, Optional<Sensor.Switch> limit) {
     return new JointHoming(
-        ROBOT.math(), joint, Optional.ofNullable(recipe), limit, Optional.empty(), found::add);
+        ROBOT.math(),
+        joint,
+        Optional.ofNullable(recipe),
+        limit,
+        Optional.empty(),
+        found::add,
+        () -> STATOR_LIMIT);
   }
 
   private JointHoming byEncoder(boolean closesLoop) {
@@ -52,13 +94,26 @@ class JointHomingTest {
         Optional.empty(),
         Optional.empty(),
         Optional.of(new JointHoming.ReadEncoder(closesLoop, OptionalInt.of(1))),
-        found::add);
+        found::add,
+        () -> STATOR_LIMIT);
   }
 
-  /** A loop of a joint homed by its recipe, enabled throughout, moving at a speed. */
+  /**
+   * A loop of a joint homed by its recipe, moving at a speed, its controller answering. Still, its
+   * motor draws what a 2 V push held still draws; moving, a few amps.
+   */
   private void loop(JointHoming homing, boolean enabled, boolean enabling, double velocity) {
+    reading.answers = true;
+    reading.velocity = velocity;
+    reading.amps = velocity == 0 ? JointHoming.stallAmps(ELEVATOR, 2, STATOR_LIMIT) : 3;
+    loop(homing, enabled, enabling);
+  }
+
+  /** A loop of a joint homed by its recipe, reading as {@link #reading} has been set. */
+  private void loop(JointHoming homing, boolean enabled, boolean enabling) {
     now += LOOP;
-    homing.advance(now, enabled, enabling, velocity);
+    reading.position += reading.velocity * LOOP / 1e9;
+    homing.advance(now, enabled, enabling, reading);
   }
 
   /** A joint with neither a recipe nor an encoder the robot reads is ready from the start. */
@@ -136,6 +191,92 @@ class JointHomingTest {
   }
 
   /**
+   * A joint pushed toward its stop that never moves, as each loop of the push reads it.
+   *
+   * @param answers whether its controller answers with each loop's readings
+   * @param amps the current its motor draws, as a share of what a push held still draws
+   * @param stallShare the recipe's own share of that the motor must draw, if it gives one
+   * @param fault its fault once the push is out of time, or empty where it found its stop
+   */
+  private record StillRow(
+      String what,
+      boolean answers,
+      double amps,
+      Optional<Double> stallShare,
+      Optional<String> fault) {}
+
+  /**
+   * Still is not enough to be on the stop: the joint's controller must answer with this loop's
+   * readings, and its motor must draw at least half of what a push held still draws (the push's
+   * volts over its windings, up to its stator limit). Still for any other reason, it is faulted
+   * once its time runs out, saying what it saw and what to check, and never found. Until 2026-11-09
+   * every one of these was found at its lower stop, wherever it was.
+   */
+  @Test
+  void aStillJointIsOnItsStopOnlyWithItsControllerAnsweringAndAStallsCurrent() {
+    String neverMoved =
+        "elevator's homing never moved it in 0.5 s, pushing toward its lower stop at 2.0 V, and"
+            + " its motor drew at most %s A where pushing on a stop draws 40.0 A: check the"
+            + " motor's wiring and its controller's output, and that 2.0 V moves it";
+    String noReading =
+        "elevator's homing had no reading from its motor controller in 0.5 s, pushing toward its"
+            + " lower stop: check the controller's CAN wiring and ID";
+    Optional<Double> recipes = Optional.empty();
+    List<StillRow> rows =
+        List.of(
+            new StillRow("on its stop", true, 1, recipes, Optional.empty()),
+            new StillRow("on it, its current held low", true, 0.6, recipes, Optional.empty()),
+            new StillRow(
+                "an open phase", true, 0, recipes, Optional.of(neverMoved.formatted("0.0"))),
+            new StillRow(
+                "drawing too little",
+                true,
+                0.4,
+                recipes,
+                Optional.of(neverMoved.formatted("16.0"))),
+            new StillRow(
+                "too little, but the recipe's share",
+                true,
+                0.4,
+                Optional.of(0.3),
+                Optional.empty()),
+            new StillRow("its controller silent", false, 1, recipes, Optional.of(noReading)));
+
+    for (StillRow row : rows) {
+      found.clear();
+      Homing.ToHardStop recipe =
+          MechanismControlHomingToHardStopBuilder.builder()
+              .end(Sensor.Switch.Limit.End.LOWER)
+              .volts(2)
+              .timeout(Seconds.of(0.5))
+              .stallShare(row.stallShare())
+              .build();
+      JointHoming homing = homing(ELEVATOR, recipe);
+      homing.robotStarted(now);
+      reading.position = 0.6;
+      reading.velocity = 0;
+      reading.answers = row.answers();
+      reading.amps = row.amps() * JointHoming.stallAmps(ELEVATOR, 2, STATOR_LIMIT);
+      loop(homing, true, true);
+      for (int i = 0; i < 30; i++) {
+        loop(homing, true, false);
+      }
+
+      if (row.fault().isEmpty()) {
+        assertThat(found).as(row.what()).containsExactly(0.0);
+        assertThat(homing.state()).as(row.what()).isEqualTo(State.READY);
+        continue;
+      }
+      assertThat(found).as(row.what()).isEmpty();
+      assertThat(homing.state()).as(row.what()).isEqualTo(State.FAULTED);
+      assertThat(homing.recorded())
+          .as(row.what())
+          .isEqualTo(JointState.faulted(JointState.Fault.HOMING_FOUND_NO_STOP));
+      assertThat(homing.fault()).as(row.what()).isEqualTo(row.fault());
+    }
+  }
+
+  /**
    * Its homing canceled with the robot enabled, it's unhomed; a move waiting on it homes it again
    * at once. Disabled, the move waits for the next enable. Ready, or with nothing to find, nothing
    * waits.
@@ -177,7 +318,7 @@ class JointHomingTest {
     JointHoming homing =
         homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER), Optional.of(PIVOT_DOWN));
     homing.robotStarted(now);
-    homing.advance(now, true, true, 0);
+    homing.advance(now, true, true, reading);
     double pushing = homing.pushVolts();
     switches.trip(PIVOT_DOWN, true);
     homing.switchRead(now, 0.02, switches.sensors());
@@ -205,7 +346,7 @@ class JointHomingTest {
     JointHoming homing =
         homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER), Optional.of(PIVOT_DOWN));
     homing.robotStarted(now);
-    homing.advance(now, true, true, 0);
+    homing.advance(now, true, true, reading);
     for (int i = 0; i < 82; i++) {
       homing.switchRead(now += LOOP, 0.5, switches.sensors());
     }
@@ -285,7 +426,7 @@ class JointHomingTest {
   @Test
   void noDefinitionHomesAJointToASwitchItLacks() {
     Homing toLowerSwitch = Homing.toSwitch(Sensor.Switch.Limit.End.LOWER);
-    Joint.Revolute homesToItsSwitch =
+    RevoluteJoint homesToItsSwitch =
         PIVOT.retuned(control -> JointFixtures.homed(control, toLowerSwitch));
     Sensor.Switch atTheOtherEnd =
         JointFixtures.limit("pivot up", PIVOT, Sensor.Switch.Limit.End.UPPER, Math.toRadians(130));
@@ -298,13 +439,13 @@ class JointHomingTest {
             .with(homesToItsSwitch);
 
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> ROBOT.with(homesToItsSwitch))
+        .isThrownBy(() -> ROBOT.with(homesToItsSwitch).checked())
         .withMessageContaining("pivot homes to its lower limit switch, and its block has none");
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> withSensors(ROBOT, atTheOtherEnd).with(homesToItsSwitch))
+        .isThrownBy(() -> withSensors(ROBOT, atTheOtherEnd).with(homesToItsSwitch).checked())
         .withMessageContaining("pivot homes to its lower limit switch, and its block has none");
     assertThatIllegalArgumentException()
-        .isThrownBy(() -> withSensors(ROBOT, notMeasured).with(homesToItsSwitch))
+        .isThrownBy(() -> withSensors(ROBOT, notMeasured).with(homesToItsSwitch).checked())
         .withMessageContaining("pivot homes to pivot down, whose position isn't known");
     assertThatIllegalArgumentException()
         .as("a practice robot that takes the switch away")
@@ -318,11 +459,13 @@ class JointHomingTest {
         .as("a practice robot that homes to the other end")
         .isThrownBy(
             () ->
-                sound.with(
-                    PIVOT.retuned(
-                        control ->
-                            JointFixtures.homed(
-                                control, Homing.toSwitch(Sensor.Switch.Limit.End.UPPER)))))
+                sound
+                    .with(
+                        PIVOT.retuned(
+                            control ->
+                                JointFixtures.homed(
+                                    control, Homing.toSwitch(Sensor.Switch.Limit.End.UPPER))))
+                    .checked())
         .withMessageContaining("pivot homes to its upper limit switch, and its block has none");
     // The sound robot's joint finds its switch by the same lookup its mechanism uses.
     Joint homing = sound.joints().stream().filter(PIVOT::equals).findFirst().orElseThrow();
@@ -334,7 +477,7 @@ class JointHomingTest {
 
   /** The same robot with these sensors in place of its own list. */
   private static RobotDefinition withSensors(RobotDefinition robot, Sensor... sensors) {
-    return RobotDefinitionBuilder.builder(robot).sensors(List.of(sensors)).build();
+    return RobotDefinitionBuilder.builder(robot).sensors(List.of(sensors)).build().checked();
   }
 
   /**

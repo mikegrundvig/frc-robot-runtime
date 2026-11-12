@@ -3,8 +3,11 @@ package com.michaelgrundvig.frc.runtime;
 import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TALON_FX;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.wpilib.units.Units.Degrees;
+import static org.wpilib.units.Units.Meters;
 
+import com.michaelgrundvig.frc.localization.SlipCheck;
 import com.michaelgrundvig.frc.world.config.Finding;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Link;
@@ -13,8 +16,10 @@ import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.wpilib.math.geometry.Translation3d;
@@ -25,13 +30,18 @@ import org.wpilib.math.geometry.Translation3d;
  */
 class DefinitionDoubtsTest {
   /** An arm whose plate nobody weighed, its kG not written. */
-  private static final Joint.Revolute ARM =
-      Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+  private static final RevoluteJoint ARM =
+      Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
           .range(Range.degrees(0, 90))
           .rest(Degrees.of(0))
           .carries(
               Link.box(
-                  "arm plate", new Translation3d(0.2, 0, 0), new Translation3d(0.4, 0.05, 0.05)))
+                  "arm plate",
+                  new Translation3d(0.2, 0, 0),
+                  Meters.of(0.4),
+                  Meters.of(0.05),
+                  Meters.of(0.05)))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
           .control(
               MechanismControl.position(30).withHoming(MechanismControl.Homing.assumeAtRest()));
@@ -49,15 +59,20 @@ class DefinitionDoubtsTest {
   @Test
   void theRobotSaysWhatItsCodeReadsAndTheSimulatorWhatOnlyItReads() {
     List<String> doubts =
-        Doubts.lines(Doubts.of(ROBOT, RobotSim.massOf(ROBOT)), Finding.Scope.ROBOT);
+        Doubts.lines(
+            Doubts.of(ROBOT, SlipCheck.Settings.defaults(), RobotSim.massOf(ROBOT)),
+            Finding.Scope.ROBOT);
     List<String> notes =
-        Doubts.lines(Doubts.of(ROBOT, RobotSim.massOf(ROBOT)), Finding.Scope.SIMULATOR);
+        Doubts.lines(
+            Doubts.of(ROBOT, SlipCheck.Settings.defaults(), RobotSim.massOf(ROBOT)),
+            Finding.Scope.SIMULATOR);
 
     assertThat(doubts)
         .contains(
             "not known: arm has no kG: it holds against gravity by kP alone, so it sits below its"
-                + " targets until its kG is tuned and written, withKg(...), or written as 0 for a"
-                + " counterbalanced joint")
+                + " targets until its kG is tuned and written: withKg(k) for a joint level at its"
+                + " zero, withKg(k, angle) with the angle its weight pulls hardest at for one that"
+                + " isn't, or 0 for a counterbalanced joint")
         .noneMatch(doubt -> doubt.contains("mass:") || doubt.contains("in no link"));
     assertThat(notes)
         .allMatch(note -> note.startsWith("simulator: "))
@@ -79,9 +94,13 @@ class DefinitionDoubtsTest {
   void theTemplatesUnmeasuredGripIsTheRobotsDoubtAndItsInertiasTheSimulators() {
     RobotDefinition template = ExampleRobot.SIM.definition();
     List<String> doubts =
-        Doubts.lines(Doubts.of(template, RobotSim.massOf(template)), Finding.Scope.ROBOT);
+        Doubts.lines(
+            Doubts.of(template, SlipCheck.Settings.defaults(), RobotSim.massOf(template)),
+            Finding.Scope.ROBOT);
     List<String> notes =
-        Doubts.lines(Doubts.of(template, RobotSim.massOf(template)), Finding.Scope.SIMULATOR);
+        Doubts.lines(
+            Doubts.of(template, SlipCheck.Settings.defaults(), RobotSim.massOf(template)),
+            Finding.Scope.SIMULATOR);
 
     assertThat(doubts)
         .contains(
@@ -112,7 +131,9 @@ class DefinitionDoubtsTest {
   void theTemplatesRollersSayHowFastTheirRotorsAloneSpinThemUp() {
     RobotDefinition example = ExampleRobot.COMPETITION.definition();
     List<String> notes =
-        Doubts.lines(Doubts.of(example, RobotSim.massOf(example)), Finding.Scope.SIMULATOR);
+        Doubts.lines(
+            Doubts.of(example, SlipCheck.Settings.defaults(), RobotSim.massOf(example)),
+            Finding.Scope.SIMULATOR);
 
     assertThat(notes)
         .contains(
@@ -125,12 +146,58 @@ class DefinitionDoubtsTest {
         .noneMatch(note -> note.contains("shooter has no mass"));
   }
 
+  /**
+   * A camera on Visor, on a robot (its device given), with no lens calibration places nothing: the
+   * robot says so as it starts. One the simulator alone runs needs no lens, and one with its lens
+   * is no doubt.
+   */
+  @Test
+  void aVisorCameraWithNoLensCalibrationIsTheRobotsDoubt() {
+    CameraConfig first = ExampleRobot.SIM.definition().cameras().get(0);
+    CameraConfig.Software.Lens lens =
+        CameraConfig.Software.Lens.builder()
+            .width(first.sensor().widthPixels())
+            .height(first.sensor().heightPixels())
+            .fx(905.2)
+            .fy(905.6)
+            .cx(641.3)
+            .cy(398.8)
+            .distortion(List.of())
+            .build();
+    String device = "/dev/v4l/by-id/usb-front-video-index0";
+    String said =
+        "camera "
+            + first.name()
+            + " has no lens calibration: Visor sends its tags' corners and no poses, so it places"
+            + " nothing. Calibrate it with Visor's tools/calibrate.py and give it the .lens(...)"
+            + " that prints (docs/visor.md)";
+
+    assertThat(doubtsWith(first, CameraConfig.Software.visor().device(device))).contains(said);
+    assertThat(doubtsWith(first, CameraConfig.Software.VISOR)).noneMatch(said::equals);
+    assertThat(doubtsWith(first, CameraConfig.Software.visor().device(device).lens(lens)))
+        .noneMatch(said::equals);
+  }
+
+  /** The robot's doubts with its first camera on this software. */
+  private static List<String> doubtsWith(CameraConfig first, CameraConfig.Software software) {
+    List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
+    cameras.set(0, first.withSoftware(software));
+    RobotDefinition robot =
+        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition()).cameras(cameras).build();
+    return Doubts.lines(
+        Doubts.of(robot, SlipCheck.Settings.defaults(), RobotSim.massOf(robot)),
+        Finding.Scope.ROBOT);
+  }
+
   /** A kG written, even 0 for a counterbalanced arm, is no doubt. */
   @Test
   void aWrittenKgIsNoDoubt() {
     RobotDefinition tuned = ROBOT.with(ARM.retuned(control -> control.withKg(0)));
 
-    assertThat(Doubts.lines(Doubts.of(tuned, RobotSim.massOf(tuned)), Finding.Scope.ROBOT))
+    assertThat(
+            Doubts.lines(
+                Doubts.of(tuned, SlipCheck.Settings.defaults(), RobotSim.massOf(tuned)),
+                Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("kG"));
   }
 
@@ -146,7 +213,10 @@ class DefinitionDoubtsTest {
             .pdh(Pdh.can(1))
             .build();
 
-    assertThat(Doubts.lines(Doubts.of(wired, RobotSim.massOf(wired)), Finding.Scope.ROBOT))
+    assertThat(
+            Doubts.lines(
+                Doubts.of(wired, SlipCheck.Settings.defaults(), RobotSim.massOf(wired)),
+                Finding.Scope.ROBOT))
         .contains(
             "not known: arm's motor controller 32 has no PDH channel: which channel feeds each, and"
                 + " through what breaker, isn't checked: give each its own where it's wired,"
@@ -154,7 +224,9 @@ class DefinitionDoubtsTest {
     assertThat(
             Doubts.lines(
                 Doubts.of(
-                    ExampleRobot.SIM.definition(), RobotSim.massOf(ExampleRobot.SIM.definition())),
+                    ExampleRobot.SIM.definition(),
+                    SlipCheck.Settings.defaults(),
+                    RobotSim.massOf(ExampleRobot.SIM.definition())),
                 Finding.Scope.ROBOT))
         .noneMatch(doubt -> doubt.contains("PDH"));
   }

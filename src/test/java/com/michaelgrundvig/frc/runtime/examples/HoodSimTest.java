@@ -16,9 +16,9 @@ import com.michaelgrundvig.frc.runtime.sim.JointsSimHarness;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
-import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring.PortEncoder;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -111,17 +111,18 @@ class HoodSimTest {
    */
   @Test
   void anUndrivenJointsSwitchIsAGate() {
-    Joint.Revolute withSwitch =
+    RevoluteJoint withSwitch =
         HOOD.limitSwitch(
             LimitSwitch.lower().at(Degrees.of(0)).on(SensorWiring.port(3).normallyClosed()));
     JointsSimHarness switched =
         new JointsSimHarness(
             RobotDefinitionBuilder.builder(ROBOT).joints(List.of(withSwitch)).build());
-    Gate down = switched.joints.gate("hood down", withSwitch.switchAt(End.LOWER).tripped());
+    Gate down =
+        switched.joints.gate("hood down", RobotMath.switchAt(withSwitch, End.LOWER).tripped());
 
     switched.loop();
     boolean before = down.getAsBoolean();
-    switched.sensors.trip(withSwitch.switchAt(End.LOWER), true);
+    switched.sensors.trip(RobotMath.switchAt(withSwitch, End.LOWER), true);
     switched.loop();
 
     assertThat(before).isFalse();
@@ -135,7 +136,7 @@ class HoodSimTest {
    */
   @Test
   void anUndrivenJointsPortEncoderIsReadThroughTheModel() {
-    Joint.Revolute withEncoder =
+    RevoluteJoint withEncoder =
         HOOD.absoluteEncoder(PortEncoder.dutyCycle(2).offset(Rotations.of(0.1)));
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ROBOT).joints(List.of(withEncoder)).build();
@@ -155,7 +156,8 @@ class HoodSimTest {
             () ->
                 RobotDefinitionBuilder.builder(ROBOT)
                     .joints(List.of(HOOD.absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0)))))
-                    .build())
+                    .build()
+                    .checked())
         .hasMessageEndingWith(
             "hood's absolute encoder is wired, and its motors aren't: it's read through their"
                 + " controller, so wire them too; a joint your own code drives reads one on a"

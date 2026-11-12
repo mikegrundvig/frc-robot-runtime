@@ -13,14 +13,14 @@ import com.michaelgrundvig.frc.pitwall.robot.RobotSession;
 import com.michaelgrundvig.frc.pitwall.simulator.Components;
 import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.pitwall.simulator.Simulator;
+import com.michaelgrundvig.frc.runtime.coprocessors.VisorConfigs;
 import com.michaelgrundvig.frc.runtime.dashboard.DashboardStream;
 import com.michaelgrundvig.frc.runtime.hardware.Hardware;
 import com.michaelgrundvig.frc.runtime.hardware.PhoenixBuses;
 import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
+import com.michaelgrundvig.frc.runtime.hardware.Simulation;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
-import com.michaelgrundvig.frc.runtime.sim.Scenario;
-import com.michaelgrundvig.frc.runtime.sim.Scenarios;
-import com.michaelgrundvig.frc.runtime.sim.SimulatedWorld;
+import com.michaelgrundvig.frc.runtime.sim.SimulatorWiring;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.runtime.venues.VenueIO;
 import com.michaelgrundvig.frc.runtime.venues.VenueIODisk;
@@ -28,14 +28,16 @@ import com.michaelgrundvig.frc.runtime.venues.VenuePit;
 import com.michaelgrundvig.frc.runtime.venues.VenueStore;
 import com.michaelgrundvig.frc.runtime.venues.Venues;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.game.Game;
-import java.io.File;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.function.UnaryOperator;
+import org.littletonrobotics.junction.LogDataReceiver;
 import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
 import org.littletonrobotics.junction.Logger;
@@ -69,7 +71,7 @@ public class Robot extends LoggedRobot {
   /** Set by {@code ./gradlew run -Pscenario=<name>}: the simulator scenario to start in. */
   static final String SCENARIO_PROPERTY = "frc.sim.scenario";
 
-  /** Where the robot's log goes: AdvantageKit writes to a logs folder on this drive. */
+  /** The drive a robot's log goes to: its USB drive. */
   static final String LOG_DRIVE = "/U";
 
   /** How {@code ./gradlew run} starts the simulated robot. */
@@ -106,7 +108,7 @@ public class Robot extends LoggedRobot {
     }
   }
 
-  /** What the loop does when the commands throw. */
+  /** What the loop does when a section of it throws ({@link LoopSection}). */
   enum AfterAThrow {
     /**
      * The loop carries on, and the throw is reported. A robot does this, so that one bug does not
@@ -121,13 +123,16 @@ public class Robot extends LoggedRobot {
   }
 
   /** What the program runs as: on a robot, in the simulator, or replaying a log. */
-  private final RunMode mode = RunMode.current();
+  private final RunMode mode;
 
   /**
    * The computer it runs on: a robot's Systemcore, or a laptop. A laptop in {@link RunMode#REAL}
    * drives real devices through CTRE's hardware-attached simulation ({@link HardwareAttached}).
    */
-  private final RunsOn runsOn = RunsOn.current();
+  private final RunsOn runsOn;
+
+  /** The folder the log is written to, on a robot and in the simulator ({@link #logFolder}). */
+  private final Path logFolder;
 
   /** Whether the loop keeps up, and its log with it. */
   private final LoopHealth loopHealth = new LoopHealth();
@@ -168,15 +173,30 @@ public class Robot extends LoggedRobot {
    * robot's joints from that.
    */
   public Robot(RobotProgram program) {
+    this(program, RunMode.current(), RunsOn.current(), logFolder(RunsOn.current()));
+  }
+
+  /**
+   * Starts the robot program as it runs in a mode, on a computer, with its log in a folder. A test
+   * starts a robot's program this way, on a laptop, as it runs on a robot.
+   *
+   * @param logFolder the folder the log is written to ({@link #logFolder}); a replay writes its log
+   *     beside the one it replays, wherever that is
+   */
+  Robot(RobotProgram program, RunMode mode, RunsOn runsOn, Path logFolder) {
     super(RobotLoop.PERIOD_SECONDS);
+    this.mode = mode;
+    this.runsOn = runsOn;
+    this.logFolder = logFolder;
     recordWhichCodeThisIs(program.build());
     // Which controller this is, in the log and on the console: a team with several units tells them
     // apart by it.
     String serial = RobotController.getSerialNumber();
     Logger.recordMetadata("ControllerSerial", serial);
     System.out.println("Controller serial: " + serial);
-    Optional<Scenario> scenario =
-        scenarioAskedFor(mode, Optional.ofNullable(System.getProperty(SCENARIO_PROPERTY)));
+    Optional<Simulation> simulation =
+        simulation(mode, Optional.ofNullable(System.getProperty(SCENARIO_PROPERTY)));
+    Optional<Simulation.ScenarioAsked> scenario = simulation.flatMap(Simulation::scenario);
     if (scenario.isPresent()) {
       // Every log of a scenario names it.
       Logger.recordMetadata("SimScenario", scenario.get().name());
@@ -220,8 +240,7 @@ public class Robot extends LoggedRobot {
             program.game(),
             program.controls(),
             pitwall,
-            // In the simulator, the sensors err as a season-worn robot's do.
-            SensorErrors.TYPICAL,
+            simulation,
             loopHealth,
             venueStore(mode, runsOn),
             UnaryOperator.identity());
@@ -234,7 +253,7 @@ public class Robot extends LoggedRobot {
     // The scenario's sensor faults are applied now, before the first loop, through the simulator's
     // controls, so the Pitwall page shows them and can undo them. Its events wait until the robot
     // is enabled.
-    pendingEvents = startScenario(scenario, container.world(), simulatorsControls());
+    pendingEvents = startScenario(simulation, simulatorsControls());
   }
 
   // ---- Starting ----
@@ -276,20 +295,18 @@ public class Robot extends LoggedRobot {
       case REAL -> {
         // On a robot the log goes to the USB drive, and is streamed to dashboards. On the field the
         // stream is thinned, because the radio's bandwidth is capped and the drive keeps
-        // everything anyway. On a laptop driving real devices, AdvantageKit's writer puts it in
-        // logs/, as in the simulator (it asks WPILib, which says simulation there), and there's no
-        // USB drive to watch.
-        Logger.addDataReceiver(new WPILOGWriter());
-        Logger.addDataReceiver(new DashboardStream(new NT4Publisher()));
+        // everything anyway. On a laptop driving real devices, it goes to logs/, as in the
+        // simulator, and there's no USB drive to watch.
+        logReceivers(mode, logFolder).forEach(Logger::addDataReceiver);
         if (runsOn == RunsOn.SYSTEMCORE) {
-          loopHealth.watchLogDrive(new File(LOG_DRIVE));
+          Path drive = Objects.requireNonNull(logFolder.getParent(), "a log folder on a drive");
+          loopHealth.watchLogDrive(drive.toFile());
         }
       }
       case SIM -> {
         // In the simulator the log is streamed to AdvantageScope, and every session is also kept
         // as a file in logs/.
-        Logger.addDataReceiver(new WPILOGWriter());
-        Logger.addDataReceiver(new NT4Publisher());
+        logReceivers(mode, logFolder).forEach(Logger::addDataReceiver);
       }
       case REPLAY -> {
         // A replay runs a log through this code as fast as it can, and writes what this code makes
@@ -302,6 +319,33 @@ public class Robot extends LoggedRobot {
     }
     // Pitwall's Robot view is drawn from the log itself: its session takes every loop's record.
     session.ifPresent(taking -> Logger.addDataReceiver(AdvantageKitLog.receiver(taking)));
+  }
+
+  /**
+   * The folder the log is written to on a computer: on a robot, a logs folder on its USB drive
+   * ({@value #LOG_DRIVE}); on a laptop, in the simulator or driving real devices, the program's own
+   * logs/. Those are the folders AdvantageKit's writer picks for itself on each.
+   */
+  static Path logFolder(RunsOn runsOn) {
+    if (runsOn == RunsOn.SYSTEMCORE) {
+      return Path.of(LOG_DRIVE, "logs");
+    }
+    return Path.of("logs");
+  }
+
+  /**
+   * What the log is written to and streamed to, on a robot and in the simulator: a file in the log
+   * folder, and NetworkTables for dashboards, guarded so a throw stops the stream and not the log,
+   * and on a robot thinned on the field ({@link DashboardStream}). A replay has its own, beside the
+   * log it replays.
+   */
+  static List<LogDataReceiver> logReceivers(RunMode mode, Path logFolder) {
+    WPILOGWriter file = new WPILOGWriter(logFolder.toString());
+    DashboardStream.OnTheField onTheField = DashboardStream.OnTheField.EVERY_LOOP;
+    if (mode == RunMode.REAL) {
+      onTheField = DashboardStream.OnTheField.THINNED;
+    }
+    return List.of(file, new DashboardStream(new NT4Publisher(), onTheField));
   }
 
   /** Whether the program was started for a debugger to attach (JDWP), as a debug deploy is. */
@@ -345,8 +389,8 @@ public class Robot extends LoggedRobot {
    * @param game this season's field, venues and limits: a robot not yet weighed is taken at the
    *     most the limits allow, the one place its mass is settled
    * @param controls what the robot does, made once its mechanisms are built
-   * @param simulatedErrors in the simulator, how the robot's wheels and sensors differ from its
-   *     configuration
+   * @param simulation in the simulator, the simulator, which makes the world the robot drives in
+   *     ({@link #simulation})
    * @param venueStore where venues are kept, if this program keeps any. With one, the pit can
    *     upload and choose venues on the Pitwall page.
    * @param watched a test's wrapper around the hardware, to record what the mechanisms tell it. On
@@ -360,10 +404,14 @@ public class Robot extends LoggedRobot {
       Game game,
       ControlsMaker<?> controls,
       Pitwall pitwall,
-      SensorErrors simulatedErrors,
+      Optional<Simulation> simulation,
       LoopHealth loopHealth,
       Optional<VenueStore> venueStore,
       UnaryOperator<Hardware> watched) {
+    // A camera on Visor that Visor couldn't run on the field stops the program here, in Visor's
+    // words, before anything is opened or any board is configured.
+    FieldModel officialField = game.officialField();
+    VisorConfigs.requireRunnable(robot.definition().cameras(), officialField);
     Optional<VenueIODisk> disk = venueStore.map(VenueIODisk::new);
     // Without a store nothing is ever selected, so the robot stays on the official layout.
     VenueIO selection = disk.isPresent() ? disk.get() : new VenueIO() {};
@@ -375,14 +423,14 @@ public class Robot extends LoggedRobot {
             runsOn,
             scheduler,
             robot,
-            game.officialField(),
+            officialField,
             robotMass,
             venues,
             controls,
-            simulatedErrors,
+            simulation,
             loopHealth,
             watched);
-    container.addTo(pitwall);
+    RobotPitwall.addTo(pitwall, container, mode, robot);
     if (venueStore.isPresent() && disk.isPresent()) {
       pitwall.devices().add(VenuePit.device(venueStore.get(), disk.get(), venues, game));
     }
@@ -392,49 +440,52 @@ public class Robot extends LoggedRobot {
   // ---- Simulator scenarios ----
 
   /**
-   * The simulator scenario that was asked for. Only a physics simulation takes one: a replay runs
-   * what its log recorded, and a robot has no simulator.
+   * The simulator, in its mode: the robot program's one call into the simulator, which wires the
+   * simulated world behind the {@link Simulation} it hands back. Only a physics simulation has one:
+   * a replay runs what its log recorded, and a robot has no simulator. The architecture test allows
+   * the simulator's classes here and nowhere else in the robot program.
    *
-   * @param name the scenario's name, if one was asked for
+   * @param scenario the simulator scenario's name, if one was asked for
    * @throws IllegalArgumentException listing every scenario, when none has this name. A scenario is
    *     asked for by name, so a wrong name stops the program.
    */
-  static Optional<Scenario> scenarioAskedFor(RunMode mode, Optional<String> name) {
-    if (mode != RunMode.SIM || name.isEmpty()) {
+  static Optional<Simulation> simulation(RunMode mode, Optional<String> scenario) {
+    if (mode != RunMode.SIM) {
       return Optional.empty();
     }
-    return Optional.of(Scenarios.named(name.get()));
+    // In the simulator, the sensors err as a season-worn robot's do.
+    return Optional.of(SimulatorWiring.start(SensorErrors.TYPICAL, scenario));
   }
 
   /**
    * Starts the scenario that was asked for, if one was: applies its sensor faults now, through the
    * simulator's controls.
    *
-   * @param world the simulated world, which only the simulator has
+   * @param simulation the simulator, which only the simulator's mode has, with the world it made
    * @param controls the simulator's controls' parts that can fail, where Pitwall has them
    * @return what happens to the robot in the scenario, which is to happen once the robot is
    *     enabled; empty when no scenario was asked for
-   * @throws IllegalStateException when a scenario was asked for and there is no simulated world, or
-   *     no simulator's controls to apply it through, or one of its faults cannot be applied. The
-   *     scenario was asked for by name, so the program stops and does not run without it.
+   * @throws IllegalStateException when a scenario was asked for and there are no simulator's
+   *     controls to apply it through, or one of its faults cannot be applied. The scenario was
+   *     asked for by name, so the program stops and does not run without it.
    */
   static Optional<List<Setting>> startScenario(
-      Optional<Scenario> asked, Optional<SimulatedWorld> world, Optional<Components> controls) {
+      Optional<Simulation> simulation, Optional<Components> controls) {
+    if (simulation.isEmpty()) {
+      return Optional.empty();
+    }
+    Optional<Simulation.ScenarioAsked> asked = simulation.get().scenario();
     if (asked.isEmpty()) {
       return Optional.empty();
     }
-    Scenario scenario = asked.get();
-    if (world.isEmpty() || controls.isEmpty()) {
-      String missing = world.isEmpty() ? "no simulated world" : "no simulator controls";
+    if (controls.isEmpty()) {
       throw new IllegalStateException(
           "Simulator scenario "
-              + scenario.name()
-              + ": it needs the simulated world and Pitwall's simulator controls, and this program"
-              + " has "
-              + missing);
+              + asked.get().name()
+              + ": it needs Pitwall's simulator controls, and this program has none");
     }
-    apply(scenario.sensorFaultsIn(world.get()), controls.get());
-    return Optional.of(scenario.eventsIn(world.get()));
+    apply(simulation.get().scenarioFaults(), controls.get());
+    return Optional.of(simulation.get().scenarioEvents());
   }
 
   /**
@@ -489,6 +540,11 @@ public class Robot extends LoggedRobot {
     return pitwall;
   }
 
+  /** Whether the loop keeps up, and its log with it. */
+  LoopHealth loopHealth() {
+    return loopHealth;
+  }
+
   // ---- Every loop ----
 
   @Override
@@ -496,7 +552,7 @@ public class Robot extends LoggedRobot {
     loop(pitwall, container, Scheduler.getDefault(), loopHealth, afterAThrow(mode));
   }
 
-  /** What the loop does when the commands throw, for the mode the program runs in. */
+  /** What the loop does when a section of it throws, for the mode the program runs in. */
   static AfterAThrow afterAThrow(RunMode mode) {
     if (mode == RunMode.SIM) {
       return AfterAThrow.ENDS_THE_PROGRAM;
@@ -521,15 +577,28 @@ public class Robot extends LoggedRobot {
    *       goal set in this loop is applied in this loop.
    * </ol>
    *
-   * <p><b>When the commands throw.</b> A command, a binding's condition, anything else the
-   * scheduler runs, or what a command does as it is canceled may throw. In the simulator, and in a
-   * test, that ends the program at once, so a bug fails there. On a robot, and in a replay of one,
-   * the loop carries on. By then v3's scheduler has already ended the command that threw and the
-   * command that started it, and the joints still do what the other commands asked. The throw is
-   * reported ({@link LoopHealth#threw}). Only when the commands throw in {@value
-   * LoopHealth#FAILING_LOOPS} loops in a row does the program end.
+   * <p><b>When the loop throws.</b> Each section of the loop runs under a guard of its own ({@link
+   * LoopSection}), and anything in one may throw: a command, a binding's condition, a sensor's
+   * reading, a joint's output, the page, the dashboard. In the simulator, and in a test, a throw
+   * ends the program at once, so a bug fails there. On a robot, and in a replay of one, the throw
+   * is reported ({@link LoopHealth#threw}) and the sections after it still run:
    *
-   * @param afterAThrow what to do when the commands throw ({@link #afterAThrow})
+   * <ul>
+   *   <li>A section that reads sensors leaves this loop's readings part new and part old. The
+   *       commands don't run this loop, the drivetrain is told to stand still, and each joint does
+   *       what it does idle. The commands run again in the next loop.
+   *   <li>A command that throws has been ended by v3's scheduler, with the command that started it,
+   *       and the joints still do what the other commands asked.
+   *   <li>A joint whose output throws keeps what it was last told, and the other joints are told
+   *       theirs.
+   *   <li>The page, the coprocessors, the venues, the match, the field's checks and the dashboard
+   *       serve the pit and the drive team. The robot drives the same without them.
+   * </ul>
+   *
+   * <p>Only when the loop fails in {@value LoopHealth#FAILING_LOOPS} loops in a row, from the
+   * sensors, the commands or the outputs, does the program end, and restart.
+   *
+   * @param afterAThrow what to do when a section throws ({@link #afterAThrow})
    */
   static void loop(
       Pitwall pitwall,
@@ -537,11 +606,15 @@ public class Robot extends LoggedRobot {
       Scheduler scheduler,
       LoopHealth loopHealth,
       AfterAThrow afterAThrow) {
-    loopHealth.start(System.nanoTime());
-    pitwall.periodic();
+    loopHealth.start(System.nanoTime(), afterAThrow);
+    try {
+      pitwall.periodic();
+    } catch (RuntimeException e) {
+      loopHealth.threw(LoopSection.PITWALL, e);
+    }
     loopHealth.monitor().mark("Pitwall", System.nanoTime());
     container.periodic();
-    runTheCommands(container, scheduler, loopHealth, afterAThrow);
+    runTheCommands(container, scheduler, loopHealth);
     loopHealth.monitor().mark("Commands", System.nanoTime());
     container.afterCommands();
     loopHealth.monitor().mark("Outputs", System.nanoTime());
@@ -552,20 +625,21 @@ public class Robot extends LoggedRobot {
    * Runs the command scheduler, after canceling every command if the robot was disabled since the
    * last loop. Canceling a command runs the team's own code for it, which may throw as any command
    * may, so it is under the same guard as the scheduler.
+   *
+   * <p>In a loop whose sensors threw, the commands are canceled at a disable all the same, because
+   * disabled means disabled, but the scheduler does not run: its commands would decide on readings
+   * that are part this loop's and part the last one's.
    */
   private static void runTheCommands(
-      RobotContainer container,
-      Scheduler scheduler,
-      LoopHealth loopHealth,
-      AfterAThrow afterAThrow) {
+      RobotContainer container, Scheduler scheduler, LoopHealth loopHealth) {
     try {
       container.cancelTheCommandsIfDisabled();
+      if (loopHealth.thisLoop() == LoopHealth.ThisLoop.ON_UNTRUSTED_READINGS) {
+        return;
+      }
       scheduler.run();
     } catch (RuntimeException e) {
-      if (afterAThrow == AfterAThrow.ENDS_THE_PROGRAM) {
-        throw e;
-      }
-      loopHealth.threw(e);
+      loopHealth.threw(LoopSection.COMMANDS, e);
     }
   }
 

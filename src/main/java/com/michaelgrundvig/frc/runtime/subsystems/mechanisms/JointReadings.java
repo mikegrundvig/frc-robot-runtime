@@ -23,7 +23,7 @@ import org.littletonrobotics.junction.Logger;
  * a log hands the joint exactly what it read on the robot, and everything the joint works out from
  * them comes out the same.
  */
-final class JointReadings {
+final class JointReadings implements JointHoming.Pushed {
   /**
    * The absolute encoder of a joint, when the robot reads it itself.
    *
@@ -234,12 +234,14 @@ final class JointReadings {
    * Where the joint is, in its units: what its motor controller reads, or, for a joint whose loop
    * closes on an absolute encoder the robot reads, what that encoder reads while it answers.
    */
-  double position() {
+  @Override
+  public double position() {
     return position;
   }
 
   /** How fast the joint moves, in its units a second. */
-  double velocity() {
+  @Override
+  public double velocity() {
     return inputs.velocity;
   }
 
@@ -292,7 +294,7 @@ final class JointReadings {
   /**
    * Where the joint's absolute encoder says the joint is, whoever reads the encoder: the robot, or
    * the joint's motor controller. It is NaN in a loop with no reading, and for a joint with no such
-   * encoder, because that is how the model's {@code EncoderGap} is told a reading is missing.
+   * encoder, because that is how the model's {@code EncoderGapCheck} is told a reading is missing.
    */
   double positionByAnyEncoderOrNaN() {
     if (!hasRobotReadEncoder()) {
@@ -323,7 +325,8 @@ final class JointReadings {
    * status frame did not come, is treated as no reading by the interlocks that read this joint:
    * they hold at once, without waiting for the controller to be called silent.
    */
-  boolean answersThisLoop() {
+  @Override
+  public boolean answersThisLoop() {
     return inputs.connected && inputs.fresh;
   }
 
@@ -343,7 +346,8 @@ final class JointReadings {
   }
 
   /** The current through the leading motor's windings. */
-  double statorCurrentAmps() {
+  @Override
+  public double statorCurrentAmps() {
     return inputs.statorCurrentAmps;
   }
 

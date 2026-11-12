@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.runtime.ValuesRegister.CodeRecord;
 import com.michaelgrundvig.frc.runtime.ValuesRegister.Component;
+import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,13 +32,22 @@ class ValuesRegisterTest {
 
   /**
    * Each mechanism's live tuning, from the container's one list of them: the paths of the values it
-   * tunes, by the tuning's name.
+   * tunes, by the tuning's name. The guide's robot's, with its first camera on Visor at the default
+   * exposure and a gain of its own, so a camera's tuning has every knob; a camera's tuning is named
+   * for any camera, {@code <camera> camera}, as the register names it.
    */
   private static Map<String, List<String>> tuning() {
+    CameraConfig first = ExampleRobot.COMPETITION.definition().cameras().get(0);
+    CameraConfig onVisor = first.withSoftware(Software.visor().gain(40));
+    RobotConfig robot = ExampleRobot.COMPETITION.with(onVisor);
+    List<String> cameras =
+        robot.definition().cameras().stream().map(camera -> camera.name() + " camera").toList();
     Map<String, List<String>> tuning = new LinkedHashMap<>();
-    for (LiveConfig<?> live : RobotChecks.liveConfigs(ExampleRobot.COMPETITION)) {
-      tuning.put(live.name(), live.knobs().stream().map(LiveConfig.Knob::path).toList());
+    for (LiveConfig<?> live : RobotChecks.liveConfigs(robot)) {
+      String name = cameras.contains(live.name()) ? "<camera> camera" : live.name();
+      tuning.put(name, live.knobs().stream().map(LiveConfig.Knob::path).toList());
     }
+    assertThat(tuning).containsKey("<camera> camera");
     return tuning;
   }
 
@@ -64,7 +75,7 @@ class ValuesRegisterTest {
         .doesNotHaveDuplicates();
     assertThat(record("RobotConfig").components())
         .contains(new Component("definition", "RobotDefinition"));
-    assertThat(record("DrivetrainGeometry").components())
+    assertThat(record("Drivetrain").components())
         .contains(new Component("wiring", "SwerveWiring")); // in an Optional
     assertThat(record("RobotDefinition").components())
         .contains(

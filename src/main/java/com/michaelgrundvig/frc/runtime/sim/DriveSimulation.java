@@ -1,6 +1,5 @@
 package com.michaelgrundvig.frc.runtime.sim;
 
-import com.michaelgrundvig.frc.localization.ImuReadings;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.GyroIO;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.ModuleIO;
 import com.michaelgrundvig.frc.simulation.AccelerometerModel;
@@ -15,9 +14,10 @@ import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Terrain;
 import com.michaelgrundvig.frc.world.robot.Body;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.ImuMount;
-import com.michaelgrundvig.frc.world.robot.Imus;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
+import java.util.Optional;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -52,7 +52,7 @@ public final class DriveSimulation {
   private static final double NANOS_PER_SECOND = 1e9;
 
   /** A hard hit's jolt, as an IMU feels it: 4 g. */
-  static final double HIT_JOLT_METERS_PER_SECOND_SQUARED = 4 * ImuReadings.STANDARD_GRAVITY;
+  static final double HIT_JOLT_METERS_PER_SECOND_SQUARED = 4 * RobotMath.GRAVITY;
 
   private final Physics physics;
   private final ModuleIOSim[] modules = new ModuleIOSim[MODULE_COUNT];
@@ -80,9 +80,8 @@ public final class DriveSimulation {
    * @param drivetrain the drivetrain as defined: the code's belief about its modules
    * @param errors how the real wheels and sensors differ from the configuration
    */
-  public DriveSimulation(
-      Body body, Mass robotMass, DrivetrainGeometry drivetrain, SensorErrors errors) {
-    this(body, robotMass, drivetrain, errors, Imus.UNCHECKED);
+  public DriveSimulation(Body body, Mass robotMass, Drivetrain drivetrain, SensorErrors errors) {
+    this(body, robotMass, drivetrain, errors, ImuMount.UNCHECKED, Optional.empty());
   }
 
   /**
@@ -93,12 +92,19 @@ public final class DriveSimulation {
    *     season's maximum ({@code SeasonLimits.robotMass})
    * @param drivetrain the drivetrain as defined: the code's belief about its modules
    * @param errors how the real wheels and sensors differ from the configuration
-   * @param imus where the robot's definition mounts its IMUs: they really sit off that, and are
-   *     turned off it, by their accelerometers' errors. A robot without a backup IMU still has one
-   *     simulated, at the gyro's mount, which the world never hands its code
+   * @param gyroMount where the robot's definition mounts its gyro ({@code
+   *     RobotDefinition.gyroMount}): it really sits off that, and is turned off it, by its
+   *     accelerometer's errors
+   * @param backupMount where it mounts its backup IMU, the same way. A robot without one still has
+   *     one simulated, at the gyro's mount, which the world never hands its code
    */
   public DriveSimulation(
-      Body body, Mass robotMass, DrivetrainGeometry drivetrain, SensorErrors errors, Imus imus) {
+      Body body,
+      Mass robotMass,
+      Drivetrain drivetrain,
+      SensorErrors errors,
+      ImuMount gyroMount,
+      Optional<ImuMount> backupMount) {
     physics = new KinematicPhysics(body, robotMass, drivetrain, errors.wheelRadiusScale());
     for (int i = 0; i < MODULE_COUNT; i++) {
       // Each module's CANcoder sends on its own clock: here a quarter period after the last, to the
@@ -106,7 +112,8 @@ public final class DriveSimulation {
       double encoderPhase = i / (double) MODULE_COUNT;
       modules[i] =
           new ModuleIOSim(
-              drivetrain.module(i),
+              drivetrain,
+              i,
               physics.wheel(i),
               Math.toRadians(errors.steerOffsetDegrees().get(i)),
               encoderPhase);
@@ -126,14 +133,14 @@ public final class DriveSimulation {
         imu(
             errors.gyro(),
             errors.accelerometer(),
-            imus.gyro(),
+            gyroMount,
             Seeds.gyro(seed),
             Seeds.gyroAccelerometer(seed));
     backupGyro =
         imu(
             errors.backupGyro(),
             errors.backupAccelerometer(),
-            imus.backup().orElse(imus.gyro()),
+            backupMount.orElse(gyroMount),
             Seeds.backupGyro(seed),
             Seeds.backupAccelerometer(seed));
   }

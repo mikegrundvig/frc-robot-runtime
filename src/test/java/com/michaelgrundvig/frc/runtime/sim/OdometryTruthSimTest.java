@@ -138,7 +138,7 @@ class OdometryTruthSimTest {
    */
   private static void command(
       TruthRig rig, double forward, double left, double turn, boolean driving) {
-    double kv = ExampleRobot.SIM.drivetrain().gains().driveKv();
+    double kv = ExampleRobot.SIM.drivetrain().gains().driveKv().orElseThrow();
     for (int i = 0; i < 4; i++) {
       Translation2d wheel = rig.wheels[i];
       Translation2d velocity =

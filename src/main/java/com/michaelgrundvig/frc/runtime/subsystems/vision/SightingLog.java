@@ -101,7 +101,7 @@ final class SightingLog {
       int next = nextByNumber(tagged, Integer.MIN_VALUE, -1);
       while (next >= 0) {
         TagVerdict tag = tagged.get(next);
-        putNumbers(sighted.size(), tag, frame.measured());
+        putNumbers(sighted.size(), tag, frame);
         sighted.add(sighting(tag, image, frame.measured()));
         next = nextByNumber(tagged, tag.tag(), next);
       }
@@ -161,13 +161,22 @@ final class SightingLog {
     return Sighting.Fate.LEFT_OUT;
   }
 
-  /** Puts one sighting's numbers in their places. An image left out has no measured pose. */
-  private void putNumbers(int which, TagVerdict tag, Optional<FrameVerdict.Measured> measured) {
+  /**
+   * Puts one sighting's numbers in their places. An image left out has no measured pose, and a tag
+   * left out of its image, whose verdict is its own, no innovation or χ².
+   */
+  private void putNumbers(int which, TagVerdict tag, FrameVerdict frame) {
+    Optional<FrameVerdict.Measured> measured = frame.measured();
     int at = which * Sighting.NUMBERS;
     numbers[at + Sighting.VALUE] = tag.value();
     numbers[at + Sighting.THRESHOLD] = tag.threshold();
-    numbers[at + Sighting.INNOVATION_METERS] = tag.innovationMeters();
-    numbers[at + Sighting.CHI_SQUARED] = tag.chiSquared();
+    numbers[at + Sighting.INNOVATION_METERS] = Double.NaN;
+    numbers[at + Sighting.CHI_SQUARED] = Double.NaN;
+    boolean weighed = measured.isPresent() && tag.verdict() == frame.verdict();
+    if (weighed) {
+      numbers[at + Sighting.INNOVATION_METERS] = measured.get().innovationMeters();
+      numbers[at + Sighting.CHI_SQUARED] = measured.get().chiSquared();
+    }
     numbers[at + Sighting.MEASURED_X] = Double.NaN;
     numbers[at + Sighting.MEASURED_Y] = Double.NaN;
     numbers[at + Sighting.MEASURED_HEADING] = Double.NaN;

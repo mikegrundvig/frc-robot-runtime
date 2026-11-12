@@ -7,13 +7,12 @@ import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotConfigBuilder;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
+import com.michaelgrundvig.frc.runtime.TestWiring;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.simulation.SensorErrorsAccelErrorsBuilder;
 import com.michaelgrundvig.frc.world.robot.ImuMount;
 import com.michaelgrundvig.frc.world.robot.ImuMountBuilder;
-import com.michaelgrundvig.frc.world.robot.ImusBuilder;
-import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.math.geometry.Rotation3d;
@@ -47,13 +46,7 @@ class ImuMountSimTest {
   private static Verdict drive(ImuMount believed, SensorErrors.AccelErrors accelerometer) {
     RobotConfig robot =
         RobotConfigBuilder.builder(ExampleRobot.SIM)
-            .definition(
-                RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-                    .imus(
-                        ImusBuilder.builder(ExampleRobot.SIM.definition().imus())
-                            .gyro(believed)
-                            .build())
-                    .build())
+            .definition(TestWiring.gyroAt(ExampleRobot.SIM.definition(), believed))
             .build();
     try (DriveSimHarness harness =
         new DriveSimHarness(robot, SensorErrors.TYPICAL.withAccelerometer(accelerometer))) {
@@ -71,7 +64,7 @@ class ImuMountSimTest {
   }
 
   private static ImuMount at(Translation2d place, boolean checked) {
-    return ImuMountBuilder.builder(ExampleRobot.SIM.definition().imus().gyro())
+    return ImuMountBuilder.builder(ExampleRobot.SIM.definition().gyroMount())
         .forward(Units.Meters.of(place.getX()))
         .left(Units.Meters.of(place.getY()))
         .accelerometerChecked(checked)

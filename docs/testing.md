@@ -38,7 +38,7 @@ model: `:localization:test --tests ...` runs its tests (`com.michaelgrundvig.frc
 `-Pquick` leaves out the slow tests (below) unless `--tests` names what to run, and skips the static
 analysis and coverage that `ci` runs. Each project has its own coverage report, your robot
 program's at `build/reports/jacoco/test/html/index.html`, the runtime's under `runtime/` and each
-library's under its folder (`runtime/lib/localization/build/reports/...`), and each its own floor: a
+library's under its folder (the simulation's, `runtime/lib/simulation/build/reports/...`), and each its own floor: a
 project's own tests must cover it. The runtime's are on the guide's robot (`ExampleRobot`).
 
 ### The fast loop
@@ -199,8 +199,9 @@ What it offers:
 
 ### The monkey
 
-`MonkeySimTest` puts a monkey at the controls (`Monkey`): the guide's robot and a team's two 2026
-robots (Beta and Delta), each with its own controls, play a 153 s match of random input from a
+`MonkeySimTest` puts a monkey at the controls (`Monkey`): the guide's robot (the runtime's test) and
+a team's two 2026 robots, Beta and Delta (the template's own, in `frc.robot.robots2026`), each with
+its own controls, play a 153 s match of random input from a
 seed. It presses, holds, taps and releases every button the robot's bindings record, wanders both
 gamepads' sticks, schedules and cancels each joint's moves and outputs (now and then a target that isn't a number) and the
 drivetrain's moves (to a pose, a heading, along keyframes, at a speed until something holds),
@@ -239,9 +240,15 @@ doings and the test that ran it, and the seed runs the same every time:
   and its cameras' (one stream per camera) come from fixed seeds, each its own stream of the
   world's seed (`Seeds`), so a run repeats exactly. A test with cameras still checks against a margin, never an exact
   value: a change anywhere else moves the noise it draws. Never `Thread.sleep` to wait for robot
-  time; step the loop. To wait for the network (an answer, an event on a stream), wait on it with
-  a timeout, a loop at a time; to show nothing else arrived, send a change and check it's the next
-  thing to.
+  time; step the loop. To wait for the network (an answer, an event on a stream), or for a simulated
+  device to answer, use `Waits.until(what, read, done)` (in the runtime's tests): it reads again
+  every few milliseconds, ends as soon as `done` is so, and fails after 30 s saying what it
+  waited for. To show nothing else arrived, send a change and check it's the next thing to.
+- **A test that can't run here says so, and fails on CI.** A test that needs something of the
+  computer (a native library, a device) states it with `TestComputer.needs(can, cant)`, in the
+  runtime's test fixtures. On a developer's computer, where it can't, the test is skipped with the
+  reason. On Linux CI (`CI=true`) it fails instead: CI has everything the tests need, so a skip
+  there would be a test that never ran.
 - **Recorded behavior stays recorded.** Some behavior is recorded, row by row, and must come out
   the same, numbers within a millionth. Each recording guards its own part, and none another's:
   - `EstimatorGoldenSimTest` (`estimator-golden.csv`) guards the pose estimator. It's fed
@@ -264,7 +271,10 @@ doings and the test that ran it, and the seed runs the same every time:
     it and its state, every second loop.
 
   When a change is meant to move one, run its test with the environment variable `GOLDEN_UPDATE=1`
-  to record it again, and commit the recording with the change, saying why it moved.
+  to record it again. It prints what moved, a line for each recording: how many rows changed, were
+  added or removed, and the first changed row's columns, then and now (a recording made for the
+  first time says so, with its row count). Commit the recording with
+  the change, saying why it moved.
 - **No test runs past two minutes.** A hung test fails instead of hanging the build. A test that
   really needs longer says so with `@Timeout`.
 - **Tests run in `build/test-work`.** What simulated devices write (CTRE's `ctre_sim/`, for one)
@@ -358,8 +368,8 @@ Each seed draws its own: noise in every camera and IMU, an error for each camera
 and about each axis), one for each tag (along each axis: the cameras see a tag where it is, the
 robot believes the layout), and the gyro's and the backup IMU's scales. Each kind of error, and
 each camera and tag, draws from its own stream of the seed, so no two seeds share a draw. They're
-drawn from Gaussians at the spread the estimator's configuration claims (each camera's turn at its
-`mountTolerance`'s spread, 0.58° by default, and `EstimatorConfig`'s `tagPlacementStdDevMeters`,
+drawn from Gaussians at the spread the estimator's configuration claims (each camera's turn at the spread
+of a measured mount's tolerance (`MountTolerance.MEASURED`, 1°), 0.58°, and `EstimatorConfig`'s `tagPlacementStdDevMeters`,
 `headingStdDevDegreesPerTurn`, `backupHeadingStdDevDegreesPerTurn`), each mount 3 mm off along
 each axis, within the 5 mm of the mount's tolerance and `cameraShiftStdDevMeters` together (a
 stop-gap that also covers a single tag's solve coming out short:
@@ -377,7 +387,7 @@ under-confident, which is what the options are for.
 | `--tag-error-mm=M` | `tagPlacementStdDevMeters` | Each tag off the layout along each axis; 0 for an exact field |
 | `--gyro-scale-error=F`, `--backup-scale-error=F` | `headingStdDevDegreesPerTurn` / 360, `backupHeadingStdDevDegreesPerTurn` / 360 | Each IMU's scale off by this share |
 | `--noise-scale=F` | 0.5 | The vision noise model scaled; 1 is the model as shipped. The simulated cameras are quieter than half: at a quarter, the calibrated runs read a position NEES of 1.3 to 2.5, and still a heading NEES within its band |
-| `--heading=W` | `measurements` | What corrects the heading beside the gyro (`EstimatorConfig.headingCorrection`): `measurements`, `doubt`, or `every`; see [three ways to correct the heading](#three-ways-to-correct-the-heading) |
+| `--heading=W` | `every` | What corrects the heading beside the gyro (`HeadingCorrection`): `measurements`, `doubt`, or `every`; see [three ways to correct the heading](#three-ways-to-correct-the-heading) |
 | `--out=DIR` | `build/studies/consistency` | Where the report goes |
 
 The console prints each seed's draws and numbers, so a run's result can be traced to the seeds
@@ -544,8 +554,9 @@ the simulator's corner noise, shows how it hangs on the view:
 It grows with the corner noise and about with the distance squared, and looks like a single tag's
 ambiguity near face-on. It's a real error the estimator doesn't model: one-sided, hanging on range
 and angle, and shared by every camera that sees the tag face-on. `cameraShiftStdDevMeters` covers
-it for now, as a **stop-gap**: 5 mm, against the 3 mm of mount the study draws, a constant for each
-camera that models it poorly. At 3 mm, the mount's alone, the turning run sat at exactly its 2.92%
+it for now, as a **stop-gap**: 4 mm, which with the mount's own 2.9 mm adds in squares to the 5 mm
+that the numbers below use, against the 3 mm of mount the study draws, a constant for each camera
+that models it poorly. At 3 mm, the mount's alone, the turning run sat at exactly its 2.92%
 allowance outside the ellipse, the driving run had 1.42%, and the 2° camera rose to 3.80% (2.83%
 before tags were considered on their own); at 5 mm, 1.83%, 0.58% and 2.87%. Part of what the extra
 2 mm absorbs is seed 2's tag 31, 3.4 times `tagPlacementStdDevMeters` off, seen from the start where
@@ -592,17 +603,29 @@ as noise, showed it wrong; it was reverted.
 
 ### Three ways to correct the heading
 
-The gyro owns the heading; what else may correct it is `EstimatorConfig.headingCorrection`, and
-the study runs each (`--heading=`):
+The gyro owns the heading; what else may correct it is `HeadingCorrection`. The default localizer
+runs `every`, and no robot's configuration chooses another: the study runs each (`--heading=`),
+through the localizer it gives its robot (`DefaultLocalizer.with(estimator, slipCheck, heading)`).
 
-- **`measurements`** (`HEADING_MEASUREMENTS`, the default): only measurements with a heading of
+- **`measurements`** (`HEADING_MEASUREMENTS`, the default when these runs were made): only measurements with a heading of
   their own, multi-tag solves, with all three of their rows. A position solved with the gyro's
   heading carries the heading's doubt but never turns it.
 - **`doubt`** (`HEADING_MEASUREMENTS_AND_MOUNT_DOUBT`): those, and a camera the mount check doubts
   has the doubt added to what it repeats (its turn, at its tags' distance, and its shift), so its
   headings pull the heading only so far, however many it sends.
-- **`every`** (`EVERY_FIX`): every fix corrects the heading too, through its tags' distance and
-  how the position's error has come to depend on the heading's: a full Kalman update.
+- **`every`** (`EVERY_FIX`, the default localizer's): every fix corrects the heading too, through
+  its tags' distance and how the position's error has come to depend on the heading's: a full
+  Kalman update.
+
+Every fix is what lets the cameras find the gyro's scale and drift (`gyroErrors`): two cameras
+whose tags lie in different directions disagree by the heading's error times the distance between
+them, which shows a tenth of a degree where a multi-tag heading shows a degree or two. It leans on
+the cameras' capture times while the robot turns, so check them to within about 2 ms ([camera
+latency and time sync](characterization.md#camera-latency-and-time-sync)). With cameras off their
+mounts by twice what the configuration allows, the heading grows surer than it is (past its 95%
+bound in a quarter of the [estimator study](https://github.com/mikegrundvig/frc-robot-template/blob/main/docs/estimator-comparison.md)'s loops, against a
+twentieth with headings only); the estimator's watch on its cameras (`cameraWatchMeasurements`)
+takes a camera knocked further than that out of it.
 
 Twelve matched seeds of each (a, b, c in that order), run while the estimate still doubted a
 quarter of the wheels' travel whenever the drive motors were at their current limit. The default
@@ -796,7 +819,7 @@ What still fails calibrating is the estimate changing course, its wheels disagre
 as each reaches its new speed. (c) wasn't run again. Judging a mount is where honesty costs. It
 needs the position and heading together within the mount tolerance (5 cm) at the tag's distance, so
 the heading within about 0.95° at 3 m, and the gyro's scale allowance
-(`headingStdDevDegreesPerTurn`, 1° a turn) puts it past that after a turn or two, until a multi-tag
+(`headingStdDevDegreesPerTurn`, 1° a turn then; 3.6° now) puts it past that after a turn or two, until a multi-tag
 heading brings it back: with (a), the mount check can judge a third of the turning run's loops and
 fewer than three in five of the gyro-scale procedure's. Every fix brings the heading's doubt back
 sooner (74% and 95%), and honestly: its heading is 0.2° off on average over either run, against

@@ -28,6 +28,7 @@ import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SensorWiring;
 import com.revrobotics.sim.SparkAbsoluteEncoderSim;
@@ -58,7 +59,7 @@ import org.wpilib.simulation.SimDeviceSim;
 @ExtendWith(RobotSim.class)
 class JointIOSparkTest {
   /** The pivot on a NEO through 25:1, its SPARK MAX at an ID. */
-  private static Joint.Revolute pivot(int id) {
+  private static RevoluteJoint pivot(int id) {
     return unmotored(PIVOT).motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(id)));
   }
 
@@ -84,15 +85,16 @@ class JointIOSparkTest {
     io.updateInputs(inputs);
     double resting = inputs.position;
     // The simulation's own position starts at 0, not where the startup set the encoder.
-    sim.setPosition(PIVOT.restPosition() / (2 * Math.PI) * 25 + 25);
+    sim.setPosition(RobotMath.restPosition(PIVOT) / (2 * Math.PI) * 25 + 25);
     sim.iterate(0, 12, 0.02);
     io.updateInputs(inputs);
 
     assertThat(resting)
         .as("it starts at its reference, 1.5°")
-        .isCloseTo(PIVOT.restPosition(), within(1e-9));
+        .isCloseTo(RobotMath.restPosition(PIVOT), within(1e-9));
     // A SPARK reports its position as a float.
-    assertThat(inputs.position).isCloseTo(PIVOT.restPosition() + 2 * Math.PI, within(1e-6));
+    assertThat(inputs.position)
+        .isCloseTo(RobotMath.restPosition(PIVOT) + 2 * Math.PI, within(1e-6));
     assertThat(inputs.unconfigured).as("every SPARK took its settings").isEmpty();
   }
 
@@ -149,7 +151,7 @@ class JointIOSparkTest {
    */
   @Test
   void aPositionGoesInRotorTurnsWithItsFeedforwardInVolts() {
-    Joint.Revolute pivot = pivot(32);
+    RevoluteJoint pivot = pivot(32);
     RobotMath math = ROBOT.with(pivot).math();
     JointIOSpark io = io(pivot);
     SparkSim sim = new SparkSim(io.leader(), DCMotor.getNEO(1));
@@ -164,17 +166,17 @@ class JointIOSparkTest {
                 ControllerSettings.control(pivot)));
 
     // REV's simulation steps its own position into the encoder: start it where the pivot rests.
-    sim.setPosition(PIVOT.restPosition() / (2 * Math.PI) * 25);
+    sim.setPosition(RobotMath.restPosition(PIVOT) / (2 * Math.PI) * 25);
     io.setPosition(Math.toRadians(45), 0, 0.6);
     sim.iterate(0, 12, 0.02);
     double far = sim.getSetpoint();
-    double near = PIVOT.restPosition() + Math.toRadians(0.5);
+    double near = RobotMath.restPosition(PIVOT) + Math.toRadians(0.5);
     io.setPosition(near, 0, 0.6);
     for (int i = 0; i < 25; i++) {
       sim.iterate(0, 12, 0.02);
     }
 
-    double rest = PIVOT.restPosition() / (2 * Math.PI) * 25;
+    double rest = RobotMath.restPosition(PIVOT) / (2 * Math.PI) * 25;
     double target = near / (2 * Math.PI) * 25;
     double feedforward = 0.6 + settings.plan().feedforward(near, 0, 0);
     // A SPARK holds its setpoint as a float.
@@ -187,7 +189,7 @@ class JointIOSparkTest {
   /** The pit's tuning reaches the SPARK's loop, as a TalonFX's slot: its kP, in rotor turns. */
   @Test
   void aTunedGainReachesItsLoop() {
-    Joint.Revolute pivot = pivot(33);
+    RevoluteJoint pivot = pivot(33);
     JointIOSpark io = io(pivot);
     MechanismControl control = ControllerSettings.control(pivot);
     MechanismControl tuned =
@@ -221,7 +223,7 @@ class JointIOSparkTest {
    */
   @Test
   void aRetuneReachesEverythingTheSparksLoopRuns() {
-    Joint.Revolute pivot = pivot(46);
+    RevoluteJoint pivot = pivot(46);
     JointIOSpark io = io(pivot);
     SparkMax spark = (SparkMax) io.leader();
     MechanismControl control = ControllerSettings.control(pivot);
@@ -253,7 +255,7 @@ class JointIOSparkTest {
    */
   @Test
   void aTunedDampingAndFrictionGoWithTheNextRequest() {
-    Joint.Revolute pivot = pivot(29);
+    RevoluteJoint pivot = pivot(29);
     RobotMath math = ROBOT.with(pivot).math();
     JointIOSpark io = io(pivot);
     SparkSim sim = new SparkSim(io.leader(), DCMotor.getNEO(1));
@@ -265,7 +267,7 @@ class JointIOSparkTest {
             .build();
     ControllerPlan plan = ControllerSettings.spark(math, pivot, tuned).plan();
     ControllerPlan untuned = ControllerSettings.spark(math, pivot, control).plan();
-    double rest = PIVOT.restPosition();
+    double rest = RobotMath.restPosition(PIVOT);
     // The loop has no error, so its output is the robot's volts alone.
     sim.setPosition(rest / (2 * Math.PI) * 25);
 
@@ -311,8 +313,9 @@ class JointIOSparkTest {
   }
 
   /**
-   * Volts and a share of the battery go to the SPARK as they are, as REV's simulated SPARK holds
-   * them; neutral is a share of none, which brakes or coasts as its settings say.
+   * Volts go to the SPARK as they are, as REV's simulated SPARK holds them, and a share as that
+   * share of 12 V, as on a TalonFX, whatever the battery reads; neutral is a share of none, which
+   * brakes or coasts as its settings say.
    */
   @Test
   void voltsAShareAndNeutralGoAsTheyAre() {
@@ -333,8 +336,8 @@ class JointIOSparkTest {
 
     assertThat(voltsMode).isEqualTo(SparkLowLevel.ControlType.kVoltage.value);
     assertThat(volts).isEqualTo(4);
-    assertThat(shareMode).isEqualTo(SparkLowLevel.ControlType.kDutyCycle.value);
-    assertThat(share).isEqualTo(-0.5);
+    assertThat(shareMode).isEqualTo(SparkLowLevel.ControlType.kVoltage.value);
+    assertThat(share).as("half of 12 V, backward").isEqualTo(-6);
     assertThat(device.getInt("Control Mode").get())
         .isEqualTo(SparkLowLevel.ControlType.kDutyCycle.value);
     assertThat(device.getDouble("Setpoint").get()).isZero();
@@ -372,7 +375,7 @@ class JointIOSparkTest {
     requests.put("a position", () -> io.setPosition(1, 0, 0));
     requests.put("a speed", () -> io.setVelocity(1));
     requests.put("a voltage", () -> io.setVoltage(1));
-    requests.put("a share of the battery", () -> io.setDutyCycle(0.1));
+    requests.put("a share of 12 V", () -> io.setDutyCycle(0.1));
     requests.put("neutral", io::stop);
 
     requests.forEach(

@@ -53,8 +53,10 @@ import org.littletonrobotics.junction.AutoLog;
  *       position slot's.
  *   <li><b>J8.</b> {@link #setVoltage} puts that voltage across the motors, with its sign, up to
  *       the battery's and to what the current limits allow.
- *   <li><b>J9.</b> {@link #setDutyCycle} puts that share of the battery's voltage across the
- *       motors, with its sign.
+ *   <li><b>J9.</b> {@link #setDutyCycle} puts that share of 12 V across the motors, with its sign,
+ *       whatever the battery reads, up to the battery's voltage: a duty cycle of 0.5 is 6 V on
+ *       every driver and in the simulator, and the same command does the same on a low battery as
+ *       on a full one.
  *   <li><b>J10.</b> {@link #stop} puts no voltage across the motors, whatever was asked before, and
  *       they brake or coast as the control's neutral mode says.
  *   <li><b>J11.</b> {@link #home} puts a voltage across the motors as {@link #setVoltage} does,
@@ -131,8 +133,7 @@ import org.littletonrobotics.junction.AutoLog;
  *   <li><b>J28.</b> While frames do not come, every reading stands as it was last read. A lost
  *       frame never reads as zero, or as something that is not a number.
  *   <li><b>J29.</b> {@link JointIOInputs#fresh} is false in a loop the leading controller's
- *       position and velocity did not come, and true in a loop they did. Known difference: a
- *       TalonFX's driver always says fresh.
+ *       position and velocity did not come, and true in a loop they did.
  *   <li><b>J30.</b> The first request made after a silence is in force.
  * </ul>
  *
@@ -184,6 +185,15 @@ import org.littletonrobotics.junction.AutoLog;
  *       ({@code Travel#goalNear}), and the driver is told points along the way it chose.
  * </ul>
  *
+ * <p><b>A homing push on a stop</b>
+ *
+ * <ul>
+ *   <li><b>J41.</b> A homing push on a joint held still draws, through the leading motor, the
+ *       push's volts over the motor's windings (its stall current at its nominal voltage says
+ *       them), up to its stator limit, and {@link JointIOInputs#statorCurrentAmps} reads it. Homing
+ *       takes that current as the evidence that a still joint is on its stop.
+ * </ul>
+ *
  * <p>Two inputs are a CANcoder's alone, and are checked with the CTRE driver ({@code
  * JointIOTalonTest}), not by the suite: {@link JointIOInputs#magnetBad} and {@link
  * JointIOInputs#encoderRestarted}.
@@ -198,9 +208,8 @@ public interface JointIO {
      * Whether its position and speed are this loop's: false the loop a status frame of the leading
      * motor controller's doesn't come, when they're the last it read. The interlocks reading the
      * joint hold at once on a reading that isn't fresh, where {@link #connected} waits half a
-     * second of them to call the controller silent. A SPARK says so, and so does the simulator
-     * while its controller is off the bus; a TalonFX, whose last reading Phoenix keeps, reads
-     * fresh.
+     * second of them to call the controller silent. Every driver says so, from whether the frames
+     * came, and so does the simulator while its controller is off the bus.
      */
     public boolean fresh = true;
 
@@ -309,7 +318,7 @@ public interface JointIO {
   /** A voltage across the motors. */
   default void setVoltage(double volts) {}
 
-  /** A share of the battery's voltage, from -1 to 1. */
+  /** A share of 12 V, from -1 to 1, whatever the battery reads (J9). */
   default void setDutyCycle(double share) {}
 
   /** Neutral: the motors brake or coast, as the joint's control says. */

@@ -1,6 +1,8 @@
 package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
+import static org.wpilib.units.Units.Amps;
+import static org.wpilib.units.Units.Volts;
 
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.Approach;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.HomingPhase.AwaitingEncoder;
@@ -16,6 +18,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism.Stat
 import com.michaelgrundvig.frc.world.record.JointState;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl.Homing;
+import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Sensor.Switch.Limit.End;
@@ -24,6 +27,7 @@ import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.function.DoubleSupplier;
 import org.wpilib.units.measure.Time;
 
 /**
@@ -45,7 +49,7 @@ import org.wpilib.units.measure.Time;
  * <p>The machine, with the method that causes each step:
  *
  * <pre>
- *   Unhomed ──enabled──▶ PushingToStop ──still for a quarter second──▶ JustFound ──▶ Ready
+ *   Unhomed ──enabled──▶ PushingToStop ──still on its stop for a quarter second──▶ JustFound ──▶ Ready
  *      ▲                 SeekingSwitch ──the switch trips on the way in──▶ JustFound ──▶ Ready
  *      │                      │
  *      └──disabled, canceled──┘──out of time──▶ Faulted
@@ -66,18 +70,55 @@ import org.wpilib.units.measure.Time;
 final class JointHoming {
   /**
    * A joint pushed into a hard stop has found it once it has moved slower than this share of its
-   * free speed for {@link #STILL_NANOS}.
+   * free speed for {@link #STILL_NANOS}, its motor controller answering and its motor drawing the
+   * current of a push held still ({@link #STALL_SHARE}).
    */
   static final double STILL_SHARE = 0.02;
 
-  /** How long a joint pushed into a hard stop must be still to have found it. */
+  /** How long a joint pushed into a hard stop must be still on it to have found it. */
   static final long STILL_NANOS = 250_000_000L;
+
+  /**
+   * How much of the current a push held still draws ({@link #stallAmps}) the motor must draw for a
+   * still joint to be pushing on its stop, unless the recipe gives its own share. A joint that is
+   * still for any other reason draws far less: a motor with an open phase or a controller putting
+   * nothing out draws nothing, and a joint pushed against nothing draws a few amps once it moves.
+   * Half leaves room for a hot motor's windings, which resist more, and for a stator limit held
+   * low: Phoenix's simulated TalonFXS holds 70% of its limit, and every other driver within 5% of
+   * the stall current (conformance clause J41).
+   */
+  static final double STALL_SHARE = 0.5;
+
+  /**
+   * A push that ran out of time with the joint never this share of its range from where it started
+   * says it never moved it: the push, the motor or its controller is what to check, and not the
+   * time allowed.
+   */
+  static final double MOVED_SHARE = 0.01;
 
   /**
    * How long a joint waits for its absolute encoder's first reading before it is faulted, in
    * nanoseconds. The encoder still says where the joint is when the reading does come.
    */
   static final long ABSOLUTE_WAIT_NANOS = 2_000_000_000L;
+
+  /**
+   * What a joint reads in a loop that says whether a push holds it on its hard stop. The joint's
+   * readings ({@link JointReadings}) are this.
+   */
+  interface Pushed {
+    /** Whether its motor controllers answered with this loop's readings. */
+    boolean answersThisLoop();
+
+    /** Where it is, in its units. */
+    double position();
+
+    /** How fast it moves, in its units a second. */
+    double velocity();
+
+    /** The current through its leading motor's windings, in amps. */
+    double statorCurrentAmps();
+  }
 
   /** Tells the joint where it is: its motor controller, and where its idle holds it. */
   @FunctionalInterface
@@ -133,6 +174,12 @@ final class JointHoming {
 
   private final Found found;
 
+  /** The limit on the current through the joint's motors as its control has it now, in amps. */
+  private final DoubleSupplier statorLimitAmps;
+
+  /** What the push into the hard stop has seen, for its fault to say. */
+  private final HardStopEvidence evidence = new HardStopEvidence();
+
   private HomingPhase phase = new Ready();
 
   /**
@@ -140,6 +187,8 @@ final class JointHoming {
    * @param homingSwitch the limit switch the joint homes to, if its recipe homes it to one
    * @param encoder the absolute encoder that says where the joint is, if the robot reads one
    * @param found tells the joint where it is, once homing finds it
+   * @param statorLimitAmps the limit on the current through the joint's motors as its control has
+   *     it now, which caps what a push held still draws
    */
   JointHoming(
       RobotMath math,
@@ -147,7 +196,8 @@ final class JointHoming {
       Optional<Homing> recipe,
       Optional<Sensor.Switch> homingSwitch,
       Optional<ReadEncoder> encoder,
-      Found found) {
+      Found found,
+      DoubleSupplier statorLimitAmps) {
     this.joint = joint;
     this.math = math;
     label = joint.label();
@@ -158,6 +208,7 @@ final class JointHoming {
     this.homingSwitch = homingSwitch;
     this.encoder = encoder;
     this.found = found;
+    this.statorLimitAmps = statorLimitAmps;
     if (toHardStop.isPresent()) {
       secondsAllowed = toHardStop.get().secondsOn(math, joint);
       // Only a push into a hard stop asks how fast the joint could go. A joint that homes another
@@ -170,6 +221,17 @@ final class JointHoming {
       secondsAllowed = Double.NaN;
       freeSpeed = Double.NaN;
     }
+  }
+
+  /**
+   * The current through one of a joint's motors while a push holds it still, in amps: the push's
+   * volts over the motor's windings, which its stall current at its nominal voltage says, and no
+   * more than the stator limit lets through.
+   */
+  static double stallAmps(Joint joint, double volts, double statorLimitAmps) {
+    Motor motor = joint.driven().motors().orElseThrow().motor();
+    double ampsPerVolt = motor.stallCurrent().in(Amps) / motor.nominalVoltage().in(Volts);
+    return Math.min(Math.abs(volts) * ampsPerVolt, statorLimitAmps);
   }
 
   // ---- What the joint's mechanism asks ----
@@ -389,16 +451,17 @@ final class JointHoming {
    * <ul>
    *   <li>Disabled while it homes, the joint is unhomed again, and starts over on the next enable.
    *   <li>Enabled while unhomed, it starts homing.
-   *   <li>Pushed into its hard stop, it has found the stop once it is still, or runs out of time.
+   *   <li>Pushed into its hard stop, it has found the stop once it is still on it, or runs out of
+   *       time.
    * </ul>
    *
    * <p>A joint driven onto its switch is moved on by {@link #switchRead}, once the sensors have
    * been read.
    *
    * @param enabling whether the robot was enabled in this loop
-   * @param velocity how fast the joint is measured moving
+   * @param read what the joint read this loop
    */
-  void advance(long now, boolean enabled, boolean enabling, double velocity) {
+  void advance(long now, boolean enabled, boolean enabling, Pushed read) {
     boolean isHoming = phase.state() == State.HOMING;
     if (!enabled && isHoming) {
       phase = new Unhomed();
@@ -410,7 +473,7 @@ final class JointHoming {
       return;
     }
     if (phase instanceof PushingToStop pushing && toHardStop.isPresent()) {
-      phase = pushedOn(now, pushing, toHardStop.get(), velocity);
+      phase = pushedOn(now, pushing, toHardStop.get(), read);
     }
   }
 
@@ -631,7 +694,7 @@ final class JointHoming {
    * it to a switch that it does not have could never be timed by its switch's readings, so it is
    * not started at all. It is faulted here instead, before anything pushes it.
    *
-   * <p>That last case should not arise. A robot's definition is refused as it is built if a joint
+   * <p>That last case should not arise. A robot's definition is refused as it is checked if a joint
    * homes to a limit switch that it lacks at that end, or whose position is not known, so no
    * mechanism is made for such a joint. The fault is here so that this class does not depend on
    * that to keep its pushes bounded.
@@ -642,6 +705,7 @@ final class JointHoming {
       JointState.Toward stop =
           towardItsLowerEnd ? JointState.Toward.LOWER_STOP : JointState.Toward.UPPER_STOP;
       phase = new PushingToStop(homingToward(stop), now, OptionalLong.empty());
+      evidence.start();
       return;
     }
     if (homingSwitch.isPresent()) {
@@ -676,13 +740,14 @@ final class JointHoming {
   }
 
   /**
-   * The phase of a joint pushed into its hard stop, one loop on. Once it has been still for {@link
-   * #STILL_NANOS} it has found the stop, and is at that end of its range. Otherwise it carries on,
-   * until it is out of time.
+   * The phase of a joint pushed into its hard stop, one loop on. Once it has been still on the stop
+   * for {@link #STILL_NANOS} it has found the stop, and is at that end of its range. Otherwise it
+   * carries on, until it is out of time.
    */
   private HomingPhase pushedOn(
-      long now, PushingToStop pushing, Homing.ToHardStop recipe, double velocity) {
-    boolean isStill = Math.abs(velocity) <= STILL_SHARE * freeSpeed;
+      long now, PushingToStop pushing, Homing.ToHardStop recipe, Pushed read) {
+    evidence.saw(read);
+    boolean isStill = isStillOnItsStop(recipe, read);
     OptionalLong stillSince = stillSince(pushing, isStill, now);
     boolean stillLongEnough =
         isStill
@@ -696,20 +761,79 @@ final class JointHoming {
     boolean outOfTime = now - pushing.since() >= Math.round(secondsAllowed * 1e9);
     if (outOfTime) {
       return new Faulted(
-          JointState.faulted(JointState.Fault.HOMING_FOUND_NO_STOP),
-          String.format(
-              Locale.ROOT,
-              "%s's homing found no stop in %.1f s%s, pushing toward its %s one",
-              label,
-              secondsAllowed,
-              timeoutWorkedOutFrom(recipe.timeout(), recipe.volts()),
-              shown(recipe.end())),
-          false);
+          JointState.faulted(JointState.Fault.HOMING_FOUND_NO_STOP), whyNoStop(recipe), false);
     }
     if (stillSince.equals(pushing.stillSince())) {
       return pushing;
     }
     return new PushingToStop(pushing.recorded(), pushing.since(), stillSince);
+  }
+
+  /**
+   * Whether a joint pushed into its hard stop is still on it this loop: its motor controller
+   * answers with this loop's readings, it moves slower than {@link #STILL_SHARE} of its free speed,
+   * and its motor draws the current of a push held still. A joint that is merely not moving, its
+   * controller silent, its motor's phase open, is not on its stop.
+   */
+  private boolean isStillOnItsStop(Homing.ToHardStop recipe, Pushed read) {
+    if (!read.answersThisLoop()) {
+      return false;
+    }
+    if (Math.abs(read.velocity()) > STILL_SHARE * freeSpeed) {
+      return false;
+    }
+    return read.statorCurrentAmps() >= leastStallAmps(recipe);
+  }
+
+  /** The least current a joint's motor draws while the push holds it on its stop, in amps. */
+  private double leastStallAmps(Homing.ToHardStop recipe) {
+    double share = recipe.stallShare().orElse(STALL_SHARE);
+    return share * stallAmps(joint, recipe.volts(), statorLimitAmps.getAsDouble());
+  }
+
+  /**
+   * Why a push into a hard stop that ran out of time found no stop, with what to check: a motor
+   * controller that never answered, a joint that never moved, or one that moved and never came to
+   * rest on a stop.
+   */
+  private String whyNoStop(Homing.ToHardStop recipe) {
+    String inTime =
+        String.format(
+            Locale.ROOT,
+            "in %.1f s%s",
+            secondsAllowed,
+            timeoutWorkedOutFrom(recipe.timeout(), recipe.volts()));
+    double span = joint.range().map(range -> range.upper() - range.lower()).orElse(0.0);
+    return switch (evidence.seen(MOVED_SHARE * span)) {
+      case NO_READING ->
+          String.format(
+              Locale.ROOT,
+              "%s's homing had no reading from its motor controller %s, pushing toward its %s"
+                  + " stop: check the controller's CAN wiring and ID",
+              label,
+              inTime,
+              shown(recipe.end()));
+      case NEVER_MOVED ->
+          String.format(
+              Locale.ROOT,
+              "%s's homing never moved it %s, pushing toward its %s stop at %.1f V, and its motor"
+                  + " drew at most %.1f A where pushing on a stop draws %.1f A: check the motor's"
+                  + " wiring and its controller's output, and that %.1f V moves it",
+              label,
+              inTime,
+              shown(recipe.end()),
+              recipe.volts(),
+              evidence.mostAmps(),
+              stallAmps(joint, recipe.volts(), statorLimitAmps.getAsDouble()),
+              recipe.volts());
+      case MOVED ->
+          String.format(
+              Locale.ROOT,
+              "%s's homing found no stop %s, pushing toward its %s one",
+              label,
+              inTime,
+              shown(recipe.end()));
+    };
   }
 
   /** Since when a joint pushed into its stop has been still: from now, if it has just stopped. */

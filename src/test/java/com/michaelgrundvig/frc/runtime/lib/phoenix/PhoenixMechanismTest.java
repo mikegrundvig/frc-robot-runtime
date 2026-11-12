@@ -9,6 +9,7 @@ import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.Kilograms;
 import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.Rotations;
 import static org.wpilib.units.Units.Seconds;
 
@@ -37,10 +38,15 @@ import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Link;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
+import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
+import com.michaelgrundvig.frc.world.robot.MechanismControlCurrentLimitsBuilder;
+import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Transmission;
@@ -48,8 +54,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
-import org.wpilib.math.geometry.Rotation3d;
-import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.units.measure.Angle;
 
@@ -67,7 +71,7 @@ class PhoenixMechanismTest {
   private static final MechanismControl.NeutralMode BRAKE = MechanismControl.NeutralMode.BRAKE;
 
   /** The arm: 4 kg, 0.3 m out along its zero, horizontal; two Krakens through 60:1. */
-  private static final Joint.Revolute ARM =
+  private static final RevoluteJoint ARM =
       revolute(
           "arm",
           Part.CHASSIS,
@@ -78,7 +82,7 @@ class PhoenixMechanismTest {
           weighed("arm link", 4, new Translation3d(0.3, 0, 0)));
 
   /** A wrist on the arm's end, which the arm's turning tilts. */
-  private static final Joint.Revolute WRIST =
+  private static final RevoluteJoint WRIST =
       revolute(
           "wrist",
           ARM,
@@ -89,18 +93,14 @@ class PhoenixMechanismTest {
           weighed("claw", 1, new Translation3d(0.1, 0, 0)));
 
   /** An elevator's carriage, 5 kg, on a 2 cm drum through 10:1. */
-  private static final Joint.Prismatic ELEVATOR =
-      Joint.Prismatic.builder()
-          .label("elevator")
-          .parent(Part.CHASSIS)
-          .origin(new Transform3d(new Translation3d(-0.2, 0, 0.1), Rotation3d.ZERO))
-          .axis(Vector3.UP)
-          .link(weighed("carriage", 5, Translation3d.ZERO))
+  private static final PrismaticJoint ELEVATOR =
+      Joint.slide("elevator", Part.CHASSIS, Vector3.UP)
+          .at(Meters.of(-0.2), Meters.of(0), Meters.of(0.1))
           .range(Range.meters(0, 1.2))
-          .build();
+          .carries(weighed("carriage", 5, Translation3d.ZERO));
 
   /** A turret, unweighed, on 340° of travel. */
-  private static final Joint.Revolute TURRET =
+  private static final RevoluteJoint TURRET =
       revolute(
           "turret",
           Part.CHASSIS,
@@ -111,7 +111,7 @@ class PhoenixMechanismTest {
           unseen("turret plate"));
 
   /** A flywheel, which turns freely. */
-  private static final Joint.Revolute FLYWHEEL =
+  private static final RevoluteJoint FLYWHEEL =
       revolute(
           "flywheel",
           Part.CHASSIS,
@@ -134,12 +134,7 @@ class PhoenixMechanismTest {
 
   /** The turret's CANcoder, geared to turn back as the turret turns forward. */
   private static final Sensor.Encoder TURRET_CANCODER =
-      Sensor.Encoder.builder()
-          .label("turret cancoder")
-          .terms(List.of(term(TURRET, -1)))
-          .absolute(true)
-          .countsPerTurn(4096)
-          .build();
+      Sensor.Encoder.of("turret cancoder", List.of(term(TURRET, -1)), true).countsPerTurn(4096);
 
   /** The arm's CANcoder, on its shaft. */
   private static final Sensor.Encoder ARM_CANCODER = encoder("arm cancoder", ARM, 1);
@@ -294,15 +289,11 @@ class PhoenixMechanismTest {
    */
   @Test
   void aWinchIsInItsSpoolsRotations() {
-    Joint.Prismatic winch =
-        Joint.Prismatic.builder()
-            .label("winch")
-            .parent(Part.CHASSIS)
-            .origin(Transform3d.ZERO)
-            .axis(Vector3.UP)
-            .link(unseen("hook"))
+    PrismaticJoint winch =
+        Joint.slide("winch", Part.CHASSIS, Vector3.UP)
+            .at(Meters.of(0), Meters.of(0), Meters.of(0))
             .range(Range.meters(0, 0.5))
-            .build();
+            .carries(unseen("hook"));
     Drive slow = JointFixtures.motors(winch, Motor.KRAKEN_X60, 1, gearing(100), Inches.of(0.25));
     RobotMath robot = RobotMath.of(BODY, List.of(winch), List.of(), List.of(slow), List.of());
     double spool = TURN * 0.25 * 0.0254;
@@ -341,11 +332,10 @@ class PhoenixMechanismTest {
   @Test
   void onlyMotorsAreConfigured() {
     Drive servo =
-        Drive.builder()
-            .label("arm servo")
-            .actuator(Actuator.Servo.builder().from(0).to(1).force(1).speed(1).build())
-            .transmission(Transmission.Geared.builder().joint(ARM).gearing(gearing(1)).build())
-            .build();
+        Drive.of(
+            "arm servo",
+            Actuator.Servo.builder().from(0).to(1).force(1).speed(1).build(),
+            Transmission.Geared.of(ARM, gearing(1)));
 
     assertThatIllegalArgumentException()
         .isThrownBy(() -> configure(math, ARM, servo, wiring(11), control()))
@@ -372,7 +362,7 @@ class PhoenixMechanismTest {
         control(gains(2, 0.5, 0.1, 0.2, Optional.empty(), Optional.empty(), Optional.empty()));
 
     TalonFXConfiguration leader = configure(math, ARM, ARM_MOTORS, wiring(11, 12), tuned).leader();
-    RobotMath.Gains seed = math.idealGains(ARM);
+    RobotMath.Feedforward seed = math.idealGains(ARM);
 
     assertThat(leader.Slot0.kV).isCloseTo(7.2, within(1e-9));
     assertThat(leader.Slot0.kV).isCloseTo(seed.kV() * TURN, within(1e-12));
@@ -391,7 +381,7 @@ class PhoenixMechanismTest {
   @Test
   void anArmHoldsAgainstOneCosineFromItsDefinition() {
     PhoenixMechanism.Settings arm = configure(math, ARM, ARM_MOTORS, wiring(11, 12), control());
-    RobotMath.Gains seed = math.idealGains(ARM);
+    RobotMath.Feedforward seed = math.idealGains(ARM);
 
     assertThat(arm.leader().Slot0.GravityType).isEqualTo(GravityTypeValue.Arm_Cosine);
     assertThat(arm.leader().Slot0.GravityArmPositionOffset)
@@ -467,7 +457,7 @@ class PhoenixMechanismTest {
   void anElevatorHoldsItsCarriagesWeightEverywhere() {
     TalonFXConfiguration leader =
         configure(math, ELEVATOR, ELEVATOR_MOTORS, wiring(30, 31), control()).leader();
-    RobotMath.Gains seed = math.idealGains(ELEVATOR);
+    RobotMath.Feedforward seed = math.idealGains(ELEVATOR);
 
     assertThat(leader.Slot0.GravityType).isEqualTo(GravityTypeValue.Elevator_Static);
     assertThat(leader.Slot0.kG).isCloseTo(seed.kG(), within(1e-12)).isPositive();
@@ -497,7 +487,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void anUnweighedArmHasNoGravitySeed() {
-    Joint.Revolute bare = bareArm();
+    RevoluteJoint bare = bareArm();
     Drive motor = JointFixtures.motors(bare, Motor.KRAKEN_X60, 1, gearing(40));
     RobotMath robot = RobotMath.of(BODY, List.of(bare), List.of(), List.of(motor), List.of());
     PhoenixMechanism.Settings arm = configure(robot, bare, motor, wiring(1), control());
@@ -516,7 +506,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void anUnweighedArmTakesItsTunedKgAboutItsZeroOrTheAngleGiven() {
-    Joint.Revolute bare = bareArm();
+    RevoluteJoint bare = bareArm();
     Drive motor = JointFixtures.motors(bare, Motor.KRAKEN_X60, 1, gearing(40));
     RobotMath robot = RobotMath.of(BODY, List.of(bare), List.of(), List.of(motor), List.of());
 
@@ -580,7 +570,7 @@ class PhoenixMechanismTest {
   /** A gravity angle more than a quarter turn from the zero is past Phoenix's offset. */
   @Test
   void aGravityAnglePastPhoenixsOffsetIsRefusedWithTheTurnedAngle() {
-    Joint.Revolute bare = bareArm();
+    RevoluteJoint bare = bareArm();
     Drive motor = JointFixtures.motors(bare, Motor.KRAKEN_X60, 1, gearing(40));
     RobotMath robot = RobotMath.of(BODY, List.of(bare), List.of(), List.of(motor), List.of());
 
@@ -605,7 +595,7 @@ class PhoenixMechanismTest {
   /** An unweighed carriage has no gravity seed; tuned, its kG holds it all along. */
   @Test
   void anUnweighedCarriageTakesItsTunedKg() {
-    Joint.Prismatic slide = slide("slide", Vector3.UP);
+    PrismaticJoint slide = slide("slide", Vector3.UP);
     Drive motor = JointFixtures.motors(slide, Motor.KRAKEN_X60, 1, gearing(5), Meters.of(0.02));
     RobotMath robot = RobotMath.of(BODY, List.of(slide), List.of(), List.of(motor), List.of());
     PhoenixMechanism.Settings seeded = configure(robot, slide, motor, wiring(1), control());
@@ -625,7 +615,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void aTunedKgWhereGravityCantMoveTheJointIsRefused() {
-    Joint.Prismatic level = slide("hopper", new Vector3(1, 0, 0));
+    PrismaticJoint level = slide("hopper", new Vector3(1, 0, 0));
     Drive motor = JointFixtures.motors(level, Motor.KRAKEN_X60, 1, gearing(5), Meters.of(0.02));
     RobotMath robot = RobotMath.of(BODY, List.of(level), List.of(), List.of(motor), List.of());
 
@@ -664,7 +654,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void anArmZeroedStraightUpSitsAtPhoenixsLimit() {
-    Joint.Revolute upright = upright(0);
+    RevoluteJoint upright = upright(0);
     Drive motor = JointFixtures.motors(upright, Motor.KRAKEN_X60, 1, gearing(25));
     RobotMath robot = RobotMath.of(BODY, List.of(upright), List.of(), List.of(motor), List.of());
 
@@ -685,7 +675,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void anOffsetPastPhoenixsLimitIsRefused() {
-    Joint.Revolute upright = upright(Math.toRadians(2));
+    RevoluteJoint upright = upright(Math.toRadians(2));
     Drive motor = JointFixtures.motors(upright, Motor.KRAKEN_X60, 1, gearing(25));
     RobotMath robot = RobotMath.of(BODY, List.of(upright), List.of(), List.of(motor), List.of());
 
@@ -701,7 +691,7 @@ class PhoenixMechanismTest {
   /** An arm zeroed level whose positive direction lowers it: half a turn off. */
   @Test
   void anArmWhosePositiveLowersItIsRefusedWithTheTurnedOffset() {
-    Joint.Revolute lowering =
+    RevoluteJoint lowering =
         revolute(
             "lowering",
             Part.CHASSIS,
@@ -725,7 +715,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void gravityOneCosineMissesIsNoted() {
-    Joint.Revolute flap =
+    RevoluteJoint flap =
         revolute(
             "flap",
             Part.CHASSIS,
@@ -878,7 +868,7 @@ class PhoenixMechanismTest {
    */
   @Test
   void anElevatorsCancoderGearedToItsDrumIsInTheDrumsRotations() {
-    Joint.Prismatic elevator =
+    PrismaticJoint elevator =
         ELEVATOR
             .motors(
                 Motor.KRAKEN_X60
@@ -891,9 +881,10 @@ class PhoenixMechanismTest {
                 Driven.AbsoluteEncoder.of()
                     .ratio(1.0 / 12)
                     .on(CANCODER.can(32).offset(Rotations.of(0.31)).fused()));
-    Sensor.Encoder encoder = (Sensor.Encoder) elevator.ownSensors().getFirst();
+    Sensor.Encoder encoder = (Sensor.Encoder) RobotMath.ownSensors(elevator).getFirst();
     RobotMath robot =
-        RobotMath.of(BODY, List.of(elevator), List.of(), elevator.ownDrives(), List.of(encoder));
+        RobotMath.of(
+            BODY, List.of(elevator), List.of(), RobotMath.ownDrives(elevator), List.of(encoder));
     MechanismWiring.Cancoder fused =
         elevator.driven().absoluteEncoder().orElseThrow().cancoder().orElseThrow();
     double travel = 1.2 / (TURN * 0.02) / 12; // the CANcoder's turns over the travel
@@ -936,12 +927,7 @@ class PhoenixMechanismTest {
   @Test
   void aCancoderMustBeAbsolute() {
     Sensor.Encoder relative =
-        Sensor.Encoder.builder()
-            .label("arm quadrature")
-            .terms(List.of(term(ARM, 1)))
-            .absolute(false)
-            .countsPerTurn(2048)
-            .build();
+        Sensor.Encoder.of("arm quadrature", List.of(term(ARM, 1)), false).countsPerTurn(2048);
     assertThatIllegalArgumentException()
         .isThrownBy(
             () ->
@@ -959,7 +945,7 @@ class PhoenixMechanismTest {
   // ---- Coupling and differentials ----
 
   /** A differential wrist: pitch both motors turn together, roll they turn against each other. */
-  private static final Joint.Revolute PITCH =
+  private static final RevoluteJoint PITCH =
       revolute(
           "pitch",
           Part.CHASSIS,
@@ -969,7 +955,7 @@ class PhoenixMechanismTest {
           0,
           unseen("pitch yoke"));
 
-  private static final Joint.Revolute ROLL =
+  private static final RevoluteJoint ROLL =
       revolute(
           "roll",
           PITCH,
@@ -1002,7 +988,7 @@ class PhoenixMechanismTest {
 
   // ---- What the tests are built from ----
 
-  private static Joint.Revolute revolute(
+  private static RevoluteJoint revolute(
       String label,
       Part parent,
       Translation3d at,
@@ -1010,22 +996,19 @@ class PhoenixMechanismTest {
       Optional<Range> range,
       double reference,
       Link link) {
-    return Joint.Revolute.builder()
-        .label(label)
-        .parent(parent)
-        .origin(new Transform3d(at, Rotation3d.ZERO))
-        .axis(axis)
-        .link(link)
-        .range(range)
-        .rest(reference)
-        .build();
+    RevoluteJoint joint =
+        Joint.pivot(label, parent, axis).at(at.getMeasureX(), at.getMeasureY(), at.getMeasureZ());
+    if (range.isPresent()) {
+      joint = joint.range(range.get());
+    }
+    return joint.rest(Radians.of(reference)).carries(link);
   }
 
   /**
    * An arm turning forward and down from straight up, its center of mass on its zero, or tipped
    * forward of it by an angle.
    */
-  private static Joint.Revolute upright(double tipped) {
+  private static RevoluteJoint upright(double tipped) {
     return revolute(
         "upright",
         Part.CHASSIS,
@@ -1040,53 +1023,40 @@ class PhoenixMechanismTest {
   }
 
   private static Link weighed(String label, double kilograms, Translation3d cg) {
-    return Link.builder()
-        .label(label)
-        .mass(
-            MassProperties.builder()
-                .mass(Kilograms.of(kilograms))
-                .cg(cg)
-                .inertia(Inertia.box(Kilograms.of(kilograms), new Translation3d(0.1, 0.1, 0.1)))
-                .build())
-        .build();
+    return Link.of(
+        label,
+        MassProperties.of(
+            Kilograms.of(kilograms),
+            cg,
+            Inertia.box(Kilograms.of(kilograms), new Translation3d(0.1, 0.1, 0.1))));
   }
 
   private static Link unseen(String label) {
-    return Link.builder().label(label).mass(MassProperties.NONE).build();
+    return Link.unseen(label);
   }
 
   private static Gearing gearing(double ratio) {
-    return Gearing.builder().ratio(ratio).efficiency(1).build();
+    return Gearing.of(ratio);
   }
 
   private static Transmission.Term term(Joint joint, double ratio) {
-    return Transmission.Term.builder().joint(joint).ratio(ratio).build();
+    return Transmission.Term.of(joint, ratio);
   }
 
   private static Sensor.Encoder encoder(String label, Joint joint, double ratio) {
-    return Sensor.Encoder.builder()
-        .label(label)
-        .terms(List.of(term(joint, ratio)))
-        .absolute(true)
-        .countsPerTurn(4096)
-        .build();
+    return Sensor.Encoder.of(label, List.of(term(joint, ratio)), true).countsPerTurn(4096);
   }
 
   /** One side of the wrist: a Kraken X44 turning pitch and roll. */
   private static Drive side(String label, double pitch, double roll) {
-    return Drive.builder()
-        .label(label)
-        .actuator(Actuator.Motors.builder().motor(Motor.KRAKEN_X44).count(1).build())
-        .transmission(
-            Transmission.Combined.builder()
-                .terms(List.of(term(PITCH, pitch), term(ROLL, roll)))
-                .efficiency(1)
-                .build())
-        .build();
+    return Drive.of(
+        label,
+        Actuator.MotorGroup.of(Motor.KRAKEN_X44, 1),
+        Transmission.Combined.of(List.of(term(PITCH, pitch), term(ROLL, roll)), 1));
   }
 
   /** An arm on a level parent, unweighed: its zero points forward, raised as it grows. */
-  private static Joint.Revolute bareArm() {
+  private static RevoluteJoint bareArm() {
     return revolute(
         "bare arm",
         Part.CHASSIS,
@@ -1098,15 +1068,11 @@ class PhoenixMechanismTest {
   }
 
   /** A slide along an axis, unweighed, half a meter long. */
-  private static Joint.Prismatic slide(String label, Vector3 axis) {
-    return Joint.Prismatic.builder()
-        .label(label)
-        .parent(Part.CHASSIS)
-        .origin(Transform3d.ZERO)
-        .axis(axis)
-        .link(unseen(label + " carriage"))
+  private static PrismaticJoint slide(String label, Vector3 axis) {
+    return Joint.slide(label, Part.CHASSIS, axis)
+        .at(Meters.of(0), Meters.of(0), Meters.of(0))
         .range(Range.meters(0, 0.5))
-        .build();
+        .carries(unseen(label + " carriage"));
   }
 
   private static MechanismWiring.Device motor(int id, boolean clockwise) {
@@ -1146,7 +1112,7 @@ class PhoenixMechanismTest {
       Optional<Double> kV,
       Optional<Double> kA,
       Optional<Double> kG) {
-    return MechanismControl.Gains.builder()
+    return MechanismControlGainsBuilder.builder()
         .kP(kP)
         .kI(kI)
         .kD(kD)
@@ -1162,14 +1128,11 @@ class PhoenixMechanismTest {
   }
 
   private static MechanismControl.SoftLimits soft(double lower, double upper) {
-    return MechanismControl.SoftLimits.builder().lower(lower).upper(upper).build();
+    return MechanismControl.SoftLimits.of(lower, upper);
   }
 
   private static MechanismControl.Profile profile(double cruise, double acceleration) {
-    return MechanismControl.Profile.builder()
-        .cruiseVelocity(cruise)
-        .acceleration(acceleration)
-        .build();
+    return MechanismControl.Profile.of(cruise, acceleration);
   }
 
   private static MechanismControl control() {
@@ -1196,18 +1159,18 @@ class PhoenixMechanismTest {
       Optional<MechanismControl.SoftLimits> limits,
       Optional<MechanismControl.Profile> profile,
       MechanismControl.NeutralMode neutral) {
-    return MechanismControl.builder()
+    return MechanismControlBuilder.builder()
         .loop(MechanismControl.Loop.POSITION)
         .gains(gains)
         .currentLimits(
-            MechanismControl.CurrentLimits.builder()
+            MechanismControlCurrentLimitsBuilder.builder()
                 .stator(Amps.of(60))
                 .supply(Amps.of(50))
                 .supplyLower(Amps.of(35))
                 .supplyLowerTime(Seconds.of(0.5))
                 .build())
         .neutralMode(neutral)
-        .deadChannel(MechanismControl.DeadChannel.DEFAULTS)
+        .deadChannel(MechanismControl.DeadChannel.defaults())
         .softLimits(limits)
         .profile(profile)
         .build();

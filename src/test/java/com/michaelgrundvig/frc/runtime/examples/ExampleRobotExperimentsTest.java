@@ -2,6 +2,7 @@ package com.michaelgrundvig.frc.runtime.examples;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.pitwall.Actions;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
@@ -25,6 +26,7 @@ import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Position;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
@@ -35,7 +37,6 @@ import java.util.Objects;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.system.RobotController;
 
 /**
@@ -76,8 +77,9 @@ class ExampleRobotExperimentsTest {
   private static final Position WRIST_STOWED = Position.degrees("stowed", 0);
 
   /** A wrist with one place: aimed by a computed angle, it names nothing to step to. */
-  private static final Joint.Revolute WRIST =
-      Joint.pivot("wrist", Part.CHASSIS, new Translation3d(0.3, 0, 0.3), Joint.PITCH_UP)
+  private static final RevoluteJoint WRIST =
+      Joint.pivot("wrist", Part.CHASSIS, Joint.PITCH_UP)
+          .at(Meters.of(0.3), Meters.of(0), Meters.of(0.3))
           .range(Range.degrees(0, 90))
           .rest(WRIST_STOWED)
           .positions(WRIST_STOWED)

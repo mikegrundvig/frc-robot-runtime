@@ -27,6 +27,7 @@ import org.wpilib.hardware.discrete.PWM;
  */
 final class Hood implements Mechanism {
   private final Scheduler scheduler;
+  private final RobotDefinition robot;
   private final Joint hood;
   private final RobotMath math;
   private final List<Drive> servos;
@@ -41,9 +42,10 @@ final class Hood implements Mechanism {
    */
   Hood(Scheduler scheduler, RobotDefinition robot, PWM left, PWM right) {
     this.scheduler = scheduler;
+    this.robot = robot;
     hood = robot.own(HOOD); // this robot's own hood
     math = robot.math();
-    servos = hood.ownDrives(); // its servos as its block names them: left, then right
+    servos = RobotMath.ownDrives(hood); // its servos as its block names them: left, then right
     pulses = List.of(left, right);
   }
 
@@ -54,7 +56,7 @@ final class Hood implements Mechanism {
 
   /** Goes to one of its places, and ends once its servos have had time to get there. */
   Command goTo(Position place) {
-    return run(co -> co.wait(Seconds.of(tell(hood.own(place).value()))))
+    return run(co -> co.wait(Seconds.of(tell(robot.own(hood, place).value()))))
         .named("Hood to " + place.name());
   }
 

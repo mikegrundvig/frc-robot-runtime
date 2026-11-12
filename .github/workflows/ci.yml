@@ -36,7 +36,7 @@ jobs:
         run: ./gradlew ci
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: reports-${{ github.sha }}
           path: |
@@ -46,4 +46,63 @@ jobs:
             lib/*/build/test-results/
             build-logic/build/reports/
             build-logic/build/test-results/
+          if-no-files-found: warn
+
+  siblings:
+    name: Build, check, test against the libraries' tips
+    # The same ci, with the model, localization and Pitwall built from their default branches' heads
+    # in place of the published release (-PlocalLibs, settings.gradle), as a developer builds them
+    # together. The job above checks this commit against what is released; this one checks that the
+    # four still fit together between releases, so a change in one that breaks another shows here
+    # before a release is cut from them.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # The four clones side by side, as -PlocalLibs expects: runtime/, model/, localization/ and
+      # pitwall/ in one folder. Each library's own repository, under this one's owner.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: runtime
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: ${{ github.repository_owner }}/frc-robot-model
+          path: model
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: ${{ github.repository_owner }}/frc-localization
+          path: localization
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          repository: ${{ github.repository_owner }}/frc-pitwall
+          path: pitwall
+      - name: The commits built
+        run: |
+          for name in runtime model localization pitwall; do
+            echo "$name $(git -C "$name" log -1 --format='%h %s')"
+          done
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          cache-provider: basic
+      - name: Formatting, static analysis, tests, coverage, against the tips
+        working-directory: runtime
+        run: ./gradlew ci -PlocalLibs=..
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: reports-siblings-${{ github.sha }}
+          path: |
+            runtime/build/reports/
+            runtime/build/test-results/
+            runtime/lib/*/build/reports/
+            runtime/lib/*/build/test-results/
+            runtime/build-logic/build/reports/
+            runtime/build-logic/build/test-results/
           if-no-files-found: warn

@@ -5,13 +5,17 @@ import static org.assertj.core.api.Assertions.within;
 
 import com.michaelgrundvig.frc.localization.DrivetrainReadings;
 import com.michaelgrundvig.frc.localization.ImuReadings;
+import com.michaelgrundvig.frc.localization.LocalizationService;
 import com.michaelgrundvig.frc.localization.OdometrySample;
 import com.michaelgrundvig.frc.localization.PoseCovariance;
 import com.michaelgrundvig.frc.localization.VisionMeasurement;
 import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.examples.LocalizerExamples;
+import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimHarness;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -120,6 +124,57 @@ class LocalizationTest {
     }
   }
 
+  /**
+   * Lost while the heading is still a placement's, which no camera has backed, the pit's line says
+   * the heading is the suspect and what to do: two images in a row put the robot facing the other
+   * way. Lost after a driver's heading reset, or with the placement backed, it says only that it is
+   * recovering.
+   */
+  @Test
+  void lostAfterAPlacementTheHeadingIsTheSuspect() {
+    enum Word {
+      PLACED,
+      PLACED_AND_RESET
+    }
+    record Row(Word word, String startsWith) {}
+    List<Row> rows =
+        List.of(
+            new Row(Word.PLACED, Localization.LOST_SINCE_PLACED),
+            new Row(Word.PLACED_AND_RESET, "Lost: recovering: within"));
+    Pose2d placed = new Pose2d(3, 2, Rotation2d.ZERO);
+    Pose2d backwards = new Pose2d(3, 2, Rotation2d.k180deg);
+    for (Row row : rows) {
+      try (Localization localization =
+          DriveSimHarness.localizationFor(
+              ExampleRobot.SIM, DriveSimHarness.estimatorAt(Pose2d.ZERO))) {
+        localization.periodic(readings(LEVEL, ImuReadings.NONE), true);
+        localization.place(placed, PoseCovariance.fromStdDevs(0.05, 0.05, 0.035), "placed");
+        if (row.word() == Word.PLACED_AND_RESET) {
+          localization.resetHeading(Rotation2d.ZERO, 0.035);
+        }
+        localization.periodic(readings(LEVEL, ImuReadings.NONE, 21_000_000L), true);
+        localization.periodic(readings(LEVEL, ImuReadings.NONE, 41_000_000L), true);
+        localization.update();
+        for (long taken : new long[] {25_000_000L, 35_000_000L}) {
+          localization
+              .service()
+              .camera(
+                  new VisionMeasurement(
+                      taken,
+                      backwards,
+                      PoseCovariance.fromStdDevs(0.05, 0.05, Math.toRadians(2)),
+                      VisionMeasurement.Lever.NONE,
+                      "front-left",
+                      List.of(26, 27),
+                      VisionMeasurement.Solver.MULTI_TAG));
+        }
+        localization.update();
+
+        assertThat(localization.describe()).as(row.word().name()).startsWith(row.startsWith());
+      }
+    }
+  }
+
   /** The 99.9% ellipse AdvantageScope draws: closed, and 3.72 standard deviations out. */
   @Test
   void theEllipseIsAClosedOutlineAroundThePosition() {
@@ -142,6 +197,54 @@ class LocalizationTest {
       assertThat(localization.service().pose3d(at))
           .as("on flat ground, level")
           .isEqualTo(new Pose3d(3, 2, 0, new Rotation3d(0, 0, at.getRotation().getRadians())));
+    }
+  }
+
+  /**
+   * A localizer that reports too little for the scoring gate to judge by: the robot is ready to
+   * score only if its configuration chose that, an alert says the gate isn't judging either way,
+   * and the pit's line says which it is. The default localizer is judged, and raises no alert.
+   */
+  @Test
+  void aGateThatCantJudgeSaysWhatTheRobotChose() {
+    record Row(
+        String name, RobotConfig robot, boolean alert, boolean ready, String scoringStartsWith) {}
+    RobotConfig onWpilib = LocalizerExamples.ON_WPILIB;
+    List<Row> rows =
+        List.of(
+            new Row(
+                "WPILib's estimator, by default",
+                onWpilib,
+                true,
+                false,
+                "Not judged, so not ready: what the pose rests on is not reported"),
+            new Row(
+                "WPILib's estimator, the robot choosing to score without the gate",
+                onWpilib.withScoringWhenNotJudged(ScoringWhenNotJudged.READY),
+                true,
+                true,
+                "Not judged, so ready: what the pose rests on is not reported"),
+            new Row("the default localizer", ExampleRobot.SIM, false, false, "Not ready: "));
+    assertThat(onWpilib.scoringWhenNotJudgedOrDefault())
+        .as("not ready, unless the robot chose otherwise")
+        .isEqualTo(ScoringWhenNotJudged.NOT_READY);
+    for (Row row : rows) {
+      try (Localization localization =
+          new Localization(
+              new LocalizationService(
+                  RobotSim.FIELD,
+                  row.robot().definition(),
+                  row.robot().localizerOn(RobotSim.FIELD),
+                  RobotLoop.PERIOD_SECONDS),
+              row.robot().scoringGate(),
+              row.robot().scoringWhenNotJudgedOrDefault())) {
+        localization.periodic(readings(LEVEL, ImuReadings.NONE), true);
+        localization.update();
+
+        assertThat(localization.isNotJudgedAlertActive()).as(row.name()).isEqualTo(row.alert());
+        assertThat(localization.readyToScore()).as(row.name()).isEqualTo(row.ready());
+        assertThat(localization.scoring()).as(row.name()).startsWith(row.scoringStartsWith());
+      }
     }
   }
 }

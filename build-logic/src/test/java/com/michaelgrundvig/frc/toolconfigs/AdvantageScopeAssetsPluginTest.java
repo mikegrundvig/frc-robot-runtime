@@ -19,14 +19,16 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * The plugin in a real build (Gradle TestKit), on a small project standing in for the robot's: its
  * "writer" writes a config.json and a model.glb from a mass compiled into its "Robots", as the real
- * writer writes from Robots.java. Each behavior the build promises, as a team meets it.
+ * writer writes from Robots.java. The stand-in has the real writer's name, and the program's
+ * classes come before the plugin's jar on the task's classpath, so it runs in the real one's place.
+ * Each behavior the build promises, as a team meets it.
  */
 class AdvantageScopeAssetsPluginTest {
   @TempDir Path project;
 
   private static final String WRITER =
       """
-      package com.michaelgrundvig.frc.world.bridges;
+      package com.michaelgrundvig.frc.toolconfigs.advantagescope;
 
       import java.nio.file.Files;
       import java.nio.file.Path;
@@ -76,7 +78,9 @@ class AdvantageScopeAssetsPluginTest {
             catalog = "fixture.Robots"
         }
         """);
-    write("src/main/java/com/michaelgrundvig/frc/world/bridges/AdvantageScopeAssets.java", WRITER);
+    write(
+        "src/main/java/com/michaelgrundvig/frc/toolconfigs/advantagescope/AdvantageScopeAssets.java",
+        WRITER);
     mass("61.0");
     stamp("first");
   }

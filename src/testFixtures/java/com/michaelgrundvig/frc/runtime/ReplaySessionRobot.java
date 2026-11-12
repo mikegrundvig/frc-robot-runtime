@@ -147,8 +147,8 @@ final class ReplaySessionRobot extends Robot {
       case 20 -> patchTheSteeringGain();
       case 25 -> simulator().joystick(1, null, null); // let go
       case 30 -> pitwall().tunables().requestChanges(Map.of(GAIN, 2.5));
-      case 40 -> pitwall().actions().requestStart(RobotContainer.DRIVE_CHECK);
-      case 150 -> pitwall().experiments().requestStart(RobotContainer.STEER_STEP, null);
+      case 40 -> pitwall().actions().requestStart(RobotPitwall.DRIVE_CHECK);
+      case 150 -> pitwall().experiments().requestStart(RobotPitwall.STEER_STEP, null);
       case LOOPS -> {
         Logger.end(); // closes the log, once it has written every loop it was handed
         System.exit(0);

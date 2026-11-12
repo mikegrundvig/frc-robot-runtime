@@ -5,8 +5,8 @@ import org.wpilib.util.Alert;
 
 /**
  * What the drivetrain tells the drive team is wrong with its hardware: a module that has
- * disconnected, a module whose devices did not take their configuration, and odometry readings that
- * have stopped arriving.
+ * disconnected, a module whose devices did not take their configuration, a module whose absolute
+ * encoder says its magnet is out of place, and odometry readings that have stopped arriving.
  */
 final class DriveAlerts implements AutoCloseable {
   /**
@@ -17,6 +17,7 @@ final class DriveAlerts implements AutoCloseable {
 
   private final Alert[] moduleDisconnected = new Alert[Module.COUNT];
   private final Alert[] moduleUnconfigured = new Alert[Module.COUNT];
+  private final Alert[] moduleMagnetRed = new Alert[Module.COUNT];
   private final Alert odometryStopped;
 
   /** How many loops in a row the wheels have reported connected but sent no high-rate readings. */
@@ -50,6 +51,15 @@ final class DriveAlerts implements AutoCloseable {
               "module" + module + "Unconfigured",
               module + " swerve module not configured",
               Alert.Level.HIGH);
+      moduleMagnetRed[i] =
+          new Alert(
+              group,
+              "module" + module + "MagnetRed",
+              module
+                  + " swerve module's CANcoder says its magnet is too close or too far (red): its"
+                  + " angle isn't to be trusted. Check the magnet is seated on the shaft and the"
+                  + " CANcoder's spacing before zeroing the module again",
+              Alert.Level.HIGH);
     }
   }
 
@@ -59,6 +69,7 @@ final class DriveAlerts implements AutoCloseable {
     for (int i = 0; i < Module.COUNT; i++) {
       moduleDisconnected[i].set(!modules[i].isConnected());
       checkConfigured(i, modules[i].unconfigured());
+      moduleMagnetRed[i].set(modules[i].encoderMagnet() == ModuleIO.MagnetHealth.RED);
     }
   }
 
@@ -90,14 +101,19 @@ final class DriveAlerts implements AutoCloseable {
           Module.NAMES.get(module)
               + " swerve module: "
               + unconfigured
-              + " didn't take its configuration and runs on defaults (no current limits):"
-              + " restart the robot code once it's connected");
+              + " didn't take its configuration. The drivetrain holds still, and its moves wait,"
+              + " until it does: it's sent its configuration again once it answers. Check its CAN"
+              + " ID and wiring");
     }
     moduleUnconfigured[module].set(runsUnconfigured);
   }
 
   boolean isModuleUnconfiguredActive(int module) {
     return moduleUnconfigured[module].get();
+  }
+
+  boolean isModuleMagnetRedActive(int module) {
+    return moduleMagnetRed[module].get();
   }
 
   boolean isOdometryStoppedActive() {
@@ -111,6 +127,9 @@ final class DriveAlerts implements AutoCloseable {
       alert.close();
     }
     for (Alert alert : moduleUnconfigured) {
+      alert.close();
+    }
+    for (Alert alert : moduleMagnetRed) {
       alert.close();
     }
     odometryStopped.close();

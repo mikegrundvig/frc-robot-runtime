@@ -28,7 +28,7 @@ class ModuleFeedforwardTest {
   @Test
   void aPushAlongTheWheelAddsItsVolts() {
     Controller controller = new Controller();
-    Module module = new Module(controller, 0, ExampleRobot.SIM.definition().drivetrain().module(0));
+    Module module = new Module(controller, 0, ExampleRobot.SIM.definition().drivetrain());
     module.configure(ExampleRobot.SIM.drivetrain().gains(), ExampleRobot.SIM.drivetrain().limits());
     // A Kraken X60 through 6.75:1 on a 2 in wheel: 50 N at the carpet is 50 x 0.0508 / 6.75 N m at
     // the rotor, that over its torque constant in amps, that across its resistance in volts.

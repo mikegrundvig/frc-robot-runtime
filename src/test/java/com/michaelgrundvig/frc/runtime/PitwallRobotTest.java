@@ -8,8 +8,8 @@ import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.pitwall.Actions;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
-import com.michaelgrundvig.frc.pitwall.Outcome;
 import com.michaelgrundvig.frc.pitwall.Pitwall;
+import com.michaelgrundvig.frc.pitwall.RequestOutcome;
 import com.michaelgrundvig.frc.pitwall.Status;
 import com.michaelgrundvig.frc.pitwall.TunableTee;
 import com.michaelgrundvig.frc.pitwall.experiment.Experiment;
@@ -30,8 +30,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -134,13 +134,14 @@ class PitwallRobotTest {
 
     var locked = pitwall.actions().requestStart("Wait a moment");
     loops(1);
-    assertThat(locked.getNow(null).result()).as("teleop").isEqualTo(Outcome.Result.LOCKED);
+    assertThat(locked.getNow(null).result()).as("teleop").isEqualTo(RequestOutcome.Result.LOCKED);
 
     RobotSim.setEnabled(true);
     setMode(RobotMode.UTILITY);
     var started = pitwall.actions().requestStart("Wait a moment");
     loops(1);
-    assertThat(started.getNow(null)).isEqualTo(new Outcome(Outcome.Result.APPLIED, ""));
+    assertThat(started.getNow(null))
+        .isEqualTo(new RequestOutcome(RequestOutcome.Result.APPLIED, ""));
     assertThat(phase()).isEqualTo(Actions.Phase.RUNNING);
 
     loops(10);
@@ -262,14 +263,18 @@ class PitwallRobotTest {
                       // The test is over.
                     }
                   });
-      long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+      long end = System.nanoTime() + Waits.LIMIT.toNanos();
       while (lines.stream().noneMatch(line -> line.startsWith("data: "))
           && System.nanoTime() < end) {
         pitwall.periodic();
         Thread.sleep(5); // waiting on the network, not the robot's clock
       }
       reader.interrupt();
-      return lines.stream().filter(line -> line.startsWith("data: ")).findFirst().orElseThrow();
+      Optional<String> first = lines.stream().filter(line -> line.startsWith("data: ")).findFirst();
+      assertThat(first)
+          .as("waited 30 s for the event stream's snapshot; it sent %s", lines)
+          .isPresent();
+      return first.get();
     }
   }
 
@@ -343,7 +348,7 @@ class PitwallRobotTest {
 
     assertThat(printed.toString(StandardCharsets.UTF_8))
         .contains("gains.steerKp: 16.0 -> 18.0")
-        .contains(".steerKp(18.0)");
+        .contains(".withSteerKp(Volts.per(Radian).of(18.0))");
   }
 
   /**
@@ -371,7 +376,7 @@ class PitwallRobotTest {
     assertThat(drivetrain.get().gains().steerKp()).as("reverted").isEqualTo(16.0);
     assertThat(printed.toString(StandardCharsets.UTF_8))
         .contains("tuned values return to the committed configuration")
-        .contains(".steerKp(18.0)");
+        .contains(".withSteerKp(Volts.per(Radian).of(18.0))");
     assertThat(camera.get()).as("the switch keeps its setting").isFalse();
     assertThat(activeAlerts())
         .anySatisfy(
@@ -395,7 +400,8 @@ class PitwallRobotTest {
 
     run(lag, 110);
 
-    assertThat(started.getNow(null)).isEqualTo(new Outcome(Outcome.Result.APPLIED, ""));
+    assertThat(started.getNow(null))
+        .isEqualTo(new RequestOutcome(RequestOutcome.Result.APPLIED, ""));
     Run run = Objects.requireNonNull(pitwall.experiments().run());
     assertThat(run.state().phase()).isEqualTo(Run.Phase.ENDED);
     assertThat(run.gains()).containsEntry("gains.steerKp", 16.0);
@@ -495,12 +501,14 @@ class PitwallRobotTest {
                   .method("PATCH", HttpRequest.BodyPublishers.ofString(json))
                   .build(),
               HttpResponse.BodyHandlers.ofString());
-      for (int i = 0; i < 400 && !answer.isDone(); i++) {
+      long end = System.nanoTime() + Waits.LIMIT.toNanos();
+      while (!answer.isDone() && System.nanoTime() < end) {
         pitwall.periodic();
         TunableRegistry.update();
         Thread.sleep(5);
       }
-      return answer.get(1, TimeUnit.SECONDS);
+      assertThat(answer).as("waited 30 s for the answer to PATCH %s", path).isDone();
+      return answer.get();
     }
   }
 

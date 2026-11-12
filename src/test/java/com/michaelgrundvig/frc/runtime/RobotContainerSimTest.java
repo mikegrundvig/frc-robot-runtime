@@ -9,10 +9,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Degrees;
-import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Meters;
 
+import com.michaelgrundvig.frc.localization.SlipCheck;
 import com.michaelgrundvig.frc.pitwall.Actions;
-import com.michaelgrundvig.frc.pitwall.Outcome;
+import com.michaelgrundvig.frc.pitwall.RequestOutcome;
 import com.michaelgrundvig.frc.runtime.behavior.Binding;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.DriveSimulation;
@@ -33,9 +34,11 @@ import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
+import com.michaelgrundvig.frc.world.robot.SwerveWiringModuleWiringBuilder;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +50,6 @@ import org.wpilib.hardware.hal.AllianceStationID;
 import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
-import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.simulation.PDPSim;
 import org.wpilib.telemetry.MockTelemetryBackend;
 import org.wpilib.tunable.MockTunableBackend;
@@ -174,24 +176,25 @@ class RobotContainerSimTest {
 
   @Test
   void itSaysWhenItIsReadyToScoreAndWhyNot() {
-    String before = sim.robot().scoring();
+    String before = sim.robot().localization().scoring();
     sim.run(1.0);
-    String settled = sim.robot().scoring();
-    boolean ready = sim.robot().readyToScore();
+    String settled = sim.robot().localization().scoring();
+    boolean ready = sim.robot().localization().readyToScore();
     sim.simulation().tilt(Math.toRadians(10), 0);
     sim.loops(2);
 
     assertThat(before).isEqualTo("Not ready: not started");
     assertThat(settled).isEqualTo("Ready to score");
     assertThat(ready).isTrue();
-    assertThat(sim.robot().scoring()).isEqualTo("Not ready: the robot is tilted 10 degrees");
+    assertThat(sim.robot().localization().scoring())
+        .isEqualTo("Not ready: the robot is tilted 10 degrees");
   }
 
   @Test
   void autonomousStartingHoldsTheCamerasOnlyWhenAsked() {
     var hold = sim.pitwall().tunables().requestChanges(Map.of("Vision/autoStartHoldSeconds", 2.0));
     sim.run(1.0);
-    assertThat(hold.getNow(null)).isEqualTo(new Outcome(Outcome.Result.APPLIED, ""));
+    assertThat(hold.getNow(null)).isEqualTo(new RequestOutcome(RequestOutcome.Result.APPLIED, ""));
     int before = sim.robot().estimate().health().accepted();
 
     RobotSim.enable(RobotMode.AUTONOMOUS, true);
@@ -386,6 +389,7 @@ class RobotContainerSimTest {
             Doubts.lines(
                 Doubts.of(
                     ExampleRobot.SIM.definition(),
+                    SlipCheck.Settings.defaults(),
                     RobotSim.massOf(ExampleRobot.SIM.definition()),
                     robot.bindings()),
                 Scope.ROBOT))
@@ -405,7 +409,7 @@ class RobotContainerSimTest {
         sim.robot().drive().getPose(),
         "on its start, as the log's Driver Station says; nothing moves");
     assertThat(activeAlerts()).as("replay's hardware is the log").doesNotContain(NO_DRIVETRAIN);
-    assertThat(sim.robot().simulation()).as("no physics in a replay").isEmpty();
+    assertThat(sim.robot().world()).as("no physics in a replay").isEmpty();
   }
 
   /**
@@ -463,7 +467,7 @@ class RobotContainerSimTest {
                     .build())
             .build(),
         SensorErrors.NONE);
-    SensorSimulation sensors = Objects.requireNonNull(sim.robot().world().orElseThrow().sensors());
+    SensorSimulation sensors = Objects.requireNonNull(sim.world().sensors());
     sim.run(0.1);
     assertThat(activeAlerts()).noneMatch(text -> text.contains("bumper is lost"));
 
@@ -489,36 +493,25 @@ class RobotContainerSimTest {
    */
   @Test
   void aRealRobotWithWiringReadsItsCtreHardware() {
-    SwerveWiring.ModuleWiring[] modules = new SwerveWiring.ModuleWiring[4];
+    CanBus canivore = CanBus.canivore("drivetrain");
+    List<SwerveWiring.ModuleWiring> modules = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
-      modules[i] =
-          SwerveWiring.ModuleWiring.builder()
-              .driveId(40 + 3 * i)
-              .steerId(41 + 3 * i)
-              .encoderOffset(Rotations.of(0))
-              .driveInverted(false)
-              .steerInverted(true)
-              .encoderInverted(false)
-              .encoderId(42 + 3 * i)
-              .build();
+      int drive = 40 + 3 * i;
+      modules.add(
+          SwerveWiringModuleWiringBuilder.builder(
+                  TestWiring.talons(canivore, drive, drive + 1, drive + 2))
+              .steering(MechanismWiring.Controller.TALON_FX.can(canivore, drive + 1).clockwise())
+              .build());
     }
     RobotConfig wired =
         RobotConfigBuilder.builder(ExampleRobot.SIM)
             .definition(
                 RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
                     .drivetrain(
-                        ExampleRobot.SIM
-                            .definition()
-                            .drivetrain()
-                            .wired(
-                                SwerveWiring.builder()
-                                    .canBus(CanBus.canivore("drivetrain"))
-                                    .driveController(MechanismWiring.Controller.TALON_FX)
-                                    .steerController(MechanismWiring.Controller.TALON_FX)
-                                    .gyroId(52)
-                                    .gyroYawScale(1.0)
-                                    .modules(List.of(modules))
-                                    .build()))
+                        TestWiring.wired(
+                            ExampleRobot.SIM.definition().drivetrain(),
+                            SwerveWiring.PIGEON_2.can(canivore, 52),
+                            modules))
                     .build())
             .build();
     sim.build(RunMode.REAL, wired, SensorErrors.NONE);
@@ -568,8 +561,9 @@ class RobotContainerSimTest {
   @Test
   void aControllerDrawingNothingWhileItsJointWorksIsAnAlert() {
     Output push = Output.volts("push", -3);
-    Joint.Revolute arm =
-        Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+    RevoluteJoint arm =
+        Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
             .outputs(push)
@@ -594,7 +588,7 @@ class RobotContainerSimTest {
     sim.scheduler().schedule(sim.robot().joints().of(arm).run(push));
     sim.run(0.2);
 
-    Objects.requireNonNull(sim.robot().world().orElseThrow().pdh()).zero(5, true);
+    Objects.requireNonNull(sim.world().pdh()).zero(5, true);
     sim.run(0.6);
 
     assertThat(activeAlerts())
@@ -609,8 +603,9 @@ class RobotContainerSimTest {
    */
   @Test
   void aRobotClosedLeavesNoneOfItsTuningPublished() {
-    Joint.Revolute arm =
-        Joint.pivot("arm", Part.CHASSIS, new Translation3d(0.2, 0, 0.4), Joint.PITCH_UP)
+    RevoluteJoint arm =
+        Joint.pivot("arm", Part.CHASSIS, Joint.PITCH_UP)
+            .at(Meters.of(0.2), Meters.of(0), Meters.of(0.4))
             .range(Range.degrees(0, 90))
             .rest(Degrees.of(0))
             .motors(Motor.KRAKEN_X60.through(Gearing.of(50)))
@@ -660,12 +655,13 @@ class RobotContainerSimTest {
   @Test
   void theDriveCheckIsAnActionOnThePage() {
     RobotSim.enable(RobotMode.UTILITY, true);
-    var started = sim.pitwall().actions().requestStart(RobotContainer.DRIVE_CHECK);
+    var started = sim.pitwall().actions().requestStart(RobotPitwall.DRIVE_CHECK);
     sim.loops(25);
 
-    assertThat(started.getNow(null)).isEqualTo(new Outcome(Outcome.Result.APPLIED, ""));
+    assertThat(started.getNow(null))
+        .isEqualTo(new RequestOutcome(RequestOutcome.Result.APPLIED, ""));
     assertThat(sim.pitwall().actions().view())
-        .filteredOn(action -> action.name().equals(RobotContainer.DRIVE_CHECK))
+        .filteredOn(action -> action.name().equals(RobotPitwall.DRIVE_CHECK))
         .singleElement()
         .extracting(Actions.State::phase)
         .isEqualTo(Actions.Phase.RUNNING);

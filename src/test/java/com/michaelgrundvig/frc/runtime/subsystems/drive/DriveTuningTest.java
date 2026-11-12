@@ -7,8 +7,8 @@ import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
+import com.michaelgrundvig.frc.world.robot.DrivetrainControlSwerveGainsBuilder;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
@@ -23,11 +23,11 @@ import org.wpilib.math.geometry.Pose2d;
 class DriveTuningTest {
   /** A module that remembers what its motor controllers were last given. */
   private static final class RecordingModuleIO implements ModuleIO {
-    DrivetrainControl.@Nullable Gains gains;
+    DrivetrainControl.@Nullable SwerveGains gains;
     DrivetrainControl.@Nullable Limits limits;
 
     @Override
-    public void configure(DrivetrainControl.Gains gains, DrivetrainControl.Limits limits) {
+    public void configure(DrivetrainControl.SwerveGains gains, DrivetrainControl.Limits limits) {
       this.gains = gains;
       this.limits = limits;
     }
@@ -42,7 +42,8 @@ class DriveTuningTest {
                 DrivetrainControlLimitsBuilder.builder(committed.limits())
                     .driveStatorCurrent(Amps.of(15))
                     .build())
-            .gains(DrivetrainControlGainsBuilder.builder(committed.gains()).driveKp(3.0).build())
+            .gains(
+                DrivetrainControlSwerveGainsBuilder.builder(committed.gains()).driveKp(3.0).build())
             .build();
     var config = new AtomicReference<>(committed);
     RecordingModuleIO[] modules = {
@@ -52,8 +53,8 @@ class DriveTuningTest {
       new RecordingModuleIO()
     };
 
-    try (Drive drive =
-        new Drive(
+    try (SwerveDrive drive =
+        new SwerveDrive(
             "TuningTest",
             DriveHardware.builder()
                 .modules(List.of(modules))

@@ -15,6 +15,7 @@ import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.Map;
 import java.util.Optional;
@@ -100,7 +101,7 @@ final class JointIOSim implements JointIO {
     VELOCITY,
     /** A voltage, within its soft limits. */
     VOLTAGE,
-    /** A share of the battery's voltage, within its soft limits. */
+    /** A share of 12 V, within its soft limits, as on every driver (J9). */
     DUTY_CYCLE,
     /**
      * A voltage for homing, which ignores its soft limits: they are in the wrong place until the
@@ -142,7 +143,7 @@ final class JointIOSim implements JointIO {
   /** The volts last asked for, as a voltage or as a homing push. */
   private double askedVolts;
 
-  /** The share of the battery's voltage last asked for, from -1 to 1. */
+  /** The share of 12 V last asked for, from -1 to 1. */
   private double askedDutyCycle;
 
   /**
@@ -443,7 +444,7 @@ final class JointIOSim implements JointIO {
    */
   void powerOnAt(double position) {
     plant.place(position);
-    double countsFrom = joint.restPosition();
+    double countsFrom = RobotMath.restPosition(joint);
     if (seedsFrom.isPresent()) {
       countsFrom = withinTheEncodersWindow(seedsFrom.get());
     }
@@ -634,7 +635,7 @@ final class JointIOSim implements JointIO {
    * back into the joint's units inside the window of positions the encoder's one turn tells apart.
    */
   private double withinTheEncodersWindow(EncoderRead model) {
-    double unitsPerTurn = joint instanceof Joint.Revolute ? 2 * Math.PI : 1;
+    double unitsPerTurn = joint instanceof RevoluteJoint ? 2 * Math.PI : 1;
     double encoderTurns = encoder.of(plant.position()) * model.turnsPerJointTurn() / unitsPerTurn;
     double shareOfATurn = encoderTurns - Math.floor(encoderTurns);
     return model.reader().position(shareOfATurn);

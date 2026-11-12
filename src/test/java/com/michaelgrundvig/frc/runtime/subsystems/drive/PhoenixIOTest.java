@@ -3,21 +3,28 @@ package com.michaelgrundvig.frc.runtime.subsystems.drive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 import static org.wpilib.units.Units.Amps;
-import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Rotation;
+import static org.wpilib.units.Units.RotationsPerSecond;
 import static org.wpilib.units.Units.Seconds;
+import static org.wpilib.units.Units.Volts;
 
 import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.SignalLogger;
-import com.ctre.phoenix6.StatusCode;
+import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.configs.CurrentLimitsConfigs;
+import com.ctre.phoenix6.configs.Pigeon2Configuration;
+import com.ctre.phoenix6.configs.Slot0Configs;
 import com.ctre.phoenix6.hardware.CANcoder;
 import com.ctre.phoenix6.hardware.Pigeon2;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotSim;
+import com.michaelgrundvig.frc.runtime.TestWiring;
+import com.michaelgrundvig.frc.runtime.Waits;
+import com.michaelgrundvig.frc.world.robot.CanBus;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControlLimitsBuilder;
-import com.michaelgrundvig.frc.world.robot.DrivetrainGeometry;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -27,12 +34,14 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
+import java.util.function.ToDoubleFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.math.geometry.Rotation3d;
 import org.wpilib.math.geometry.Translation3d;
+import org.wpilib.units.measure.Angle;
 
 /**
  * The CTRE IO against Phoenix's own simulated devices: set what a sensor reads, and check what the
@@ -42,9 +51,12 @@ import org.wpilib.math.geometry.Translation3d;
 @ExtendWith(RobotSim.class)
 class PhoenixIOTest {
   private static final CANBus BUS = new CANBus("drivetrain");
-  private static final DrivetrainGeometry GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
+  private static final Drivetrain GEOMETRY = ExampleRobot.SIM.definition().drivetrain();
   private static final DrivetrainControl DRIVETRAIN = ExampleRobot.SIM.drivetrain();
   private static final double COUPLING = 3.5;
+
+  /** Each device tried as on a bus that is seen, and a send while running answered at once. */
+  private static final ModuleStartup STARTUP = new ModuleStartup(5, Runnable::run);
 
   private final PhoenixOdometryThread odometry = new PhoenixOdometryThread();
 
@@ -56,38 +68,19 @@ class PhoenixIOTest {
   @AfterEach
   void tearDown() throws InterruptedException {
     odometry.interrupt();
-    odometry.join(2000); // stopped before the next test's devices start
+    odometry.join(2000);
+    // Stopped before the next test's devices start, or this test fails.
+    assertThat(odometry.isAlive()).as("the odometry thread, 2 s after it was stopped").isFalse();
   }
 
   private static SwerveWiring.ModuleWiring wiring(int drive, int steer, int encoder) {
-    return SwerveWiring.ModuleWiring.builder()
-        .driveId(drive)
-        .steerId(steer)
-        .encoderOffset(Rotations.of(0))
-        .driveInverted(false)
-        .steerInverted(false)
-        .encoderInverted(false)
-        .encoderId(encoder)
-        .build();
-  }
-
-  /** Waits up to two seconds, reading again every few milliseconds, for something to be true. */
-  private static boolean eventually(Runnable read, BooleanSupplier done)
-      throws InterruptedException {
-    for (int i = 0; i < 200; i++) {
-      read.run();
-      if (done.getAsBoolean()) {
-        return true;
-      }
-      Thread.sleep(10);
-    }
-    return false;
+    return TestWiring.talons(CanBus.SYSTEMCORE, drive, steer, encoder);
   }
 
   @Test
   void theWheelTurnsByItsGearingLessWhatTurningTheModulePutThere() throws InterruptedException {
     ModuleIOTalonFX io =
-        new ModuleIOTalonFX(wiring(1, 2, 3), BUS, GEOMETRY.module(0), COUPLING, odometry);
+        new ModuleIOTalonFX(wiring(1, 2, 3), BUS, GEOMETRY.module(0), COUPLING, odometry, STARTUP);
     io.configure(DRIVETRAIN.gains(), DRIVETRAIN.limits());
     odometry.start();
     double gearing = GEOMETRY.module(0).driveGearing().ratio();
@@ -98,18 +91,16 @@ class PhoenixIOTest {
     // the readings settle over a few frames.
     double expected = 2 * Math.PI * (2 - COUPLING * 0.25 / gearing);
     ModuleIOInputsAutoLogged inputs = new ModuleIOInputsAutoLogged();
-    boolean settled =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () -> {
-              int last = inputs.odometryDrivePositionsRad.length - 1;
-              return last >= 0
-                  && Math.abs(inputs.drivePositionRad - expected) < 0.01
-                  && Math.abs(inputs.odometryDrivePositionsRad[last] - expected) < 0.01
-                  && Math.abs(inputs.odometrySteerAnglesRad[last] - Math.PI / 2) < 0.01;
-            });
-
-    assertThat(settled).as("the readings settle where the gearing and coupling put them").isTrue();
+    Waits.until(
+        "the readings settle where the gearing and coupling put them",
+        () -> io.updateInputs(inputs),
+        () -> {
+          int last = inputs.odometryDrivePositionsRad.length - 1;
+          return last >= 0
+              && Math.abs(inputs.drivePositionRad - expected) < 0.01
+              && Math.abs(inputs.odometryDrivePositionsRad[last] - expected) < 0.01
+              && Math.abs(inputs.odometrySteerAnglesRad[last] - Math.PI / 2) < 0.01;
+        });
     assertThat(inputs.steerAngle.getDegrees()).isCloseTo(90, within(0.5));
     assertThat(inputs.odometryTimestampsNanos).hasSameSizeAs(inputs.odometryDrivePositionsRad);
     assertThat(inputs.unconfigured).as("every device took its configuration").isEmpty();
@@ -140,7 +131,8 @@ class PhoenixIOTest {
   void theDriveMotorsSupplyLimitStepsDownAsConfiguredAtStartupAndWhenTuned()
       throws InterruptedException {
     ModuleIOTalonFX io =
-        new ModuleIOTalonFX(wiring(11, 12, 13), BUS, GEOMETRY.module(0), COUPLING, odometry);
+        new ModuleIOTalonFX(
+            wiring(11, 12, 13), BUS, GEOMETRY.module(0), COUPLING, odometry, STARTUP);
     TalonFX drive = new TalonFX(11, BUS);
 
     io.configure(DRIVETRAIN.gains(), stepDown(55, 35, 0.5));
@@ -159,13 +151,48 @@ class PhoenixIOTest {
   }
 
   /**
+   * Tuner X's stock steering gains, typed as Tuner X shows them, per turn of the module, reach the
+   * steering motor's slot as the same numbers: the steering's TalonFX runs on its CANcoder, a turn
+   * of the module a turn of its sensor, so its slot is per turn of the module too. Held in volts
+   * per radian between, a gain typed with its unit comes back out as it went in; typed as a plain
+   * number, 100 would be 100 per radian, 2π times too hot.
+   */
+  @Test
+  void tunerXsStockSteeringGainsReachTheSteeringMotorAsTunerXShowsThem()
+      throws InterruptedException {
+    record Row(String gain, ToDoubleFunction<Slot0Configs> read, double tunerX) {}
+    List<Row> rows =
+        List.of(new Row("kP", slot -> slot.kP, 100), new Row("kD", slot -> slot.kD, 0.5));
+    DrivetrainControl typed =
+        DrivetrainControl.defaults()
+            .withSteerKp(Volts.per(Rotation).of(100))
+            .withSteerKd(Volts.per(RotationsPerSecond).of(0.5));
+    DrivetrainControl seeded = GEOMETRY.control(typed).control().orElseThrow();
+    ModuleIOTalonFX io =
+        new ModuleIOTalonFX(
+            wiring(17, 18, 19), BUS, GEOMETRY.module(0), COUPLING, odometry, STARTUP);
+    TalonFX steer = new TalonFX(18, BUS);
+    Slot0Configs slot = new Slot0Configs();
+
+    io.configure(seeded.gains(), seeded.limits());
+
+    assertThat(steer.getConfigurator().refresh(slot, 1.0).isOK()).as("read back").isTrue();
+    for (Row row : rows) {
+      assertThat(row.read().applyAsDouble(slot))
+          .as("the steering's slot %s", row.gain())
+          .isCloseTo(row.tunerX(), within(1e-9));
+    }
+  }
+
+  /**
    * The steering has no supply limit, so no step-down: its stator limit caps what it draws from the
    * battery. Phoenix would turn one on by default, so this fails if the line turning it off goes.
    */
   @Test
   void theSteeringHasNoSupplyLimitAndSoNoStepDown() throws InterruptedException {
     ModuleIOTalonFX io =
-        new ModuleIOTalonFX(wiring(14, 15, 16), BUS, GEOMETRY.module(0), COUPLING, odometry);
+        new ModuleIOTalonFX(
+            wiring(14, 15, 16), BUS, GEOMETRY.module(0), COUPLING, odometry, STARTUP);
     TalonFX steer = new TalonFX(15, BUS);
     CurrentLimitsConfigs read = new CurrentLimitsConfigs();
 
@@ -179,11 +206,10 @@ class PhoenixIOTest {
         DrivetrainControlLimitsBuilder.builder(DRIVETRAIN.limits())
             .steerStatorCurrent(Amps.of(35))
             .build());
-    boolean applied =
-        eventually(
-            () -> steer.getConfigurator().refresh(read, 1.0),
-            () -> Math.abs(read.StatorCurrentLimit - 35) < 0.01);
-    assertThat(applied).as("the tuned limit reached the steering").isTrue();
+    Waits.until(
+        "the tuned limit reached the steering",
+        () -> steer.getConfigurator().refresh(read, 1.0),
+        () -> Math.abs(read.StatorCurrentLimit - 35) < 0.01);
     assertThat(read.SupplyCurrentLimitEnable).as("after tuning").isFalse();
   }
 
@@ -206,23 +232,26 @@ class PhoenixIOTest {
       TalonFX motor, double amps, double lowerAmps, double lowerSeconds)
       throws InterruptedException {
     CurrentLimitsConfigs read = new CurrentLimitsConfigs();
-    boolean reported =
-        eventually(
-            () -> motor.getConfigurator().refresh(read, 1.0),
-            () ->
-                Math.abs(read.SupplyCurrentLimit - amps) < 0.01
-                    && Math.abs(read.SupplyCurrentLowerLimit - lowerAmps) < 0.01
-                    && Math.abs(read.SupplyCurrentLowerTime - lowerSeconds) < 0.01);
-    assertThat(reported)
-        .as(
-            "wants %s A, then %s A after %s s; the drive motor has %s A, %s A, %s s",
-            amps,
-            lowerAmps,
-            lowerSeconds,
-            read.SupplyCurrentLimit,
-            read.SupplyCurrentLowerLimit,
-            read.SupplyCurrentLowerTime)
-        .isTrue();
+    Waits.until(
+        () ->
+            "wants "
+                + amps
+                + " A, then "
+                + lowerAmps
+                + " A after "
+                + lowerSeconds
+                + " s; the drive motor has "
+                + read.SupplyCurrentLimit
+                + " A, "
+                + read.SupplyCurrentLowerLimit
+                + " A, "
+                + read.SupplyCurrentLowerTime
+                + " s",
+        () -> motor.getConfigurator().refresh(read, 1.0),
+        () ->
+            Math.abs(read.SupplyCurrentLimit - amps) < 0.01
+                && Math.abs(read.SupplyCurrentLowerLimit - lowerAmps) < 0.01
+                && Math.abs(read.SupplyCurrentLowerTime - lowerSeconds) < 0.01);
     assertThat(read.SupplyCurrentLimitEnable).as("the supply limit is on").isTrue();
   }
 
@@ -253,11 +282,14 @@ class PhoenixIOTest {
             },
             message -> {});
     ModuleIOTalonFX io =
-        new ModuleIOTalonFX(wiring(21, 22, 23), BUS, GEOMETRY.module(0), COUPLING, scripted);
+        new ModuleIOTalonFX(
+            wiring(21, 22, 23), BUS, GEOMETRY.module(0), COUPLING, scripted, STARTUP);
     ModuleIOInputsAutoLogged inputs = new ModuleIOInputsAutoLogged();
     scripted.start();
     try {
-      assertThat(read.await(2, TimeUnit.SECONDS)).as("read every batch").isTrue();
+      assertThat(read.await(Waits.LIMIT.toSeconds(), TimeUnit.SECONDS))
+          .as("waited 30 s for every batch read")
+          .isTrue();
       scripted.lock().lock();
       try {
         io.updateInputs(inputs);
@@ -268,6 +300,7 @@ class PhoenixIOTest {
       scripted.interrupt();
       scripted.join(2000);
     }
+    assertThat(scripted.isAlive()).as("the scripted thread, 2 s after it was stopped").isFalse();
 
     assertThat(inputs.driveConnected).as("not silent half a second yet").isTrue();
     assertThat(inputs.odometryDrivePositionsRad).hasSize(3);
@@ -303,23 +336,6 @@ class PhoenixIOTest {
     assertThat(queue).containsExactly(3, 4, 5);
   }
 
-  @Test
-  void configuringAtStartupTriesAFewTimesThenSaysItFailed() {
-    int[] attempts = {0};
-
-    boolean failed =
-        ModuleIOTalonFX.tryUntilOk(
-            () -> {
-              attempts[0]++;
-              return StatusCode.EcuIsNotPresent;
-            });
-    boolean ok = ModuleIOTalonFX.tryUntilOk(() -> StatusCode.OK);
-
-    assertThat(failed).isFalse();
-    assertThat(attempts[0]).isEqualTo(5);
-    assertThat(ok).isTrue();
-  }
-
   /** The steering's current is the loop's peak, either way, from every reading since the last. */
   @Test
   void theSteeringsCurrentIsTheMostAmongTheLoopsReadings() {
@@ -343,7 +359,7 @@ class PhoenixIOTest {
 
   @Test
   void theGyroPassesItsAnglesThroughInWpilibsConvention() throws InterruptedException {
-    GyroIOPigeon2 io = new GyroIOPigeon2(20, BUS, 1.0, Rotation3d.ZERO, odometry);
+    GyroIOPigeon2 io = new GyroIOPigeon2(20, BUS, 5, 1.0, Rotation3d.ZERO, odometry);
     odometry.start();
 
     var pigeon = new Pigeon2(20, BUS).getSimState();
@@ -351,18 +367,134 @@ class PhoenixIOTest {
     pigeon.setPitch(-5); // nose up
     pigeon.setRoll(3);
     GyroIOInputsAutoLogged inputs = new GyroIOInputsAutoLogged();
-    boolean read =
-        eventually(
-            () -> io.updateInputs(inputs),
-            () ->
-                Math.abs(inputs.yaw.getDegrees() - 90) < 0.1
-                    && Math.abs(Math.toDegrees(inputs.rollRad) - 3) < 0.1
-                    && inputs.odometryYawsRad.length > 0);
-
-    assertThat(read).as("the simulated gyro answered").isTrue();
+    Waits.until(
+        "the simulated gyro answered",
+        () -> io.updateInputs(inputs),
+        () ->
+            Math.abs(inputs.yaw.getDegrees() - 90) < 0.1
+                && Math.abs(Math.toDegrees(inputs.rollRad) - 3) < 0.1
+                && inputs.odometryYawsRad.length > 0);
     assertThat(Math.toDegrees(inputs.pitchRad)).isCloseTo(-5, within(0.1));
     assertThat(inputs.odometryYawsRad[inputs.odometryYawsRad.length - 1])
         .isCloseTo(Math.PI / 2, within(0.002));
+  }
+
+  /**
+   * As the robot starts, the Pigeon is sent its whole configuration: its mount pose is the
+   * definition's orientation, in degrees, and whatever else was on it (a mount pose or a gyro trim
+   * from Tuner X or other code) is Phoenix's default again.
+   */
+  @Test
+  void thePigeonTakesItsMountFromTheDefinitionAndNothingLeftOnIt() throws InterruptedException {
+    Pigeon2 pigeon = new Pigeon2(20, BUS);
+    // Rows: the orientation, and the mount pose it is sent as: yaw, pitch, roll.
+    List<Mount> rows =
+        List.of(
+            new Mount(Rotation3d.ZERO, 0, 0, 0),
+            new Mount(new Rotation3d(0, 0, Math.PI / 2), 90, 0, 0),
+            new Mount(new Rotation3d(Math.PI, 0, 0), 0, 0, 180),
+            new Mount(new Rotation3d(0, Math.toRadians(-10), 0), 0, -10, 0));
+    for (Mount row : rows) {
+      Pigeon2Configuration stale = new Pigeon2Configuration();
+      stale.MountPose.MountPoseRoll = 7;
+      stale.GyroTrim.GyroScalarZ = 3;
+      assertThat(pigeon.getConfigurator().apply(stale, 1.0).isOK()).as("left on it").isTrue();
+
+      new GyroIOPigeon2(20, BUS, 5, 1.0, row.orientation(), odometry);
+      Pigeon2Configuration read = new Pigeon2Configuration();
+      Waits.until(
+          row + ": the Pigeon's configuration read back",
+          () -> {},
+          () -> pigeon.getConfigurator().refresh(read, 1.0).isOK());
+      assertThat(read.MountPose.MountPoseYaw).as("%s yaw", row).isCloseTo(row.yaw(), within(0.01));
+      assertThat(read.MountPose.MountPosePitch)
+          .as("%s pitch", row)
+          .isCloseTo(row.pitch(), within(0.01));
+      assertThat(Math.abs(read.MountPose.MountPoseRoll))
+          .as("%s roll", row)
+          .isCloseTo(row.roll(), within(0.01));
+      assertThat(read.GyroTrim.GyroScalarZ).as("%s: no trim left", row).isZero();
+    }
+  }
+
+  /** An orientation, and the Pigeon's mount pose for it, in degrees. */
+  private record Mount(Rotation3d orientation, double yaw, double pitch, double roll) {}
+
+  /**
+   * A Pigeon that restarts counts its yaw from zero again. The loop it says so, the heading holds
+   * where it was, every high-rate reading too; from its next reading on, the heading goes on from
+   * there: at 30° when it restarted, its new count's 10° reads 40°, never 0° or 10°.
+   */
+  @Test
+  void aPigeonThatRestartsIsTakenUpWhereTheHeadingStood() throws InterruptedException {
+    boolean[] startedAgain = {false};
+    GyroIOPigeon2 io =
+        new GyroIOPigeon2(
+            20,
+            BUS,
+            5,
+            1.0,
+            Rotation3d.ZERO,
+            odometry,
+            pigeon -> {
+              BooleanSupplier phoenix = pigeon.getResetOccurredChecker();
+              return () -> {
+                boolean restarted = startedAgain[0];
+                startedAgain[0] = false;
+                return phoenix.getAsBoolean() || restarted;
+              };
+            });
+    odometry.start();
+    var pigeon = new Pigeon2(20, BUS).getSimState();
+    pigeon.setRawYaw(30);
+    GyroIOInputsAutoLogged inputs = new GyroIOInputsAutoLogged();
+    Waits.until(
+        "the yaw read at 30°",
+        () -> readUnderTheLock(io, inputs),
+        () -> Math.abs(inputs.yaw.getDegrees() - 30) < 0.1);
+
+    // It restarts, and counts from zero: the robot hears it say so once its new count has come.
+    // Phoenix's simulated Pigeon takes a frame or two to send a yaw it is set to.
+    pigeon.setRawYaw(0);
+    StatusSignal<Angle> yaw = new Pigeon2(20, BUS).getYaw();
+    Waits.until(
+        "the Pigeon's yaw counting from 0 again",
+        yaw::refresh,
+        () -> Math.abs(yaw.getValueAsDouble()) < 0.1);
+    Thread.sleep(50);
+    startedAgain[0] = true;
+    readUnderTheLock(io, inputs);
+    boolean saidRestarted = inputs.restarted;
+    double heldDegrees = inputs.yaw.getDegrees();
+    double[] heldYaws = inputs.odometryYawsRad.clone();
+    readUnderTheLock(io, inputs);
+    boolean saidOnce = !inputs.restarted;
+    pigeon.setRawYaw(10);
+    Waits.until(
+        () -> "10° of its new count, on from 30°: read " + inputs.yaw.getDegrees(),
+        () -> readUnderTheLock(io, inputs),
+        () ->
+            Math.abs(inputs.yaw.getDegrees() - 40) < 0.1
+                && inputs.odometryYawsRad.length > 0
+                && Math.abs(
+                        Math.toDegrees(inputs.odometryYawsRad[inputs.odometryYawsRad.length - 1])
+                            - 40)
+                    < 0.1);
+    assertThat(saidRestarted).as("the loop it restarted").isTrue();
+    assertThat(saidOnce).as("in one loop only").isTrue();
+    assertThat(heldDegrees).as("held").isCloseTo(30, within(0.1));
+    for (double held : heldYaws) {
+      assertThat(Math.toDegrees(held)).as("each reading held").isCloseTo(30, within(0.1));
+    }
+  }
+
+  private void readUnderTheLock(GyroIOPigeon2 io, GyroIOInputsAutoLogged inputs) {
+    odometry.lock().lock();
+    try {
+      io.updateInputs(inputs);
+    } finally {
+      odometry.lock().unlock();
+    }
   }
 
   /**

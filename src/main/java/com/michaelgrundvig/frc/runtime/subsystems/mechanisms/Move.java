@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.Outcome;
 import com.michaelgrundvig.frc.runtime.behavior.Refusals;
 import com.michaelgrundvig.frc.runtime.behavior.Why;
+import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.AtOutput;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.AtPlace;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.MoveLeg.Unplanned;
@@ -24,11 +25,13 @@ import com.michaelgrundvig.frc.world.record.MoveProgress;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import com.michaelgrundvig.frc.world.record.MoveTarget;
 import com.michaelgrundvig.frc.world.record.MoveTask;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.JointAsk;
 import com.michaelgrundvig.frc.world.robot.Output;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -56,7 +59,7 @@ import org.wpilib.units.measure.Time;
  *
  * <ul>
  *   <li>{@link Outcome#ARRIVED}: inside the joint's band for 40 ms, every joint for a move to a
- *       configuration; for {@code runUntil}, its condition held; for {@code home}, it's homed.
+ *       preset; for {@code runUntil}, its condition held; for {@code home}, it's homed.
  *   <li>{@link Outcome#TIMED_OUT}: its deadline passed. The reason says where it was, and what
  *       interlock held it.
  *   <li>{@link Outcome#CANCELED}: another command took the joint, its binding released, its {@link
@@ -113,10 +116,10 @@ public final class Move implements Command {
   private final RobotDefinition definition;
 
   /**
-   * The configuration it goes to or stays at, as its index in the definition's configurations, or
-   * {@link Identity#NONE} for a move of one joint.
+   * The preset it goes to or stays at, as its index in the definition's presets, or {@link
+   * Identity#NONE} for a move of one joint.
    */
-  private final int configuration;
+  private final int preset;
 
   private final MovePlan plan;
   private final MoveLeg[] legs;
@@ -157,14 +160,10 @@ public final class Move implements Command {
   private double chasedTarget;
 
   private Move(
-      Scheduler scheduler,
-      RobotDefinition definition,
-      int configuration,
-      MovePlan plan,
-      MoveLeg[] legs) {
+      Scheduler scheduler, RobotDefinition definition, int preset, MovePlan plan, MoveLeg[] legs) {
     this.scheduler = scheduler;
     this.definition = definition;
-    this.configuration = configuration;
+    this.preset = preset;
     this.plan = plan;
     this.legs = legs;
     Set<Mechanism> required = new LinkedHashSet<>();
@@ -276,11 +275,11 @@ public final class Move implements Command {
   }
 
   /**
-   * A move of a configuration's joints, each to its named position or at its named output, as the
-   * running robot's joint has it. It either goes to the configuration, and ends when every joint is
-   * there, or stays at it until canceled.
+   * A move of a preset's joints, each to its named position or at its named output, as the running
+   * robot's joint has it. It either goes to the preset, and ends when every joint is there, or
+   * stays at it until canceled.
    *
-   * <p>A configuration that names a joint the template does not drive makes a move that is refused
+   * <p>A preset that names a joint the template does not drive makes a move that is refused
    * whenever it would start, saying why, so that the mistake does not stop the robot when the move
    * is made.
    *
@@ -288,15 +287,15 @@ public final class Move implements Command {
    * elevator → stowed" as "pivot → out" is, and "feeder and indexer: feeding" as "roller: intaking"
    * is.
    *
-   * @param joints the mechanism of each target's joint, in the configuration's order, or empty for
-   *     a joint the template does not drive
-   * @param task whether it goes to the configuration or stays at it
+   * @param joints the mechanism of each target's joint, in the preset's order, or empty for a joint
+   *     the template does not drive
+   * @param task whether it goes to the preset or stays at it
    * @param refused why it cannot run, if it cannot
    * @param scheduler the command scheduler the joints are registered with
-   * @param definition the robot, which has the configuration among its own
+   * @param definition the robot, which has the preset among its own
    */
-  static Move configuration(
-      Configuration configuration,
+  static Move preset(
+      Preset preset,
       List<Optional<JointMechanism>> joints,
       MovePlan.Task task,
       Optional<String> refused,
@@ -304,7 +303,7 @@ public final class Move implements Command {
       RobotDefinition definition) {
     List<MoveLeg> legs = new ArrayList<>();
     for (int i = 0; i < joints.size(); i++) {
-      var target = configuration.targets().get(i);
+      var target = preset.targets().get(i);
       if (joints.get(i).isEmpty()) {
         continue;
       }
@@ -313,22 +312,22 @@ public final class Move implements Command {
         // A refused move goes nowhere, and a place that is not the joint's own may not exist.
         legs.add(new MoveLeg(joint, new Unplanned()));
       } else if (target.isOutput()) {
-        legs.add(new MoveLeg(joint, AtOutput.of(joint.joint().output(target.name()))));
+        legs.add(new MoveLeg(joint, AtOutput.of(RobotMath.output(joint.joint(), target.name()))));
       } else {
-        double position = joint.joint().position(target.name()).value();
+        double position = RobotMath.position(joint.joint(), target.name()).value();
         legs.add(new MoveLeg(joint, new AtPlace(position, Optional.of(target.name()))));
       }
     }
-    String name = jointsOf(configuration) + linkFor(task) + configuration.name();
+    String name = jointsOf(preset) + linkFor(task) + preset.name();
     return new Move(
         scheduler,
         definition,
-        definition.configurations().indexOf(configuration),
+        definition.presets().indexOf(preset),
         MovePlan.of(task, name, refused),
         legs.toArray(MoveLeg[]::new));
   }
 
-  /** What joins a configuration's joints to its name: an arrow for a move to it, as a joint's. */
+  /** What joins a preset's joints to its name: an arrow for a move to it, as a joint's. */
   private static String linkFor(MovePlan.Task task) {
     if (task instanceof GoTo) {
       return " → ";
@@ -337,12 +336,12 @@ public final class Move implements Command {
   }
 
   /**
-   * The joints a configuration names, as a move's name lists them: "feeder", "feeder and indexer",
-   * "pivot, elevator and arm". Every joint it names is listed, one the template does not drive too.
+   * The joints a preset names, as a move's name lists them: "feeder", "feeder and indexer", "pivot,
+   * elevator and arm". Every joint it names is listed, one the template does not drive too.
    */
-  private static String jointsOf(Configuration configuration) {
+  private static String jointsOf(Preset preset) {
     List<String> labels = new ArrayList<>();
-    for (var target : configuration.targets()) {
+    for (var target : preset.targets()) {
       labels.add(target.joint().label());
     }
     if (labels.size() <= 1) {
@@ -443,7 +442,7 @@ public final class Move implements Command {
     for (int i = 0; i < legs.length; i++) {
       copies[i] = legs[i].copy();
     }
-    return new Move(scheduler, definition, configuration, plan, copies);
+    return new Move(scheduler, definition, preset, plan, copies);
   }
 
   // ---- How it ended ----
@@ -482,9 +481,8 @@ public final class Move implements Command {
 
   /**
    * When each joint got there in its latest run, in seconds from its start: the joints inside their
-   * bands as it ended, each since it came inside for good. For a configuration that arrived, every
-   * joint, so the slowest one, the one to speed up, is plain; for one that timed out, those that
-   * made it.
+   * bands as it ended, each since it came inside for good. For a preset that arrived, every joint,
+   * so the slowest one, the one to speed up, is plain; for one that timed out, those that made it.
    */
   public Map<Joint, Double> arrivals() {
     return arrivals;
@@ -515,9 +513,25 @@ public final class Move implements Command {
   /**
    * One run of the move, from start to end. It waits for the robot to be enabled and for its joints
    * to home, begins, and then steps once a loop until a step ends it.
+   *
+   * <p>A run that throws (a {@code follow}'s target or a {@code runUntil}'s condition, say, that
+   * the team's code supplies) ends {@code REFUSED}, saying what it threw, and its joints go back to
+   * what they do idle. Then the throw goes on to the scheduler, which ends the command, and the
+   * robot's loop reports it. The scheduler doesn't cancel a command that threw, so without this the
+   * move would say it was running for good, and log no outcome.
    */
   @Override
   public void run(Coroutine coroutine) {
+    try {
+      runToItsEnd(coroutine);
+    } catch (RuntimeException e) {
+      endBecauseItThrew(e);
+      throw e;
+    }
+  }
+
+  /** One run of the move ({@link #run}), as it goes when nothing throws. */
+  private void runToItsEnd(Coroutine coroutine) {
     running = true;
     started = false;
     // Until the run begins, it is timed from here: a run canceled while it still waits for its
@@ -548,6 +562,22 @@ public final class Move implements Command {
       // inside one.
       coroutine.yield();
     }
+  }
+
+  /**
+   * Ends a run that threw, as refused, with what it threw. A run that threw as it was ending has
+   * its ending already, which stays.
+   */
+  private void endBecauseItThrew(RuntimeException thrown) {
+    if (!running) {
+      return;
+    }
+    if (plan.task() instanceof Home) {
+      legs[0].joint.stopHoming();
+    }
+    end(
+        Outcome.REFUSED,
+        Optional.of(Why.saying(MoveReason.NONE, "threw " + Said.withKind(thrown))));
   }
 
   @Override
@@ -841,7 +871,7 @@ public final class Move implements Command {
     }
     String given = target.isPresent() ? target.get().toLongString() : "nothing";
     String takes =
-        joint.joint() instanceof Joint.Revolute
+        joint.joint() instanceof RevoluteJoint
             ? "an angle or an angular velocity"
             : "a distance or a linear velocity";
     String wrongKind = joint.getName() + " can't follow " + given + ": it takes " + takes;
@@ -939,7 +969,7 @@ public final class Move implements Command {
               progress,
               seconds,
               leg.joint.index(),
-              configuration,
+              preset,
               target.kind(),
               target.index(),
               target.number(),
@@ -957,7 +987,7 @@ public final class Move implements Command {
               progress,
               seconds,
               Identity.NONE,
-              configuration,
+              preset,
               MoveTarget.NONE,
               Identity.NONE,
               Double.NaN,

@@ -1,10 +1,15 @@
-package com.michaelgrundvig.frc.runtime.subsystems.vision;
+package com.michaelgrundvig.frc.runtime.sim;
 
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Hertz;
 import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Milliseconds;
 
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOPhotonVision;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIOVisor;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
 import com.michaelgrundvig.frc.visor.CameraToTag;
 import com.michaelgrundvig.frc.visor.VisorFrame;
 import com.michaelgrundvig.frc.world.field.FieldModel;
@@ -19,6 +24,7 @@ import java.util.SplittableRandom;
 import java.util.function.IntToLongFunction;
 import org.jspecify.annotations.Nullable;
 import org.photonvision.PhotonCamera;
+import org.photonvision.estimation.TargetModel;
 import org.photonvision.simulation.PhotonCameraSim;
 import org.photonvision.simulation.SimCameraProperties;
 import org.photonvision.simulation.VisionSystemSim;
@@ -230,6 +236,9 @@ public final class VisionSim implements AutoCloseable {
    */
   private final boolean somethingStandsOnTheField;
 
+  /** What PhotonVision's simulation calls the AprilTags among its targets. */
+  private static final String APRILTAG = "apriltag";
+
   /** A tag's face looks out along its pose's x axis. */
   private static final Translation3d OUT_OF_A_TAGS_FACE = new Translation3d(1, 0, 0);
 
@@ -309,8 +318,14 @@ public final class VisionSim implements AutoCloseable {
       asBuilt.add(new FieldTag(tag.getID(), built));
       builtTags.put(tag.getID(), built);
     }
-    world.addAprilTags(fieldWith(asBuilt));
-    for (VisionTargetSim target : world.getVisionTargets("apriltag")) {
+    // Each tag is the field's size: the cameras see the tags the field's game prints.
+    Field built = fieldWith(asBuilt);
+    TargetModel tagModel = new TargetModel(field.tagSizeMeters(), field.tagSizeMeters());
+    for (FieldTag tag : built.getTags()) {
+      Pose3d pose = built.getTagPose(tag.getID()).orElseThrow();
+      world.addVisionTargets(APRILTAG, new VisionTargetSim(pose, tagModel, tag.getID()));
+    }
+    for (VisionTargetSim target : world.getVisionTargets(APRILTAG)) {
       tags.put(target.fiducialID, target);
     }
   }
@@ -406,10 +421,10 @@ public final class VisionSim implements AutoCloseable {
     // Seeded, one seed per camera, so a simulated run repeats exactly.
     PhotonCameraSim simulated =
         new OwnTopicsCameraSim(
-            drawnOn, properties(config.sensor(), cameraSeeds.applyAsLong(index), noise), layout);
+            drawnOn, properties(config, cameraSeeds.applyAsLong(index), noise), layout);
     // Tags farther than the camera's sight range are not detected. They are small in the image,
     // and noisy.
-    simulated.setMaxSightRange(config.sensor().sightRange().in(Meters));
+    simulated.setMaxSightRange(config.sightRangeOrDefault().in(Meters));
     if (detection != null && onVisor) {
       // The detection model decides instead: every tag in view reaches it, however small.
       simulated.setMaxSightRange(Double.MAX_VALUE);
@@ -434,7 +449,7 @@ public final class VisionSim implements AutoCloseable {
             config.sensor().widthPixels(),
             config.sensor().heightPixels(),
             configured,
-            config.sensor().latency().in(Milliseconds),
+            config.latencyOrDefault().in(Milliseconds),
             mountError,
             mount));
     return io;
@@ -535,20 +550,21 @@ public final class VisionSim implements AutoCloseable {
    *
    * @param seed where the noise starts, so a run repeats exactly
    */
-  public static SimCameraProperties properties(CameraConfig.Sensor sensor, long seed) {
-    return properties(sensor, seed, Noise.TYPICAL);
+  public static SimCameraProperties properties(CameraConfig camera, long seed) {
+    return properties(camera, seed, Noise.TYPICAL);
   }
 
   /** As above, erring as {@code noise} says. */
-  static SimCameraProperties properties(CameraConfig.Sensor sensor, long seed, Noise noise) {
+  static SimCameraProperties properties(CameraConfig camera, long seed, Noise noise) {
+    CameraConfig.ImageSensor sensor = camera.sensor();
     return new SimCameraProperties()
         .setCalibration(
             sensor.widthPixels(),
             sensor.heightPixels(),
-            Rotation2d.fromDegrees(sensor.diagonalFieldOfView().in(Degrees)))
+            Rotation2d.fromDegrees(camera.diagonalFieldOfView().in(Degrees)))
         .setCalibError(noise.cornerMeanPixels(), noise.cornerStdDevPixels())
         .setFPS(sensor.frameRate().in(Hertz))
-        .setAvgLatencyMs(sensor.latency().in(Milliseconds))
+        .setAvgLatencyMs(camera.latencyOrDefault().in(Milliseconds))
         .setLatencyStdDevMs(noise.latencyStdDevMillis())
         .setRandomSeed(seed);
   }

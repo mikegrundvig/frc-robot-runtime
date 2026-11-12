@@ -3,6 +3,9 @@ package com.michaelgrundvig.frc.runtime.subsystems.mechanisms;
 import static org.wpilib.units.Units.Amps;
 import static org.wpilib.units.Units.Inches;
 import static org.wpilib.units.Units.Kilograms;
+import static org.wpilib.units.Units.Meters;
+import static org.wpilib.units.Units.Percent;
+import static org.wpilib.units.Units.Radians;
 import static org.wpilib.units.Units.Seconds;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
@@ -10,7 +13,6 @@ import com.michaelgrundvig.frc.world.physical.Inertia;
 import com.michaelgrundvig.frc.world.physical.MassProperties;
 import com.michaelgrundvig.frc.world.physical.Vector3;
 import com.michaelgrundvig.frc.world.robot.Actuator;
-import com.michaelgrundvig.frc.world.robot.Configuration;
 import com.michaelgrundvig.frc.world.robot.Drive;
 import com.michaelgrundvig.frc.world.robot.DrivenBuilder;
 import com.michaelgrundvig.frc.world.robot.Gearing;
@@ -18,19 +20,24 @@ import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Link;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
+import com.michaelgrundvig.frc.world.robot.MechanismControlCurrentLimitsBuilder;
+import com.michaelgrundvig.frc.world.robot.MechanismControlGainsBuilder;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Output;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Position;
+import com.michaelgrundvig.frc.world.robot.Preset;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.PrismaticJointBuilder;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.Sensor;
 import com.michaelgrundvig.frc.world.robot.Transmission;
 import java.util.List;
 import java.util.Optional;
-import org.wpilib.math.geometry.Rotation3d;
-import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.units.measure.Distance;
 
@@ -60,7 +67,7 @@ public final class JointFixtures {
   public static final Output ROLLER_INTAKING = Output.rpm("intaking", 1500);
 
   public static final Output ROLLER_OUTTAKING = Output.volts("outtaking", -6);
-  public static final Output ROLLER_EJECTING = Output.dutyCycle("ejecting", -0.5);
+  public static final Output ROLLER_EJECTING = Output.dutyCycle("ejecting", Percent.of(-50));
 
   /** The elevator's places. */
   public static final Position ELEVATOR_DOWN = Position.of("down", Inches.of(0));
@@ -77,64 +84,48 @@ public final class JointFixtures {
    * The intake's pivot: 2 kg, 0.3 m out along its zero, which points forward, level; stowed at
    * 1.5°, its roller run from 110°, out at 130°, its stops at 0° and 135°.
    */
-  public static final Joint.Revolute PIVOT =
-      Joint.Revolute.builder()
-          .label("pivot")
-          .parent(Part.CHASSIS)
-          .origin(new Transform3d(new Translation3d(0.2, 0, 0.3), Rotation3d.ZERO))
-          .axis(PITCH_UP)
-          .link(link("intake arm", 2, new Translation3d(0.3, 0, 0)))
-          .positions(List.of(PIVOT_IN, PIVOT_RUN, PIVOT_OUT))
-          .outputs(List.of(PIVOT_PUSH))
+  public static final RevoluteJoint PIVOT =
+      Joint.pivot("pivot", Part.CHASSIS, PITCH_UP)
+          .at(Meters.of(0.2), Meters.of(0), Meters.of(0.3))
           .range(Range.degrees(0, 135))
-          .rest(Math.toRadians(1.5))
-          .build()
+          .rest(Radians.of(Math.toRadians(1.5)))
+          .carries(link("intake arm", 2, new Translation3d(0.3, 0, 0)))
+          .positions(PIVOT_IN, PIVOT_RUN, PIVOT_OUT)
+          .outputs(PIVOT_PUSH)
           .motors(Motor.KRAKEN_X60.through(gearing(25)))
           .control(assumed(control(30, 1, profile(8, 30))));
 
   /** Its roller, through 3:1: intaking at 1500 rpm, outtaking at 6 V back, ejecting at half. */
-  public static final Joint.Revolute ROLLER =
-      Joint.Revolute.builder()
-          .label("roller")
-          .parent(PIVOT)
-          .origin(new Transform3d(new Translation3d(0.35, 0, 0), Rotation3d.ZERO))
-          .axis(PITCH_UP)
-          .link(link("roller", 0.5, new Translation3d(0, 0, 0)))
-          .outputs(List.of(ROLLER_INTAKING, ROLLER_OUTTAKING, ROLLER_EJECTING))
-          .build()
+  public static final RevoluteJoint ROLLER =
+      Joint.pivot("roller", PIVOT, PITCH_UP)
+          .at(Meters.of(0.35), Meters.of(0), Meters.of(0))
+          .carries(link("roller", 0.5, new Translation3d(0, 0, 0)))
+          .outputs(ROLLER_INTAKING, ROLLER_OUTTAKING, ROLLER_EJECTING)
           .motors(Motor.KRAKEN_X60.through(gearing(3)))
           .control(MechanismControl.velocity(0.02));
 
   /** An elevator, 0 to 1.2 m, carrying 5 kg: down, clear at 0.4 m, and at the top. */
-  public static final Joint.Prismatic ELEVATOR =
-      Joint.Prismatic.builder()
-          .label("elevator")
-          .parent(Part.CHASSIS)
-          .origin(new Transform3d(new Translation3d(-0.2, 0, 0.1), Rotation3d.ZERO))
-          .axis(Vector3.UP)
-          .link(link("carriage", 5, new Translation3d(0, 0, 0.1)))
-          .positions(List.of(ELEVATOR_DOWN, ELEVATOR_CLEAR, ELEVATOR_TOP))
+  public static final PrismaticJoint ELEVATOR =
+      Joint.slide("elevator", Part.CHASSIS, Vector3.UP)
+          .at(Meters.of(-0.2), Meters.of(0), Meters.of(0.1))
           .range(Range.meters(0, 1.2))
-          .build()
+          .carries(link("carriage", 5, new Translation3d(0, 0, 0.1)))
+          .positions(ELEVATOR_DOWN, ELEVATOR_CLEAR, ELEVATOR_TOP)
           .motors(Motor.KRAKEN_X60.through(gearing(10)).drum(Inches.of(1)).count(2))
           .control(assumed(control(60, 2, profile(1.2, 5))));
 
   /** A turret that turns freely about the vertical, facing forward at 0°, back at 180°. */
-  public static final Joint.Revolute TURRET =
-      Joint.Revolute.builder()
-          .label("turret")
-          .parent(Part.CHASSIS)
-          .origin(new Transform3d(new Translation3d(0, 0, 0.5), Rotation3d.ZERO))
-          .axis(Vector3.UP)
-          .link(link("turret", 3, new Translation3d(0, 0, 0)))
-          .positions(List.of(TURRET_FRONT, TURRET_BACK))
-          .build()
+  public static final RevoluteJoint TURRET =
+      Joint.pivot("turret", Part.CHASSIS, Vector3.UP)
+          .at(Meters.of(0), Meters.of(0), Meters.of(0.5))
+          .carries(link("turret", 3, new Translation3d(0, 0, 0)))
+          .positions(TURRET_FRONT, TURRET_BACK)
           .motors(Motor.KRAKEN_X60.through(gearing(50)))
           .control(assumed(control(20, 0.5, profile(3, 10))));
 
   /** The intake out and rolling, and the elevator clear: three joints at once. */
-  public static final Configuration INTAKING =
-      Configuration.of(
+  public static final Preset INTAKING =
+      Preset.of(
           "intaking", PIVOT.at(PIVOT_OUT), ROLLER.at(ROLLER_INTAKING), ELEVATOR.at(ELEVATOR_CLEAR));
 
   /** The template's robot with these joints. */
@@ -142,7 +133,7 @@ public final class JointFixtures {
       RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
           .name("joints")
           .joints(List.of(PIVOT, ROLLER, ELEVATOR, TURRET))
-          .configurations(List.of(INTAKING))
+          .presets(List.of(INTAKING))
           .build();
 
   /** Each joint's motors, from its block: what the vendor helpers' tests drive it with. */
@@ -156,13 +147,17 @@ public final class JointFixtures {
    * A joint as the fixtures have it, its motors taken off for a test to give it others: a block
    * says its motors once, and a joint re-wired keeps its motor.
    */
-  public static Joint.Revolute unmotored(Joint.Revolute joint) {
-    return joint.driven(DrivenBuilder.builder(joint.driven()).motors(Optional.empty()).build());
+  public static RevoluteJoint unmotored(RevoluteJoint joint) {
+    return RevoluteJointBuilder.builder(joint)
+        .driven(DrivenBuilder.builder(joint.driven()).motors(Optional.empty()).build())
+        .build();
   }
 
   /** A sliding joint as the fixtures have it, its motors taken off for a test to give it others. */
-  public static Joint.Prismatic unmotored(Joint.Prismatic joint) {
-    return joint.driven(DrivenBuilder.builder(joint.driven()).motors(Optional.empty()).build());
+  public static PrismaticJoint unmotored(PrismaticJoint joint) {
+    return PrismaticJointBuilder.builder(joint)
+        .driven(DrivenBuilder.builder(joint.driven()).motors(Optional.empty()).build())
+        .build();
   }
 
   /**
@@ -182,11 +177,7 @@ public final class JointFixtures {
 
   private static Sensor.Switch limit(
       String label, Joint joint, Sensor.Switch.Limit.End end, Optional<Double> position) {
-    return Sensor.Switch.builder()
-        .label(label)
-        .part(joint.parent())
-        .kind(new Sensor.Switch.Limit(joint, position, end))
-        .build();
+    return Sensor.Switch.of(label, joint.parent(), new Sensor.Switch.Limit(joint, position, end));
   }
 
   /**
@@ -194,12 +185,8 @@ public final class JointFixtures {
    * test's, for a joint without one in its block, a swerve module's steering.
    */
   public static Sensor.Encoder absoluteEncoder(String label, Joint joint, int countsPerTurn) {
-    return Sensor.Encoder.builder()
-        .label(label)
-        .terms(List.of(Transmission.Term.builder().joint(joint).ratio(1).build()))
-        .absolute(true)
-        .countsPerTurn(countsPerTurn)
-        .build();
+    return Sensor.Encoder.of(label, List.of(Transmission.Term.of(joint, 1)), true)
+        .countsPerTurn(countsPerTurn);
   }
 
   /** A control whose joint is where its definition rests it at power on. */
@@ -227,75 +214,61 @@ public final class JointFixtures {
       Optional<MechanismControl.SoftLimits> softLimits,
       Optional<MechanismControl.Profile> profile,
       double statorAmps) {
-    return MechanismControl.builder()
+    return MechanismControlBuilder.builder()
         .loop(MechanismControl.Loop.POSITION)
-        .gains(MechanismControl.Gains.builder().kP(kP).kI(0).kD(kD).kS(0).build())
+        .gains(MechanismControlGainsBuilder.builder().kP(kP).kI(0).kD(kD).kS(0).build())
         .currentLimits(
-            MechanismControl.CurrentLimits.builder()
+            MechanismControlCurrentLimitsBuilder.builder()
                 .stator(Amps.of(statorAmps))
                 .supply(Amps.of(60))
                 .supplyLower(Amps.of(40))
                 .supplyLowerTime(Seconds.of(1))
                 .build())
         .neutralMode(MechanismControl.NeutralMode.BRAKE)
-        .deadChannel(MechanismControl.DeadChannel.DEFAULTS)
+        .deadChannel(MechanismControl.DeadChannel.defaults())
         .softLimits(softLimits)
         .profile(profile)
         .build();
   }
 
   public static Optional<MechanismControl.Profile> profile(double cruise, double acceleration) {
-    return Optional.of(
-        MechanismControl.Profile.builder()
-            .cruiseVelocity(cruise)
-            .acceleration(acceleration)
-            .build());
+    return Optional.of(MechanismControl.Profile.of(cruise, acceleration));
   }
 
   public static Optional<MechanismControl.SoftLimits> soft(double lower, double upper) {
-    return Optional.of(MechanismControl.SoftLimits.builder().lower(lower).upper(upper).build());
+    return Optional.of(MechanismControl.SoftLimits.of(lower, upper));
   }
 
   public static Gearing gearing(double ratio) {
-    return Gearing.builder().ratio(ratio).efficiency(1).build();
+    return Gearing.of(ratio);
   }
 
   /**
    * A link of a mass centered at a point in its joint's frame, a 10 cm cube's inertia, no shape.
    */
   static Link link(String label, double kilograms, Translation3d cg) {
-    return Link.builder()
-        .label(label)
-        .mass(
-            MassProperties.builder()
-                .mass(Kilograms.of(kilograms))
-                .cg(cg)
-                .inertia(Inertia.box(Kilograms.of(kilograms), new Translation3d(0.1, 0.1, 0.1)))
-                .build())
-        .build();
+    return Link.of(
+        label,
+        MassProperties.of(
+            Kilograms.of(kilograms),
+            cg,
+            Inertia.box(Kilograms.of(kilograms), new Translation3d(0.1, 0.1, 0.1))));
   }
 
   /** A joint's motors, through a gearing, as a drive of the robot's own. */
-  public static Drive motors(Joint.Revolute joint, Motor motor, int count, Gearing gearing) {
-    return Drive.builder()
-        .label(joint.label())
-        .actuator(Actuator.Motors.builder().motor(motor).count(count).build())
-        .transmission(Transmission.Geared.builder().joint(joint).gearing(gearing).build())
-        .build();
+  public static Drive motors(RevoluteJoint joint, Motor motor, int count, Gearing gearing) {
+    return Drive.of(
+        joint.label(),
+        Actuator.MotorGroup.of(motor, count),
+        Transmission.Geared.of(joint, gearing));
   }
 
   /** A sliding joint's motors, through a gearing onto a drum, as a drive of the robot's own. */
   public static Drive motors(
-      Joint.Prismatic joint, Motor motor, int count, Gearing gearing, Distance pitchRadius) {
-    return Drive.builder()
-        .label(joint.label())
-        .actuator(Actuator.Motors.builder().motor(motor).count(count).build())
-        .transmission(
-            Transmission.Drum.builder()
-                .joint(joint)
-                .gearing(gearing)
-                .pitchRadius(pitchRadius)
-                .build())
-        .build();
+      PrismaticJoint joint, Motor motor, int count, Gearing gearing, Distance pitchRadius) {
+    return Drive.of(
+        joint.label(),
+        Actuator.MotorGroup.of(motor, count),
+        Transmission.Drum.of(joint, gearing, pitchRadius));
   }
 }

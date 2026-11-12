@@ -4,7 +4,7 @@ The robot's code runs on numbers: a frame size, a current limit, how far to trus
 Some were measured, some were chosen, and some are still guesses. This register lists every value
 in the robot's configuration: which kind it is, where the template's number came from, and how to
 measure it or why it is what it is. The numbers themselves live in the code, never here: a robot's
-in its entry in `Robots.java`, and a record's starting points in its defaults (`VisionConfig.DEFAULTS`),
+in its entry in `Robots.java`, and a record's starting points in its defaults (`VisionConfig.defaults()`),
 where the record says what it is. A test keeps the list complete ([below](#keeping-it-complete)).
 
 ## Four kinds of value
@@ -59,13 +59,13 @@ with only what you measured changed.
 
 ```java
 private static final VisionConfig VISION =
-    VisionConfigBuilder.builder(VisionConfig.DEFAULTS)
+    VisionConfigBuilder.builder(VisionConfig.defaults())
         .linearStdDevBaseline(0.012) // characterized YYYY-MM-DD: camera noise, our camera at 1280 x 800
         .distanceExponent(2.1) // characterized YYYY-MM-DD: camera noise
         .build();
 ```
 
-The defaults in the code (`VisionConfig.DEFAULTS`, `EstimatorConfig.DEFAULTS`,
+The defaults in the code (`VisionConfig.defaults()`, `EstimatorConfig.defaults()`,
 `LocalizationGate.SCORING`, `SensorErrors.TYPICAL`) are the template's starting points, and this
 register says where each came from. When you change one in the code itself, change its row's
 source too.
@@ -96,7 +96,8 @@ remove, when:
   the two legends above list other kinds or sources than the test accepts;
 - a value a mechanism tunes live has no row under [tuning limits](#tuning-limits), or a row there
   names one it no longer tunes (the tunings come from `RobotContainer.tunings`, the one list of
-  them);
+  them, for the guide's robot with a camera on Visor, whose tuning is named for any camera,
+  `<camera> camera`);
 - a switch the running robot publishes has no row under [switches](#switches), or a row there names
   one it doesn't (`ValuesRegisterSimTest`, which builds the robot).
 
@@ -112,20 +113,34 @@ people.
 
 A chosen value makes decisions, and every decision lands in the log:
 
-- **The cameras':** each image's outcome, with the number that decided it (`Vision/<camera>/Outcomes`:
-  "too far: 6.3 m", "ambiguous single tag: 0.25 > 0.20", "turning too fast: 5.4 rad/s"), and the
-  estimator's verdict on each measurement (`Vision/<camera>/Decisions`: "accepted", "gate: 20.1 >
-  13.8", "too late: older than the history kept").
+- **The cameras':** each image's verdict, with the number that decided it (`Vision/<camera>/Verdicts`:
+  "too far: 6.3 m > 6.0 m", "ambiguous single tag: 0.25 > 0.20", "turning too fast: 5.4 rad/s > 5.0 rad/s"), and the
+  estimator's verdict on each measurement (`Vision/<camera>/MeasurementVerdicts`: "accepted", "gate: 20.1 >
+  13.8", "too late: older than the history kept"). Every image is also counted by its verdict, since
+  the robot started (`Vision/<camera>/Images/<VERDICT>`: `ACCEPTED`, `TOO_FAR`, `NO_TAGS`,
+  `UNKNOWN_TAGS`, `NO_LENS`, `TURNED_OFF`, `OUT_OF_STEP`...), so how many were thrown out, and why,
+  is read off the log without counting strings. The pit's Cameras line names the camera that used
+  the fewest of its images with tags, with the leading reason for the rest.
 - **Localization's:** what the estimate rests on and how sure it is (`Localization/Mode`,
   `PositionStdDevMeters`, `HeadingStdDevDegrees`), how far the cameras disagree with it lately
   (`RecentDisagreementMeters`), the recoveries, the collisions, the tilt, the terrain, and whether
-  it's good enough to score from (`ReadyToScore`, `NotReadyBecause`).
+  it's good enough to score from (`ReadyToScore`, `NotReadyBecause`). The default localizer adds
+  what its estimator learned and did: the gyro's scale and drift (`GyroScalePercent`,
+  `GyroDriftDegreesPerMinute`), whether the heading is a person's word no camera has backed, a
+  placement's or a driver's reset (`HeadingInDoubt`, `HeadingResets`), what the latest recovery did and on what evidence
+  (`RecoveredBy`: "moved 1.02 m on 3 rejected measurements from two cameras"), and where the
+  wheels and the IMU alone put the robot (`OdometryOnlyPose`, beside `Pose`, so a jump that pose
+  doesn't make came from a camera or a recovery). Per camera, it logs how far it takes the camera
+  to be turned on its mount, how late its images are stamped, and how far its watch doubts them
+  (`Vision/<camera>/LearnedTurnDegrees`, `LateSeconds`, `WatchDoubtMeters`): why a camera counts
+  for less than another.
 - **The drivetrain's:** each module's inputs (`Drive/Module<name>/`: currents, velocity, angle), what
   it was asked for (`Drive/SetpointsOptimized`), and the IMUs' (`Drive/Gyro/`, `Drive/BackupGyro/`).
 
 Open a log in AdvantageScope, plot the decision beside what it judged, and ask two questions: how
-often did it decide, and was it right when it did? To count, export the log (**File > Export
-Data**) to a spreadsheet. A filter that throws out images the other
+often did it decide, and was it right when it did? A camera's images are counted by verdict
+already (`Images/<VERDICT>`); for anything else, export the log (**File > Export Data**) to a
+spreadsheet. A filter that throws out images the other
 cameras agreed with is too tight; one that lets through images the estimator then rejects is too
 loose. In the simulator, `Sim/PoseErrorMeters` says how far the estimate was from the truth, and a
 scenario (`./gradlew run -Pscenario=collision`) shows what a value does when something goes wrong.
@@ -166,24 +181,26 @@ The values that move the robot most, and are least known today:
 
 `com.michaelgrundvig.frc.runtime.RobotConfig`: one robot, in `Robots`. Its values are records with sections of their own:
 what the robot is (its definition, which names it, each joint's block saying its motors, wiring,
-sensors and control), and how this program drives the drivetrain and judges what its sensors say.
+sensors and control, and the drivetrain's control), and how this program judges what its sensors say
+(`vision`, `estimator`, `slipCheck` and `scoringGate`, each from its defaults unless the robot gives its own).
 Each joint's block says how it's driven and wired, and each sensor carries its wiring ([a sensor's
 wiring](#a-sensors-wiring)): the program reads them from the definition, never written twice.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `localizer` | chosen | simulation (the estimator study; left out, the default localizer) | What works out where the robot is: left out for the default localizer, `WpilibLocalizer::new` for WPILib's pose estimator, or a maker of your own. [localizers.md](localizers.md) says what each reports and what the robot does without it. The estimator study (`./gradlew estimatorStudy`) compares them in simulation, and a real robot's logs would show the same: how far the pose is from a taped checkpoint, under each. |
-| `coprocessors` | as built | none (no coprocessors) | Each coprocessor by its Spotter agent's address and the packs it's to have from the deploy folder's `spotter-packs/`: `visor` on each that may carry the robot's Visor cameras ([visor.md](visor.md)). The address is the board's, as its image sets it: `10.TE.AM.11` for the first, by the usual convention. |
+| `localizer` | chosen | simulation (the estimator study; left out, the default localizer) | What works out where the robot is: left out for the default localizer, `.withLocalizer(WpilibLocalizer::new)` for WPILib's pose estimator, or a maker of your own. [localizers.md](localizers.md) says what each reports and what the robot does without it. The estimator study (`./gradlew estimatorStudy`) compares them in simulation, and a real robot's logs would show the same: how far the pose is from a taped checkpoint, under each. |
+| `scoringWhenNotJudged` | chosen | guess (not ready: a pose nothing judged is no reason to shoot) | What the scoring gate says while the robot's localizer reports too little to judge the pose by (its mode, health and covariance): left out, `NOT_READY`, so commands bound to `readyToScore` wait; `READY` lets them through, as a robot without a gate does. The default localizer reports all three, so only a robot that chose another localizer reaches it, and an alert says the gate isn't judging. Choose `READY` only after logs show the chosen localizer's pose close enough to score from ([localization-check.md](localization-check.md)). |
+| `coprocessors` | as built | none (no coprocessors) | Each coprocessor by its Spotter agent's address, such as `"10.12.34.11"`. The robot pushes each Visor's pack itself while any camera is on Visor ([visor.md](visor.md)). The address is the board's, as its image sets it: `10.TE.AM.11` for the first, by the usual convention. |
 
 ### `RobotDefinition`
 
 `com.michaelgrundvig.frc.world.robot.RobotDefinition`: what the robot is, read by localization, the
 simulator, and the views (`RobotConfig.definition`). Its values are records with sections of their
 own: the body, the drivetrain as built, the cameras, the IMUs, the PDH, and the mechanisms' drives
-([mechanisms](#mechanisms)), and its named places, configurations and interlocks ([named
-places](#named-places-configurations-and-interlocks)). It checks them against each other: the wheels
+([mechanisms](#mechanisms)), and its named places, presets and interlocks ([named
+places](#named-places-presets-and-interlocks)). It checks them against each other: the wheels
 inside the frame, every camera and IMU inside the robot, every joint a drive, coupling, sensor,
-camera, configuration, group, or interlock names among its joints, what's left of the body once the links
+camera, preset, group, or interlock names among its joints, what's left of the body once the links
 come off still a body, every interlock obeyed, and each device's feed a channel of the PDH's of its
 own. The template runs the guide's robot (`ExampleRobot`), whose mechanisms' numbers illustrate
 the guide: replace them with your robot's.
@@ -191,10 +208,10 @@ the guide: replace them with your robot's.
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `name` | chosen | none | Which robot this is, as its logs and its checks' messages name it (`RobotDefinition[sim].cameras: ...`). One per robot; keep it. |
-| `joints` | as built | none | The mechanisms' joints, each after the one it rides on, as `Robots.java` declares them: [`Joint.Revolute`](#jointrevolute) and [`Joint.Prismatic`](#jointprismatic). The drivetrain's modules aren't among them: they're derived from it (`DrivetrainGeometry.joints`). |
+| `joints` | as built | none | The mechanisms' joints, each after the one it rides on, as `Robots.java` declares them: [`RevoluteJoint`](#revolutejoint) and [`PrismaticJoint`](#prismaticjoint). The drivetrain's modules aren't among them: they're derived from it (`Drivetrain.joints`). |
 | `couplings` | as built | none | Joints that move with another, with no drive of their own: [`Coupling.Linear`](#couplinglinear) and [`Coupling.Curve`](#couplingcurve). |
 | `sensors` | as built | none | What reads the joints and what they carry: [`Sensor.Encoder`](#sensorencoder), [`Sensor.Switch`](#sensorswitch) and [`Sensor.Rangefinder`](#sensorrangefinder). |
-| `interlocks` | chosen | none | What one joint may do by where another is, enforced beneath every command: [`Interlock.RunsOnlyWhen`](#interlockrunsonlywhen) and [`Interlock.KeepsOut`](#interlockkeepsout). Its configurations have a section of their own ([`Configuration`](#configuration)). |
+| `interlocks` | chosen | none | What one joint may do by where another is, enforced beneath every command: [`Interlock.RunsOnlyWhen`](#interlockrunsonlywhen) and [`Interlock.KeepsOut`](#interlockkeepsout). Its presets have a section of their own ([`Preset`](#preset)). |
 
 ### `Body`
 
@@ -214,10 +231,10 @@ report (`RobotDefinition.findings`).
 | `frameLength` | as built | rules (2026: the largest square within R104's 110 in perimeter) | From CAD; check with a tape across the outside of the frame. |
 | `frameWidth` | as built | rules (2026, as `frameLength`) | As `frameLength`, side to side. |
 | `overallHeight` | as built | rules (2026: R104's starting height) | From CAD: the robot's tallest point above the floor in its starting configuration. |
-| `bumperThickness` | as built | rules (2026: R403's most) | From the outside of the frame to the outside of the bumper, cover on, all the way round. When the left and right differ from the front and back, this is the front and back. |
+| `bumperThickness` | as built | guess (3 in, the usual bumper: 2.5 in pool noodles on 3/4 in plywood) | Optional: from the outside of the frame to the outside of the bumper, cover on, all the way round. When the left and right differ from the front and back, this is the front and back. Left out, as on a robot on the bench without its bumpers, the program takes 3 in and says so at startup: the field stands the robot on a start by its bumpers, and the simulator and the views outline it by them. |
 | `bumperThicknessLeftRight` | as built | rules (2026: R403's most) | Optional: only for bumpers that stick out a different amount at the left and the right than at the front and back, as bumpers squared around a frame that isn't square do on its shorter sides. Measured as `bumperThickness`. Left out, the same as `bumperThickness`. |
-| `bumperBottom` | as built | rules (2026: the bottom of R405's bumper zone) | From CAD, or a tape with the robot on flat carpet: the floor to the bumpers' bottom edge. AdvantageScope's schematic robot draws its bumpers from it, and the season's bumper zone is checked against it. |
-| `bumperTop` | as built | rules (2026: the top of R405's bumper zone) | As `bumperBottom`, to their top edge. No higher than the robot. |
+| `bumperBottom` | as built | rules (2026: the bottom of R405's bumper zone) | Optional, given with `bumperTop`: from CAD, or a tape with the robot on flat carpet, the floor to the bumpers' bottom edge. AdvantageScope's schematic robot draws its bumpers from it, the simulator's contact with the field's elements reads it, and the season's bumper zone is checked against it. Left out, they're drawn and simulated across the 2026 zone, 2.5 in to 5.75 in, the zone isn't checked, and the program says so at startup. |
+| `bumperTop` | as built | rules (2026: the top of R405's bumper zone) | Optional, given with `bumperBottom`: as `bumperBottom`, to their top edge. No higher than the robot. |
 | `weight` | calibrated | rules (2026: 135 lb with bumpers, R408, and a 14.5 lb battery, R601, until it's weighed) | Optional: `.weight(Pounds.of(131.2))`, taken as given. [Weigh the robot](calibration.md#the-robots-mass-center-of-gravity-and-inertia), bumpers and battery on, every joint where it rests; again after big changes. Until it's weighed, the program takes the season's maximum with a battery and says so at startup. The drive's moves and feedforward read it, and the simulator's drive carries it, a quarter on each wheel, so it sets how fast the simulated robot speeds up and how long its drive motors stay at their current limit. Its links' masses together must leave some of it for the chassis. A weight over the season's limit fails its check (`SeasonLimits.problems`). |
 | `inertia` | calibrated | guess (typical) | Optional: how hard the robot is to turn, about its center of mass: CAD's whole tensor ([`Body.Turning.Tensor`](#bodyturningtensor)), or its yaw alone ([`Body.Turning.Yaw`](#bodyturningyaw)), as PathPlanner's or Choreo's robot MOI, CAD, or [SysId's rotation test](calibration.md#the-robots-mass-center-of-gravity-and-inertia) gives it. What isn't given, a solid box of the robot's mass, bumpers and overall height supplies, and the missing-data report says which. A given yaw must stand beside the box's pitch and roll, each of the three at most the sum of the other two, or the definition refuses it (at the weight given; until it's weighed, its season's check does, at the season's maximum): give the whole tensor then. |
 | `cg` | calibrated | guess (best case: centered and low) | Optional: nothing on the robot reads it. Until it's given, it's the frame's center, a third of the robot's overall height up; nothing notes it, since nothing uses it. CAD's mass-properties report, or [the two scales](calibration.md#the-robots-mass-center-of-gravity-and-inertia) for how far forward and the tilt test for its height, every joint where it rests. With the tread's friction, its height says where the wheels slip, which the drive's current limit is chosen under (`DrivetrainControl.Limits.driveStatorCurrent`). |
@@ -238,22 +255,20 @@ no products of inertia.
 |---|---|---|---|
 | `yaw` | calibrated | guess (typical) | CAD, or [SysId's rotation test](calibration.md#the-robots-mass-center-of-gravity-and-inertia); PathPlanner's and Choreo's robot MOI is often an estimate. The [drive's moves](driving.md) read it: how fast they turn the robot, and the volts each wheel is given to turn it. The simulator doesn't yet: it spins the robot as if its mass sat at its wheels, about 11 kg m² for the template's ([stand-ins](stand-ins.md)); a simulator that models the robot as one body will. |
 
-### `Imus`
-
-`com.michaelgrundvig.frc.world.robot.Imus`: the robot's IMUs, each where it's mounted
-(`RobotDefinition.imus`): the gyro (the Pigeon 2) and, if the robot has one, the backup
-(Systemcore's own, or a second Pigeon). A roboRIO robot has none: its code then reads no backup,
-and with the gyro lost, the heading rests on the wheels. Its values are mounts, with a section of
-their own.
-
 ### `ImuMount`
 
 `com.michaelgrundvig.frc.world.robot.ImuMount`: where an IMU sits, how it's turned, and whether its
 accelerometer has been checked to read along the robot's axes. Per IMU, in `Robots`. Localization
 compares the wheels' velocity with what the IMU feels where it sits (an IMU off the center is swung
 around it as the robot turns), the drivetrain's IO turns the IMU's own axes into the robot's by its
-orientation, and the simulator mounts its IMUs here. A new robot starts from `Imus.UNCHECKED`: both
-at the center, level, and unchecked.
+orientation, and the simulator mounts its IMUs here. The gyro's is on the drivetrain's gyro
+([`SwerveWiring.Gyro`](#swervewiringgyro), `PIGEON_2.can(CANIVORE, 1).at(mount)`), and the backup
+IMU's on the robot (`RobotDefinition.backupImu`, `.withBackupImu(mount)`), if it has one: Systemcore's
+own, or a second Pigeon. A roboRIO robot has none: its code then reads no backup, and with the gyro
+lost, the heading rests on the wheels, which the program says at startup. Every IMU starts from `ImuMount.UNCHECKED`: at the center,
+level, and unchecked. A drivetrain that isn't wired runs in the simulator alone, with no Pigeon of
+its own: the simulator stands its gyro in beside the backup IMU, or as every IMU starts on a robot
+with none.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -266,7 +281,7 @@ at the center, level, and unchecked.
 ### `Pdh`
 
 `com.michaelgrundvig.frc.world.robot.Pdh`: the robot's power distribution, REV's Power
-Distribution Hub (`RobotDefinition.pdh`, `.pdh(Pdh.can(1))`). Its channels, as REV labels
+Distribution Hub (`RobotDefinition.pdh`, `.withPdh(Pdh.can(1))`). Its channels, as REV labels
 them and WPILib numbers them: 0 to 19 high-current, each taking a breaker up to 40 A; 20 to 22
 low-current, and 23 the switchable one, each a fuse or breaker up to 15 A. Each motor controller
 says which channel feeds it where it's wired ([`Pdh.Feed`](#pdhfeed)), and the definition checks
@@ -284,8 +299,8 @@ drivetrain and cameras, has no wiring, so it declares none; the guide's robot it
 
 Which of the PDH's channels feeds one motor controller, and through what breaker: in a joint's
 block, one call where the controller is named, `TALON_FX.can(32).pdh(4, Amps.of(40))`; in the
-drivetrain's wiring, each module's `driveFeed` and `steerFeed`, `.driveFeed(Pdh.feed(0,
-Amps.of(40)))`. The robot refuses a channel that feeds two devices, one the PDH hasn't, a breaker
+drivetrain's wiring, the same call on each module's drive and steering, `TALON_FX.can(CANIVORE,
+23).pdh(0, Amps.of(40))`. The robot refuses a channel that feeds two devices, one the PDH hasn't, a breaker
 over its channel's rating, and a feed on a robot that declares no PDH. With a PDH declared, a
 wired motor controller that doesn't say its feed is a doubt the robot says at startup.
 
@@ -296,18 +311,20 @@ wired motor controller that doesn't say its feed is a doubt the robot says at st
 
 ## The drivetrain
 
-### `DrivetrainGeometry`
+### `Drivetrain`
 
-`com.michaelgrundvig.frc.world.robot.DrivetrainGeometry`: the swerve drivetrain as built
+`com.michaelgrundvig.frc.world.robot.Drivetrain`: the swerve drivetrain as built
 (`RobotDefinition.drivetrain`): its four corners, front left, front right, back left, back right,
 each with a section of its own. Per robot, in `Robots`. Its block says how it's driven, its limits
 and gains ([`DrivetrainControl`](#drivetraincontrol), `.control(...)`), and how it's wired
-([`SwerveWiring`](#swervewiring), `.wired(...)`); neither is part of what the drivetrain is. The same module at every corner is the usual drivetrain:
-`DrivetrainGeometry.uniform` places them as Phoenix Tuner X's swerve project gives their positions,
-and `DrivetrainGeometry.inset` in from the frame's edges, as the template's robot does, 2.625 in
+([`SwerveWiring`](#swervewiring), `.gyro(...).frontLeft(...)...backRight(...)`); neither is part
+of what the drivetrain is, so two that differ only there have the same hardware (`sameHardwareAs`),
+though they aren't equal. The same module at every corner is the usual drivetrain:
+`Drivetrain.uniform` places them as Phoenix Tuner X's swerve project gives their positions,
+and `Drivetrain.inset` in from the frame's edges, as the template's robot does, 2.625 in
 (SDS MK4i's footprint drawing).
 
-### `DrivetrainGeometry.Corner`
+### `Drivetrain.Corner`
 
 One corner's module: its type, with a section of its own, and where its wheel sits.
 
@@ -315,10 +332,10 @@ One corner's module: its type, with a section of its own, and where its wheel si
 |---|---|---|---|
 | `position` | as built | datasheet (SDS MK4i's footprint: 2.625 in in from the frame's edges) | Phoenix Tuner X's swerve generator, or CAD: where the wheel touches the floor, from the robot's center. Each in its own quarter: front left ahead and left of the center. Inside the frame. |
 
-### `DrivetrainGeometry.ModuleType`
+### `Drivetrain.Module`
 
 A type of module, the same wherever one sits: a Kraken X60 driving each wheel and another turning
-each module (`driveMotor`, `steerMotor`; an `_FOC` model only with a Phoenix Pro license), each
+each module (`driveMotor`, `steerMotor`; a TalonFX says `.foc()` only with a Phoenix Pro license), each
 through its gearing (`driveGearing`, `steerGearing`), with sections of their own:
 [`Motor`](#motor) and [`Gearing`](#gearing). The template's robot has one type at every corner; a
 drivetrain that mixes them, MK5i in front and MK5n behind, say, gives each corner its own. The
@@ -332,7 +349,7 @@ robot leaves all three out.
 | `wheelCoefficientOfFriction` | characterized | datasheet (PathPlanner's default, which teams already plan with; tread on carpet grips about 1.0 worn, 1.3 new) | Optional, 1.2 until it's given (`DEFAULT_WHEEL_COEFFICIENT_OF_FRICTION`). The robot reads it, so until then it says so at startup, on the Driver Station's console: the drive's moves plan their acceleration on it (`DrivetrainControl.accelerations`), and the slip check judges by it. At 1.53 or past it (the slip check's jolt over g), the robot says it doubts it, since the slip check can't then tell a slide from a collision under it: a path planner's friction is a tuning value, not the tread's. [Tread friction](characterization.md#tread-friction): a pull test, new and worn tread. The simulator's grip; with the center of gravity's height (`Body.cg`), it says where the wheels slip, which the drive's current limit is chosen under. |
 | `driveInertia` | characterized | guess (a 4 in wheel, about 0.0004, and a Kraken X60's rotor through 6.75:1, about 0.0006: the rotor's inertia isn't published) | Optional, this estimate until it's given (`DEFAULT_DRIVE_INERTIA`): only the simulator reads it, and says so when it starts (`Robot/SimulatorNotes`). [Feedforward](characterization.md#feedforward): SysId on one module lifted off the floor. The drive's own moving parts (wheel, gears, and the motor's rotor through them), as inertia at the wheel, on top of its share of the robot's mass at `wheelRadius`. About 2% of what the template's robot puts on each wheel, so a rough number costs little. The simulator turns it. |
 | `steerInertia` | characterized | datasheet (Phoenix Tuner X's generated simulation value, as AdvantageKit's swerve templates use it) | Optional, this value until it's given (`DEFAULT_STEER_INERTIA`): only the simulator reads it, and says so when it starts. [Feedforward](characterization.md#feedforward): SysId on one module's steering. The simulator's steering turns it, so it sets how fast the steering turns at its current limit, and how high its gains can go. What it assumes is in [stand-ins](stand-ins.md). |
-| `couplingRatio` | as built | datasheet (Phoenix Tuner X's swerve generator, for the MK4i, as a team's 2024 code had it) | Tuner X's swerve generator, or the module's datasheet: drive motor turns per turn of the module, the wheel held still. Zero for a module without the coupling. Each drive motor's transmission turns the module through it as well as the wheel (`DrivetrainGeometry.joints`), and Phoenix's drivetrain takes it off the drive's reading. It's the module's gearing, so it's here, not in the wiring. |
+| `couplingRatio` | as built | datasheet (Phoenix Tuner X's swerve generator, for the MK4i, as a team's 2024 code had it) | Tuner X's swerve generator, or the module's datasheet: drive motor turns per turn of the module, the wheel held still. Zero for a module without the coupling. Each drive motor's transmission turns the module through it as well as the wheel (`Drivetrain.joints`), and Phoenix's drivetrain takes it off the drive's reading. It's the module's gearing, so it's here, not in the wiring. |
 
 ### `Motor`
 
@@ -361,23 +378,32 @@ template's drivetrain has two: the drive's, whose sources are below, and the ste
 | `ratio` | as built | datasheet (SDS MK4i L2) | The module's datasheet: motor turns per wheel turn, and per turn of the module. |
 | `efficiency` | characterized | math (no losses modeled: the drivetrain's numbers didn't change when its gearing became a record) | Why: the share of the motor's torque, through the ratio, that reaches the wheel. A gear stage loses a few percent, so the real one is lower; the simulator takes it off the motors' torque. Measure it with SysId on a module lifted off the floor ([feedforward](characterization.md#feedforward)), or keep 1 until a mechanism's simulation needs it. |
 
-### `Actuator.Motors`
+### `Actuator.MotorGroup`
 
-`com.michaelgrundvig.frc.world.robot.Actuator.Motors`: one or more identical motors working
+`com.michaelgrundvig.frc.world.robot.Actuator.MotorGroup`: one or more identical motors working
 together, only what makes the force: what stands between them and a joint is the drive's
 transmission ([mechanisms](#mechanisms)). Its motor has a section of its own. The template's
-drivetrain derives one for each module's drive and steering (`DrivetrainGeometry.ModuleType.driveMotors()`,
-`steerMotors()`), each through its gearing, which the simulator turns its wheels with.
+drivetrain derives one for each module's drive and steering (`Drivetrain.driveMotors(corner)`,
+`steerMotors(corner)`), each through its gearing, which the simulator turns its wheels with.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `count` | as built | none (one motor per wheel and per module) | How many motors drive it together: two on an arm's shaft is 2. |
+| `commutation` | as built | none (`TRAPEZOIDAL` unless given) | How their controllers drive them, from the joint's or the module's wiring: `FOC` where every controller says `.foc()`, which needs a Phoenix Pro license; the simulator then runs the motor on its FOC curve. |
 
 ### `DrivetrainControl`
 
 `com.michaelgrundvig.frc.world.robot.DrivetrainControl`: how the drivetrain is driven, in its
-block (`DrivetrainGeometry.inset(...).control(DRIVING)`), all tunable live as the [`drivetrain` tuning](#drivetrain-tuning). Its
-values are records with sections of their own.
+block (`Drivetrain.inset(...).control(DRIVING)`), all tunable live as the [`drivetrain` tuning](#drivetrain-tuning). Its
+values are records with sections of their own. It starts from `DrivetrainControl.defaults()`, the
+values below, and a robot writes only what differs, a call a value:
+`DrivetrainControl.defaults().withDriveStatorLimit(Amps.of(60))`. Pitwall's Tune view prints the
+call that commits a tuned value. A gain is held in the drivetrain's units (volts per meter per
+second for the drive, per radian for the steering). A drive gain may be a plain number in its unit.
+A steering gain always names its unit, as Tuner X shows it or per radian:
+`withSteerKp(Volts.per(Rotation).of(100))`, per turn of the module, is held as 100 / 2π per radian,
+the same as `withSteerKp(Volts.per(Radian).of(15.92))`, and the Tune view commits it per radian. A drive gain is per the robot's speed (`Volts.per(MetersPerSecond)`), never per a
+turn: a turn of the wheel or of the rotor depends on the gearing, which a unit can't say.
 
 ### `DrivetrainControl.Limits`
 
@@ -391,13 +417,13 @@ how far the wheels disagree with each other).
 |---|---|---|---|
 | `driveStatorCurrent` | chosen | math (weight transfer: the front wheels slip near 47 A with the configured tread, μ 1.2, and the 0.15 m center of gravity, about 50 A at μ 1.3, and near 31 A with worn tread, μ 1.0, and a 0.3 m one) | Why: torque past the tread's grip only spins the wheels and drains the battery. Measure friction and the center of gravity first; they set it. Change if the wheels slip at full stick (`Localization/SpeedSlipMetersPerSecond` rising in a launch: the wheels speeding up faster than the accelerometer feels the robot do), or never come near it and the drivers want more push. Being at the limit isn't slipping: set below the tread's grip, the limit is what keeps the wheels from it, and the estimate doesn't doubt them for it ([`SlipCheck.Settings`](#slipchecksettings)). |
 | `driveSupplyCurrent` | chosen | guess | Why: caps what each drive motor draws from the battery, so four together can't drag it into a brownout. It steps down: Phoenix lets a motor draw this for at most `driveSupplyLowerTime` (1 s) at a time, then lowers the limit to `driveSupplyLowerCurrent` (40 A) until the motor draws less than that again, so 60 A is for bursts and 40 A for anything longer (the two rows below). A motor draws no more from the battery than flows through it, so with the template's 30 A `driveStatorCurrent` neither limit is ever reached: they matter once the stator limit is raised past them. Set it from the weakest battery's [internal resistance](characterization.md#battery-internal-resistance): the voltage with four drive motors at the limit, about the rest voltage less 4 × limit × resistance, must stay above Systemcore's brownout voltage (still to measure on a real Systemcore) and the vision coprocessor's [ride-through voltage](characterization.md#coprocessor-brownout-ride-through). Change if the battery sags toward either in hard driving. |
-| `driveSupplyLowerCurrent` | chosen | datasheet (Phoenix 6's default `SupplyCurrentLowerLimit`, written out; the 40 A breaker's rating) | Why: once a drive motor has been held at `driveSupplyCurrent` for `driveSupplyLowerTime`, Phoenix lowers its supply limit to this, until it draws less than this again. Phoenix does it whether the code says so or not (its defaults are 40 A after 1 s), so the template sets it where it shows. At the breaker's rating, a motor can push for as long as the driver holds the stick: an FRC 40 A breaker carries 40 A indefinitely, but the datasheets let one trip at 60 A (150%) and 80 A (200%) as early as 3.9 s and 1.5 s ([Snap Action's AT2](https://www.snapaction.net/assets/img/at2/AT2-Spec-Sheet-Revision-2023.pdf), and its MAXI-size MX5), 9 s and 5 s ([CTRE's](https://ctre.download/files/datasheet/CTRE%20Breaker%20Datasheet.pdf)), or 5 s at 80 A ([REV's](https://www.revrobotics.com/content/docs/REV-11-1860-1863-DS.pdf), which lists no 150%); a breaker already warm trips sooner. Setting it to `driveSupplyCurrent` turns the step-down off, and a long push can then trip the breaker. Check: in a log of a pushing match, a drive motor's `Drive/Module<name>/DriveSupplyCurrentAmps` flat at `driveSupplyCurrent` for a second, then flat at this, is the step-down at work; a motor that drops out for seconds (`Drive/Module<name>/DriveConnected` false, then true again) tripped its breaker anyway. Change: never above the breaker's rating; lower it to a smaller breaker's. |
-| `driveSupplyLowerTime` | chosen | datasheet (Phoenix 6's default `SupplyCurrentLowerTime`, written out) | Why: longer than any sprint, and well short of a breaker's trip. In the simulator, which carries the robot's configured mass, a full-stick sprint, or one reversed at full speed, holds a drive motor at 60 A or more for at most 0.2 s, with `driveStatorCurrent` raised to 120 A (0.12 s at 80 A, and never at 60 A or the template's 30 A). It leaves out wheels slipping past their grip and the battery sagging ([stand-ins](stand-ins.md)), and either changes a real launch at a high limit. Only a long push, the wheels spinning, holds a motor there for a second. The fastest 40 A breaker trips at 60 A after 3.9 s at the earliest, and at 80 A, the top of `driveSupplyCurrent`'s tuning, after 1.5 s: raise `driveSupplyCurrent` toward 80 A, and shorten this. Check: in a log, how long `Drive/Module<name>/DriveSupplyCurrentAmps` stays at `driveSupplyCurrent` before it drops to `driveSupplyLowerCurrent`: this long. Change if logs show the step-down cutting into sprints, or a breaker tripping though the step-down came. |
+| `driveSupplyLowerCurrent` | chosen | datasheet (Phoenix 6's default `SupplyCurrentLowerLimit`, the template's default, set where it shows; the 40 A breaker's rating) | Why: once a drive motor has been held at `driveSupplyCurrent` for `driveSupplyLowerTime`, Phoenix lowers its supply limit to this, until it draws less than this again. Phoenix does it whether the code says so or not (its defaults are 40 A after 1 s), so the template sets it where it shows. At the breaker's rating, a motor can push for as long as the driver holds the stick: an FRC 40 A breaker carries 40 A indefinitely, but the datasheets let one trip at 60 A (150%) and 80 A (200%) as early as 3.9 s and 1.5 s ([Snap Action's AT2](https://www.snapaction.net/assets/img/at2/AT2-Spec-Sheet-Revision-2023.pdf), and its MAXI-size MX5), 9 s and 5 s ([CTRE's](https://ctre.download/files/datasheet/CTRE%20Breaker%20Datasheet.pdf)), or 5 s at 80 A ([REV's](https://www.revrobotics.com/content/docs/REV-11-1860-1863-DS.pdf), which lists no 150%); a breaker already warm trips sooner. Setting it to `driveSupplyCurrent` turns the step-down off, and a long push can then trip the breaker. Check: in a log of a pushing match, a drive motor's `Drive/Module<name>/DriveSupplyCurrentAmps` flat at `driveSupplyCurrent` for a second, then flat at this, is the step-down at work; a motor that drops out for seconds (`Drive/Module<name>/DriveConnected` false, then true again) tripped its breaker anyway. Change: never above the breaker's rating; lower it to a smaller breaker's. |
+| `driveSupplyLowerTime` | chosen | datasheet (Phoenix 6's default `SupplyCurrentLowerTime`, the template's default, set where it shows) | Why: longer than any sprint, and well short of a breaker's trip. In the simulator, which carries the robot's configured mass, a full-stick sprint, or one reversed at full speed, holds a drive motor at 60 A or more for at most 0.2 s, with `driveStatorCurrent` raised to 120 A (0.12 s at 80 A, and never at 60 A or the template's 30 A). It leaves out wheels slipping past their grip and the battery sagging ([stand-ins](stand-ins.md)), and either changes a real launch at a high limit. Only a long push, the wheels spinning, holds a motor there for a second. The fastest 40 A breaker trips at 60 A after 3.9 s at the earliest, and at 80 A, the top of `driveSupplyCurrent`'s tuning, after 1.5 s: raise `driveSupplyCurrent` toward 80 A, and shorten this. Check: in a log, how long `Drive/Module<name>/DriveSupplyCurrentAmps` stays at `driveSupplyCurrent` before it drops to `driveSupplyLowerCurrent`: this long. Change if logs show the step-down cutting into sprints, or a breaker tripping though the step-down came. |
 | `steerStatorCurrent` | chosen | datasheet (Phoenix Tuner X's swerve generator, as the 2026 code kept it) | Why: steering needs little torque, and less current is less heat. Change if modules lag their angle setpoints under load (`Drive/Module<name>/SteerAngle` against `Drive/SetpointsOptimized`). |
-| `maxLinearSpeed` | chosen | guess (headroom under the 4.73 m/s free speed) | Why: velocity control needs headroom under the free speed to correct with. Lower it if modules can't reach their setpoints at full stick (`Drive/ModuleVelocities` against `Drive/SetpointsOptimized`). |
-| `maxAngularSpeed` | chosen | guess (driver-friendly) | Why: fast enough to turn around, slow enough to control. Ask the drivers. At full spin (6.3 rad/s) the cameras' images are thrown out: they're over `VisionConfig.maxYawRateRadiansPerSecond`. |
+| `maxLinearSpeed` | chosen | math (four fifths of the modules' free speed: `DrivetrainControl.TOP_SPEED_SHARE`) | Optional: left out, the drivetrain seeds it with four fifths of its modules' free speed, about what a drivetrain reaches on carpet, so a slower drivetrain than the template's takes the defaults as they are. Why: velocity control needs headroom under the free speed to correct with. Lower it if modules can't reach their setpoints at full stick (`Drive/ModuleVelocities` against `Drive/SetpointsOptimized`). |
+| `maxAngularSpeed` | chosen | guess (driver-friendly) | `withMaxTurnRate(RotationsPerSecond.of(1))`; the driving limit is `withMaxSpeed(MetersPerSecond.of(4.4))`. Why: fast enough to turn around, slow enough to control. Ask the drivers. At full spin (6.3 rad/s) the cameras' images are thrown out: they're over `VisionConfig.maxYawRateRadiansPerSecond`. |
 
-### `DrivetrainControl.Gains`
+### `DrivetrainControl.SwerveGains`
 
 Drive feedforward and feedback, and steering feedback, all tunable live. Check them in AdvantageScope:
 each module's speed against its setpoint (`Drive/ModuleVelocities` against
@@ -406,10 +432,10 @@ each module's speed against its setpoint (`Drive/ModuleVelocities` against
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `driveKs` | characterized | simulation (the simulator's wheels have no friction) | [Feedforward](characterization.md#feedforward), per drivetrain design: robots built alike share it. |
-| `driveKv` | characterized | math (ideal: nominal voltage over free speed, `ModuleType.idealDriveKv()`) | [Feedforward](characterization.md#feedforward), per drivetrain design. A real drivetrain's is a little higher. |
+| `driveKv` | characterized | math (ideal: nominal voltage over free speed, `Drivetrain.Module.idealDriveKv()`) | Optional: until it's tuned, the drivetrain seeds it with its slowest module's ideal (`Drivetrain.idealDriveKv()`). [Feedforward](characterization.md#feedforward), per drivetrain design. A real drivetrain's is a little higher. A tuned one under half or over twice the ideal is doubted at startup, and one off by about the ratio between two units is named as the likely mix-up: Tuner X's drive kV, per turn a second of the rotor, typed as a plain number, is about a twentieth of the ideal. |
 | `driveKp` | chosen | simulation | Why: corrects what feedforward misses. Tune it live after kS and kV: raise it until speeds track their setpoints, and back off at the first buzz. |
-| `steerKp` | chosen | 2026 code (kP 100 V/rot, converted) | Why: turns the module to its angle quickly. Tune it live: raise it until a new angle is reached quickly, and back off at overshoot or buzzing. The steering's loop sees a new angle only when the CANcoder sends one, every 10 ms, so it overshoots from about 40 and buzzes past about 77 (at `steerKd` 0.08, in the simulator). |
-| `steerKd` | chosen | 2026 code (kD 0.5, converted) | Why: damps the steering's overshoot. Raise it if the module overshoots its angle. Too much buzzes too, since it damps on a speed up to 10 ms old: past about 0.2 at `steerKp` 50, in the simulator. |
+| `steerKp` | chosen | 2026 code (kP 100 V/rot, Tuner X's stock, to two figures: 16 per radian) | Why: turns the module to its angle quickly. Tuner X shows it per turn of the module: give a Tuner X kP so, `withSteerKp(Volts.per(Rotation).of(100))`. A plain number isn't taken: read per radian, it would be 2π times as hot as Tuner X's. Tune it live: raise it until a new angle is reached quickly, and back off at overshoot or buzzing. The steering's loop sees a new angle only when the CANcoder sends one, every 10 ms, so it overshoots from about 40 and buzzes past about 77 (at `steerKd` 0.08, in the simulator). |
+| `steerKd` | chosen | 2026 code (kD 0.5 V/(rot/s), Tuner X's stock, to two figures: 0.08 per radian a second) | Why: damps the steering's overshoot. Raise it if the module overshoots its angle. Too much buzzes too, since it damps on a speed up to 10 ms old: past about 0.2 at `steerKp` 50, in the simulator. |
 | `skewLookahead` | chosen | guess | Why: while the robot spins, its wheels reach their angles late, so a field-relative drive aims at the heading this far ahead. Drive straight while spinning, and tune until the path stays straight. Change it if the path curves the way the robot spins. |
 | `headingKp` | chosen | guess | Why: how hard a [drive move](driving.md) (`turnTo`, `goTo`, `follow`) turns the robot back onto its path's heading, and how hard `facing` turns it onto its target, in radians a second for each radian off. Its path turns at half the turning acceleration the robot's model allows, from its motors at the stator limit, its tread and its yaw inertia, and each wheel is given the volts its share of that acceleration takes, so most of a turn is the path's own. Turn a quarter turn and watch `Drive/Outcome`: raise it if turns settle slowly short of their heading, lower it if they overshoot and swing back. |
 | `translationKp` | chosen | guess | Why: how hard a [drive move](driving.md) (`goTo`, `follow`) drives the robot back onto its path's position, in meters a second for each meter off, its path planned at half the acceleration the robot's model allows. Go 2 m and watch `Drive/Outcome` and how far the robot strays from the straight line: raise it if it settles slowly short, lower it if it overshoots or weaves. |
@@ -417,34 +443,45 @@ each module's speed against its setpoint (`Drive/ModuleVelocities` against
 ### `SwerveWiring`
 
 `com.michaelgrundvig.frc.world.robot.SwerveWiring`: where the drivetrain's devices are on the CAN
-bus, and how they read, in its block (`.wired(...)`). Phoenix Tuner X's swerve generator reports every value here; copy them
-across. Its coupling ratio is the module's gearing, so it goes in the definition
-(`DrivetrainGeometry.ModuleType.couplingRatio`). The template's robot runs only in simulation and has
-no wiring, so nothing is set today.
+bus, and how they read, in its block, written as a joint writes its devices: the gyro, then each
+corner's drive, steering and absolute encoder,
+`.gyro(PIGEON_2.can(CANIVORE, 1)).frontLeft(TALON_FX.can(CANIVORE, 23), TALON_FX.can(CANIVORE,
+24), CANCODER.can(CANIVORE, 12).offset(Rotations.of(0.107)))` and on to `.backRight(...)`. Phoenix
+Tuner X's swerve generator reports every value here; copy them across. Its coupling ratio is the
+module's gearing, so it goes in the definition (`Drivetrain.Module.couplingRatio`). The
+kind of controller and the bus aren't written: they follow from the devices, as a joint's do, so
+the drives are all one kind, the steerings all one kind, and every device, the gyro too, is on one
+bus. SPARKs are on Systemcore's own CAN. The template's robot runs only in simulation and has no
+wiring, so nothing is set today. Its values are its gyro and its four corners, front left, front
+right, back left and back right, with sections of their own.
+
+### `SwerveWiring.Gyro`
+
+The drivetrain's Pigeon 2, `PIGEON_2.can(CANIVORE, 1)`, on its modules' bus, where Phoenix reads
+them together. It reads turns at their true size, and sits as every IMU starts
+(`ImuMount.UNCHECKED`), until `.yawScale(...)` and `.at(mount)` say otherwise. Its mount is an
+[`ImuMount`](#imumount), with a section of its own.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `canBus` | as built | none | Tuner X: Systemcore's port, or the CANivore's name. SPARKs are on Systemcore's own port. |
-| `driveController` | as built | none | What the drive motors are on: `TALON_FX` (a Kraken or Falcon), or `SPARK_MAX` or `SPARK_FLEX` (REV's MAXSwerve, say). The robot refuses one that can't drive the definition's motor. |
-| `steerController` | as built | none | What the steering motors are on, as the drive's: the template's modules are TalonFXs or SPARKs for both, so far. On a SPARK, each module's absolute encoder is on its data port. |
-| `gyroId` | as built | none | Tuner X: the Pigeon 2's CAN ID. |
-| `gyroYawScale` | calibrated | none | [The gyro's scale](calibration.md#the-gyros-scale), once per gyro, and after replacing or remounting it. |
+| `bus` | as built | none | Tuner X: Systemcore's port, or the CANivore's name: its modules' bus. |
+| `id` | as built | none | Tuner X: the Pigeon 2's CAN ID. |
+| `yawScale` | calibrated | none | [The gyro's scale](calibration.md#the-gyros-scale), once per gyro, and after replacing or remounting it: `.yawScale(1.0012)`. 1, its turns at their true size, until then. |
 
 ### `SwerveWiring.ModuleWiring`
 
-One module's devices. Its drive's and its steering's feeds, the PDH channel each motor controller is
-powered from and its breaker (`driveFeed`, `steerFeed`), are [`Pdh.Feed`](#pdhfeed)s: empty where
-they aren't said.
+One module's devices, as its corner names them: its drive's and its steering's motor controllers,
+named as a joint's are (`TALON_FX.can(CANIVORE, 23).clockwise().pdh(0, Amps.of(40))`, each with its
+PDH channel and breaker where it's said), and its absolute encoder. Directions are the module's: a
+device turns counterclockwise for positive, seen facing a motor's shaft or a CANcoder's LED, until
+`.clockwise()` says otherwise. A refusal names its corner: `ModuleWiring[back-right].steering: CAN
+ID 70 must be from 0 to 62`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `driveId` | as built | none | Tuner X, or REV's Hardware Client for a SPARK. |
-| `steerId` | as built | none | Tuner X, or REV's Hardware Client. |
-| `encoderId` | as built | none | Tuner X: the CANcoder's ID. Empty for a SPARK's steering, whose encoder is on its data port. |
-| `encoderOffset` | calibrated | none | With the wheels straight ahead, the offset it has now minus what its CANcoder reads, in rotations ([tuner-x.md](tuner-x.md#encoder-offsets): the reading includes the offset the program wrote); again whenever a module is rebuilt. On REV's modules: with the wheels straight ahead, read each steering SPARK's absolute encoder in REV's Hardware Client, and negate it. |
-| `driveInverted` | as built | none | Tuner X's swerve generator. |
-| `steerInverted` | as built | none | Tuner X's swerve generator. |
-| `encoderInverted` | as built | none | Tuner X's swerve generator. |
+| `drive` | as built | none | Tuner X, or REV's Hardware Client for a SPARK: its CAN ID. `.clockwise()` if it turns clockwise, seen facing its shaft, to roll the wheel forward; `.foc()` on all four drives, or none, to drive them with FOC, which needs Phoenix Pro: Tuner X's swerve generator says, and [on the bench](bench.md), driving forward slowly, every wheel rolls forward. |
+| `steering` | as built | none | As `drive`. `.clockwise()` if it turns clockwise to turn the module counterclockwise, seen from above: asked for a small turn on the bench, every module settles. |
+| `encoder` | calibrated | none | A CANcoder for a TalonFX's steering, `CANCODER.can(CANIVORE, 12).offset(...)`, its ID from Tuner X; or `DATA_PORT.offset(...)` for a SPARK's. Its offset with the wheel straight ahead: the offset it has now minus the module's `Drive/Module<name>/SteerAngleRotations`, in rotations, on CTRE's modules and REV's alike ([tuner-x.md](tuner-x.md#zeroing-a-swerve-module): the reading includes the offset the program applies, and its magnet must not read red); again whenever a module is rebuilt. A CANcoder's `.clockwise()` if it counts clockwise, seen facing its LED, as the module turns counterclockwise; a data port's `.inverted()` if its reading falls: turned counterclockwise by hand, seen from above, `SteerAngleRotations` grows. |
 
 ## The cameras
 
@@ -456,38 +493,77 @@ they aren't said.
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `name` | chosen | none | The camera's name: on PhotonVision, the name PhotonVision knows it by; on Visor, the name in Visor's configuration and logs, which `visor record --camera` takes. |
-| `forward` | calibrated | 2026 code (a 2026 robot's cameras) | [A camera's mount](calibration.md#a-cameras-mount), starting from CAD; again after mounting, bumping, or remounting it. |
+| `forward` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `left` and `up`, `.at(forward, left, up)`; a camera without them is refused at startup. [A camera's mount](calibration.md#a-cameras-mount), starting from CAD; again after mounting, bumping, or remounting it. |
 | `left` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `up` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
-| `roll` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
-| `tiltUp` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
+| `roll` | calibrated | 2026 code (a 2026 robot's cameras) | Optional: as `forward`. Left out, 0°, a camera mounted level, and the program says so at startup until the mount procedure gives it. |
+| `tiltUp` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `yaw`, `.facing(tiltUp, yaw)`; a camera without them is refused at startup. As `forward`. |
 | `yaw` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
-| `noiseScale` | calibrated | guess (every camera typical) | How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
+| `noiseScale` | calibrated | guess (every camera typical) | Optional: left out, 1, and the program says so at startup. How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
 | `joint` | as built | none | What the camera rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
-| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or Visor, read from Visor's frames over UDP: `VISOR` for the simulator, `Software.visor()...build()` with what the robot configures Visor with ([below](#cameraconfigsoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
+| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or Visor, read from Visor's frames over UDP: `VISOR` for the simulator, `Software.visor()` and its verbs with what the robot configures Visor with ([below](#cameraconfigsoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
 
 ### `CameraConfig.Software.Visor`
 
 What the robot configures Visor with for a camera, on whichever coprocessor it's plugged into
-([visor.md](visor.md)). Per camera, in `Robots`, as `.software(Software.visor()...build())`. The
+([visor.md](visor.md)). Per camera, in `Robots`, as `.software(Software.visor()...)`, a verb for
+each value: `.device(...)`, `.lens(...)`, `.exposure(Milliseconds.of(1.5))`, `.gain(40)`,
+`.stream(Percent.of(50), Hertz.of(10), 60)`. The
 simulator reads none of it, so a camera on Visor in the simulator alone can be `Software.VISOR`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `device` | as built | none | The camera's `/dev/v4l/by-id/` path, as `visor cameras` on its coprocessor lists it, with the sizes it offers: its USB serial is in the name, so it's this camera on whichever board, and after a replug. A camera with no serial of its own (none, or another camera's) has only its USB port's `/dev/v4l/by-path/` name, which `visor cameras` gives instead: it then has to stay in that port. The board's Visor status in Spotter lists the names it sees. |
-| `controls` | chosen | none (the camera's own settings) | Camera settings by the names `v4l2-ctl --list-ctrls` prints on the board, set in this order: manual exposure before the exposure. Aim for an exposure near 1 ms (UVC's unit is 100 µs, so `exposure_time_absolute` 10) with the gain raised: blur from the robot turning is the main error, and short exposures cut it. Check against logs: tags found while turning fast. |
+| `device` | as built | none | The name `visor cameras --names` prints for the camera on its coprocessor (`visor cameras` lists the same names with the sizes each offers). A camera with a USB serial of its own is named by its `/dev/v4l/by-id/` path, which follows it to any port and any board. A camera with no serial (a ThriftyCam has none), or one whose serial another camera shares, is named by its USB port, its `/dev/v4l/by-path/` path, even when it's the only camera plugged in: it then has to go back in that port, so label the ports and cables. The board's Visor status in Spotter lists the names it sees. |
+| `controls` | chosen | none (the camera's own settings) | Any other camera setting, by the name `v4l2-ctl --list-ctrls` prints on the board (`visor cameras` lists them with their ranges and defaults), set in this order after the exposure and gain. Not the exposure or gain controls, which `exposure` and `gain` own: Visor refuses them, and the robot says so as it starts, so tuning can't be undone by a second owner. A name the camera doesn't have stops Visor opening it, and its log says which. |
+| `exposure` | chosen | top team (a top team's ThriftyCam: 1 ms, its automatic exposure off) | As `Software.visor()` starts, unless given: a fixed 1 ms ([below](#cameraconfigsoftwareexposurefixed)) with the camera's automatic exposure off, since a camera's own lengthens the exposure in dim light, blurring the tags exactly when they're hardest to read. `.camerasOwnExposure()` hands it back to the camera, which then has no exposure to tune. |
+| `gain` | chosen | none (the camera's own gain) | `Gain.CAMERAS_OWN`, the camera's own, unless given: a `gain` control's units are the camera's, so no one number suits every camera. `.gain(n)` sets it ([below](#cameraconfigsoftwaregainlevel)), and makes it tunable. |
 | `timeOffset` | calibrated | none (no offset) | Added to every capture time: [a camera's capture time](calibration.md#a-cameras-capture-time), the spin test, prints it to paste, on each camera. |
+
+### `CameraConfig.Software.Stream`
+
+A camera's live view, which its card on Pitwall's Pit view shows, the browser fetching it from the
+camera's coprocessor ([visor.md](visor.md#the-live-view-on-pitwall)). Per camera, in its
+`Software.visor()`, as `.stream(Percent.of(50), Hertz.of(10), 60)`: optional, and left out it's
+Visor's own (half size, 10 a second and quality 60, the numbers below), which the robot writes
+nothing of. Visor makes nothing while no card shows it, and never at detection's expense.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `scale` | chosen | guess (Visor's 0.5: 800 x 652 of a ThriftyCam's 1600 x 1304) | The view's size as a share of the camera's, across and down, 5% to 100%. Half is enough to aim a camera and read a tag's ID across the pit; smaller saves bandwidth on a busy network, larger shows focus. |
+| `frameRate` | chosen | guess (Visor's 10 a second) | Pictures a second while a card shows it, at least 1: past 30 is no smoother to the eye, and each picture costs the board a few milliseconds. One faster than the camera runs at the camera's. Ten is smooth enough to aim by, at a sixth of a 60 fps camera's frames. |
+| `quality` | chosen | guess (Visor's 60) | JPEG quality, 1 to 100. At 60 a half-size ThriftyCam picture is 20 to 25 KB, about 2 Mbit/s at 10 a second, and tag edges and IDs stay sharp; raise it if the view looks blocky, lower it if the network's busy. |
+
+### `CameraConfig.Software.Exposure.Fixed`
+
+A camera's fixed exposure, its automatic exposure off: `.exposure(Milliseconds.of(1))`. Per
+camera, in its `Software.visor()`, as `.exposure(...)`; tunable live as its [camera's
+tuning](#camera-camera-tuning).
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `time` | chosen | top team (a top team runs the ThriftyCam at 1 ms) | 1 ms unless given: blur from the robot turning is the main error in a tag's corners, and a short exposure cuts it (at 1 ms, a turn at 360°/s moves a tag 4 m away about 2.5 cm). From 100 µs, one of V4L2's steps (a shorter one rounds to none), to 1 s; Visor sets the nearest 100 µs. [Tune it](visor.md#exposure-and-gain) at the venue, disabled: the shortest whose frames keep `Vision/<camera>/BrightnessHigh` near 100 or more with `ClippedShare` near 0; raise the gain before lengthening it, and keep it under one frame's time. |
+
+### `CameraConfig.Software.Gain.Level`
+
+A value of a camera's `gain` control: `.gain(40)`. Per camera, in its `Software.visor()`, as
+`.gain(...)`; tunable live as its [camera's tuning](#camera-camera-tuning).
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `value` | chosen | none (the camera's own until given) | In the camera's own units, a whole number from 0 to 65535: `visor cameras` on its coprocessor lists the control's range and default, which is where to start. The ThriftyCam's default waits until its `gain` range is read off a real one; a top team runs it at libcamera's analogue gain 2 of 1 to 4, another scale. Raise it when frames are dark at the exposure you want, until the noise in `visor record`'s frames starts to show. Visor holds it to the camera's range, with a warning. |
 
 ### `CameraConfig.Software.Lens`
 
 A camera's lens, as Visor's `tools/calibrate.py solve` measures it and prints it, ready to paste:
 OpenCV's model. Per physical camera, at the frame size it runs; again after refocusing or
 replacing it. Without one, Visor sends the tags' corners and no poses. The build refuses a lens
-calibrated at another size than the camera's `Sensor`.
+calibrated at another size than the camera's `ImageSensor`. A new lens reaches the camera's board as a
+new configuration, once the robot is disabled off the field; until then the board's frames, solved
+with the old one, are left out ([visor.md](visor.md#which-frames-are-believed)).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `width` | calibrated | none | The frame size the calibration was made at: `calibrate.py`, from the frames `visor record` saved on the board at the camera's `Sensor` size. |
+| `width` | calibrated | none | The frame size the calibration was made at: `calibrate.py`, from the frames `visor record` saved on the board at the camera's `ImageSensor` size. |
 | `height` | calibrated | none | As `width`. |
 | `fx` | calibrated | none | `calibrate.py solve`: the focal length across, in pixels. It prints each value's uncertainty; a good session's is well under a pixel. |
 | `fy` | calibrated | none | As `fx`, down. |
@@ -498,7 +574,10 @@ calibrated at another size than the camera's `Sensor`.
 ### `CameraConfig.MountTolerance`
 
 How far a camera may really sit from its configured mount, as a bound along and about each axis.
-Per camera, in `Robots`, as `.mountTolerance(...)`; left out, `MountTolerance.MEASURED`. The default
+Per camera, in `Robots`, as `.mountTolerance(...)`; left out, `MountTolerance.UNCHECKED`, 25 mm and
+3°, for a mount measured with a tape or read off CAD and never checked, and the program says so at
+startup. [A camera's mount](calibration.md#a-cameras-mount) ends its report with `.measured()`,
+`MountTolerance.MEASURED`, 5 mm and 1°, for a mount it has put right. The default
 localizer starts the camera's turn on its mount as unsure as an error drawn evenly within it (1° is
 0.58° as a standard deviation) and learns the turn from the camera's images as the robot drives;
 the offset adds to `cameraShiftStdDevMeters`. Too small, and a camera off by more is trusted as if
@@ -506,23 +585,25 @@ it weren't.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `along` | calibrated | math (5 mm, the end of what a mount measured from CAD and checked lands within, as the [camera placement study's robustness](camera-placement.md#robustness) has it) | After [a camera's mount](calibration.md#a-cameras-mount), five runs from the same spots: three times the spread of where they put the lens. |
-| `about` | calibrated | math (1°, as `along`) | As `along`, for the camera's angles. |
+| `along` | calibrated | math (unchecked, 25 mm: a camera placed by hand lands within about an inch; checked, 5 mm, the end of what a mount measured from CAD and checked lands within, as the [camera placement study's robustness](camera-placement.md#robustness) has it) | After [a camera's mount](calibration.md#a-cameras-mount), five runs from the same spots: three times the spread of where they put the lens. |
+| `about` | calibrated | math (unchecked, 3°: a bracket bent a little; checked, 1°, as `along`) | As `along`, for the camera's angles. |
 
-### `CameraConfig.Sensor`
+### `CameraConfig.ImageSensor`
 
-The camera itself: per model of camera, at the settings it runs. In `Robots`, shared by the cameras
-that use it. The simulator builds its cameras from it.
+The camera itself: per model of camera, at the settings it runs: `ImageSensor.of(1280, 800, Hertz.of(30))`,
+the size and rate, and the rest each by its own call, `.fieldOfView(...)`, `.latency(...)`,
+`.sightRange(...)`, where it's known. In `Robots`, shared by the cameras that use it. The simulator
+builds its cameras from it. What's left out is said at startup.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `widthPixels` | as built | guess (a typical AprilTag camera) | The resolution the pipeline runs at, in PhotonVision. |
 | `heightPixels` | as built | guess (a typical AprilTag camera) | As `widthPixels`. |
-| `fieldOfView` | characterized | guess (typical) | The angle the camera sees across its image, as `fieldOfViewAcross` says: PhotonVision's lens calibration, at the resolution the robot runs, reports the diagonal one; a camera's datasheet, and most teams' code, the horizontal one. The simulator's cameras and the views take the diagonal, worked out from a horizontal one through a lens with square pixels. |
+| `fieldOfView` | characterized | guess (80° across the diagonal, a common AprilTag camera's) | Optional: the angle the camera sees across its image, as `fieldOfViewAcross` says, `.fieldOfView(Degrees.of(70), Across.HORIZONTAL)`: PhotonVision's lens calibration, at the resolution the robot runs, reports the diagonal one; a camera's datasheet, and most teams' code, the horizontal one. The simulator's cameras and the views take the diagonal, worked out from a horizontal one through a lens with square pixels. A camera on Visor with a lens calibration takes it from the lens and needs none: one given more than 2° from the lens's is doubted at startup, and the lens's used. Left out with no lens, 80°, said at startup in the camera's one note: in the simulator alone, unless the camera leaves out something the robot reads too. |
 | `fieldOfViewAcross` | as built | none (as `fieldOfView`, a diagonal one) | Which way `fieldOfView` is across the image: `HORIZONTAL` for a datasheet's or a Limelight's, `DIAGONAL` for PhotonVision's calibration. |
 | `frameRate` | characterized | guess | [Coprocessor capacity](characterization.md#vision-coprocessor-capacity): results per second, with as many cameras as one coprocessor carries on the robot. |
-| `latency` | characterized | guess | [Camera latency](characterization.md#camera-latency-and-time-sync): from the image's capture to its result reaching the robot, with as many cameras as one coprocessor carries on the robot ([coprocessor capacity](characterization.md#vision-coprocessor-capacity)). |
-| `sightRange` | characterized | guess (the simulator's since the template began) | [Camera noise](characterization.md#camera-noise): the farthest a tag is found in most images. The simulator's cameras find tags no farther, and AdvantageScope's schematic robot draws each camera's field of view out to it. |
+| `latency` | characterized | guess (30 ms on PhotonVision, 20 ms on Visor: `Software.typicalLatency`) | Optional: left out, its software's typical one, and the program says so at startup; the real robot drops images by it, so measure it. [Camera latency](characterization.md#camera-latency-and-time-sync): from the image's capture to its result reaching the robot, with as many cameras as one coprocessor carries on the robot ([coprocessor capacity](characterization.md#vision-coprocessor-capacity)). |
+| `sightRange` | characterized | guess (7 m, the simulator's since the template began) | Optional: left out, 7 m, said at startup in the camera's one note, as `fieldOfView` is. [Camera noise](characterization.md#camera-noise): the farthest a tag is found in most images. The simulator's cameras find tags no farther, and AdvantageScope's schematic robot draws each camera's field of view out to it. |
 
 ## Mechanisms
 
@@ -536,9 +617,9 @@ start tuning from) is derived from it (`RobotMath`), not entered. The guide's ro
 runs has mechanisms only to illustrate the guide, so nothing here has a source of the template's: a mechanism's numbers come from CAD and its parts'
 datasheets as it joins `Robots.java`.
 
-### `Joint.Revolute`
+### `RevoluteJoint`
 
-`com.michaelgrundvig.frc.world.robot.Joint.Revolute`: a joint that turns, in radians. Its range
+`com.michaelgrundvig.frc.world.robot.RevoluteJoint`: a joint that turns, in radians. Its range
 and its link have sections of their own ([`Range`](#range), [`Link`](#link)), and so does how
 it's driven, its block's `.motors(...)`, `.absoluteEncoder(...)`, `.limitSwitch(...)`,
 `.control(...)`, and its interlocks, `.keepsOut(...)` and `.runsOnlyWhen(...)` ([`Driven.Motors`](#drivenmotors) and the rest). How it's driven isn't part of what
@@ -548,20 +629,20 @@ the joint is: two joints the same but for it are one joint, re-tuned or re-wired
 |---|---|---|---|
 | `label` | chosen | none | What logs, writers, and messages call it: `arm`, `front-left steer`. Unique among the robot's joints. |
 | `parent` | as built | none | What it turns on: the chassis (`Part.CHASSIS`), or another joint, standing for that joint's link. A joint is built after its parent, so joints never loop. |
-| `origin` | as built | none | From CAD: where its axis sits in its parent's frame, and how its own frame is turned there, with the joint at 0. Position 0 is wherever CAD draws it; the gravity offset Phoenix wants is derived from it (`RobotMath.gravityOffset`), not entered. |
+| `place` | as built | none | Optional, its block's `.at(forward, left, up)`, in the camera's order and any unit: from CAD, where its axis sits in its parent's frame with the joint at 0. Position 0 is wherever CAD draws it; the gravity offset Phoenix wants is derived from it (`RobotMath.gravityOffset`), not entered. Left out, at its parent's origin, and the program says so at startup: it's drawn, simulated and checked against the starting height and the extension limit there. |
 | `axis` | as built | none | From CAD: the axis it turns about, in its own frame. A position grows turning right-handed about it, so pick its sign for the direction the motors' positive voltage turns it. Any length: only its direction counts. |
 | `rest` | as built | none | Where it rests as the robot is weighed and starts a match, its stowed position, inside its range. Its block says it, `rest(...)`, beside its stops, `range(...)`; one whose block doesn't starts at its zero, which must then be inside its stops (refused otherwise, saying to give it). A practice robot's joint that rests elsewhere moves it with the same verb, `rest(...)`, keeping its stops. The body's mass properties are the robot with every joint here, and the season's starting limits are checked here. |
 
-### `Joint.Prismatic`
+### `PrismaticJoint`
 
-`com.michaelgrundvig.frc.world.robot.Joint.Prismatic`: a joint that slides, in meters: an
+`com.michaelgrundvig.frc.world.robot.PrismaticJoint`: a joint that slides, in meters: an
 elevator's stage, a telescope. Its range, its link, and how it's driven have sections of their own.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `label` | chosen | none | As a revolute joint's: `elevator`, `carriage`. |
 | `parent` | as built | none | As a revolute joint's. |
-| `origin` | as built | none | From CAD: where its link sits on its parent with the joint at 0, its lowest or most retracted usually. |
+| `place` | as built | none | Optional, as a revolute joint's, `.at(forward, left, up)`: from CAD, where its link sits on its parent with the joint at 0, its lowest or most retracted usually. |
 | `axis` | as built | none | From CAD: the direction it slides as its position grows, in its own frame. Any length. |
 | `rest` | as built | none | As a revolute joint's: where it rests stowed, in meters. |
 
@@ -590,9 +671,9 @@ the robot's own (`RobotDefinition.drives`).
 | `pitchRadius` | as built | none | A sliding joint's: where its belt, chain or rack meets its drum, sprocket or pinion, from the part's drawing. None for a joint that turns. |
 | `controllers` | as built | none | Each motor's controller, the leader first: its kind, its bus and CAN ID, from Tuner X or REV's Hardware Client, and which way its motor turns for positive. None runs the joint in the simulator alone. One kind of controller, on one bus, that drives the motor. |
 
-### `Driven.Servo`
+### `Driven.ServoMount`
 
-`com.michaelgrundvig.frc.world.robot.Driven.Servo`: a servo pushing between a joint's parent and its
+`com.michaelgrundvig.frc.world.robot.Driven.ServoMount`: a servo pushing between a joint's parent and its
 link, in its block (`.servo("hood left", WCP_0408, onParent, onLink)`): a hood's linear servo. Its
 drive is worked out from it, under its own label. The template doesn't drive servos yet: drive
 them from a subsystem of your own ([mechanisms](mechanisms.md#8-when-the-template-cant-drive-it)).
@@ -641,14 +722,14 @@ starts. So measure it from the robot's own reading, the same way for every kind:
 For example, an encoder on a pivot's axle (`ratio` 1) at offset 0.20: at the zero, `AbsoluteAt`
 reads 0.63 rad, 0.10 of a turn. The new offset is 0.20 − 0.10 = 0.10. A CANcoder's reading in
 Tuner X is already in its turns, offset included, so it can stand in for steps 2 and 3
-([tuner-x.md](tuner-x.md#encoder-offsets)).
+([tuner-x.md](tuner-x.md#a-joints-encoder-offset)).
 
 ### `Driven.LimitSwitch`
 
 `com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch`: a switch a joint presses at one end of
 its travel, in its block (`.limitSwitch(LimitSwitch.lower().at(Degrees.of(0)))`, with its wiring
 on a port, a CANdi, or the joint's own controller's pin in `.on(...)`). Its sensor is worked out from it, named for its joint
-and its end: "pivot lower limit", what `PIVOT.switchAt(End.LOWER)` gives a condition.
+and its end: "pivot lower limit", what `RobotMath.switchAt(PIVOT, End.LOWER)` gives a condition.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -678,7 +759,7 @@ properties ([`MassProperties`](#massproperties)) and its shapes.
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `label` | chosen | none | What logs and writers call it: `arm`, `carriage`. Unique among the robot's links. |
-| `shapes` | as built | none | From CAD, simplified by hand to boxes ([`Shape.Box`](#shapebox)) in the joint's frame. They're what reaches out and up, for the season's limits, and what a camera on the link sits on. None for a link nothing needs the shape of. |
+| `shapes` | as built | none | From CAD, simplified by hand to boxes ([`Solid.Box`](#solidbox)) in the joint's frame. They're what reaches out and up, for the season's limits, and what a camera on the link sits on. None for a link nothing needs the shape of. |
 
 ### `Coupling.Linear`
 
@@ -690,7 +771,7 @@ most.
 |---|---|---|---|
 | `leader` | as built | none | The joint that moves it. |
 | `follower` | as built | none | The joint it moves. Where it rests must be where the coupling puts it, with the leader where it rests. |
-| `ratio` | as built | none | From CAD: how far the follower moves for each of the leader's units: 2 for a cascade's carriage, which rides its stage's rigging. |
+| `ratio` | as built | none | From CAD: how far the follower moves along its parent for each of the leader's units: 1 for a cascade's carriage written riding on its stage, which moves along the stage as far as the stage moves ([mechanisms.md](mechanisms.md#2-an-elevator-with-an-arm-on-it)). |
 | `offset` | as built | none | Where the follower is with the leader at 0. Usually 0. |
 
 ### `Coupling.Curve`
@@ -714,7 +795,7 @@ points.
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `label` | chosen | none | What logs and messages call it: `arm`, `front-left drive`. Unique among the robot's drives. |
-| `actuator` | as built | none | What makes the force: [`Actuator.Motors`](#actuatormotors) or a [servo](#actuatorservo). |
+| `actuator` | as built | none | What makes the force: [`Actuator.MotorGroup`](#actuatormotorgroup) or a [servo](#actuatorservo). |
 | `transmission` | as built | none | How the force reaches the joints: [`Transmission.Geared`](#transmissiongeared), [`Transmission.Drum`](#transmissiondrum), [`Transmission.Combined`](#transmissioncombined), or [`Transmission.Between`](#transmissionbetween). |
 
 ### `Actuator.Servo`
@@ -813,7 +894,7 @@ its beam blocked), whatever its wiring's polarity. What it means to the robot is
 ### `Sensor.Switch.Limit`
 
 A limit switch: one a joint's link presses, or a magnet on it passes, at one end of its travel,
-written in its joint's block, `.limitSwitch(End.LOWER, Degrees.of(0), ...)`, which names it for its
+written in its joint's block, `.limitSwitch(LimitSwitch.lower().at(Degrees.of(0)))`, which names it for its
 joint and its end ([`Driven.LimitSwitch`](#drivenlimitswitch)).
 
 | Value | Kind | Source | How to measure it, or why |
@@ -838,10 +919,10 @@ the distance or the range is wrong.
 | `range` | as built | none | The datasheet: the farthest it reads, for a CANrange 1 m in its short-range mode and 3 m in its long-range one (CTRE's CANrange User's Guide). A condition's distance must be inside it. |
 | `fieldOfView` | as built | none | The datasheet: its cone's full angle; a CANrange's is set from 6.75 to 27 degrees, across and up and down apart: give the wider. |
 
-## Named places, configurations and interlocks
+## Named places, presets and interlocks
 
 A joint names the places it goes and what it runs at ([`Position`](#position),
-[`Output`](#output), its `positions` and `outputs`), and the robot names its configurations (several
+[`Output`](#output), its `positions` and `outputs`), and the robot names its presets (several
 joints, each at a named place) and its interlocks (what one joint may do by where another is), in its
 definition. They're facts about the robot, read by everything that reads it: robot code moves to
 them by name, Pitwall offers them, logs show them. What to do with them is the robot program's own
@@ -854,9 +935,9 @@ own; one of the name at a value it has never had is another joint's or another r
 each position inside its joint's range, each output within what the joint's motors can do (a speed
 within `RobotMath.freeSpeed`, refused above it and doubted above nine tenths of it,
 `RobotDefinition.findings`; a voltage within their nominal voltage),
-every configuration obeying every interlock with the joints it doesn't name where they rest, the
-robot obeying them as it starts, no joints holding each other there or at a configuration so that
-none can move to free another, and no named place the interlocks leave unreachable; the season's extension limit is checked at each configuration (`SeasonLimits`).
+every preset obeying every interlock with the joints it doesn't name where they rest, the
+robot obeying them as it starts, no joints holding each other there or at a preset so that
+none can move to free another, and no named place the interlocks leave unreachable; the season's extension limit is checked at each preset (`SeasonLimits`).
 The guide's robot the template runs has mechanisms only to illustrate the guide, so nothing here
 has a starting value of the template's.
 
@@ -876,34 +957,34 @@ has a starting value of the template's.
 `com.michaelgrundvig.frc.world.robot.Output`: what a joint is run at, by name, of one of three kinds,
 as teams run their rollers: a velocity in the joint's units per second (`Output.rpm("intaking",
 2000)`, the roller's turns a minute, not its motor's), a voltage (`Output.volts("pushing", 6)`), or a
-duty cycle (`Output.dutyCycle("eject", -0.8)`). Every joint also has `stopped`, built in: its motors
+duty cycle (`Output.dutyCycle("eject", Percent.of(-80))`). Every joint also has `stopped`, built in: its motors
 at neutral, braking or coasting as its control says.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `name` | chosen | none | What code, logs and Pitwall call it: `intaking`, `feeding`. Unique among its joint's positions and outputs, and never `stopped`, which every joint has. |
 | `kind` | chosen | none | Why: how the job runs the joint. `VELOCITY` holds a speed under load with a velocity loop, and needs its kV and kP tuned; `VOLTAGE` gives the same push whatever the battery does, and its speed falls under load; `DUTY_CYCLE` is a share of whatever the battery has, so it sags with it. |
-| `value` | chosen | none | Why: how hard the job wants it; negative runs it backward. A velocity within what the joint's motors turn it at (the definition refuses one above its free speed, naming both, and doubts one above 90% of it, which a velocity loop can't hold under load); a voltage within the motors' nominal 12 V; a duty cycle from -1 to 1. Check: the joint's logged velocity, voltage and current while it runs; a velocity that never gets there is asking too much. |
+| `value` | chosen | none | Why: how hard the job wants it; negative runs it backward. A velocity within what the joint's motors turn it at (the definition refuses one above its free speed, naming both, and doubts one above 90% of it, which a velocity loop can't hold under load); a voltage within the motors' nominal 12 V; a duty cycle from -1 to 1, a share of 12 V whatever the battery reads, on every motor controller. Check: the joint's logged velocity, voltage and current while it runs; a velocity that never gets there is asking too much. |
 | `motion` | as built | none | A velocity's only: `ANGLE` for a speed of turning, `LENGTH` for one of sliding, set by how it's written (`Output.rpm`, or `Output.of` with an angular or a linear speed). The joint refuses a speed of the other kind, so an rpm never runs an elevator in meters a second. |
 
-### `Configuration`
+### `Preset`
 
-`com.michaelgrundvig.frc.world.robot.Configuration`: several joints at named places, by a name of
-their own, such as "stowed", "amp" or "feeding" (`RobotDefinition.configurations`). It names only
+`com.michaelgrundvig.frc.world.robot.Preset`: several joints at named places, by a name of
+their own, such as "stowed", "amp" or "feeding" (`RobotDefinition.presets`). It names only
 the joints it sets, each once, at one of its positions or outputs ([`Condition.At`](#conditionat));
 those joints are what a command moving to it requires.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `name` | chosen | none | What code, logs and Pitwall call it: `stowed`, `amp`. Unique among the robot's configurations. |
+| `name` | chosen | none | What code, logs and Pitwall call it: `stowed`, `amp`. Unique among the robot's presets. |
 
 ### `Condition.At`
 
 `com.michaelgrundvig.frc.world.robot.Condition.At`: a joint at one of its named positions or outputs,
-written `ARM.at(ARM_SCORING)`: what a configuration is made of. An interlock refuses one: it holds
+written `ARM.at(ARM_SCORING)`: what a preset is made of. An interlock refuses one: it holds
 only with the joint exactly there, which a measured position never is, so an interlock's edge is
 `atLeast`, `atMost` or `between`. Its place, a [`Position`](#position) or an [`Output`](#output), is
-kept as the code names it, and the definition refuses a configuration on another joint's, saying
+kept as the code names it, and the definition refuses a preset on another joint's, saying
 whose it is.
 
 | Value | Kind | Source | How to measure it, or why |
@@ -1024,7 +1105,8 @@ with the PDH channel that feeds it (`.pdh(4, Amps.of(40))`); and its absolute en
 An absolute encoder on the leading SPARK's data port, such as REV's Through Bore Encoder, named in
 its joint's block by its offset (`DATA_PORT.offset(Rotations.of(0.82))`, then `.inverted()` for one
 whose reading falls): read once at startup to tell the motor where the joint is, or, closing the
-SPARK's loop on it (`.closesLoop()`), its loop's sensor ([absolute encoders](mechanisms.md#absolute-encoders)). The
+SPARK's loop on it (`.closesLoop()`), its loop's sensor ([absolute encoders](mechanisms.md#absolute-encoders)); a swerve
+module's chooses its own loop, and refuses `.closesLoop()`. The
 SPARK applies its direction and offset itself: it's told to invert as `reversed` says, and a
 `zeroOffset` worked out from `offset`, the raw reading at the low edge of the window one turn of the
 encoder tells apart, so its reading wraps outside the joint's range.
@@ -1077,13 +1159,15 @@ the joint's turns, or a sliding joint's drum's: with the CANcoder read once at s
 `SensorToMechanismRatio` is the rotor's turns for each of them (5 on the guide's elevator, geared
 5:1 to its drum); with the TalonFX reading it (`REMOTE`, `FUSED` or `SYNC`), it's the CANcoder's
 turns for each of them (a twelfth, for the guide's CANcoder geared twelve to one down from the
-drum), and its `RotorToSensorRatio` the rotor's turns for each of the CANcoder's, 60.
+drum), and its `RotorToSensorRatio` the rotor's turns for each of the CANcoder's, 60. A swerve
+module's CANcoder says none of these: the module chooses how its steering reads it, and refuses one
+told `.remote()`, `.fused()` or `.sync()`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `bus` | as built | none | Tuner X: Systemcore's port, or the CANivore's name. Its joint's motors' bus, where their TalonFX reads it: the robot refuses another. |
 | `id` | as built | none | Tuner X. |
-| `offset` | calibrated | none | [Measured at the joint's zero](#measuring-an-encoders-offset), or from Tuner X's reading ([tuner-x.md](tuner-x.md#encoder-offsets)): either way the offset it has now minus the reading, which includes the offset the program wrote. Again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
+| `offset` | calibrated | none | [Measured at the joint's zero](#measuring-an-encoders-offset), or from Tuner X's reading ([tuner-x.md](tuner-x.md#a-joints-encoder-offset)): either way the offset it has now minus the reading, which includes the offset the program wrote. Again whenever the encoder or its magnet moves. The discontinuity point is derived, never set. |
 | `turnsClockwise` | as built | none | Move the joint forward and watch the CANcoder from its LED side: clockwise (`.clockwise()` after its offset) or not, so its reading grows with the joint. |
 | `feedback` | chosen | none | What the TalonFX reads its position from: `ROTOR` (the CANcoder read only by code, at boot), `REMOTE` (no license), or `FUSED` or `SYNC` (Phoenix Pro). `FUSED` keeps the rotor's rate with the CANcoder's position, and is the best where it's licensed. |
 
@@ -1181,15 +1265,18 @@ the joint where that's more.
 ### `MechanismControl.Homing.ToHardStop`
 
 A joint pushed into one of its hard stops on the first enable: found once it has moved slower than
-2% of its free speed for a quarter of a second, and faulted if it hasn't by the timeout. Its
-position there is the stop's, the end of its range in the definition. `toHardStop(end)` pushes at
-2 V and leaves the timeout to the joint; `toHardStop(end, timeout)` gives one.
+2% of its free speed for a quarter of a second, its motor controller answering with each loop's
+readings and its motor drawing at least `stallShare` of what the push draws held still; faulted if
+it hasn't by the timeout, saying whether it never had a reading, never moved, or moved and found no
+stop. Its position there is the stop's, the end of its range in the definition. `toHardStop(end)`
+pushes at 2 V and leaves the timeout to the joint; `toHardStop(end, timeout)` gives one.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `end` | chosen | none | Why: which end's hard stop, `LOWER` or `UPPER` (as a limit switch's `End`): the stop it can reach safely from anywhere, usually the one gravity helps toward: an elevator's bottom. |
-| `volts` | chosen | top team (hoods homed at 1 to 2 V, intake deploys at 2 to 4 V, elevators brought down at 1 V or less) | Why: enough to move it from anywhere, against gravity if the stop is above, and gentle on the stop. Too few and it may not move at all, which reads as finding the stop: check on the robot that it moves. An elevator brought down has its weight pushing too, so it can take less. |
+| `volts` | chosen | top team (hoods homed at 1 to 2 V, intake deploys at 2 to 4 V, elevators brought down at 1 V or less) | Why: enough to move it from anywhere, against gravity if the stop is above, and gentle on the stop. Too few and it may not move at all: a motor held still by its load draws the same current as one held by the stop, so that still reads as finding the stop. Check on the robot, from its far end, that it moves. An elevator brought down has its weight pushing too, so it can take less. |
 | `timeout` | chosen | math (empty: twice the time the joint's motors, through its gearing, take to cross its range at `volts`, and 0.5 s, as a move's default deadline) | Why: longer than its slowest trip to the stop at `volts`, from its far end. Empty works that out from the model, which leaves friction and gravity half the push. Give one for a joint slower than that: one pushed up against more than half `volts` of its weight, or one whose gearing in the definition is a guess. Its `State` says the time while it homes, and a fault says it. |
+| `stallShare` | chosen | math (empty: 0.5. A push held still draws its volts over the motor's windings, the motor's stall current times `volts` over 12 V, up to the stator limit: a Kraken X60 at 2 V draws 61 A, under a 40 A limit 40 A. Every driver in the simulator reads within 5% of that, and Phoenix's simulated TalonFXS 70% of a limit that bites; a motor with an open phase, or a controller putting nothing out, draws nothing) | Why: a still joint counts as on its stop only while its motor draws this share of that current, so a joint still for another reason is never found at the wrong end. A hot motor's windings resist more and draw less, which half leaves room for. Check: in a log of a homing, `Joints/<label>`'s `StatorCurrentAmps` while it sits on its stop, against the push's volts over the windings; lower it (`Homing.toHardStop(End.LOWER).stallShare(0.3)`) only if a healthy joint on its stop reads under half. |
 
 ### `MechanismControl.Homing.ToSwitch`
 
@@ -1240,7 +1327,7 @@ Each motor's current limits, all set where they show, as the drivetrain's are
 |---|---|---|---|
 | `stator` | chosen | guess | Why: caps the motor's torque, and its heat. Enough to move the mechanism at its fastest, and no more: raise it for a mechanism that stalls short of its target. |
 | `supply` | chosen | guess | Why: caps what the motor draws from the battery, in bursts. |
-| `supplyLower` | chosen | guess | Why: the supply limit after `supplyLowerTime`: no more than the motor's breaker's rating. |
+| `supplyLower` | chosen | guess | Why: the supply limit after `supplyLowerTime`: no more than the motor's breaker's rating. A joint whose motor says its feed, `.pdh(4, Amps.of(30))`, refuses a limit over that breaker's, the lower of `supply` and `supplyLower` counting, saying the `withSupplyLimit` that fits. |
 | `supplyLowerTime` | chosen | guess | Why: how long the motor may draw `supply`: well short of its breaker's trip. |
 
 ## A sensor's wiring
@@ -1305,7 +1392,7 @@ switch goes on a CANdi.
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `joint` | as built | none | The joint's label: it must be wired, on a controller that has limit inputs. A joint's limit switch goes on its own joint's controller, which stops its motor on it by itself; anything else on an input is read, never stopped on. |
-| `direction` | as built | none | `FORWARD` or `REVERSE`: the pin it's on, as the controller labels them. Whether a SPARK's forward pin still stops its forward with the motor inverted is unconfirmed (open question M22), so the robot doesn't yet check a limit switch's pin against its end. |
+| `direction` | as built | none | `FORWARD` or `REVERSE`: the pin it's on, as the controller labels them. A joint's own limit switch goes on the pin for its end, `REVERSE` for its lower and `FORWARD` for its upper: with the motor not reversed, the robot refuses one on the other end's pin, which would stop the wrong way of travel. With the motor reversed (`.clockwise()`), whether a SPARK's forward pin still stops its forward is unconfirmed (open question M22), so that isn't checked yet. |
 
 ## The season
 
@@ -1315,7 +1402,7 @@ switch goes on a CANdi.
 game class in the model (`Rebuilt.LIMITS`, which its `Game` carries, `Rebuilt.GAME.limits()`); a robot not yet weighed is
 taken at its `weight` plus its `battery` (`SeasonLimits.robotMass`); every robot's definition is checked against it in the tests
 (`SeasonLimitsTest`, by `SeasonLimits.problems`), with its joints where they rest and in each of its
-named configurations. Where the robot reaches between its configurations, mid-move, isn't checked: no
+named presets. Where the robot reaches between its presets, mid-move, isn't checked: no
 guard reads the limits while the robot runs. The next season's manual replaces every number at
 kickoff.
 
@@ -1329,20 +1416,28 @@ kickoff.
 | `weight` | as built | rules (2026: R408, with bumpers) | The game manual: the most a robot may weigh without its battery. |
 | `battery` | as built | rules (2026: R601's battery, as `Robots` weighs it) | A battery on a scale, with its leads: what the robot's weighed mass includes and the weight leaves out. |
 
+The game also says what its AprilTags are: their family and the side of their black square, from
+the manual (`Rebuilt.TAG_FAMILY` and `Rebuilt.TAG_SIZE`, 36h11 at 6.5 in, which its `Game` carries
+to every layout and venue: `FieldModel.tagFamily()`, `FieldModel.tagSizeMeters()`). It's written
+there once: Visor's configuration on every board (`tag_size_m`), the simulator's tags and Pitwall's
+drawing read it. A robot with a camera on Visor is refused at startup on a field of a family Visor
+doesn't detect ([visor.md](visor.md#what-the-robot-does)).
+
 ## Localization
 
 ### `VisionConfig`
 
 `com.michaelgrundvig.frc.localization.VisionConfig`: which camera results are thrown out, and how
 far the rest are trusted. Per robot (`RobotConfig.vision`); every robot starts from
-`VisionConfig.DEFAULTS`. Five are tunable live. Each image's outcome, with the number that decided
-it, is in `Vision/<camera>/Outcomes`; the estimator's verdict in `Vision/<camera>/Decisions`.
+`VisionConfig.defaults()`, which `RobotConfig.of(definition)` gives it. Seven are tunable live ([below](#vision-tuning)). Each image's outcome, with the number that decided
+it, is in `Vision/<camera>/Verdicts`; the estimator's verdict in `Vision/<camera>/MeasurementVerdicts`.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `maxAmbiguity` | chosen | 2026 code (a top team used 0.19) | Why: a single tag above it fits two poses about equally well, and the wrong one is far off. Change if "ambiguous single tag" throws out results that agreed with the estimate, or single tags under it are then rejected by the gate. |
 | `maxHeightErrorMeters` | chosen | 2026 code | Why: the robot is on the floor, and tags are where the field says; a solve that misses either by 20 cm is a misread. Check the "off the floor" and "height is off" outcomes against the other cameras. |
 | `maxDistanceMeters` | chosen | guess | Why: noise grows with distance squared, and beyond some distance a result adds more doubt than it removes. Set it from [camera noise](characterization.md#camera-noise): where a tag's noise passes what odometry drifts in a second or two. Check the "too far" outcomes. |
+| `minDistanceMeters` | chosen | guess | Why: no robot's camera sees a tag nearer than this, so a result that says so is a misread, and its uncertainty, which shrinks with distance, would claim a near-perfect fix. Check: the "too close" outcomes should be none. |
 | `maxYawRateRadiansPerSecond` | chosen | top team (5 rad/s over the last 0.3 s) | Why: motion blur, rolling shutter, and a capture time a little off all grow with turning. Check: images just under it should pass the gate as often as the robot's still ones. |
 | `linearStdDevBaseline` | characterized | 2026 code | [Camera noise](characterization.md#camera-noise): position error for one tag at 1 m. Check: in clean driving, the gate should reject about 1 in 1000 measurements; far more and this is too small. |
 | `angularStdDevBaseline` | characterized | 2026 code | [Camera noise](characterization.md#camera-noise): heading error for one tag at 1 m. |
@@ -1350,18 +1445,18 @@ it, is in `Vision/<camera>/Outcomes`; the estimator's verdict in `Vision/<camera
 | `headingConstrainedFactor` | characterized | top team (its factor for the same idea) | [Camera noise](characterization.md#camera-noise): how much less a position solved with the gyro's heading scatters. |
 | `speedStdDevFactor` | characterized | unknown (the template credits top teams, none by name) | [Camera noise, while moving](characterization.md#while-moving). |
 | `yawRateStdDevFactor` | characterized | unknown (the template credits top teams, none by name) | [Camera noise, while moving](characterization.md#while-moving). |
-| `maxHeadingStdDevToConstrain` | chosen | unknown (the template credits top teams, none by name) | Why: a heading-constrained solve is only as good as the heading it's given; until the estimate knows its heading this well (a robot not yet placed), full solves find it; a driver's heading reset no camera has backed is never solved with, however sure. Check how soon after placing the robot its outcomes say "heading-constrained". |
+| `maxHeadingStdDevToConstrain` | chosen | unknown (the template credits top teams, none by name) | Why: a heading-constrained solve is only as good as the heading it's given; until the estimate knows its heading this well (a robot not yet placed), full solves find it; a heading a person gave (a placement, or a driver's heading reset) that no camera has backed is never solved with, however sure. Check how soon after placing the robot its outcomes say "heading-constrained". |
 | `minTagsForHeading` | chosen | guess (the fewest a multi-tag solve has) | Why: one tag's heading is too noisy and too ambiguous to correct the gyro. Raise it if two-tag solves pull the heading around (`Localization/Pose`'s heading stepping against `Drive/Gyro/Yaw`). |
 | `maxYawRateForHeading` | chosen | unknown (the template credits top teams, none by name) | Why: correct the gyro's heading only when the robot is turning slowly, where a capture time a little off barely moves the heading. Check the heading offset (`Localization/Pose`'s heading less `Drive/Gyro/Yaw`): lower it if the offset steps while the robot turns; raise it if the offset is rarely corrected in a match. |
 | `maxReprojectionErrorForHeadingPixels` | chosen | unknown (the template credits top teams, none by name) | Why: only a solve that fits its tags well corrects the gyro. Check against [camera noise](characterization.md#camera-noise): a still camera's multi-tag solves should fit well under it. |
-| `mountToleranceMeters` | chosen | simulation (calibrated cameras on a season-worn robot showed 0.7 to 1 cm while driving) | Why: a calibrated camera's tags land a little off from noise and the estimate's own error; past this, the camera has moved on its mount, the alert says to recalibrate it, and the excess makes it count for less ([how the robot notices](calibration.md#how-the-robot-notices-a-camera-that-moved)). Check `Vision/<camera>/MountOffsetMeters` on the real robot: freshly calibrated cameras should sit well under it. Raise it if they don't; lower it if a camera known to be knocked, and placing the robot visibly off, stays under it. |
+| `outOfCalibrationMeters` | chosen | simulation (calibrated cameras on a season-worn robot showed 0.7 to 1 cm while driving) | Why: a calibrated camera's tags land a little off from noise and the estimate's own error; past this, the camera has moved on its mount, the alert says to recalibrate it, and the excess makes it count for less ([how the robot notices](calibration.md#how-the-robot-notices-a-camera-that-moved)). Check `Vision/<camera>/MountOffsetMeters` on the real robot: freshly calibrated cameras should sit well under it. Raise it if they don't; lower it if a camera known to be knocked, and placing the robot visibly off, stays under it. |
 | `latencyMarginSeconds` | chosen | guess | Why: an image arriving more than this after its camera's usual `latency`, or before it was taken, has a wrong capture time or a coprocessor falling behind, so it's left out. It can't catch a clock off by less than it: 0.1 s is 30 cm at 3 m/s. Set it a little above the spread of `Vision/<camera>/LatencySeconds` once [the capture times are checked](characterization.md#camera-latency-and-time-sync). Raise it if images in time are left out (`Vision/<camera>/LeftOutOfStep`); lower it toward that spread if the check finds capture times off by more than a few milliseconds. |
 
 ### `EstimatorConfig`
 
 `com.michaelgrundvig.frc.localization.EstimatorConfig`: how the pose estimator weighs odometry, the
 gyro, and the cameras. Per robot (`RobotConfig.estimator`); every robot starts from
-`EstimatorConfig.DEFAULTS`, which the code calls starting points, not measurements.
+`EstimatorConfig.defaults()`, which `RobotConfig.of(definition)` gives it, which the code calls starting points, not measurements.
 
 The estimator's uncertainty should match its error. In the simulator, the
 [consistency study](testing.md#is-the-estimator-honest-the-consistency-study) checks it over many
@@ -1383,29 +1478,29 @@ together, the χ² gate's number): it should average 2 for a position, 3 with a 
 | `residualScale` | chosen | math (the residual is already how far the wheels' disagreement may have put their travel off: one wheel of four slipping puts it off by a quarter of its slip, and the residual says that much, within a tenth; two slipping together put it off by about twice what it says, 2.2 times on a square, so a pair is doubted about half as far as it put the estimate off, a [known limit](testing.md#what-it-proves-and-what-it-doesnt)) | Why: all of what the disagreement may have put the travel off counts as suspect. Lower it if the uncertainty balloons in clean driving (`Localization/ResidualMeters` high, the cameras finding little to correct). In the simulator, whose wheels each carry their own share of the robot and can't drag each other into line, a hard change of direction sets them apart for half a second or more, and the estimate doubts them by tens of centimeters there: on a robot, wheels set apart that far are scrubbing over the carpet. |
 | `tiltStartDegrees` | chosen | guess | Why: a small tilt is carpet and bumpers, not wheels off the floor. Check: `Localization/TiltDegrees` stays under it in flat driving. |
 | `tiltZeroDegrees` | chosen | top team | Why: by this tilt, some wheels are off the floor. Check with [tilt on a bump](calibration.md#tilt-on-a-bump). |
+| `groundSlopeMarginDegrees` | chosen | guess (bumpers, suspension and the IMU's mount tilt a robot a little past a ramp's slope) | Why: on the field's known raised ground, a tilt up to this much steeper than its slopes is still the ground's, and the wheels stay trusted through it. Set it from [tilt on a bump](calibration.md#tilt-on-a-bump): a little above how far past the ramp's slope the robot tilted. |
 | `slipCorrelationSeconds` | chosen | guess | Why: a slip (a push, a launch) keeps its direction for a while, so its errors add up rather than average out. Check: after a push or a launch, the cameras' correction should fall inside the uncertainty the estimate claimed (`PositionStdDevMeters`). Lengthen it if corrections often land outside; shorten it if they're always far inside. |
 | `collisionStdDevMeters` | chosen | guess | Why: a hit moves the robot further than its wheels see. A jolt past the grip and short of a whole collision adds its share of this (`DriveConditions.collisionShare`). Check: after logged hits (`Localization/CollisionShare`), how far the cameras moved the estimate; it should cover the largest. |
 | `collisionWindowSeconds` | chosen | guess | Why: one hit jolts for several loops; count it once. Check: one hit's jolts span less than it. |
 | `handlingStdDevPerSqrtSecond` | chosen | guess (the idea: a top team's loose trust while disabled) | Why: a disabled robot gets carried, and its wheels can't tell, so the cameras should lead. Check: placed and disabled, the estimate settles on the cameras before the match. |
 | `headingDriftDegreesPerMinute` | characterized | guess | [Gyro drift and noise](characterization.md#gyro-drift-and-noise): the gyro's worst drift, standing still. |
 | `headingStdDevDegreesPerTurn` | characterized | guess (a MEMS gyro's scale is within about 1% of true before anyone calibrates it, 3.6° a turn; the simulator's season-worn one reads 0.3% high) | [The gyro's scale, repeated](characterization.md#repeatability-of-the-gyros-scale): how far its scale may still be off after calibrating it; until it's calibrated, how far an uncalibrated one may be. Where the estimator estimates the gyro's errors (`gyroErrors`), this is only how unsure it starts: the cameras find the scale within a turn or two, and a value too small costs more than one too large (in a five-seed trial at 1° a turn, a gyro reading 3% high took three turns to find, and the estimate was 1.4 cm off over the estimator study's run against 0.6 cm at 3.6°). Where it only considers them, it takes this as the same error every turn, so five turns are five times as far off: lower it once calibrated. |
-| `gyroErrors` | chosen | simulation (the [estimator study](../../docs/estimator-comparison.md): with the gyro reading 3% high the estimate was 9.1 cm off considering its errors and 0.6 cm estimating them; drifting 10° a minute, 0.46° and 0.04° of heading) | Why: whether the cameras correct the gyro's scale and its steady drift as the robot drives (`ESTIMATED`), or the estimator only carries their doubt (`CONSIDERED`). Estimated, whatever corrects the heading also says how the gyro misreads its turns and how fast it drifts, and the heading then stays right through a turn and through a stretch without tags. It rests on the cameras: choose `CONSIDERED` for a robot whose cameras you would not trust with the gyro. `Localization` logs neither value yet; `PoseEstimator.gyroScalePercent()` and `gyroDriftDegreesPerMinute()` have them. |
+| `gyroErrors` | chosen | simulation (the [estimator study](https://github.com/mikegrundvig/frc-robot-template/blob/main/docs/estimator-comparison.md): with the gyro reading 3% high the estimate was 9.1 cm off considering its errors and 0.6 cm estimating them; drifting 10° a minute, 0.46° and 0.04° of heading) | Why: whether the cameras correct the gyro's scale and its steady drift as the robot drives (`ESTIMATED`), or the estimator only carries their doubt (`CONSIDERED`). Estimated, whatever corrects the heading also says how the gyro misreads its turns and how fast it drifts, and the heading then stays right through a turn and through a stretch without tags. It rests on the cameras: choose `CONSIDERED` for a robot whose cameras you would not trust with the gyro. The default localizer logs what it has learned as `Localization/GyroScalePercent` and `Localization/GyroDriftDegreesPerMinute` (`PoseEstimator.gyroScalePercent()` and `gyroDriftDegreesPerMinute()`). |
 | `gyroScaleWanderPercentPerMinute` | chosen | guess (a MEMS gyro's scale moves a few hundredths of a percent for each degree Celsius, and a robot's electronics warm about a degree a minute in a match) | Why: an estimate of the scale that nothing may move grows too sure to follow the gyro as it warms. Used only where `gyroErrors` is `ESTIMATED`. Raise it if the estimated scale lags a gyro that is known to change; it is too small to see in a match otherwise. |
 | `gyroDriftStdDevDegreesPerMinute` | characterized | guess (what a gyro's calibration at rest may leave, or a robot bumped while it calibrated: a few degrees a minute) | [Gyro drift and noise](characterization.md#gyro-drift-and-noise): the gyro's steady drift standing still, over several power-ups; their spread. It is how unsure the estimator starts of a drift that is the same every second, where it estimates the gyro's errors; `headingDriftDegreesPerMinute` is the drift that does not repeat. Too small costs more than too large: in a five-seed trial at 1° a minute, a gyro drifting 10° a minute was 0.21° off in heading over the estimator study's run, against 0.06° at 5°. A robot standing still reads the drift off its gyro directly, each second of standing, so the value matters only until it has stood a few seconds or its cameras have seen it turn. A stretch of standing whose drift is past three times this is taken for a robot being carried, and teaches nothing. |
 | `gyroDriftWanderDegreesPerMinute` | chosen | guess (a compensated gyro's drift changes by about a tenth of a degree a minute for each minute it warms) | Why: as `gyroScaleWanderPercentPerMinute`, for the steady drift. |
 | `backupHeadingStdDevDegreesPerTurn` | characterized | guess (an uncalibrated IMU: the simulator's season-worn backup reads 0.5% high, 1.8° a turn) | [The backup IMU's scale](characterization.md#repeatability-of-the-gyros-scale), from the gyro-scale procedure's spins. The procedure calibrates the gyro alone: lowering `headingStdDevDegreesPerTurn` after it leaves this as it is. |
 | `headingNoiseDegreesPerTurn` | characterized | guess (small beside the scale's error; the simulator's IMUs have none, so the study can't check it) | [The gyro's scale, repeated](characterization.md#repeatability-of-the-gyros-scale): the spread of each turn's error about the five turns' straight line, once the scale is taken out. |
 | `wheelHeadingStdDevDegreesPerTurn` | characterized | guess | [Odometry error](characterization.md#odometry-error): heading from the wheels against the gyro's, spinning at driving speed. Used only while the gyro is lost. |
-| `cameraShiftStdDevMeters` | characterized | simulation (a **stop-gap**, 4 mm. The mount's own shift is the camera's `mountTolerance` now, 2.9 mm as a standard deviation by default, and the two add in squares to the 5 mm this was before; this covers a real error the estimator doesn't model. A single tag's solve from noisy corners comes out short, the same in every image: PhotonVision's own `solvePNP_SQUARE`, on the template's sensor with the simulator's corner noise, puts a tag seen head-on 4.5 mm short at 2 m, 14.6 at 3.6 m and 40 at 6 m; 30° off its face, 0.2, 0.8 and 2.9 mm; from 0.5 m above its axis, 0.2, 4.0 and 30.8 mm. It grows with the corner noise and about with the distance squared, likely a single tag's near face-on ambiguity, and with noiseless corners it's gone. It's one-sided, it hangs on range and angle, and every camera seeing a tag face-on shares it, so a constant for each camera models it poorly. At 3 mm, the mount's alone, the consistency study's turning run sat at exactly its 2.92% allowance outside the ellipse and the 2° camera rose to 3.80% (2.83% before tags were considered on their own); at 5 mm, 1.83% and 2.87%. Part of what the extra 2 mm absorbs is seed 2's tag 31, drawn 3.4 times `tagPlacementStdDevMeters` off: [testing](testing.md#what-the-simulated-cameras-repeat)) | How far a camera's positions sit off the same way image after image, beyond its mount, its turn and its tags' placement: on surveyed spots of a practice field whose tags are surveyed too (WPIcal), each camera's average position over 10 s against the spot, facing two ways (the shift turns with the robot); their root mean square, after taking out what the camera's turn explains (its tags' distance times the yaw it's off). Measure the short solve on its own (a tag head-on at 2, 4 and 6 m) before trusting a constant for it. |
+| `cameraShiftStdDevMeters` | characterized | simulation (a **stop-gap**, 4 mm. The mount's own shift is the camera's `mountTolerance` now, 2.9 mm as a standard deviation for a mount marked `MEASURED` (5 mm; the default `UNCHECKED`, 25 mm, is 14 mm), and with `MEASURED` the two add in squares to the 5 mm this was before; this covers a real error the estimator doesn't model. A single tag's solve from noisy corners comes out short, the same in every image: PhotonVision's own `solvePNP_SQUARE`, on the template's sensor with the simulator's corner noise, puts a tag seen head-on 4.5 mm short at 2 m, 14.6 at 3.6 m and 40 at 6 m; 30° off its face, 0.2, 0.8 and 2.9 mm; from 0.5 m above its axis, 0.2, 4.0 and 30.8 mm. It grows with the corner noise and about with the distance squared, likely a single tag's near face-on ambiguity, and with noiseless corners it's gone. It's one-sided, it hangs on range and angle, and every camera seeing a tag face-on shares it, so a constant for each camera models it poorly. At 3 mm, the mount's alone, the consistency study's turning run sat at exactly its 2.92% allowance outside the ellipse and the 2° camera rose to 3.80% (2.83% before tags were considered on their own); at 5 mm, 1.83% and 2.87%. Part of what the extra 2 mm absorbs is seed 2's tag 31, drawn 3.4 times `tagPlacementStdDevMeters` off: [testing](testing.md#what-the-simulated-cameras-repeat)) | How far a camera's positions sit off the same way image after image, beyond its mount, its turn and its tags' placement: on surveyed spots of a practice field whose tags are surveyed too (WPIcal), each camera's average position over 10 s against the spot, facing two ways (the shift turns with the robot); their root mean square, after taking out what the camera's turn explains (its tags' distance times the yaw it's off). Measure the short solve on its own (a tag head-on at 2, 4 and 6 m) before trusting a constant for it. |
 | `tagPlacementStdDevMeters` | characterized | guess (a field's tags within about half an inch of the layout; the consistency study draws its tags from this, so it can't say what it should be) | How far each tag sits from the field's layout, along the field and across it: a survey of the field (WPIcal) against the layout. The estimator keeps it apart for each tag, the same for every camera that sees it, so two cameras seeing the same tags can't average it down: standing still with every camera seeing the same two tags, the consistency study read a NEES of 3.42 while each camera's shift held it, 2.17 since. At an event, a field built off its layout raises it; a field surveyed, with its survey as the layout, lowers it. |
 | `cameraWatchMeasurements` | chosen | math (a camera's own images scatter by a centimeter or so; an average of 25 is good to about 2 mm, which is what a calibrated mount is allowed, and at 25 images a second that is one second) | Why: how many of a camera's latest accepted measurements its mount is watched by. A camera whose measurements keep landing to one side of the others', by more than three times what the estimator still allows its mount (how sure it is of the camera's turn, as learned, and `cameraShiftStdDevMeters`), has that much taken off them and counts for less, within a second or two of being knocked, and is trusted again a few seconds after it stops. The doubt is added to each of its measurements as noise, after the gate has tested the measurement without it. Fewer, and it is quicker and noisier. `PoseEstimator.cameraDoubtMeters` says how far each is doubted. The slower [mount check](calibration.md#a-cameras-mount) still raises the alert to recalibrate. |
 | `cameraClockStdDevSeconds` | characterized | guess (a few milliseconds: a working time sync, and where in its exposure an image counts as taken) | [Camera latency and time sync](characterization.md#camera-latency-and-time-sync): how far a camera's capture times are off, over several checks; their spread. The estimator's watch on its cameras finds how late each one's images are stamped, from how its measurements miss the others' as the robot moves and turns, and takes off what a lateness past three times this puts them off by. It finds a camera late against the other cameras only: all of them late alike looks like nothing. `PoseEstimator.cameraLateSeconds` says what it found. |
 | `cameraShiftStdDevDegrees` | characterized | simulation (the consistency study, tags off by `tagPlacementStdDevMeters`: two tags a third of a meter apart, each 1 cm off, turn a multi-tag heading by about 2°; at 1°, standing after the gyro-scale procedure the heading grew sure of a wrong value, a heading NEES of 2.05 and 4.9% of loops outside the ellipse, against 0.95 and 0.1% at 2°) | How far a camera's multi-tag headings sit off the same way while it sees the same tags, beyond its turn: on surveyed spots of a practice field, facing known headings, each camera's average multi-tag heading over 10 s against the truth; their root mean square, less the camera's turn. A field surveyed with WPIcal, or tags that move together on one panel, need less. |
-| `headingCorrection` | chosen | simulation (the [estimator study](../../docs/estimator-comparison.md) and the [consistency study](testing.md#three-ways-to-correct-the-heading)) | Why: what may correct the heading beside the gyro: measurements with a heading of their own only; those, with a camera's mount doubt added to what it repeats; or every fix, a full update, which is the default. Every fix is what lets the cameras find the gyro's scale and drift (`gyroErrors`): two cameras whose tags lie in different directions disagree by the heading's error times the distance between them, which shows a tenth of a degree where a multi-tag heading shows a degree or two. It leans on the cameras' capture times while the robot turns: check them to within about 2 ms ([camera latency and time sync](characterization.md#camera-latency-and-time-sync)). With cameras off their mounts by twice what the configuration allows, the heading grows surer than it is (past its 95% bound in a quarter of the estimator study's loops, against a twentieth with headings only); the estimator's watch on its cameras (`cameraWatchMeasurements`) takes a camera knocked further than that out of it. The [consistency study](testing.md#three-ways-to-correct-the-heading) compares the three (`--heading=`). |
 | `cameraShiftCorrelationMeters` | chosen | guess | Why: about a meter on, a camera sees other tags, or the same ones from another angle, and what its multi-tag headings share (`cameraShiftStdDevDegrees`) is mostly new. Its shift on its mount and each tag's placement don't change, and aren't let go. Check in the consistency study: lengthen it if the driving runs' heading NEES sits above its band, shorten it if well below. |
 | `cameraShiftCorrelationDegrees` | chosen | guess | Why: as `cameraShiftCorrelationMeters`, for turning: an eighth of a turn brings other tags into view. |
-| `historySeconds` | chosen | guess (a top team kept 1 s) | Why: a camera measurement must arrive within it to be applied; several times any camera's [latency](characterization.md#camera-latency-and-time-sync). Check for "too late" in `Decisions`. |
-| `futureToleranceSeconds` | chosen | guess | Why: clocks differ a little, but a measurement stamped this far past the newest odometry has a wrong capture time. Check for "from the future" in `Decisions` ([time sync](characterization.md#camera-latency-and-time-sync)). |
+| `historySeconds` | chosen | guess (a top team kept 1 s) | Why: a camera measurement must arrive within it to be applied; several times any camera's [latency](characterization.md#camera-latency-and-time-sync). At most 5 s (`EstimatorConfig.MOST_HISTORY_SECONDS`): an image later than that is of a robot meters from where it now is, and the history's memory grows with its length. Check for "too late" in `MeasurementVerdicts`. |
+| `futureToleranceSeconds` | chosen | guess | Why: clocks differ a little, but a measurement stamped this far past the newest odometry has a wrong capture time. Check for "from the future" in `MeasurementVerdicts` ([time sync](characterization.md#camera-latency-and-time-sync)). |
 | `visionTimeoutSeconds` | chosen | guess | Why: after a second without an accepted measurement, the estimate is dead reckoning, and says so. Check: `Localization/Mode` reads DEAD_RECKONING only where the cameras are really blind. |
 | `disagreementWindowSeconds` | chosen | guess | Why: how far back "lately" reaches for `RecentDisagreementMeters`, which the scoring gate reads. Lengthen it if `NotReadyBecause` flickers on one stray measurement; shorten it if the robot stays not ready long after the cameras agree again. |
 | `gateChiSquaredPosition` | chosen | math (chi-squared, 2 degrees of freedom: 99.9% of good measurements pass) | Why: rejects measurements its noise model says are almost certainly wrong. A good noise model rejects about 1 in 1000 good measurements; far more "gate:" rejections in clean driving mean the uncertainties are too small, not that the gate is too tight. |
@@ -1422,7 +1517,8 @@ together, the χ² gate's number): it should average 2 for a position, 3 with a 
 ### `LocalizationGate`
 
 `com.michaelgrundvig.frc.localization.LocalizationGate`: whether an estimate is good enough to score
-from; the robot uses `LocalizationGate.SCORING`. Check `Localization/ReadyToScore` and
+from; the robot uses its configuration's `scoringGate`, `LocalizationGate.SCORING` unless it gives
+another (`.scoringGate(...)` in its `RobotConfig`). Check `Localization/ReadyToScore` and
 `NotReadyBecause` in a match log: ready whenever the robot is lined up with tags in view, and never
 while the estimate is off.
 
@@ -1437,7 +1533,8 @@ while the estimate is off.
 
 `com.michaelgrundvig.frc.localization.SlipCheck.Settings`: how closely the wheels must agree with
 the IMU before the estimate doubts them for sliding over the floor together, which their
-disagreement with each other can't show; the robot uses `Settings.DEFAULTS`. How fast they may be
+disagreement with each other can't show; the robot uses its configuration's `slipCheck`,
+`Settings.defaults()` unless it gives others (`.slipCheck(...)` in its `RobotConfig`). How fast they may be
 sliding counts as suspect travel (`DriveConditions.slipMetersPerSecond`). The drive motors' current
 limit isn't asked: at the template's 30 A the drive pushes the robot at 4.4 m/s², well under the
 tread's 11.8 m/s² (`driveStatorCurrent`), and in the simulator's estimator golden the drivetrain
@@ -1468,7 +1565,7 @@ much as it doubted.
 ### `ImuCrossCheck.Settings`
 
 `com.michaelgrundvig.frc.localization.ImuCrossCheck.Settings`: how closely the gyro and the backup
-IMU must agree before an alert says one is failing; the robot uses `Settings.DEFAULTS`. Check
+IMU must agree before an alert says one is failing; the robot uses `Settings.defaults()`. Check
 `Localization/ImuDisagreementDegrees`: well inside the tolerance in normal driving, and over it only
 for a real fault.
 
@@ -1501,7 +1598,7 @@ One gyro's errors. TYPICAL gives the gyro and the backup IMU each their own; EXA
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `scale` | characterized | guess | [The gyro's scale](calibration.md#the-gyros-scale) before it's calibrated (one over its first `gyroYawScale`), and [the backup's](characterization.md#repeatability-of-the-gyros-scale). |
+| `scale` | characterized | guess | [The gyro's scale](calibration.md#the-gyros-scale) before it's calibrated (the `yawScale` its calibration then finds is one over it), and [the backup's](characterization.md#repeatability-of-the-gyros-scale). |
 | `driftDegreesPerMinute` | characterized | guess | [Gyro drift and noise](characterization.md#gyro-drift-and-noise), a typical run. The backup's is unknown until measured. |
 | `noiseDegrees` | characterized | guess | [Gyro drift and noise](characterization.md#gyro-drift-and-noise), a typical run. |
 
@@ -1591,9 +1688,9 @@ bounce comes later, with the simulator's contacts, per pair.
 |---|---|---|---|
 | `name` | as built | none | What it's called, the same everywhere: two parts named alike are made of the same stuff. |
 
-### `Shape.Box`
+### `Solid.Box`
 
-`com.michaelgrundvig.frc.world.physical.Shape.Box`: a box, centered on its pose, in its owner's
+`com.michaelgrundvig.frc.world.physical.Solid.Box`: a box, centered on its pose, in its owner's
 frame (a link's). Its material has a section of its own.
 
 | Value | Kind | Source | How to measure it, or why |
@@ -1615,7 +1712,7 @@ committed. Its motor controller takes a change on the next loop. Its feedforward
 
 ### `drivetrain` tuning
 
-`Drive.tuning`.
+`SwerveDrive.tuning`.
 
 | Knob | Source | Why |
 |---|---|---|
@@ -1644,8 +1741,20 @@ committed. Its motor controller takes a change on the next loop. Its feedforward
 | `linearStdDevBaseline` | guess | Never zero, which would trust a camera completely. |
 | `angularStdDevBaseline` | guess | As `linearStdDevBaseline`. |
 | `distanceExponent` | top team (teams used 2 to 4) | The range teams used, and flat. |
-| `mountToleranceMeters` | guess | From tighter than a calibrated camera can hold to a camera far off its mount. |
+| `outOfCalibrationMeters` | guess | From tighter than a calibrated camera can hold to a camera far off its mount. |
 | `latencyMarginSeconds` | guess | From tighter than a camera's own jitter to a second, still inside the estimator's 1.5 s of history. |
+
+### `<camera> camera` tuning
+
+`VisorTuning.of`: one for each camera on Visor whose definition fixes its exposure or gives its
+gain, named for the camera (`front-left camera`), with only the knobs it fixes. Visor restarts the
+camera with a tuned value once the robot is disabled off the field ([visor.md](visor.md#exposure-and-gain)).
+The camera's card on the Pit view shows the same knobs, beside its live view.
+
+| Knob | Source | Why |
+|---|---|---|
+| `exposure.time` | math (0.1 ms, V4L2's step, to one frame at the camera's `frameRate`) | The shortest a UVC camera sets, to the longest that keeps its frame rate; widened to take in what's committed. |
+| `gain.value` | datasheet (UVC's gain control is an unsigned 16-bit number) | Its whole range: the robot doesn't know the camera's own, and Visor holds a value to it, with a warning in its log. |
 
 ### `pivot` tuning
 
@@ -1754,8 +1863,8 @@ test doesn't read them: add a row here when you add a rig or an experiment.
 
 | Rig or experiment | Numbers | Kind | Source | Why |
 |---|---|---|---|---|
-| The steering rig (`Drive.steeringRig`): where an experiment may point the wheels | -180° to 180° | chosen | guess | A module turns all the way around, so any angle is safe; the limits keep a test motion within one turn, as the wheel's angle is scored. |
-| The steering's experiment (`RobotContainer`): "Steer to 90° and back" | 0° to 90° and back, 0.8 s at each, after a 0.5 s lead-in | chosen | guess | A quarter turn shows rise, overshoot, and settling; 0.8 s is several times the steering's settling (122 ms in the simulator), so each step settles before the next. |
+| The steering rig (`SwerveDrive.steeringRig`): where an experiment may point the wheels | -180° to 180° | chosen | guess | A module turns all the way around, so any angle is safe; the limits keep a test motion within one turn, as the wheel's angle is scored. |
+| The steering's experiment (`RobotPitwall`): "Steer to 90° and back" | 0° to 90° and back, 0.8 s at each, after a 0.5 s lead-in | chosen | guess | A quarter turn shows rise, overshoot, and settling; 0.8 s is several times the steering's settling (122 ms in the simulator), so each step settles before the next. |
 | Each joint's rig (`JointExperiments`): where an experiment may send it | its range, else its places' span; a speed's, still to its fastest named speed | chosen | math (the joint's own range, places and speeds, from its definition) | The joint's own bounds, so a test motion never asks it for anything its commands couldn't. |
 | Each joint's experiments (`JointExperiments`): a step between each two of its places, or from still to each of its speeds, and back | held twice the time its profile takes to make the move, or its velocity loop to reach the speed, rounded up to 0.1 s; at least 0.5 s, at most 3.3 s, the lead-in as long | chosen | math (the joint's own profile and model) | Long enough to see it arrive and settle; never past the 10 s a run may take, which Pitwall refuses as the robot starts. |
 
@@ -1822,10 +1931,13 @@ code's choices, explained beside them.
 | `PhoenixDrivetrain`: how often each module's CANcoder sends its position and velocity (the simulator's steering hears it as often) | 100 Hz | chosen | datasheet (Phoenix 6's default for a CANcoder's position) | Why: without Phoenix Pro, the steering's loop sees a new angle only this often, which sets how high its gains can go. Faster allows higher gains, for more traffic on the CAN bus: check the bus's load before raising it. Check that a robot's CANcoders send this often: Phoenix Tuner X's plot of a CANcoder's position shows a new sample every 10 ms, and in a log of a module turning, its odometry angles (`Drive/Module<name>/OdometrySteerAnglesRad`) change only every 10 ms, the same angle two or three readings running. |
 | `ModuleIOSim`: how often the steering's motor controller runs its loop | 1 ms | as built | datasheet (CTRE's Phoenix 6 documentation: a TalonFX's closed loop runs at 1 kHz) | A fact of the motor controller. |
 | `ModuleIOSim`: the battery's voltage, which no simulated motor gets more of | 12 V | characterized | datasheet (WPILib's simulated battery, which its `DCMotorSim` held each motor to) | [Battery internal resistance](characterization.md#battery-internal-resistance): a real battery sags under the drive's load, which the simulator leaves out ([stand-ins](stand-ins.md#the-simulators-physics)). |
-| `Localization`: a tilt past a bump's slope still counted as the ground | 3° | calibrated | guess | [Tilt on a bump](calibration.md#tilt-on-a-bump), on a real robot: bumpers, suspension, and the IMU's mount. |
-| `Vision`: how far back "lately" reaches for turning | 0.3 s | chosen | top team | Why: an image taken just after a fast turn is still blurred, and its capture time matters most. |
+| `LocalizationService`: how far back "lately" reaches for turning | 0.3 s | chosen | top team | Why: an image taken just after a fast turn is still blurred, and its capture time matters most. |
 | `Vision`: how many of a camera's latest tags its mount is judged by | 500 | chosen | simulation (a knock putting tags 6 cm off alerts after 417 tags, 10 cm after 251) | Why: enough for noise and the estimate's own error to average out, few enough that a knock shows within seconds of seeing tags. Check: after a real knock, how long until the alert. |
 | `Vision`: how recently another camera must have agreed for a camera's tags to count toward its mount | 2 s | chosen | simulation (half a second left out cameras facing other ways, which see tags at other moments) | Why: the other cameras hold the pose a camera is judged against. |
+| `VisorFeed`: the most frames that wait for a camera between its reads | 64 | chosen | math (one of the Visor receiver's rings: a quarter second of four cameras at 60 fps) | Why: a camera read every loop holds one or two; only one nobody reads, or a feed gone wrong, reaches it, and memory stays bounded whatever arrives. Check `Vision/Visor/Refused/WaitingFull`: anything above 0 on a robot is a bug. |
+| `VisorFeed`: how long a reason a camera's frames are refused (another Visor version, not from a listed board, another board than its own, another size) is said after the last such frame, and how long after its last taken frame a camera counts as having its frames taken | 2 s | chosen | guess | Why: long enough to stay on the card while frames keep coming at any frame rate, short enough to go soon after the cause is fixed. |
+| `VisorSenders`: how often a board listed by a name that wasn't found is looked up again | 5 s | chosen | guess | Why: a board's name may not answer until it has booted; until it's found, frames from an address no found board has aren't refused, so a slow lookup costs nothing but the check. |
+| `FrameNumbers`: how far below a camera's highest frame number a frame still counts as late rather than a restart, when it was taken earlier | 1,024 frames (about 17 s at 60 fps) | chosen | math (no network holds a datagram that long; a restart is told mostly by its frames being taken after the highest one) | Why: a restart's numbers go back, and its frames are taken later; a late frame's are taken earlier. Only a number this far back counts as a restart whatever its stamp, as when the 32-bit number wraps. |
 
 ## Records that aren't configuration
 

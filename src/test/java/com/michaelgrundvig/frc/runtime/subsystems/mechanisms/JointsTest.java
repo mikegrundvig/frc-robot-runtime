@@ -19,10 +19,12 @@ import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.Coupling;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Joint;
-import com.michaelgrundvig.frc.world.robot.JointPrismaticBuilder;
-import com.michaelgrundvig.frc.world.robot.JointRevoluteBuilder;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.PrismaticJointBuilder;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJointBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
@@ -47,16 +49,16 @@ class JointsTest {
    */
   @Test
   void aJointThatFollowsOrThatNothingDrivesIsntDriven() {
-    Joint.Prismatic stage =
-        JointPrismaticBuilder.builder(ELEVATOR)
+    PrismaticJoint stage =
+        PrismaticJointBuilder.builder(ELEVATOR)
             .label("second stage")
             .parent(ELEVATOR)
             .link(JointFixtures.link("stage", 1, new Translation3d()))
             .positions(List.of())
             .driven(Driven.NONE)
             .build();
-    Joint.Revolute hatch =
-        JointRevoluteBuilder.builder(PIVOT)
+    RevoluteJoint hatch =
+        RevoluteJointBuilder.builder(PIVOT)
             .label("hatch")
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .driven(Driven.NONE)
@@ -96,14 +98,14 @@ class JointsTest {
    */
   @Test
   void anyMotorIsDrivenAndItsControllerMustDriveIt() {
-    Joint.Revolute hatch =
-        JointRevoluteBuilder.builder(unmotored(PIVOT))
+    RevoluteJoint hatch =
+        RevoluteJointBuilder.builder(unmotored(PIVOT))
             .label("hatch")
             .link(JointFixtures.link("hatch", 1, new Translation3d()))
             .build()
             .motors(Motor.NEO.through(JointFixtures.gearing(10)).on(SPARK_MAX.can(21)));
-    Joint.Revolute flap =
-        JointRevoluteBuilder.builder(unmotored(PIVOT))
+    RevoluteJoint flap =
+        RevoluteJointBuilder.builder(unmotored(PIVOT))
             .label("flap")
             .link(JointFixtures.link("flap", 1, new Translation3d()))
             .build()
@@ -131,7 +133,7 @@ class JointsTest {
    */
   @Test
   void anEncoderOnATalonFxsDataPortIsntReadYet() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         unmotored(PIVOT)
             .motors(Motor.MINION.through(JointFixtures.gearing(25)).on(TALON_FXS.can(23)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0)))
@@ -160,11 +162,11 @@ class JointsTest {
   @Test
   void anUnwiredJointIsCheckedOnItsMotorsController() {
     MechanismControl lowering = PIVOT.driven().control().orElseThrow().withKg(0.4, Degrees.of(180));
-    Joint.Revolute onNeos =
+    RevoluteJoint onNeos =
         unmotored(PIVOT)
             .motors(Motor.NEO.through(JointFixtures.gearing(25)).count(2))
             .retuned(c -> lowering);
-    Joint.Revolute onKrakens =
+    RevoluteJoint onKrakens =
         unmotored(PIVOT)
             .motors(Motor.KRAKEN_X60.through(JointFixtures.gearing(25)).count(2))
             .retuned(c -> lowering);

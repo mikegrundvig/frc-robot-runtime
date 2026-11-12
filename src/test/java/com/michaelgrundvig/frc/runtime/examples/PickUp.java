@@ -3,8 +3,8 @@ package com.michaelgrundvig.frc.runtime.examples;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.PIVOT;
 import static com.michaelgrundvig.frc.runtime.ExampleRobot.PIVOT_OUT;
 
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveMove;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.path.Keyframe;
@@ -17,10 +17,10 @@ import org.wpilib.math.geometry.Rotation2d;
  * as docs/driving.md writes it (DocExamplesTest).
  */
 final class PickUp {
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final JointMechanism pivot;
 
-  PickUp(Drive drive, Joints joints) {
+  PickUp(SwerveDrive drive, Joints joints) {
     this.drive = drive;
     pivot = joints.of(PIVOT);
   }

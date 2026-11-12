@@ -19,6 +19,9 @@ import com.michaelgrundvig.frc.world.robot.ControllerPins;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControlBuilder;
 import com.michaelgrundvig.frc.world.robot.Motor;
+import com.michaelgrundvig.frc.world.robot.PrismaticJoint;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
+import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.revrobotics.sim.SparkAbsoluteEncoderSim;
 import com.revrobotics.sim.SparkRelativeEncoderSim;
 import com.revrobotics.spark.SparkBase;
@@ -106,10 +109,10 @@ class SparkRequestsRecordedTest {
             ? new SparkRelativeEncoderSim(flex)
             : new SparkRelativeEncoderSim((SparkMax) io.leader());
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();
-    boolean slides = joint instanceof Joint.Prismatic;
+    boolean slides = joint instanceof PrismaticJoint;
 
     io.updateInputs(inputs);
-    io.setPosition(joint.restPosition(), 0, 0);
+    io.setPosition(RobotMath.restPosition(joint), 0, 0);
     asked(name, "hold where it rests", io);
     io.setPosition(slides ? 0.4 : Math.toRadians(45), slides ? 0.3 : 1.0, 0.6);
     asked(name, "to a point, rising", io);
@@ -135,7 +138,7 @@ class SparkRequestsRecordedTest {
    * encoder's turns from the edge of its window, and the same feedforward.
    */
   private void closedOnItsEncoder() {
-    Joint.Revolute pivot =
+    RevoluteJoint pivot =
         unmotored(PIVOT)
             .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(61)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0.1)).inverted().closesLoop())

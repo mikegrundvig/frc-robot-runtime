@@ -16,8 +16,8 @@ import static org.wpilib.units.Units.Seconds;
 import com.michaelgrundvig.frc.runtime.autos.Autos;
 import com.michaelgrundvig.frc.runtime.behavior.Gate;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
-import com.michaelgrundvig.frc.runtime.subsystems.drive.Drive;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.DriveAssist;
+import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointMechanism;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.field.Heading;
@@ -48,14 +48,14 @@ public final class ExampleControls {
 
   private final JointMechanism pivot, roller, shooter, feeder, indexer;
   private final Joints joints;
-  private final Drive drive;
+  private final SwerveDrive drive;
   private final Gate pieceIn;
 
   public ExampleControls(
       Scheduler scheduler,
       RobotDefinition robot,
       Joints joints,
-      Drive drive,
+      SwerveDrive drive,
       RecordingGamepad driver,
       RecordingGamepad operator,
       Autos autos) {

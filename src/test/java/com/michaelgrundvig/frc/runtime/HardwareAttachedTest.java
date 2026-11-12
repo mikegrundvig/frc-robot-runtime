@@ -4,7 +4,7 @@ import static com.michaelgrundvig.frc.world.robot.MechanismWiring.Controller.TAL
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.wpilib.units.Units.Degrees;
-import static org.wpilib.units.Units.Rotations;
+import static org.wpilib.units.Units.Meters;
 
 import com.ctre.phoenix6.SignalLogger;
 import com.michaelgrundvig.frc.pitwall.RobotKind;
@@ -13,16 +13,16 @@ import com.michaelgrundvig.frc.runtime.hardware.RunsOn;
 import com.michaelgrundvig.frc.runtime.venues.VenueStore;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.robot.CanBus;
+import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
-import com.michaelgrundvig.frc.world.robot.MechanismWiring;
 import com.michaelgrundvig.frc.world.robot.Motor;
 import com.michaelgrundvig.frc.world.robot.Part;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.Range;
+import com.michaelgrundvig.frc.world.robot.RevoluteJoint;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
-import com.michaelgrundvig.frc.world.robot.SwerveWiring;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +31,6 @@ import java.util.OptionalInt;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
-import org.wpilib.math.geometry.Translation3d;
 import org.wpilib.system.Filesystem;
 
 /**
@@ -47,8 +46,9 @@ class HardwareAttachedTest {
   private static final CanBus.Canivore CANIVORE = new CanBus.Canivore("bench");
 
   /** A pivot on Systemcore's own CAN port, which a laptop can't reach. */
-  private static final Joint.Revolute PIVOT =
-      Joint.pivot("pivot", Part.CHASSIS, new Translation3d(0.25, 0, 0.32), Joint.PITCH_DOWN)
+  private static final RevoluteJoint PIVOT =
+      Joint.pivot("pivot", Part.CHASSIS, Joint.PITCH_DOWN)
+          .at(Meters.of(0.25), Meters.of(0), Meters.of(0.32))
           .range(Range.degrees(0, 135))
           .rest(Degrees.of(0))
           .motors(Motor.KRAKEN_X60.through(Gearing.of(25)).on(TALON_FX.can(11)))
@@ -63,8 +63,7 @@ class HardwareAttachedTest {
           .definition(
               RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
                   .name("bench")
-                  .drivetrain(
-                      ExampleRobot.SIM.definition().drivetrain().wired(drivetrainOn(CANIVORE)))
+                  .drivetrain(drivetrainOn(CANIVORE))
                   .pdh(Pdh.can(1))
                   .joints(List.of(PIVOT))
                   .build())
@@ -151,9 +150,6 @@ class HardwareAttachedTest {
           .isEqualTo(place.attached() == Attached.YES);
       assertThat(robot.world().isPresent())
           .as(place.where() + ": a simulated world")
-          .isEqualTo(place.world() == World.SIMULATED);
-      assertThat(robot.simulation().isPresent())
-          .as(place.where() + ": the drivetrain's physics")
           .isEqualTo(place.world() == World.SIMULATED);
       assertThat(Robot.venueStore(place.mode(), place.runsOn())).as(place.where()).isPresent();
       Path stored = Robot.venueFolder(place.runsOn());
@@ -272,28 +268,10 @@ class HardwareAttachedTest {
     return lines;
   }
 
-  /** A drivetrain's wiring on a CANivore: the gyro at 1, each module's devices from ID 10 up. */
-  private static SwerveWiring drivetrainOn(CanBus canivore) {
-    List<SwerveWiring.ModuleWiring> modules = new ArrayList<>();
-    for (int i = 0; i < 4; i++) {
-      modules.add(
-          SwerveWiring.ModuleWiring.builder()
-              .driveId(10 + 3 * i)
-              .steerId(11 + 3 * i)
-              .encoderOffset(Rotations.of(0))
-              .driveInverted(false)
-              .steerInverted(false)
-              .encoderInverted(false)
-              .encoderId(12 + 3 * i)
-              .build());
-    }
-    return SwerveWiring.builder()
-        .canBus(canivore)
-        .driveController(MechanismWiring.Controller.TALON_FX)
-        .steerController(MechanismWiring.Controller.TALON_FX)
-        .gyroId(1)
-        .gyroYawScale(1.0)
-        .modules(modules)
-        .build();
+  /**
+   * The guide's drivetrain wired on a CANivore: the gyro at 1, each module's devices from ID 10 up.
+   */
+  private static Drivetrain drivetrainOn(CanBus canivore) {
+    return TestWiring.talons(ExampleRobot.SIM.definition().drivetrain(), canivore, 1, 10);
   }
 }
