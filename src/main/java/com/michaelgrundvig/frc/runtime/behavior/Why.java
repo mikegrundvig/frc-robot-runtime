@@ -3,6 +3,8 @@ package com.michaelgrundvig.frc.runtime.behavior;
 import com.michaelgrundvig.frc.world.record.Identity;
 import com.michaelgrundvig.frc.world.record.MoveReason;
 import java.util.Optional;
+import org.wpilib.driverstation.RobotState;
+import org.wpilib.hardware.hal.RobotMode;
 
 /**
  * Why a move ended as it did, where how it ended does not say: one of a closed set of reasons, the
@@ -19,6 +21,32 @@ public record Why(MoveReason reason, int joint, String text) {
   /** The robot was disabled, which cancels every command. */
   public static final Optional<Why> ROBOT_DISABLED =
       Optional.of(new Why(MoveReason.ROBOT_DISABLED, Identity.NONE, ""));
+
+  /**
+   * The robot's mode the command was started in ended: WPILib's scheduler cancels a command that
+   * was started in a mode, outside any other command, when that mode ends.
+   */
+  public static final Optional<Why> ROBOT_MODE_ENDED =
+      Optional.of(new Why(MoveReason.ROBOT_MODE_ENDED, Identity.NONE, ""));
+
+  /**
+   * Why a move is canceled now: what its mechanism says (the robot was disabled this loop), or else
+   * that the robot's mode the move was started in has ended. Any other cancel has no reason the
+   * move knows of.
+   *
+   * @param mechanismSays why its mechanism says it is canceled, if it can say
+   * @param startedIn the robot's mode as the move's run began
+   */
+  public static Optional<Why> canceledNow(Optional<Why> mechanismSays, RobotMode startedIn) {
+    if (mechanismSays.isPresent()) {
+      return mechanismSays;
+    }
+    boolean modeEnded = startedIn != RobotMode.UNKNOWN && RobotState.getRobotMode() != startedIn;
+    if (modeEnded) {
+      return ROBOT_MODE_ENDED;
+    }
+    return Optional.empty();
+  }
 
   /** A reason about no joint, said in text. */
   public static Why saying(MoveReason reason, String text) {

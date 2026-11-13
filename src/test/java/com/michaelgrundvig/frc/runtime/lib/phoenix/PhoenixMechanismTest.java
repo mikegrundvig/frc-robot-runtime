@@ -312,8 +312,8 @@ class PhoenixMechanismTest {
     assertThat(leader.SoftwareLimitSwitch.ForwardSoftLimitThreshold)
         .isCloseTo(0.5 / spool, within(1e-9));
     assertThat(leader.Slot0.kV)
-        .as("12 V for the spool's 1 rps, a Kraken's 100 rps through 100:1")
-        .isCloseTo(12, within(1e-9));
+        .as("12 V for the spool's 1 rps less a little: a Kraken's 101.1 rps through 100:1")
+        .isCloseTo(12 * 100 / (6065.0 / 60), within(1e-9));
   }
 
   /** Geared past 1000:1, a ratio Phoenix can't hold is refused. */
@@ -352,8 +352,8 @@ class PhoenixMechanismTest {
   // ---- Gains and gravity ----
 
   /**
-   * The seeds, in Phoenix's units: a Kraken X60's 12 V over its 100 rps, through 60:1, is 7.2 V per
-   * arm rotation per second; the feedback gains, per radian in the control, per rotation in
+   * The seeds, in Phoenix's units: a Kraken X60's 12 V over its 101.1 rps, through 60:1, is 7.12 V
+   * per arm rotation per second; the feedback gains, per radian in the control, per rotation in
    * Phoenix.
    */
   @Test
@@ -364,7 +364,7 @@ class PhoenixMechanismTest {
     TalonFXConfiguration leader = configure(math, ARM, ARM_MOTORS, wiring(11, 12), tuned).leader();
     RobotMath.Feedforward seed = math.idealGains(ARM);
 
-    assertThat(leader.Slot0.kV).isCloseTo(7.2, within(1e-9));
+    assertThat(leader.Slot0.kV).isCloseTo(12 * 60 / (6065.0 / 60), within(1e-9));
     assertThat(leader.Slot0.kV).isCloseTo(seed.kV() * TURN, within(1e-12));
     assertThat(leader.Slot0.kA).isCloseTo(seed.kA() * TURN, within(1e-12));
     assertThat(leader.Slot0.kP).isCloseTo(2 * TURN, within(1e-12));
@@ -422,7 +422,7 @@ class PhoenixMechanismTest {
 
     assertThat(notes)
         .containsExactly(
-            "arm's tuned kV, 68.75 V/(rad/s), is 60 times the ideal, 1.146 V/(rad/s), from its"
+            "arm's tuned kV, 68.02 V/(rad/s), is 60 times the ideal, 1.134 V/(rad/s), from its"
                 + " motors and what it moves: the ideal per turn of arm, within 1%, entered as if"
                 + " per turn of its rotor, by the look of it");
   }
@@ -436,7 +436,7 @@ class PhoenixMechanismTest {
     assertThat(configure(math, ARM, ARM_MOTORS, wiring(11, 12), tuned).notes())
         .singleElement()
         .asString()
-        .startsWith("arm's tuned kV, 4.24 V/(rad/s), is 3.7 times the ideal")
+        .startsWith("arm's tuned kV, 4.194 V/(rad/s), is 3.7 times the ideal")
         .doesNotContain("look of it");
   }
 
@@ -929,16 +929,15 @@ class PhoenixMechanismTest {
     Sensor.Encoder relative =
         Sensor.Encoder.of("arm quadrature", List.of(term(ARM, 1)), false).countsPerTurn(2048);
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                configure(
-                    math,
-                    ARM,
-                    ARM_MOTORS,
-                    relative,
-                    cancoder(MechanismWiring.Feedback.REMOTE),
-                    wiring(11, 12),
-                    control()))
+        .isThrownBy(() ->
+            configure(
+                math,
+                ARM,
+                ARM_MOTORS,
+                relative,
+                cancoder(MechanismWiring.Feedback.REMOTE),
+                wiring(11, 12),
+                control()))
         .withMessage("arm quadrature must be an absolute encoder on arm alone, as a CANcoder is");
   }
 

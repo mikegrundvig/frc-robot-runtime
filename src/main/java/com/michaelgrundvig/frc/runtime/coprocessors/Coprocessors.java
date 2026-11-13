@@ -34,12 +34,11 @@ import org.wpilib.util.Alert;
 public final class Coprocessors implements AutoCloseable {
   /** The writes of what's kept, on one thread of their own, in order: the loop never waits. */
   private static final ExecutorService WRITES =
-      Executors.newSingleThreadExecutor(
-          write -> {
-            Thread thread = new Thread(write, "Visor memory");
-            thread.setDaemon(true);
-            return thread;
-          });
+      Executors.newSingleThreadExecutor(write -> {
+        Thread thread = new Thread(write, "Visor memory");
+        thread.setDaemon(true);
+        return thread;
+      });
 
   private final State state;
 
@@ -234,12 +233,11 @@ public final class Coprocessors implements AutoCloseable {
             fieldAttached,
             nanos,
             manager.boards().stream()
-                .map(
-                    board ->
-                        new SpotterBoards(
-                            board,
-                            recorder.counts(board.address()),
-                            packsHash(teamPacks, board.definition())))
+                .map(board ->
+                    new SpotterBoards(
+                        board,
+                        recorder.counts(board.address()),
+                        packsHash(teamPacks, board.definition())))
                 .toList(),
             memory);
     return new Coprocessors(new Running(watched, visor));

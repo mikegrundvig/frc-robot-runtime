@@ -130,15 +130,14 @@ class RevMechanismTest {
         .isCloseTo(-0.4, within(1e-12));
     assertThat(plan.feedforward(Math.PI, 0, 0)).isCloseTo(0.4, within(1e-12));
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                PhoenixMechanism.configure(
-                    ControllerPlan.of(
-                        math,
-                        bare,
-                        JointFixtures.motors(bare, Motor.KRAKEN_X60, 2, JointFixtures.gearing(25)),
-                        wiring(MechanismWiring.Controller.TALON_FX),
-                        lowering)))
+        .isThrownBy(() ->
+            PhoenixMechanism.configure(
+                ControllerPlan.of(
+                    math,
+                    bare,
+                    JointFixtures.motors(bare, Motor.KRAKEN_X60, 2, JointFixtures.gearing(25)),
+                    wiring(MechanismWiring.Controller.TALON_FX),
+                    lowering)))
         .withMessageContaining("past Phoenix's");
   }
 
@@ -215,9 +214,8 @@ class RevMechanismTest {
                 Driven.AbsoluteEncoder.of()
                     .ratio(1.0 / 9)
                     .on(DATA_PORT.offset(Rotations.of(0.4)).closesLoop()))
-            .retuned(
-                control ->
-                    MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
+            .retuned(control ->
+                MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
     RobotMath math = JointFixtures.ROBOT.with(elevator).math();
     Sensor.Encoder absolute = Objects.requireNonNull(math.absoluteEncoder(elevator));
     MechanismControl limited =
@@ -275,11 +273,10 @@ class RevMechanismTest {
   @Test
   void itRefusesWhatASparkCantTake() {
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                RevMechanism.configure(
-                    ControllerPlan.of(
-                        MATH, PIVOT, NEO, wiring(MechanismWiring.Controller.TALON_FXS), CONTROL)))
+        .isThrownBy(() ->
+            RevMechanism.configure(
+                ControllerPlan.of(
+                    MATH, PIVOT, NEO, wiring(MechanismWiring.Controller.TALON_FXS), CONTROL)))
         .withMessage("pivot's wiring is a TalonFXS's, not a SPARK's");
   }
 }

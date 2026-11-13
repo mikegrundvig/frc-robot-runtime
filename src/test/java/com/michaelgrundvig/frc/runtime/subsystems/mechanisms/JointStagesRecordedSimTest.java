@@ -374,13 +374,12 @@ class JointStagesRecordedSimTest {
   /** A command of its own pushing the turret at a voltage each loop. */
   private static Command push(JointMechanism turret, double volts) {
     return turret
-        .run(
-            co -> {
-              while (true) {
-                turret.setVoltage(volts);
-                co.yield();
-              }
-            })
+        .run(co -> {
+          while (true) {
+            turret.setVoltage(volts);
+            co.yield();
+          }
+        })
         .named("Push at " + volts + " V");
   }
 
@@ -390,9 +389,11 @@ class JointStagesRecordedSimTest {
 
   /**
    * The elevator homes into its bottom stop, the pivot to its switch, starting on it, so it backs
-   * off first; their moves wait. Disabled before, neither homes. Disabled again as they start to,
-   * their moves are canceled, and asked again once enabled. Then, with too little time for the
-   * elevator and the pivot's switch lost, both are faulted, refuse their moves, and home again.
+   * off first. Disabled before, neither homes, and the moves asked of them then are refused by the
+   * scheduler and never run. Enabled, both home by themselves; disabled again as they do, they
+   * stop, and home again at the next enable, where their moves, asked again, wait for it. Then,
+   * with too little time for the elevator and the pivot's switch lost, both are faulted, refuse
+   * their moves, and home again.
    */
   @Test
   void homing() throws IOException {
@@ -423,11 +424,8 @@ class JointStagesRecordedSimTest {
 
     RobotDefinition quick =
         robot.with(
-            ELEVATOR.retuned(
-                control ->
-                    homed(
-                        control,
-                        Homing.toHardStop(Sensor.Switch.Limit.End.LOWER, Seconds.of(0.3)))));
+            ELEVATOR.retuned(control ->
+                homed(control, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER, Seconds.of(0.3)))));
     Scene again = new Scene("homing timed out", quick, ELEVATOR, PIVOT);
     again.sim.simulation.powerOnAt(ELEVATOR, 1.1);
     again.sim.simulation.powerOnAt(PIVOT, Math.toRadians(40));

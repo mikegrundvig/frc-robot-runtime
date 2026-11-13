@@ -307,14 +307,19 @@ in an auto, where a lost sensor would otherwise hold the roller until autonomous
 
 **Disabling cancels every command.** In the loop the robot is disabled, every running command is
 canceled, and each move's outcome says so (`pivot → out: CANCELED after 0.20 s, pivot at 38.49°:
-the robot was disabled`); an auto says it was cut off as autonomous ended. A move started while
-the robot is disabled, a default command's for one, waits for it to be enabled, as it waits for a
-joint to home. So no move's deadline counts while the robot is disabled. No joint and no wheel is
-driven then, whatever asks, and a button starts nothing: a press made while disabled is spent, and
-so is one held through a disable, so the next press made with the robot enabled is the one that
-starts its command. Only the driver's back button, the heading reset, works while disabled.
+the robot was disabled`); an auto says it was cut off as autonomous ended. A move asked for while
+the robot is disabled is refused by WPILib's scheduler, which starts no command on a joint or the
+drivetrain then: it never runs, so it has no outcome (the scheduler gives the refusal to whoever
+scheduled it, as `schedule`'s result). A default command does not run while disabled either; it
+starts at the enable. No joint and no wheel is driven then, whatever asks, and a button starts
+nothing: a press made while disabled is spent, and so is one held through a disable, so the next
+press made with the robot enabled is the one that starts its command. Only the driver's back
+button, the heading reset, works while disabled. A joint that doesn't know where it is homes by
+itself as the robot is enabled, and again at the next enable if it was disabled mid-homing.
 Enabled again, each joint holds where it is then, and nothing starts by itself but a default
-command, the drive's stick driving among them (`DisablingSimTest` has each case).
+command, the drive's stick driving among them. A command started in one robot mode outside any
+other command, such as a move started in utility mode, is canceled when that mode ends, and its
+move says so (`the robot's mode it was started in ended`). `DisablingSimTest` has each case.
 
 **Interlocks hold beneath every command.** No command, button or auto can skip one. While
 `runsOnlyWhen` doesn't hold, the joint stays where it is, or a roller stops. While `keepsOut` is

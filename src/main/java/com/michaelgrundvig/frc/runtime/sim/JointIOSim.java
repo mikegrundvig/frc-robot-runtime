@@ -259,9 +259,8 @@ final class JointIOSim implements JointIO {
     Optional<Driven.AbsoluteEncoder> wired = joint.driven().absoluteEncoder();
     Optional<EncoderRead> model =
         Optional.ofNullable(math.absoluteEncoder(joint))
-            .map(
-                encoder ->
-                    new EncoderRead(Math.abs(encoder.ratio(joint)), math.absoluteReader(encoder)));
+            .map(encoder ->
+                new EncoderRead(Math.abs(encoder.ratio(joint)), math.absoluteReader(encoder)));
     readBesideCount = wired.filter(JointIOSim::isReadBesideCount).flatMap(encoder -> model);
     seedsFrom = wired.filter(Driven.AbsoluteEncoder::readByController).flatMap(encoder -> model);
     loopRunsOnEncoder = wired.map(Driven.AbsoluteEncoder::runsControllerLoop).orElse(false);

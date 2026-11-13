@@ -131,12 +131,11 @@ class SensorInterlocksSimTest {
   void anInterlockOnAStrangersSensorIsRefused() {
     Sensor.Switch stray = Sensor.Switch.beam("stray beam", PIVOT);
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                RobotDefinitionBuilder.builder(ROBOT)
-                    .interlocks(List.of(Interlock.that(ROLLER).runsOnlyWhen(stray.clear())))
-                    .build()
-                    .checked())
+        .isThrownBy(() ->
+            RobotDefinitionBuilder.builder(ROBOT)
+                .interlocks(List.of(Interlock.that(ROLLER).runsOnlyWhen(stray.clear())))
+                .build()
+                .checked())
         .withMessageContaining(
             "interlock \"roller runs only when stray beam clear\"'s sensor, stray beam, isn't one"
                 + " of the robot's sensors: list it");

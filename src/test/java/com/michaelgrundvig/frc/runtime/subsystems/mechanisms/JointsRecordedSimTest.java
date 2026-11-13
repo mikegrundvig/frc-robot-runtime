@@ -61,14 +61,8 @@ class JointsRecordedSimTest {
   /** Every gain the feedforward has, tuned: friction, speed, acceleration, gravity at an angle. */
   private static final RobotDefinition TUNED =
       ROBOT.with(
-          PIVOT.retuned(
-              control ->
-                  control
-                      .withKi(0.5)
-                      .withKs(0.2)
-                      .withKv(0.5)
-                      .withKa(0.02)
-                      .withKg(0.6, Degrees.of(20))),
+          PIVOT.retuned(control ->
+              control.withKi(0.5).withKs(0.2).withKv(0.5).withKa(0.02).withKg(0.6, Degrees.of(20))),
           ROLLER.retuned(control -> control.withKs(0.1).withKv(0.03)),
           ELEVATOR.retuned(control -> control.withKs(0.15).withKg(0.9)),
           TURRET.retuned(control -> control.withKs(0.3).withKa(0.004)));
@@ -82,9 +76,8 @@ class JointsRecordedSimTest {
         PIVOT
             .motors(motors -> motors.on(TALON_FX.can(32).clockwise()))
             .absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0.2)).fused())
-            .retuned(
-                control ->
-                    MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
+            .retuned(control ->
+                MechanismControlBuilder.builder(control).homing(Optional.empty()).build());
     PrismaticJoint elevator =
         ELEVATOR.motors(motors -> motors.on(TALON_FX.can(20), TALON_FX.can(21).clockwise()));
     RevoluteJoint roller = ROLLER.motors(motors -> motors.on(TALON_FX.can(31)));
@@ -103,14 +96,13 @@ class JointsRecordedSimTest {
             .motors(
                 Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(41).clockwise(), SPARK_MAX.can(42)))
             .absoluteEncoder(closed ? port.closesLoop() : port)
-            .retuned(
-                control ->
-                    MechanismControlBuilder.builder(
-                            control
-                                .withSoftLimits(Range.of(Radians.of(0.02), Radians.of(2.3)))
-                                .withKs(0.2))
-                        .homing(Optional.empty())
-                        .build());
+            .retuned(control ->
+                MechanismControlBuilder.builder(
+                        control
+                            .withSoftLimits(Range.of(Radians.of(0.02), Radians.of(2.3)))
+                            .withKs(0.2))
+                    .homing(Optional.empty())
+                    .build());
     PrismaticJoint elevator =
         unmotored(ELEVATOR)
             .motors(

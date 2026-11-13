@@ -42,7 +42,7 @@ class CurrentLimitedMotorTest {
 
   @Test
   void atItsLimitTheMotorGivesASteadyTorque() {
-    // From rest, 12 V would draw the motor's stall current, 366 A: held to 40, for now.
+    // From rest, 12 V would draw the motor's stall current, 374.4 A: held to 40, for now.
     double peak = motor.run(12, 40, 0.002);
 
     assertThat(peak).isEqualTo(40);

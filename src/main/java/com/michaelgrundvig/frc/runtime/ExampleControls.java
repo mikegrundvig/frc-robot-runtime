@@ -86,11 +86,10 @@ public final class ExampleControls {
    */
   Command intake() {
     return Command.requiring(pivot, roller)
-        .executing(
-            co -> {
-              co.fork(pivot.goTo(PIVOT_OUT));
-              co.await(roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8)));
-            })
+        .executing(co -> {
+          co.fork(pivot.goTo(PIVOT_OUT));
+          co.await(roller.runUntil(INTAKING, pieceIn).within(Seconds.of(8)));
+        })
         .named("Intake");
   }
 
@@ -100,14 +99,13 @@ public final class ExampleControls {
   /** Deploys the intake without rolling, and brings it back in if it doesn't get there. */
   Command deploy() {
     return Command.requiring(pivot)
-        .executing(
-            co -> {
-              var out = pivot.goTo(PIVOT_OUT);
-              co.await(out);
-              if (!out.arrived()) {
-                co.await(pivot.goTo(PIVOT_IN)); // back off
-              }
-            })
+        .executing(co -> {
+          var out = pivot.goTo(PIVOT_OUT);
+          co.await(out);
+          if (!out.arrived()) {
+            co.await(pivot.goTo(PIVOT_IN)); // back off
+          }
+        })
         .named("Deploy");
   }
 
@@ -119,15 +117,14 @@ public final class ExampleControls {
     DriveAssist aim = drive.facing(Heading.toward(Rebuilt.HUB));
     Gate ready = Gate.all("ready to feed", aim.aimed(), shooter.isAtGoal());
     return Command.requiring(drive, shooter, feeder, indexer)
-        .executing(
-            co -> {
-              co.fork(shooter.follow(() -> RPM.of(3000)));
-              co.fork(aim); // the sticks drive, and the robot holds its aim...
-              while (true) {
-                co.waitUntil(ready); // ...and the feed runs only while it is aimed
-                co.await(joints.run(FEEDING).onlyWhile(ready));
-              }
-            })
+        .executing(co -> {
+          co.fork(shooter.follow(() -> RPM.of(3000)));
+          co.fork(aim); // the sticks drive, and the robot holds its aim...
+          while (true) {
+            co.waitUntil(ready); // ...and the feed runs only while it is aimed
+            co.await(joints.run(FEEDING).onlyWhile(ready));
+          }
+        })
         .named("Shoot");
   }
 

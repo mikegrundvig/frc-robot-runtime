@@ -87,30 +87,26 @@ class WorldStartsTest {
           .contains("\"text\":\"Blue " + name.toLowerCase(Locale.ROOT) + "\"")
           .contains("\"text\":\"Red " + name.toLowerCase(Locale.ROOT) + "\"");
       assertThat(click("start.blue." + index + ".outline"))
-          .satisfies(
-              start -> {
-                assertThat(start.title())
-                    .isEqualTo("Blue " + name.toLowerCase(Locale.ROOT) + " start");
-                assertThat(start.details())
-                    .extracting(Inspection.Detail::label, Inspection.Detail::value)
-                    .contains(
-                        tuple("Name", name),
-                        tuple("Alliance", "Blue"),
-                        tuple("Where", where(lineX, blueY)),
-                        tuple("Heading", "0.0°"));
-              });
+          .satisfies(start -> {
+            assertThat(start.title()).isEqualTo("Blue " + name.toLowerCase(Locale.ROOT) + " start");
+            assertThat(start.details())
+                .extracting(Inspection.Detail::label, Inspection.Detail::value)
+                .contains(
+                    tuple("Name", name),
+                    tuple("Alliance", "Blue"),
+                    tuple("Where", where(lineX, blueY)),
+                    tuple("Heading", "0.0°"));
+          });
       assertThat(click("start.red." + index + ".outline"))
-          .satisfies(
-              start -> {
-                assertThat(start.title())
-                    .isEqualTo("Red " + name.toLowerCase(Locale.ROOT) + " start");
-                assertThat(start.details())
-                    .extracting(Inspection.Detail::label, Inspection.Detail::value)
-                    .contains(
-                        tuple("Alliance", "Red"),
-                        tuple("Where", where(length - lineX, width - blueY)),
-                        tuple("Heading", "180.0°"));
-              });
+          .satisfies(start -> {
+            assertThat(start.title()).isEqualTo("Red " + name.toLowerCase(Locale.ROOT) + " start");
+            assertThat(start.details())
+                .extracting(Inspection.Detail::label, Inspection.Detail::value)
+                .contains(
+                    tuple("Alliance", "Red"),
+                    tuple("Where", where(length - lineX, width - blueY)),
+                    tuple("Heading", "180.0°"));
+          });
     }
   }
 

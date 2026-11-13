@@ -117,12 +117,11 @@ final class ControlsSessionRobot extends Robot {
     switch (loop) {
       case 5 ->
           simulator()
-              .requestDriverStation(
-                  station ->
-                      station
-                          .withAllianceStation(AllianceStationID.RED_1)
-                          .withMode(RobotMode.TELEOPERATED)
-                          .withEnabled(true));
+              .requestDriverStation(station ->
+                  station
+                      .withAllianceStation(AllianceStationID.RED_1)
+                      .withMode(RobotMode.TELEOPERATED)
+                      .withEnabled(true));
       // Deploy: the pivot swings out and the move ends there.
       case 20 -> simulator().joystick(OPERATOR, pressing(Gamepad.Button.FACE_DOWN), null);
       case 25 -> simulator().joystick(OPERATOR, null, null);

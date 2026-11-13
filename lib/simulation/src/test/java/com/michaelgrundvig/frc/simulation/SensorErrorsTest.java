@@ -19,34 +19,30 @@ class SensorErrorsTest {
         .hasMessage(
             "SensorErrors.wheelRadiusScale: [0] 0 must be positive; [1] 0 must be positive;"
                 + " [2] 0 must be positive; [3] 0 must be positive");
-    assertThatThrownBy(
-            () ->
-                SensorErrorsBuilder.builder(SensorErrors.NONE)
-                    .wheelRadiusScale(List.of(1.0, 1.0, 1.0))
-                    .build())
+    assertThatThrownBy(() ->
+            SensorErrorsBuilder.builder(SensorErrors.NONE)
+                .wheelRadiusScale(List.of(1.0, 1.0, 1.0))
+                .build())
         .hasMessage("SensorErrors.wheelRadiusScale: must have 4, has 3");
-    assertThatThrownBy(
-            () ->
-                SensorErrorsBuilder.builder(SensorErrors.NONE)
-                    .steerOffsetDegrees(List.of(0.0, 0.0, 0.0, Double.NaN))
-                    .build())
+    assertThatThrownBy(() ->
+            SensorErrorsBuilder.builder(SensorErrors.NONE)
+                .steerOffsetDegrees(List.of(0.0, 0.0, 0.0, Double.NaN))
+                .build())
         .hasMessage("SensorErrors.steerOffsetDegrees: [3] NaN must be a finite number");
-    assertThatThrownBy(
-            () ->
-                SensorErrors.GyroErrors.builder()
-                    .scale(1)
-                    .driftDegreesPerMinute(Double.NaN)
-                    .noiseDegrees(0)
-                    .build())
+    assertThatThrownBy(() ->
+            SensorErrors.GyroErrors.builder()
+                .scale(1)
+                .driftDegreesPerMinute(Double.NaN)
+                .noiseDegrees(0)
+                .build())
         .hasMessage("GyroErrors.driftDegreesPerMinute: NaN must be a finite number");
     assertThatThrownBy(
             () -> SensorErrors.CornerNoise.builder().meanPixels(-0.1).stdDevPixels(0).build())
         .hasMessage("CornerNoise.meanPixels: -0.1 must be zero or more");
-    assertThatThrownBy(
-            () ->
-                SensorErrorsAccelErrorsBuilder.builder(SensorErrors.AccelErrors.IDEAL)
-                    .rangeMetersPerSecSq(0)
-                    .build())
+    assertThatThrownBy(() ->
+            SensorErrorsAccelErrorsBuilder.builder(SensorErrors.AccelErrors.IDEAL)
+                .rangeMetersPerSecSq(0)
+                .build())
         .hasMessageContaining("must be positive, or infinite for no range");
   }
 

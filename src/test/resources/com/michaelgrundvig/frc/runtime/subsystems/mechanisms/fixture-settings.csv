@@ -5,16 +5,16 @@ pivot,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 pivot,leader,Feedback,SensorToMechanismRatio,25.0,scalar
 pivot,leader,Slot0,kP,188.49555921538757
 pivot,leader,Slot0,kD,6.283185307179586
-pivot,leader,Slot0,kV,3.0
-pivot,leader,Slot0,kA,0.10785100872831538
-pivot,leader,Slot0,kG,0.5145379125528914
+pivot,leader,Slot0,kV,2.967848309975268
+pivot,leader,Slot0,kA,0.10684136536031241
+pivot,leader,Slot0,kG,0.5097210842531786
 pivot,leader,Slot0,GravityType,Arm_Cosine
 pivot,leader,Slot0,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
 pivot,leader,Slot1,kP,188.49555921538757
 pivot,leader,Slot1,kD,6.283185307179586
-pivot,leader,Slot1,kV,3.0
-pivot,leader,Slot1,kA,0.10785100872831538
-pivot,leader,Slot1,kG,0.5145379125528914
+pivot,leader,Slot1,kV,2.967848309975268
+pivot,leader,Slot1,kA,0.10684136536031241
+pivot,leader,Slot1,kG,0.5097210842531786
 pivot,leader,Slot1,GravityType,Arm_Cosine
 pivot,leader,Slot1,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
 roller,leader,MotorOutput,NeutralMode,Brake
@@ -22,12 +22,12 @@ roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
 roller,leader,Slot0,kP,0.12566370614359174
-roller,leader,Slot0,kV,0.36
-roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,kV,0.35614179719703215
+roller,leader,Slot0,kA,0.003337219749572728
 roller,leader,Slot0,GravityType,Arm_Cosine
 roller,leader,Slot1,kP,0.12566370614359174
-roller,leader,Slot1,kV,0.36
-roller,leader,Slot1,kA,0.00336875624085924
+roller,leader,Slot1,kV,0.35614179719703215
+roller,leader,Slot1,kA,0.003337219749572728
 roller,leader,Slot1,GravityType,Arm_Cosine
 elevator,leader,MotorOutput,NeutralMode,Brake
 elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
@@ -35,14 +35,14 @@ elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
-elevator,leader,Slot0,kG,0.1053972820874471
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
+elevator,leader,Slot0,kG,0.10441060919379627
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
-elevator,leader,Slot1,kG,0.1053972820874471
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
+elevator,leader,Slot1,kG,0.10441060919379627
 elevator,follower 1,request,LeaderID,0
 elevator,follower 1,request,MotorAlignment,Aligned
 elevator,follower 1,MotorOutput,NeutralMode,Brake
@@ -55,12 +55,12 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555
 joint,device,group,setting,value
 pivot,leader,MotorOutput,NeutralMode,Brake
 pivot,leader,CurrentLimits,StatorCurrentLimit,40.0,A
@@ -90,14 +90,14 @@ roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
 roller,leader,Slot0,kP,0.12566370614359174
 roller,leader,Slot0,kS,0.1
 roller,leader,Slot0,kV,0.18849555921538758
-roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,kA,0.003337219749572728
 roller,leader,Slot0,GravityType,Arm_Cosine
 roller,leader,Slot1,kP,0.12566370614359174
 roller,leader,Slot1,kS,0.1
 roller,leader,Slot1,kV,0.18849555921538758
-roller,leader,Slot1,kA,0.00336875624085924
+roller,leader,Slot1,kA,0.003337219749572728
 roller,leader,Slot1,GravityType,Arm_Cosine
-elevator,findings,DOUBT,elevator's tuned kG, 0.9 V, is 8.539 times the ideal, 0.1054 V, from its motors and what it moves
+elevator,findings,DOUBT,elevator's tuned kG, 0.9 V, is 8.62 times the ideal, 0.1044 V, from its motors and what it moves
 elevator,leader,MotorOutput,NeutralMode,Brake
 elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
@@ -105,14 +105,14 @@ elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
 elevator,leader,Slot0,kS,0.15
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
 elevator,leader,Slot0,kG,0.9
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
 elevator,leader,Slot1,kS,0.15
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
 elevator,leader,Slot1,kG,0.9
 elevator,follower 1,request,LeaderID,0
 elevator,follower 1,request,MotorAlignment,Aligned
@@ -127,12 +127,12 @@ turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
 turret,leader,Slot0,kS,0.3
-turret,leader,Slot0,kV,6.0
+turret,leader,Slot0,kV,5.935696619950536
 turret,leader,Slot0,kA,0.025132741228718346
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
 turret,leader,Slot1,kS,0.3
-turret,leader,Slot1,kV,6.0
+turret,leader,Slot1,kV,5.935696619950536
 turret,leader,Slot1,kA,0.025132741228718346
 joint,device,group,setting,value
 pivot,leader,MotorOutput,Inverted,Clockwise_Positive
@@ -144,16 +144,16 @@ pivot,leader,Feedback,FeedbackSensorSource,FusedCANcoder
 pivot,leader,Feedback,FeedbackRemoteSensorID,34
 pivot,leader,Slot0,kP,188.49555921538757
 pivot,leader,Slot0,kD,6.283185307179586
-pivot,leader,Slot0,kV,3.0
-pivot,leader,Slot0,kA,0.10785100872831538
-pivot,leader,Slot0,kG,0.5145379125528914
+pivot,leader,Slot0,kV,2.967848309975268
+pivot,leader,Slot0,kA,0.10684136536031241
+pivot,leader,Slot0,kG,0.5097210842531786
 pivot,leader,Slot0,GravityType,Arm_Cosine
 pivot,leader,Slot0,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
 pivot,leader,Slot1,kP,188.49555921538757
 pivot,leader,Slot1,kD,6.283185307179586
-pivot,leader,Slot1,kV,3.0
-pivot,leader,Slot1,kA,0.10785100872831538
-pivot,leader,Slot1,kG,0.5145379125528914
+pivot,leader,Slot1,kV,2.967848309975268
+pivot,leader,Slot1,kA,0.10684136536031241
+pivot,leader,Slot1,kG,0.5097210842531786
 pivot,leader,Slot1,GravityType,Arm_Cosine
 pivot,leader,Slot1,GravityArmPositionOffset,-2.8499593919923986E-17,rotations
 pivot,cancoder,MagnetSensor,MagnetOffset,0.2,rotations
@@ -163,12 +163,12 @@ roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
 roller,leader,Slot0,kP,0.12566370614359174
-roller,leader,Slot0,kV,0.36
-roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,kV,0.35614179719703215
+roller,leader,Slot0,kA,0.003337219749572728
 roller,leader,Slot0,GravityType,Arm_Cosine
 roller,leader,Slot1,kP,0.12566370614359174
-roller,leader,Slot1,kV,0.36
-roller,leader,Slot1,kA,0.00336875624085924
+roller,leader,Slot1,kV,0.35614179719703215
+roller,leader,Slot1,kA,0.003337219749572728
 roller,leader,Slot1,GravityType,Arm_Cosine
 elevator,leader,MotorOutput,NeutralMode,Brake
 elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
@@ -176,14 +176,14 @@ elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
-elevator,leader,Slot0,kG,0.1053972820874471
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
+elevator,leader,Slot0,kG,0.10441060919379627
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
-elevator,leader,Slot1,kG,0.1053972820874471
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
+elevator,leader,Slot1,kG,0.10441060919379627
 elevator,follower 21,request,LeaderID,20
 elevator,follower 21,request,MotorAlignment,Opposed
 elevator,follower 21,MotorOutput,Inverted,Clockwise_Positive
@@ -197,12 +197,12 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555
 joint,device,group,setting,value
 pivot,leader,parameter,6,1
 pivot,leader,parameter,9,1
@@ -298,12 +298,12 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555
 joint,device,group,setting,value
 pivot,leader,parameter,6,1
 pivot,leader,parameter,9,4
@@ -400,12 +400,12 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555
 joint,device,group,setting,value
 pivot,leader,parameter,6,1
 pivot,leader,parameter,9,1
@@ -448,14 +448,14 @@ elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
-elevator,leader,Slot0,kG,0.1053972820874471
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
+elevator,leader,Slot0,kG,0.10441060919379627
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
-elevator,leader,Slot1,kG,0.1053972820874471
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
+elevator,leader,Slot1,kG,0.10441060919379627
 elevator,follower 1,request,LeaderID,0
 elevator,follower 1,request,MotorAlignment,Aligned
 elevator,follower 1,MotorOutput,NeutralMode,Brake
@@ -470,12 +470,12 @@ roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
 roller,leader,Slot0,kP,0.12566370614359174
-roller,leader,Slot0,kV,0.36
-roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,kV,0.35614179719703215
+roller,leader,Slot0,kA,0.003337219749572728
 roller,leader,Slot0,GravityType,Arm_Cosine
 roller,leader,Slot1,kP,0.12566370614359174
-roller,leader,Slot1,kV,0.36
-roller,leader,Slot1,kA,0.00336875624085924
+roller,leader,Slot1,kV,0.35614179719703215
+roller,leader,Slot1,kA,0.003337219749572728
 roller,leader,Slot1,GravityType,Arm_Cosine
 elevator,leader,MotorOutput,NeutralMode,Brake
 elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
@@ -483,14 +483,14 @@ elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
-elevator,leader,Slot0,kG,0.1053972820874471
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
+elevator,leader,Slot0,kG,0.10441060919379627
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
-elevator,leader,Slot1,kG,0.1053972820874471
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
+elevator,leader,Slot1,kG,0.10441060919379627
 elevator,follower 1,request,LeaderID,0
 elevator,follower 1,request,MotorAlignment,Aligned
 elevator,follower 1,MotorOutput,NeutralMode,Brake
@@ -503,12 +503,12 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555
 joint,device,group,setting,value
 pivot,findings,DOUBT,pivot's tuned kG, 0.4 V, is 0.2851 times the ideal, 1.403 V, from its motors and what it moves
 pivot,leader,parameter,6,1
@@ -537,12 +537,12 @@ roller,leader,CurrentLimits,StatorCurrentLimit,40.0,A
 roller,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 roller,leader,Feedback,SensorToMechanismRatio,3.0,scalar
 roller,leader,Slot0,kP,0.12566370614359174
-roller,leader,Slot0,kV,0.36
-roller,leader,Slot0,kA,0.00336875624085924
+roller,leader,Slot0,kV,0.35614179719703215
+roller,leader,Slot0,kA,0.003337219749572728
 roller,leader,Slot0,GravityType,Arm_Cosine
 roller,leader,Slot1,kP,0.12566370614359174
-roller,leader,Slot1,kV,0.36
-roller,leader,Slot1,kA,0.00336875624085924
+roller,leader,Slot1,kV,0.35614179719703215
+roller,leader,Slot1,kA,0.003337219749572728
 roller,leader,Slot1,GravityType,Arm_Cosine
 elevator,leader,MotorOutput,NeutralMode,Brake
 elevator,leader,CurrentLimits,StatorCurrentLimit,40.0,A
@@ -550,14 +550,14 @@ elevator,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 elevator,leader,Feedback,SensorToMechanismRatio,10.0,scalar
 elevator,leader,Slot0,kP,9.575574408141689
 elevator,leader,Slot0,kD,0.319185813604723
-elevator,leader,Slot0,kV,1.2
-elevator,leader,Slot0,kA,0.003097707838863201
-elevator,leader,Slot0,kG,0.1053972820874471
+elevator,leader,Slot0,kV,1.1871393239901071
+elevator,leader,Slot0,kA,0.003068708757515732
+elevator,leader,Slot0,kG,0.10441060919379627
 elevator,leader,Slot1,kP,9.575574408141689
 elevator,leader,Slot1,kD,0.319185813604723
-elevator,leader,Slot1,kV,1.2
-elevator,leader,Slot1,kA,0.003097707838863201
-elevator,leader,Slot1,kG,0.1053972820874471
+elevator,leader,Slot1,kV,1.1871393239901071
+elevator,leader,Slot1,kA,0.003068708757515732
+elevator,leader,Slot1,kG,0.10441060919379627
 elevator,follower 1,request,LeaderID,0
 elevator,follower 1,request,MotorAlignment,Aligned
 elevator,follower 1,MotorOutput,NeutralMode,Brake
@@ -570,9 +570,9 @@ turret,leader,CurrentLimits,SupplyCurrentLimit,60.0,A
 turret,leader,Feedback,SensorToMechanismRatio,50.0,scalar
 turret,leader,Slot0,kP,125.66370614359172
 turret,leader,Slot0,kD,3.141592653589793
-turret,leader,Slot0,kV,6.0
-turret,leader,Slot0,kA,0.0079758346635566
+turret,leader,Slot0,kV,5.935696619950536
+turret,leader,Slot0,kA,0.00790116917208555
 turret,leader,Slot1,kP,125.66370614359172
 turret,leader,Slot1,kD,3.141592653589793
-turret,leader,Slot1,kV,6.0
-turret,leader,Slot1,kA,0.0079758346635566
+turret,leader,Slot1,kV,5.935696619950536
+turret,leader,Slot1,kA,0.00790116917208555

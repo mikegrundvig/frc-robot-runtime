@@ -318,11 +318,10 @@ class ImageVerdictsTest {
         assertThat(rig.vision.summary()).as(row.name()).endsWith(row.pitLineEnds());
         assertThat(new CameraPit(front, CameraPit.Frames.FROM_THE_SIMULATOR).card().lines())
             .as(row.name() + ": the camera's card")
-            .anySatisfy(
-                line -> {
-                  assertThat(line.label()).isEqualTo("Images");
-                  assertThat(line.value()).contains("latest: " + row.outcome());
-                });
+            .anySatisfy(line -> {
+              assertThat(line.label()).isEqualTo("Images");
+              assertThat(line.value()).contains("latest: " + row.outcome());
+            });
       }
     }
   }

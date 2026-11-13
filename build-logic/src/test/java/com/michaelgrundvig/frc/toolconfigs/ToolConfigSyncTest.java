@@ -100,7 +100,8 @@ class ToolConfigSyncTest {
               line 2 of the file:  "mass": 59.5
               Robots.java gives:   "mass": 61
             Change Robots.java if the file is right, or discard the edit: \
-            ./gradlew build -PdiscardToolEdits""");
+            ./gradlew build -PdiscardToolEdits\
+            """);
     assertThat(committed("Robot_a/config.json")).as("left as it was").contains("59.5");
 
     assertThat(sync.run(true).written()).containsExactly("Robot_a/config.json: an edit discarded");

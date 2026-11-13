@@ -101,7 +101,9 @@ tasks.named("javadoc", Javadoc) {
     options.quiet()
 }
 def frcMavenDir = providers.gradleProperty("frcMavenDir")
-        .map { String path -> new File(path.startsWith("~") ? System.getProperty("user.home") + path.substring(1) : path) }
+        .map { String path ->
+            new File(path.startsWith("~") ? System.getProperty("user.home") + path.substring(1) : path)
+        }
         .orElse(layout.projectDirectory.dir("../../frc-maven").asFile)
         .get()
 publishing {

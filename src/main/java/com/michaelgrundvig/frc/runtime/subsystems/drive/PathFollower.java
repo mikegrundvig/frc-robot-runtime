@@ -77,7 +77,7 @@ final class PathFollower {
 
   /** How long the path takes, in seconds. */
   double pathSeconds() {
-    return path.duration;
+    return path.duration();
   }
 
   /**
@@ -91,7 +91,7 @@ final class PathFollower {
    * @param measuredOnField how fast the robot is measured to move, on the field's axes
    */
   boolean isAtItsEnd(double elapsedSeconds, Pose2d pose, ChassisVelocities measuredOnField) {
-    boolean pathIsOver = elapsedSeconds >= path.duration;
+    boolean pathIsOver = elapsedSeconds >= path.duration();
     if (!pathIsOver) {
       return false;
     }

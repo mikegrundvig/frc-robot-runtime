@@ -167,6 +167,12 @@ What it offers:
 - **The Driver Station:** `RobotSim.setEnabled(true)`, `RobotSim.enable(RobotMode.AUTONOMOUS,
   true)`, `RobotSim.station(AllianceStationID.RED_1)`. Change it through these, or call
   `DriverStationSim.notifyNewData()` after changing it yourself, or the change never arrives.
+  The scheduler reads it too: while it says disabled, a command on a joint or the drivetrain is
+  refused (`schedule` returns a failure) and the drive's default command doesn't run, so a test
+  that means the robot to be enabled enables it. A joints harness (`JointsSimHarness`) tells the
+  Driver Station its own `setEnabled`. The robot program says it has started at its first loop,
+  as `Robot` does, so what is bound as the robot is built is bound in every mode; a test with no
+  robot loop that needs the robot's mode calls `RobotSim.programStarted()`.
 - **The drivers:** `sim.driver()` and `sim.operator()`, the gamepads on ports 0 and 1, which the
   robot's controls are bound to; `sim.bindings()`, every binding it made, by button and command.
   A class shaped as `Controls` (a `ControlsMaker`: yours, or a fixture's) is bound to them by

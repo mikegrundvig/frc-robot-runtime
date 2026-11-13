@@ -635,13 +635,12 @@ public final class Monkey {
   private Command law(JointMechanism mechanism) {
     double volts = (random.nextDouble() * 2 - 1) * 6;
     return Command.requiring(mechanism)
-        .executing(
-            co -> {
-              while (true) {
-                mechanism.setVoltage(random.nextInt(100) == 0 ? notANumber() : volts);
-                co.yield();
-              }
-            })
+        .executing(co -> {
+          while (true) {
+            mechanism.setVoltage(random.nextInt(100) == 0 ? notANumber() : volts);
+            co.yield();
+          }
+        })
         .named(String.format(Locale.ROOT, "%s at %.1f V", mechanism.getName(), volts));
   }
 

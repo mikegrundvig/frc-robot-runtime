@@ -368,15 +368,14 @@ public final class JointIOTalon implements JointIO {
         wiredCancoder.isEmpty() || wiredCancoder.get().feedback() == MechanismWiring.Feedback.ROTOR;
     int cancoderNumber = 1 + following.size();
     cancoder =
-        wiredCancoder.map(
-            wiring ->
-                startCancoder(
-                    new CANcoder(wiring.id(), bus),
-                    cancoderNumber,
-                    settings.cancoder().orElseThrow(),
-                    math.absoluteReader(Objects.requireNonNull(math.absoluteEncoder(joint))),
-                    leaderReadsItsRotor,
-                    neverConfirmed));
+        wiredCancoder.map(wiring ->
+            startCancoder(
+                new CANcoder(wiring.id(), bus),
+                cancoderNumber,
+                settings.cancoder().orElseThrow(),
+                math.absoluteReader(Objects.requireNonNull(math.absoluteEncoder(joint))),
+                leaderReadsItsRotor,
+                neverConfirmed));
     unconfigured = String.join(", ", neverConfirmed);
 
     leaderFaults = leader.device().getFaultField(false);

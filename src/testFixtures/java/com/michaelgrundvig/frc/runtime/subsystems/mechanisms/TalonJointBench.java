@@ -402,9 +402,8 @@ public final class TalonJointBench implements JointBench {
         double way = forward(i);
         controllers.get(i).rotor(way * turnsSincePowerOn, way * turnsPerSecond);
       }
-      cancoder.ifPresent(
-          device ->
-              device.getSimState().setRawPosition(rotations.toRotations(position + encoderSlip)));
+      cancoder.ifPresent(device ->
+          device.getSimState().setRawPosition(rotations.toRotations(position + encoderSlip)));
     }
 
     /** Which way a controller's rotor turns as the joint moves forward: 1, or -1 for clockwise. */

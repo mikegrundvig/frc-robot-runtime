@@ -79,13 +79,12 @@ class LimitStopSimTest {
   void anOutputTowardATrippedSwitchGoesNeutral() {
     Command push =
         turret
-            .run(
-                co -> {
-                  while (true) {
-                    turret.setVoltage(2);
-                    co.yield();
-                  }
-                })
+            .run(co -> {
+              while (true) {
+                turret.setVoltage(2);
+                co.yield();
+              }
+            })
             .named("Push right");
     sim.run(push, 3);
 
@@ -116,13 +115,12 @@ class LimitStopSimTest {
       return switch (this) {
         case VOLTAGE ->
             turret
-                .run(
-                    co -> {
-                      while (true) {
-                        turret.setVoltage(2 * sign);
-                        co.yield();
-                      }
-                    })
+                .run(co -> {
+                  while (true) {
+                    turret.setVoltage(2 * sign);
+                    co.yield();
+                  }
+                })
                 .named("Push at " + 2 * sign + " V");
         case VELOCITY -> turret.follow(() -> RadiansPerSecond.of(2 * sign));
         case DUTY_CYCLE -> turret.run(right ? SPINNING : SPINNING_BACK);

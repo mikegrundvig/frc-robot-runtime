@@ -224,12 +224,11 @@ class RobotViewKeysEndToEndTest {
     table.getAll(false).forEach((key, value) -> logged.put(key, Logged.of(value)));
     table
         .getAll(false)
-        .forEach(
-            (key, value) -> {
-              if (value.type == LogTable.LoggableType.Raw) {
-                bytes.put(key, value.getRaw().length);
-              }
-            });
+        .forEach((key, value) -> {
+          if (value.type == LogTable.LoggableType.Raw) {
+            bytes.put(key, value.getRaw().length);
+          }
+        });
   }
 
   /** Remembers what one loop's moment says of the cameras' tags and of the estimate. */
@@ -315,15 +314,14 @@ class RobotViewKeysEndToEndTest {
 
     assertThat(loops).as("loops in the session's log").isGreaterThan(50);
     List<String> wrong = new ArrayList<>();
-    required.forEach(
-        (key, type) -> {
-          Logged found = logged.get(key);
-          if (found == null) {
-            wrong.add(key + " is not in the log: Pitwall reads it as " + type);
-          } else if (!found.equals(type)) {
-            wrong.add(key + " is logged as " + found + ", and Pitwall reads it as " + type);
-          }
-        });
+    required.forEach((key, type) -> {
+      Logged found = logged.get(key);
+      if (found == null) {
+        wrong.add(key + " is not in the log: Pitwall reads it as " + type);
+      } else if (!found.equals(type)) {
+        wrong.add(key + " is logged as " + found + ", and Pitwall reads it as " + type);
+      }
+    });
     assertThat(wrong).as("keys Pitwall's Robot view reads (LogKeys) against the log").isEmpty();
   }
 
@@ -380,14 +378,12 @@ class RobotViewKeysEndToEndTest {
     expected.put(LogKeys.FIRED, List.of("some"));
     expected.put(LogKeys.BINDINGS, List.of("some"));
 
-    assertSoftly(
-        softly ->
-            expected.forEach(
-                (key, order) ->
-                    softly
-                        .assertThat(changes.getOrDefault(key, List.of()))
-                        .as(key + " should have held " + order + " in turn")
-                        .containsSubsequence(order.toArray(String[]::new))));
+    assertSoftly(softly ->
+        expected.forEach((key, order) ->
+            softly
+                .assertThat(changes.getOrDefault(key, List.of()))
+                .as(key + " should have held " + order + " in turn")
+                .containsSubsequence(order.toArray(String[]::new))));
   }
 
   /**
@@ -397,11 +393,9 @@ class RobotViewKeysEndToEndTest {
    */
   @Test
   void theValuesPitwallReadsAsNumbersAreMadeOfThoseNumbersAlone() {
-    assertSoftly(
-        softly ->
-            BYTES_OF_NUMBERS.forEach(
-                (key, expected) ->
-                    softly.assertThat(bytes.get(key)).as(key + ", in bytes").isEqualTo(expected)));
+    assertSoftly(softly ->
+        BYTES_OF_NUMBERS.forEach((key, expected) ->
+            softly.assertThat(bytes.get(key)).as(key + ", in bytes").isEqualTo(expected)));
   }
 
   /**
@@ -440,12 +434,11 @@ class RobotViewKeysEndToEndTest {
         .extracting(Moment.OfJoint::label)
         .containsExactlyElementsOf(DEFINITION.joints().stream().map(Joint::label).toList());
     assertThat(newest.joints())
-        .allSatisfy(
-            joint -> {
-              assertThat(joint.state()).as(joint.label()).isEqualTo(JointState.READY);
-              assertThat(joint.link()).as(joint.label()).isEqualTo(Moment.Link.ANSWERS);
-              assertThat(joint.position()).as(joint.label()).isFinite();
-            });
+        .allSatisfy(joint -> {
+          assertThat(joint.state()).as(joint.label()).isEqualTo(JointState.READY);
+          assertThat(joint.link()).as(joint.label()).isEqualTo(Moment.Link.ANSWERS);
+          assertThat(joint.position()).as(joint.label()).isFinite();
+        });
     assertThat(newest.sensors()).extracting(Moment.OfSensor::label).contains("claw beam", "hopper");
     assertThat(session.view(session.taken() - 1)).isPresent();
   }

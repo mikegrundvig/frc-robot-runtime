@@ -269,16 +269,15 @@ class ExampleRobotSimTest {
             Interlock.that(ELEVATOR)
                 .keepsOut(Range.meters(0, 0.3))
                 .when(ARM.atLeast(Degrees.of(130))));
-    assertThatThrownBy(
-            () ->
-                RobotDefinitionBuilder.builder(ExampleRobot.COMPETITION.definition())
-                    .interlocks(
-                        List.of(
-                            Interlock.that(ELEVATOR)
-                                .keepsOut(Range.meters(0.1, 0.6))
-                                .when(ARM.atMost(Degrees.of(0)))))
-                    .build()
-                    .checked())
+    assertThatThrownBy(() ->
+            RobotDefinitionBuilder.builder(ExampleRobot.COMPETITION.definition())
+                .interlocks(
+                    List.of(
+                        Interlock.that(ELEVATOR)
+                            .keepsOut(Range.meters(0.1, 0.6))
+                            .when(ARM.atMost(Degrees.of(0)))))
+                .build()
+                .checked())
         .hasMessage(
             "RobotDefinition[example].presets: preset stowed leaves arm and elevator"
                 + " holding each other by their interlocks, so neither can free the other: a"

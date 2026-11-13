@@ -172,9 +172,8 @@ class PowerSimTest {
     JointsSimHarness sim =
         new JointsSimHarness(
             ROBOT.with(
-                ARM.retuned(
-                    control ->
-                        control.withDeadChannel(Amps.of(2), Amps.of(0.5), Seconds.of(0.1)))));
+                ARM.retuned(control ->
+                    control.withDeadChannel(Amps.of(2), Amps.of(0.5), Seconds.of(0.1)))));
     sim.scheduler.schedule(sim.joints.of(ARM).run(PUSH));
     sim.run(0.2);
     sim.pdh.zero(5, true);

@@ -723,17 +723,16 @@ public abstract class JointIOConformance {
     rows.put(MechanismControl.NeutralMode.BRAKE, UnaryOperator.identity());
     rows.put(MechanismControl.NeutralMode.COAST, MechanismControl::coasting);
 
-    rows.forEach(
-        (mode, control) -> {
-          JointIO io = powerOn(pivot().retuned(control));
-          rig().jointIs(0.8);
-          io.setVoltage(2);
-          settlesAt("driven", 2);
-          io.stop();
+    rows.forEach((mode, control) -> {
+      JointIO io = powerOn(pivot().retuned(control));
+      rig().jointIs(0.8);
+      io.setVoltage(2);
+      settlesAt("driven", 2);
+      io.stop();
 
-          settlesAt("J10: neutral", 0);
-          assertThat(rig().neutralMode()).as("J10: as its control says").isEqualTo(mode);
-        });
+      settlesAt("J10: neutral", 0);
+      assertThat(rig().neutralMode()).as("J10: as its control says").isEqualTo(mode);
+    });
   }
 
   // Limits.
@@ -759,22 +758,19 @@ public abstract class JointIOConformance {
     ends.put(ABOVE, 1.0);
     ends.put(BELOW, -1.0);
 
-    ends.forEach(
-        (past, way) -> {
-          rig().jointIs(past);
-          eventually("it reads past its limit", () -> reads(past));
-          requestsPushing(way, past)
-              .forEach(
-                  (name, request) -> {
-                    io.setVoltage(-way * 3);
-                    settlesAt("J13: back toward its range from " + past, -way * 3);
-                    request.accept(io);
-                    stopsDriving(
-                        "J13: " + name + " further past its limit at " + past, way, -way * 3);
-                  });
-          io.home(way * 2);
-          settlesAt("J11: a homing push further past its limit at " + past, way * 2);
-        });
+    ends.forEach((past, way) -> {
+      rig().jointIs(past);
+      eventually("it reads past its limit", () -> reads(past));
+      requestsPushing(way, past)
+          .forEach((name, request) -> {
+            io.setVoltage(-way * 3);
+            settlesAt("J13: back toward its range from " + past, -way * 3);
+            request.accept(io);
+            stopsDriving("J13: " + name + " further past its limit at " + past, way, -way * 3);
+          });
+      io.home(way * 2);
+      settlesAt("J11: a homing push further past its limit at " + past, way * 2);
+    });
   }
 
   /**
@@ -813,13 +809,12 @@ public abstract class JointIOConformance {
     eventually("it reads above its upper limit", () -> reads(ABOVE));
 
     requestsPushing(1, ABOVE)
-        .forEach(
-            (name, request) -> {
-              io.home(2);
-              settlesAt("J11: the homing push before " + name, 2);
-              request.accept(io);
-              stopsDriving("J14: " + name + " after the push, above its upper limit", 1, 2);
-            });
+        .forEach((name, request) -> {
+          io.home(2);
+          settlesAt("J11: the homing push before " + name, 2);
+          request.accept(io);
+          stopsDriving("J14: " + name + " after the push, above its upper limit", 1, 2);
+        });
   }
 
   private static ControllerPins pins(Polarity forward, Polarity reverse, boolean stop) {
@@ -1144,49 +1139,48 @@ public abstract class JointIOConformance {
     rows.put("mounted the other way round", MechanismWiring.Device::clockwise);
     int follower = LEADER + 1;
 
-    rows.forEach(
-        (mounted, mount) -> {
-          JointIO io = powerOn(elevator(bench.controller(0), mount.apply(bench.controller(1))));
-          rig().jointIs(0.6);
-          eventually("its follower answers", () -> followerReadsConnected());
-          assertThat(inputs.followersRestarted).as("J25").containsExactly(false);
-          assertThat(inputs.faults).as("J25: leader and follower, no faults").containsExactly(0, 0);
+    rows.forEach((mounted, mount) -> {
+      JointIO io = powerOn(elevator(bench.controller(0), mount.apply(bench.controller(1))));
+      rig().jointIs(0.6);
+      eventually("its follower answers", () -> followerReadsConnected());
+      assertThat(inputs.followersRestarted).as("J25").containsExactly(false);
+      assertThat(inputs.faults).as("J25: leader and follower, no faults").containsExactly(0, 0);
 
-          for (double volts : new double[] {2, -2}) {
-            io.setVoltage(volts);
-            settlesAt("the leader, its follower " + mounted, volts);
-            if (can(Ability.SHOW_A_FOLLOWERS_OUTPUT)) {
-              eventually(
-                  "J33: the follower " + mounted + " drives the joint at " + volts + " V too",
-                  () -> Math.abs(rig().motorVolts(follower) - volts) <= VOLTS);
-              assertThat(rig().motorVolts(follower)).as("J33").isCloseTo(volts, within(VOLTS));
-            }
-          }
+      for (double volts : new double[] {2, -2}) {
+        io.setVoltage(volts);
+        settlesAt("the leader, its follower " + mounted, volts);
+        if (can(Ability.SHOW_A_FOLLOWERS_OUTPUT)) {
+          eventually(
+              "J33: the follower " + mounted + " drives the joint at " + volts + " V too",
+              () -> Math.abs(rig().motorVolts(follower) - volts) <= VOLTS);
+          assertThat(rig().motorVolts(follower)).as("J33").isCloseTo(volts, within(VOLTS));
+        }
+      }
 
-          if (can(Ability.RESTART_A_FOLLOWER)) {
-            rig().restart(follower);
-            int saidSo = 0;
-            for (int i = 0; i < 2 * STEADY_LOOPS; i++) {
-              loop();
-              saidSo += inputs.followersRestarted[0] ? 1 : 0;
-              assertThat(inputs.restarted).as("J34: the leader did not restart").isFalse();
-            }
-            assertThat(saidSo).as("J34: said in exactly one loop").isEqualTo(1);
-            if (can(Ability.SHOW_A_FOLLOWERS_OUTPUT)) {
-              eventually(
-                  "J34: the follower " + mounted + " follows again",
-                  () -> Math.abs(rig().motorVolts(follower) + 2) <= VOLTS);
-            }
-          }
+      if (can(Ability.RESTART_A_FOLLOWER)) {
+        rig().restart(follower);
+        int saidSo = 0;
+        for (int i = 0; i < 2 * STEADY_LOOPS; i++) {
+          loop();
+          saidSo += inputs.followersRestarted[0] ? 1 : 0;
+          assertThat(inputs.restarted).as("J34: the leader did not restart").isFalse();
+        }
+        assertThat(saidSo).as("J34: said in exactly one loop").isEqualTo(1);
+        if (can(Ability.SHOW_A_FOLLOWERS_OUTPUT)) {
+          eventually(
+              "J34: the follower " + mounted + " follows again",
+              () -> Math.abs(rig().motorVolts(follower) + 2) <= VOLTS);
+        }
+      }
 
-          if (can(Ability.SILENCE_A_FOLLOWER)) {
-            rig().silence(follower, true);
-            eventually("J35: the follower reads as silent", () -> !followerReadsConnected());
-            assertThat(inputs.connected).as("J35: the leader still answers").isTrue();
-            rig().silence(follower, false);
-            eventually("J35: the follower answers again", () -> followerReadsConnected());
-          }
-        });
+      if (can(Ability.SILENCE_A_FOLLOWER)) {
+        rig().silence(follower, true);
+        eventually("J35: the follower reads as silent", () -> !followerReadsConnected());
+        assertThat(inputs.connected).as("J35: the leader still answers").isTrue();
+        rig().silence(follower, false);
+        eventually("J35: the follower answers again", () -> followerReadsConnected());
+      }
+    });
   }
 
   private boolean followerReadsConnected() {

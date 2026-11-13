@@ -82,12 +82,10 @@ class TurretCameraSimTest {
         .schedule(
             sim.joints()
                 .of(TURRET)
-                .follow(
-                    () ->
-                        Radians.of(
-                            Math.toRadians(40)
-                                * Math.sin(
-                                    2 * Math.PI * (RobotController.getTime() - start) / 4e9))));
+                .follow(() ->
+                    Radians.of(
+                        Math.toRadians(40)
+                            * Math.sin(2 * Math.PI * (RobotController.getTime() - start) / 4e9))));
     JointSimulation truth = Objects.requireNonNull(sim.world().joints());
 
     double worst = 0;

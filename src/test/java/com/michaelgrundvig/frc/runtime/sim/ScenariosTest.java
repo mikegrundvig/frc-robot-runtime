@@ -202,14 +202,13 @@ class ScenariosTest {
   @Test
   void aNameIsLowercaseWordsJoinedByHyphensAndADescriptionSaysSomething() {
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                Scenario.builder()
-                    .name("Camera Low")
-                    .description(" ")
-                    .sensorFaults(Scenario.NO_FAULTS)
-                    .events(Scenario.NOTHING)
-                    .build())
+        .isThrownBy(() ->
+            Scenario.builder()
+                .name("Camera Low")
+                .description(" ")
+                .sensorFaults(Scenario.NO_FAULTS)
+                .events(Scenario.NOTHING)
+                .build())
         .withMessageContaining(
             "Scenario.name: \"Camera Low\" must be lowercase words joined by hyphens")
         .withMessageContaining("Scenario.description: must not be blank");

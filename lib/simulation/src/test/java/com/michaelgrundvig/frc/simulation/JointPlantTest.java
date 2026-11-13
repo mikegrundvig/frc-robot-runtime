@@ -177,8 +177,8 @@ class JointPlantTest {
 
   /**
    * Driven into its upper stop, it's held there, its motor stalled: at 3 V, a stalled Kraken would
-   * take 91 A, so it's held to its 40 A, and the voltage across it is what drives 40 A through its
-   * windings standing still, 1.3 V: 4.4 A from the battery, not the 15 A a motor still turning
+   * take 94 A, so it's held to its 40 A, and the voltage across it is what drives 40 A through its
+   * windings standing still, 1.3 V: 4.3 A from the battery, not the 15 A a motor still turning
    * would draw. At 0.5 V, under its limit, it takes what the voltage drives.
    */
   @Test
@@ -196,7 +196,7 @@ class JointPlantTest {
     assertThat(arm.velocity()).isZero();
     assertThat(held).isCloseTo(40, within(1e-9));
     assertThat(across).isCloseTo(40 * KRAKEN.R, within(1e-12));
-    assertThat(pushed).isCloseTo(40 * 40 * KRAKEN.R / 12, within(1e-9)).isCloseTo(4.4, within(0.1));
+    assertThat(pushed).isCloseTo(40 * 40 * KRAKEN.R / 12, within(1e-9)).isCloseTo(4.3, within(0.1));
     assertThat(arm.statorAmps()).isCloseTo(0.5 / KRAKEN.R, within(1e-9));
     assertThat(arm.supplyAmps()).isCloseTo(0.5 / KRAKEN.R * 0.5 / 12, within(1e-9));
   }

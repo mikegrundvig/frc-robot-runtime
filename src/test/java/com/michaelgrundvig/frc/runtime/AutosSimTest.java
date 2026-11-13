@@ -84,12 +84,11 @@ class AutosSimTest {
   /** "Do nothing" is first, then the team's in the order declared; the default stays. */
   @Test
   void declaredAutosFollowDoNothingAndItStaysTheDefault() {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("B", LEFT_START, new Counting()::make);
-          autos.add("A", LEFT_START, new Counting()::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("B", LEFT_START, new Counting()::make);
+      autos.add("A", LEFT_START, new Counting()::make);
+      return autos;
+    });
     sim.loops(3);
 
     assertThat(autos().names()).containsExactly("Do nothing", "B", "A");
@@ -101,31 +100,25 @@ class AutosSimTest {
   void aBlankNameOrTwoOfOneNameStopTheRobotStarting() {
     sim.robot();
 
-    assertThatThrownBy(
-            () ->
-                sim.controls(
-                    (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add("Left", LEFT_START, new Counting()::make);
-                      autos.add("Left", LEFT_START, new Counting()::make);
-                      return autos;
-                    }))
+    assertThatThrownBy(() ->
+            sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+              autos.add("Left", LEFT_START, new Counting()::make);
+              autos.add("Left", LEFT_START, new Counting()::make);
+              return autos;
+            }))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("two autos are named Left: name each once");
-    assertThatThrownBy(
-            () ->
-                sim.controls(
-                    (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add(" ", LEFT_START, new Counting()::make);
-                      return autos;
-                    }))
+    assertThatThrownBy(() ->
+            sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+              autos.add(" ", LEFT_START, new Counting()::make);
+              return autos;
+            }))
         .hasMessage("an auto needs a name");
-    assertThatThrownBy(
-            () ->
-                sim.controls(
-                    (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add(Autos.DO_NOTHING, LEFT_START, new Counting()::make);
-                      return autos;
-                    }))
+    assertThatThrownBy(() ->
+            sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+              autos.add(Autos.DO_NOTHING, LEFT_START, new Counting()::make);
+              return autos;
+            }))
         .hasMessage("two autos are named Do nothing: name each once");
   }
 
@@ -146,11 +139,10 @@ class AutosSimTest {
   @Test
   void autonomousMakesAFreshCommandEachRun() {
     Counting counting = new Counting();
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_START, counting::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("Left", LEFT_START, counting::make);
+      return autos;
+    });
     autos().choose("Left");
     sim.loops(3);
     assertThat(counting.made).as("nothing is made before autonomous").isEmpty();
@@ -171,11 +163,10 @@ class AutosSimTest {
   @Test
   void theEndOfAutonomousCutsOffAnAutoThatNeverEnds() {
     Counting counting = new Counting();
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Forever", LEFT_START, counting::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("Forever", LEFT_START, counting::make);
+      return autos;
+    });
     autos().choose("Forever");
     sim.loops(3);
 
@@ -195,11 +186,10 @@ class AutosSimTest {
   /** The pit's choice is taken at the start of a loop while disabled, and never while enabled. */
   @Test
   void aChoiceWaitsForTheRobotToBeDisabled() {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_START, new Counting()::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("Left", LEFT_START, new Counting()::make);
+      return autos;
+    });
     sim.loops(2);
     RobotSim.setEnabled(true);
     sim.loops(2);
@@ -221,17 +211,16 @@ class AutosSimTest {
   @Test
   void anAutoThatThrowsAsItIsBuiltRunsNothingAndIsSaid() {
     Counting after = new Counting();
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add(
-              "Broken",
-              LEFT_START,
-              () -> {
-                throw new IllegalStateException("no path named Left 9");
-              });
-          autos.add("Fine", LEFT_START, after::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add(
+          "Broken",
+          LEFT_START,
+          () -> {
+            throw new IllegalStateException("no path named Left 9");
+          });
+      autos.add("Fine", LEFT_START, after::make);
+      return autos;
+    });
     autos().choose("Broken");
     sim.loops(3);
 
@@ -257,20 +246,19 @@ class AutosSimTest {
    */
   @Test
   void anAutoThatThrowsAsItRunsIsSaidAndTheRobotCarriesOn() {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add(
-              "Throws",
-              LEFT_START,
-              () ->
-                  Command.noRequirements(
-                          co -> {
-                            co.yield();
-                            throw new IllegalStateException("boom");
-                          })
-                      .named("Throws"));
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add(
+          "Throws",
+          LEFT_START,
+          () ->
+              Command.noRequirements(
+                      co -> {
+                        co.yield();
+                        throw new IllegalStateException("boom");
+                      })
+                  .named("Throws"));
+      return autos;
+    });
     autos().choose("Throws");
     sim.loops(3);
     RobotSim.enable(RobotMode.AUTONOMOUS, true);
@@ -287,19 +275,18 @@ class AutosSimTest {
   /** In the simulator a throw ends the loop, as any command's does, so the bug fails its test. */
   @Test
   void inTheSimulatorAnAutoThatThrowsFailsTheLoop() {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add(
-              "Throws",
-              LEFT_START,
-              () ->
-                  Command.noRequirements(
-                          co -> {
-                            throw new IllegalStateException("boom");
-                          })
-                      .named("Throws"));
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add(
+          "Throws",
+          LEFT_START,
+          () ->
+              Command.noRequirements(
+                      co -> {
+                        throw new IllegalStateException("boom");
+                      })
+                  .named("Throws"));
+      return autos;
+    });
     autos().choose("Throws");
     sim.loops(3);
     RobotSim.enable(RobotMode.AUTONOMOUS, true);
@@ -314,11 +301,10 @@ class AutosSimTest {
    */
   @Test
   void theAutosStartIsWhereTheRobotIsPlacedAndTheCheckReadsIt() {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_START, new Counting()::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("Left", LEFT_START, new Counting()::make);
+      return autos;
+    });
     autos().choose("Left");
     RobotSim.station(AllianceStationID.RED_3);
     sim.loops(5);
@@ -349,11 +335,10 @@ class AutosSimTest {
   /** The pit chooses through the Pitwall page's Pit view, as it chooses a venue. */
   @Test
   void thePitChoosesThroughItsCard() throws Exception {
-    sim.controls(
-        (scheduler, robot, joints, drive, driver, operator, autos) -> {
-          autos.add("Left", LEFT_START, new Counting()::make);
-          return autos;
-        });
+    sim.controls((scheduler, robot, joints, drive, driver, operator, autos) -> {
+      autos.add("Left", LEFT_START, new Counting()::make);
+      return autos;
+    });
     var chooser = sim.pitwall().devices().named("auto").orElseThrow().chooser("auto").orElseThrow();
 
     chooser.choose("Left");

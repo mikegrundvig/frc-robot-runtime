@@ -182,12 +182,11 @@ final class WorldSessionRobot extends Robot {
     switch (loop) {
       case 5 ->
           simulator()
-              .requestDriverStation(
-                  station ->
-                      station
-                          .withAllianceStation(AllianceStationID.RED_1)
-                          .withMode(RobotMode.TELEOPERATED)
-                          .withEnabled(true));
+              .requestDriverStation(station ->
+                  station
+                      .withAllianceStation(AllianceStationID.RED_1)
+                      .withMode(RobotMode.TELEOPERATED)
+                      .withEnabled(true));
       case 30 -> simulator().joystick(DRIVER, driving(0.5, 0, 0), null);
       // Every camera is unplugged for a second and a half of the drive, so the estimate rests on
       // the wheels and the gyro alone (cameras at the four corners see a tag from anywhere on

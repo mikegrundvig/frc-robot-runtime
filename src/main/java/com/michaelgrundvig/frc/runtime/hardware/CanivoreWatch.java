@@ -49,12 +49,11 @@ public final class CanivoreWatch implements AutoCloseable {
         onEach.merge(canivore, 1, Integer::sum);
       }
     }
-    onEach.forEach(
-        (canivore, count) -> {
-          String text = text(canivore, runsOn, count);
-          Alert alert = new Alert("CAN", "canivore/" + canivore.name(), text, Alert.Level.HIGH);
-          watched.add(new Watched(canivore, text, alert));
-        });
+    onEach.forEach((canivore, count) -> {
+      String text = text(canivore, runsOn, count);
+      Alert alert = new Alert("CAN", "canivore/" + canivore.name(), text, Alert.Level.HIGH);
+      watched.add(new Watched(canivore, text, alert));
+    });
   }
 
   /** A robot's: Phoenix asked of the robot's own CANivores. */

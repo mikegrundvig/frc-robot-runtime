@@ -57,6 +57,7 @@ class PitwallRobotTest {
 
   @BeforeEach
   void setUp() {
+    RobotSim.programStarted(); // Pitwall here is a running robot program's
     pitwall = Pitwall.start(ExampleRobot.SIM.name(), 0);
     // The drivetrain's tuning, published as the robot program publishes it.
     drivetrain = RobotContainer.tunings(ExampleRobot.SIM).drivetrain();
@@ -255,14 +256,13 @@ class PitwallRobotTest {
       List<String> lines = new CopyOnWriteArrayList<>();
       Thread reader =
           Thread.ofVirtual()
-              .start(
-                  () -> {
-                    try {
-                      opened.get().body().forEach(lines::add);
-                    } catch (Exception closed) {
-                      // The test is over.
-                    }
-                  });
+              .start(() -> {
+                try {
+                  opened.get().body().forEach(lines::add);
+                } catch (Exception closed) {
+                  // The test is over.
+                }
+              });
       long end = System.nanoTime() + Waits.LIMIT.toNanos();
       while (lines.stream().noneMatch(line -> line.startsWith("data: "))
           && System.nanoTime() < end) {
@@ -379,12 +379,11 @@ class PitwallRobotTest {
         .contains(".withSteerKp(Volts.per(Radian).of(18.0))");
     assertThat(camera.get()).as("the switch keeps its setting").isFalse();
     assertThat(activeAlerts())
-        .anySatisfy(
-            text ->
-                assertThat(text)
-                    .isEqualTo(
-                        "On the field with settings changed since startup:"
-                            + " /Vision/front/enabled: false (was true)"));
+        .anySatisfy(text ->
+            assertThat(text)
+                .isEqualTo(
+                    "On the field with settings changed since startup:"
+                        + " /Vision/front/enabled: false (was true)"));
   }
 
   /**

@@ -142,16 +142,15 @@ public abstract class ToolConfigTask extends DefaultTask {
     arguments.add("--out=" + generated);
     long started = System.nanoTime();
     getExecOperations()
-        .javaexec(
-            spec -> {
-              spec.setExecutable(getLauncher().get().getExecutablePath().getAsFile());
-              spec.classpath(getRuntimeClasspath());
-              spec.getMainClass().set(getMainClass());
-              spec.args(arguments);
-              spec.setMaxHeapSize(getMaxHeapSize().get());
-              // A short run: the quickest start, and the least memory.
-              spec.jvmArgs("-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Xss512k");
-            });
+        .javaexec(spec -> {
+          spec.setExecutable(getLauncher().get().getExecutablePath().getAsFile());
+          spec.classpath(getRuntimeClasspath());
+          spec.getMainClass().set(getMainClass());
+          spec.args(arguments);
+          spec.setMaxHeapSize(getMaxHeapSize().get());
+          // A short run: the quickest start, and the least memory.
+          spec.jvmArgs("-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-Xss512k");
+        });
     getLogger()
         .info("{}: the writer ran in {} ms", getName(), (System.nanoTime() - started) / 1_000_000);
 
@@ -180,14 +179,13 @@ public abstract class ToolConfigTask extends DefaultTask {
     }
     try (Stream<Path> walk = Files.walk(folder)) {
       walk.sorted(Comparator.reverseOrder())
-          .forEach(
-              path -> {
-                try {
-                  Files.delete(path);
-                } catch (IOException e) {
-                  throw new UncheckedIOException(e);
-                }
-              });
+          .forEach(path -> {
+            try {
+              Files.delete(path);
+            } catch (IOException e) {
+              throw new UncheckedIOException(e);
+            }
+          });
     }
   }
 }

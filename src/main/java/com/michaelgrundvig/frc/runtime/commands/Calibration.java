@@ -272,11 +272,10 @@ public final class Calibration {
   public Command gyroScale() {
     return drive
         .run(this::measureGyroScale)
-        .whenCanceled(
-            () -> {
-              vision.stopCollectingHeadings();
-              report("Gyro scale: canceled before it finished");
-            })
+        .whenCanceled(() -> {
+          vision.stopCollectingHeadings();
+          report("Gyro scale: canceled before it finished");
+        })
         .named("Calibrate gyro scale");
   }
 
@@ -380,11 +379,10 @@ public final class Calibration {
   public Command captureTimes() {
     return drive
         .run(this::measureCaptureTimes)
-        .whenCanceled(
-            () -> {
-              vision.stopCollectingCaptureTimes();
-              report("Capture times: canceled before it finished");
-            })
+        .whenCanceled(() -> {
+          vision.stopCollectingCaptureTimes();
+          report("Capture times: canceled before it finished");
+        })
         .named("Calibrate capture times");
   }
 
@@ -491,11 +489,10 @@ public final class Calibration {
         // A canceled command never resumes, so nothing after the point it was canceled at runs,
         // not even a finally block. Without this, the camera would stay out of localization until
         // the robot restarts.
-        .whenCanceled(
-            () -> {
-              vision.stopCalibratingMount();
-              report(name + ": canceled before it finished");
-            })
+        .whenCanceled(() -> {
+          vision.stopCalibratingMount();
+          report(name + ": canceled before it finished");
+        })
         .named("Calibrate camera mount: " + name);
   }
 

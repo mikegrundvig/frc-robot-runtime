@@ -47,6 +47,8 @@ import org.wpilib.command3.Command;
 import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.driverstation.RobotState;
+import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.units.Measure;
 import org.wpilib.units.measure.Dimensionless;
 import org.wpilib.units.measure.Time;
@@ -74,12 +76,13 @@ import org.wpilib.units.measure.Time;
  * starts, plus half a second; {@link #within} overrides it. A {@code runUntil} has no natural
  * duration, so it has no deadline of its own: it ends when its condition holds, when the deadline
  * {@link #within} gave it passes, or when it is canceled. One that never ends on its own, {@code
- * run}, {@code follow} or {@code hold}, is for "while held" and for background work. A move started
- * while the robot is disabled waits for it to be enabled, and its deadline starts then, so no
- * deadline counts while the robot is disabled. A move on a joint that's homing waits for it, and
- * its deadline starts once it has; one on a joint whose homing was canceled homes it again first,
- * if the robot is enabled, so it waits no longer than the homing may take, and a homing that faults
- * refuses it. Recovery is an {@code if}:
+ * run}, {@code follow} or {@code hold}, is for "while held" and for background work. A move asked
+ * for while the robot is disabled is refused by WPILib's scheduler, which runs no command on a
+ * joint while the robot is disabled; it never starts, so it has no outcome (the scheduler gives the
+ * refusal to whoever scheduled it, not to the move). A move on a joint that's homing waits for it,
+ * and its deadline starts once it has; one on a joint whose homing was canceled homes it again
+ * first, if the robot is enabled, so it waits no longer than the homing may take, and a homing that
+ * faults refuses it. Recovery is an {@code if}:
  *
  * {@snippet class=com.michaelgrundvig.frc.runtime.examples.ExampleCommands region=recovery}
  *
@@ -132,6 +135,13 @@ public final class Move implements Command {
    * for its joints to home, or, until it begins, when it started to wait.
    */
   private long startNanos;
+
+  /**
+   * The robot's mode as the latest run began, for a run started outside any other command, which
+   * WPILib's scheduler cancels when that mode ends; {@link RobotMode#UNKNOWN} for a run inside
+   * another command, which ends with its parent instead. A cancel once the mode has ended says so.
+   */
+  private RobotMode startedIn = RobotMode.UNKNOWN;
 
   /** When the latest run's deadline passes, or {@link Long#MAX_VALUE} for a run with none. */
   private long deadlineNanos;
@@ -534,6 +544,7 @@ public final class Move implements Command {
   private void runToItsEnd(Coroutine coroutine) {
     running = true;
     started = false;
+    startedIn = scheduler.getParentOf(this) == null ? RobotState.getRobotMode() : RobotMode.UNKNOWN;
     // Until the run begins, it is timed from here: a run canceled while it still waits for its
     // joints to home then says how long it waited, and not how long ago an earlier run began.
     startNanos = now();
@@ -543,7 +554,7 @@ public final class Move implements Command {
     boolean yielded = false;
     boolean homesTheJoint = plan.task() instanceof Home;
     if (!homesTheJoint) {
-      while (waitsToBeEnabled() || waitsForHoming()) {
+      while (waitsForHoming()) {
         coroutine.yield();
         yielded = true;
       }
@@ -592,34 +603,19 @@ public final class Move implements Command {
   }
 
   /**
-   * Why the move is canceled now, where its joints can say: the robot was disabled this loop. A
-   * move of no joints has none to ask.
+   * Why the move is canceled now: where its joints can say, the robot was disabled this loop; else
+   * whether the robot's mode it began in has ended. A move of no joints has none to ask.
    */
   private Optional<Why> whyCanceledNow() {
     if (legs.length == 0) {
-      return Optional.empty();
+      return Why.canceledNow(Optional.empty(), startedIn);
     }
-    return legs[0].joint.whyCanceledNow();
+    return Why.canceledNow(legs[0].joint.whyCanceledNow(), startedIn);
   }
 
   @Override
   public String toString() {
     return plan.name();
-  }
-
-  /**
-   * Whether the move must wait because the robot is disabled. A disabled joint is not driven, so a
-   * move that began now would only run down its deadline. It begins once the robot is enabled, and
-   * its time and its deadline start then.
-   *
-   * <p>A move that was refused as it was made does not wait. It has nothing to wait for, and says
-   * why it cannot run at once.
-   */
-  private boolean waitsToBeEnabled() {
-    if (plan.refused().isPresent() || legs.length == 0) {
-      return false;
-    }
-    return !legs[0].joint.isEnabled();
   }
 
   /**

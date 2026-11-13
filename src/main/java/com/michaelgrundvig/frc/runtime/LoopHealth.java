@@ -345,12 +345,11 @@ final class LoopHealth implements AutoCloseable {
   void watchLogDrive(File drive) {
     logDriveProblem = logDriveProblem(drive, MIN_FREE_BYTES);
     ScheduledExecutorService watch =
-        Executors.newSingleThreadScheduledExecutor(
-            task -> {
-              Thread thread = new Thread(task, "Log drive watch");
-              thread.setDaemon(true);
-              return thread;
-            });
+        Executors.newSingleThreadScheduledExecutor(task -> {
+          Thread thread = new Thread(task, "Log drive watch");
+          thread.setDaemon(true);
+          return thread;
+        });
     watch.scheduleWithFixedDelay(
         () -> logDriveProblem = logDriveProblem(drive, MIN_FREE_BYTES), 1, 1, TimeUnit.SECONDS);
     driveWatch = Optional.of(watch);

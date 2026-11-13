@@ -79,14 +79,13 @@ public final class AutoCheck {
       StringBuilder text = new StringBuilder(auto + " on " + alliance + ": ");
       text.append(
           ended
-              .map(
-                  pose ->
-                      String.format(
-                          Locale.ROOT,
-                          "ended at (%.2f, %.2f) %.1f°",
-                          pose.getX(),
-                          pose.getY(),
-                          pose.getRotation().getDegrees()))
+              .map(pose ->
+                  String.format(
+                      Locale.ROOT,
+                      "ended at (%.2f, %.2f) %.1f°",
+                      pose.getX(),
+                      pose.getY(),
+                      pose.getRotation().getDegrees()))
               .orElse("did not start"));
       run.ifPresent(each -> text.append(", ").append(each.describe()));
       for (Ended move : moves) {

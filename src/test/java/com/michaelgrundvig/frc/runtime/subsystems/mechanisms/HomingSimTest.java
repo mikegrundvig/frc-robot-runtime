@@ -75,8 +75,8 @@ class HomingSimTest {
 
   /**
    * Powered on at its top, 1.2 m up, the elevator takes over 4 s to come down at 2 V: past the 3 s
-   * a homing once had, inside the 9.5 s worked out from its travel, twice the 4.5 s its model takes
-   * at 2 V and half a second more. While it homes, its state says so.
+   * a homing once had, inside the 9.4 s worked out from its travel, twice the 4.46 s its model
+   * takes at 2 V and half a second more. While it homes, its state says so.
    */
   @Test
   void aJointHomesFromItsFarEndWithinTheTimeItsTravelTakes() {
@@ -91,35 +91,47 @@ class HomingSimTest {
     double took = sim.runUntil(() -> elevator.state() != JointMechanism.State.HOMING, 10);
     sim.loop();
 
-    assertThat(Homing.travelSeconds(ROBOT.math(), ELEVATOR, 2)).isCloseTo(4.51, within(0.01));
+    assertThat(Homing.travelSeconds(ROBOT.math(), ELEVATOR, 2)).isCloseTo(4.46, within(0.01));
     assertThat(homing.standing()).isEqualTo(JointState.Standing.HOMING);
     assertThat(homing.toward()).isEqualTo(JointState.Toward.LOWER_STOP);
     assertThat(homing.secondsAllowed())
         .as("the time worked out from its travel")
-        .isCloseTo(9.5, within(0.05));
+        .isCloseTo(9.43, within(0.05));
     assertThat(elevator.state()).isEqualTo(JointMechanism.State.READY);
     assertThat(took).isGreaterThan(3).isLessThan(9.5);
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0, within(0.005));
     assertThat(elevator.position()).isCloseTo(0, within(0.005));
   }
 
-  /** Disabled, it waits to home, and so do moves on it; enabled, it homes. */
+  /**
+   * Disabled, it waits to home, and a move asked of it is refused: the scheduler starts nothing on
+   * a joint while the robot is disabled, and the move never runs, so it has no outcome. Enabled,
+   * the joint homes by itself, and a move asked of it then arrives.
+   */
   @Test
-  void itHomesOnlyOnceEnabled() {
+  void itHomesOnlyOnceEnabledAndAMoveAskedWhileDisabledIsRefused() {
     JointsSimHarness sim =
         new JointsSimHarness(
             homing(ROBOT, ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
     JointMechanism elevator = sim.joints.of(ELEVATOR);
     sim.setEnabled(false);
-    Move clear = elevator.goTo(ELEVATOR_CLEAR);
-    sim.scheduler.schedule(clear);
+    Move refused = elevator.goTo(ELEVATOR_CLEAR);
+    boolean taken = sim.scheduler.schedule(refused).successful();
 
     sim.run(1);
     JointMechanism.State disabled = elevator.state();
     sim.setEnabled(true);
+    sim.loop();
+    JointMechanism.State enabled = elevator.state();
+    sim.runUntil(() -> elevator.state() == JointMechanism.State.READY, 6);
+    Move clear = elevator.goTo(ELEVATOR_CLEAR);
+    sim.scheduler.schedule(clear);
     sim.runUntil(() -> clear.outcome().isPresent(), 3);
 
+    assertThat(taken).as("refused while disabled").isFalse();
+    assertThat(refused.outcome()).as("it never ran").isEmpty();
     assertThat(disabled).isEqualTo(JointMechanism.State.UNHOMED);
+    assertThat(enabled).as("homing as it's enabled").isEqualTo(JointMechanism.State.HOMING);
     assertThat(clear.arrived()).isTrue();
   }
 
@@ -209,8 +221,9 @@ class HomingSimTest {
   }
 
   /**
-   * Disabled mid-homing, the elevator is unhomed and a move asked of it while it is disabled waits,
-   * its deadline not yet started; enabled again, it homes from where it is, and the move arrives.
+   * Disabled mid-homing, the elevator is unhomed, and a move asked of it while it is disabled is
+   * refused and never runs. Enabled again, it homes from where it is, by itself, and a move asked
+   * of it then arrives.
    */
   @Test
   void disabledMidHomingItHomesOnTheNextEnable() {
@@ -223,16 +236,23 @@ class HomingSimTest {
     JointMechanism.State homing = elevator.state();
     sim.setEnabled(false);
     sim.loop(); // the loop of the disable, which cancels whatever was asked before it
-    Move clear = elevator.goTo(ELEVATOR_CLEAR);
-    sim.run(clear, 2);
+    Move refused = elevator.goTo(ELEVATOR_CLEAR);
+    boolean taken = sim.scheduler.schedule(refused).successful();
+    sim.run(2);
     JointMechanism.State disabled = elevator.state();
-    boolean waiting = clear.outcome().isEmpty();
     sim.setEnabled(true);
+    sim.loop();
+    JointMechanism.State enabled = elevator.state();
+    sim.runUntil(() -> elevator.state() == JointMechanism.State.READY, 6);
+    Move clear = elevator.goTo(ELEVATOR_CLEAR);
+    sim.scheduler.schedule(clear);
     sim.runUntil(() -> clear.outcome().isPresent(), 4);
 
     assertThat(homing).isEqualTo(JointMechanism.State.HOMING);
+    assertThat(taken).as("refused while disabled").isFalse();
+    assertThat(refused.outcome()).as("it never ran").isEmpty();
     assertThat(disabled).isEqualTo(JointMechanism.State.UNHOMED);
-    assertThat(waiting).isTrue();
+    assertThat(enabled).as("homing again as it's enabled").isEqualTo(JointMechanism.State.HOMING);
     assertThat(clear.arrived()).isTrue();
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0.4, within(0.01));
   }
@@ -297,9 +317,13 @@ class HomingSimTest {
     assertThat(bounded).as("its homing's 0.3 s").isCloseTo(0.32, within(0.03));
   }
 
-  /** {@code home()} while disabled waits, unhomed, and homes once the robot is enabled. */
+  /**
+   * {@code home()} asked while disabled is refused and never runs, as any command on a joint is.
+   * The joint, unhomed, homes by itself as the robot is enabled: the enable starts it, not the
+   * command.
+   */
   @Test
-  void homeWhileDisabledHomesOnceEnabled() {
+  void homeAskedWhileDisabledIsRefusedAndTheJointHomesAtTheEnable() {
     JointsSimHarness sim =
         new JointsSimHarness(
             homing(ROBOT, ELEVATOR, Homing.toHardStop(Sensor.Switch.Limit.End.LOWER)));
@@ -307,16 +331,17 @@ class HomingSimTest {
     sim.simulation.powerOnAt(ELEVATOR, 0.3);
     sim.setEnabled(false);
     Move home = elevator.home();
-    sim.run(home, 1);
+    boolean taken = sim.scheduler.schedule(home).successful();
+    sim.run(1);
     JointMechanism.State disabled = elevator.state();
-    boolean waiting = home.outcome().isEmpty();
     sim.setEnabled(true);
-    sim.runUntil(() -> home.outcome().isPresent(), 3);
+    sim.runUntil(() -> elevator.state() == JointMechanism.State.READY, 3);
     sim.loop(); // its motor's new count, read from the loop after it's found
 
+    assertThat(taken).as("refused while disabled").isFalse();
+    assertThat(home.outcome()).as("it never ran").isEmpty();
     assertThat(disabled).isEqualTo(JointMechanism.State.UNHOMED);
-    assertThat(waiting).isTrue();
-    assertThat(home.arrived()).isTrue();
+    assertThat(elevator.state()).isEqualTo(JointMechanism.State.READY);
     assertThat(sim.simulation.position(ELEVATOR)).isCloseTo(0, within(0.005));
     assertThat(elevator.position()).isCloseTo(0, within(0.005));
   }

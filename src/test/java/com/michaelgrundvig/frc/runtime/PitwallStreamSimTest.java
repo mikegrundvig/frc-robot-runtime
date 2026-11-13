@@ -67,14 +67,13 @@ class PitwallStreamSimTest {
     for (String[] patch : patches) {
       @SuppressWarnings("unchecked") // a merge patch is an object of sections
       Map<String, Object> sections = (Map<String, Object>) JSON.fromJson(patch[1]);
-      sections.forEach(
-          (section, keys) -> {
-            if (keys instanceof Map<?, ?> map) {
-              map.keySet().forEach(key -> changed.merge(section + "/" + key, 1, Integer::sum));
-            } else {
-              changed.merge(section, 1, Integer::sum);
-            }
-          });
+      sections.forEach((section, keys) -> {
+        if (keys instanceof Map<?, ?> map) {
+          map.keySet().forEach(key -> changed.merge(section + "/" + key, 1, Integer::sum));
+        } else {
+          changed.merge(section, 1, Integer::sum);
+        }
+      });
     }
     System.out.println("Patches in 250 idle loops: " + patches.size() + ", changing " + changed);
     assertThat(patches.size())
@@ -99,29 +98,27 @@ class PitwallStreamSimTest {
     Stream<String> lines = connecting.get().body();
     open.add(lines::close);
     Thread.ofVirtual()
-        .start(
-            () -> {
-              List<String> event = new ArrayList<>();
-              try {
-                lines.forEach(
-                    line -> {
-                      if (line.isEmpty()) {
-                        if (event.size() == 2) {
-                          events.add(
-                              new String[] {
-                                event.get(0).substring("event: ".length()),
-                                event.get(1).substring("data: ".length())
-                              });
-                        }
-                        event.clear();
-                      } else {
-                        event.add(line);
-                      }
-                    });
-              } catch (UncheckedIOException closed) {
-                // The test is over.
+        .start(() -> {
+          List<String> event = new ArrayList<>();
+          try {
+            lines.forEach(line -> {
+              if (line.isEmpty()) {
+                if (event.size() == 2) {
+                  events.add(
+                      new String[] {
+                        event.get(0).substring("event: ".length()),
+                        event.get(1).substring("data: ".length())
+                      });
+                }
+                event.clear();
+              } else {
+                event.add(line);
               }
             });
+          } catch (UncheckedIOException closed) {
+            // The test is over.
+          }
+        });
   }
 
   /** Runs loops until something has arrived, for at most ten seconds of real time. */

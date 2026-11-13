@@ -9,16 +9,17 @@ import org.wpilib.command3.Scheduler;
  * on with when it is enabled again: no move part way to an old target, and no command a button
  * started a minute ago.
  *
- * <p>WPILib's older command framework did this by default, and its v3 scheduler does not: it runs
- * every command in every mode. So the robot's loop does it here, once, for every command, and a
- * team's commands need nothing ({@link #cancelCommandsIfDisabled}).
+ * <p>Since 2027 alpha 8, WPILib's v3 scheduler also cancels, at a disable, every command that needs
+ * a mechanism not controllable while disabled, and refuses to start one while the robot is
+ * disabled. Every joint and the drivetrain are such mechanisms. The robot's loop still cancels
+ * every command here first, in the loop of the disable, so each move says why it ended ({@link
+ * Why#ROBOT_DISABLED}) and a command that needs no mechanism is canceled too ({@link
+ * #cancelCommandsIfDisabled}).
  *
- * <p>Only the change from enabled to disabled cancels. What starts while the robot is disabled is
- * left to run: a default command, which the scheduler starts again at once, a pit action that runs
- * only while disabled, the heading reset, or a command that code schedules itself. It moves
- * nothing, because no joint and no wheel is driven while the robot is disabled. Commands v3 has no
- * way for a command to say that it runs while disabled, and none is needed here: nothing has to
- * survive the cancel.
+ * <p>Only the change from enabled to disabled cancels. While the robot is disabled the scheduler
+ * starts no command on a joint or the drivetrain, a default command among them: the drive's starts
+ * at the enable. A command that needs no mechanism still runs while disabled: a pit action that
+ * runs only while disabled, the heading reset.
  *
  * <p>What the scheduler runs that is not a command is not canceled: its periodic tasks, which work
  * out each gate and clear the binding record, go on in every mode.

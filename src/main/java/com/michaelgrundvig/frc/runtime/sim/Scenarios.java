@@ -105,25 +105,23 @@ public final class Scenarios {
           Scenario.builder()
               .name("camera-low")
               .description("The robot's first camera knocked 4 in low on its mount.")
-              .sensorFaults(
-                  world ->
-                      List.of(
-                          Setting.of(
-                              firstCamera(world),
-                              MOVED,
-                              Map.of(FORWARD, 0.0, LEFT, 0.0, UP, CAMERA_KNOCKED_UP_INCHES))))
+              .sensorFaults(world ->
+                  List.of(
+                      Setting.of(
+                          firstCamera(world),
+                          MOVED,
+                          Map.of(FORWARD, 0.0, LEFT, 0.0, UP, CAMERA_KNOCKED_UP_INCHES))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
               .name("camera-turned")
               .description("The robot's first camera turned 2° on its mount.")
-              .sensorFaults(
-                  world ->
-                      List.of(
-                          Setting.of(
-                              firstCamera(world),
-                              TURNED,
-                              Map.of(ROLL, 0.0, PITCH, 0.0, YAW, CAMERA_YAWED_DEGREES))))
+              .sensorFaults(world ->
+                  List.of(
+                      Setting.of(
+                          firstCamera(world),
+                          TURNED,
+                          Map.of(ROLL, 0.0, PITCH, 0.0, YAW, CAMERA_YAWED_DEGREES))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -131,13 +129,10 @@ public final class Scenarios {
               .description(
                   "The robot's first camera 150 ms later than its configuration says: its images"
                       + " arrive past the margin allowed, and are left out.")
-              .sensorFaults(
-                  world ->
-                      List.of(
-                          Setting.of(
-                              firstCamera(world),
-                              LATE,
-                              Map.of(EXTRA, CAMERA_EXTRA_LATENCY_MILLIS))))
+              .sensorFaults(world ->
+                  List.of(
+                      Setting.of(
+                          firstCamera(world), LATE, Map.of(EXTRA, CAMERA_EXTRA_LATENCY_MILLIS))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -146,13 +141,12 @@ public final class Scenarios {
                   "The robot's first camera's clock 20 ms off the robot's: its images arrive on"
                       + " time but are stamped 20 ms after they were taken, so each shows the robot"
                       + " where it was a loop before its stamp says.")
-              .sensorFaults(
-                  world ->
-                      List.of(
-                          Setting.of(
-                              firstCamera(world),
-                              CLOCK_OFFSET,
-                              Map.of(OFFSET, CAMERA_CLOCK_OFFSET_MILLIS))))
+              .sensorFaults(world ->
+                  List.of(
+                      Setting.of(
+                          firstCamera(world),
+                          CLOCK_OFFSET,
+                          Map.of(OFFSET, CAMERA_CLOCK_OFFSET_MILLIS))))
               .events(Scenario.NOTHING)
               .build(),
           Scenario.builder()
@@ -293,14 +287,13 @@ public final class Scenarios {
                       + " over. Its gyro feels the turn but its wheels see no move, so only its"
                       + " cameras can say where it is. Needs a field with bumps.")
               .sensorFaults(Scenario.NO_FAULTS)
-              .events(
-                  world -> {
-                    if (!Faults.hasBumps(world)) {
-                      throw new IllegalArgumentException(
-                          "this scenario carries the robot to a bump, and the field has none");
-                    }
-                    return List.of(Setting.of(ROBOT, TO_A_BUMP));
-                  })
+              .events(world -> {
+                if (!Faults.hasBumps(world)) {
+                  throw new IllegalArgumentException(
+                      "this scenario carries the robot to a bump, and the field has none");
+                }
+                return List.of(Setting.of(ROBOT, TO_A_BUMP));
+              })
               .build());
 
   private Scenarios() {}

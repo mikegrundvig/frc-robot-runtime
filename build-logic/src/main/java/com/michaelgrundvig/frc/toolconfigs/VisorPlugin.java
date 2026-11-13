@@ -88,10 +88,9 @@ public final class VisorPlugin implements Plugin<Project> {
                   configuration.setDescription(
                       "Visor's release, at the version of the robot's Visor client.");
                 });
-    release.withDependencies(
-        dependencies ->
-            dependencies.add(
-                project.getDependencies().create(String.format(RELEASE, clientVersion(runtime)))));
+    release.withDependencies(dependencies ->
+        dependencies.add(
+            project.getDependencies().create(String.format(RELEASE, clientVersion(runtime)))));
 
     Provider<Directory> staged = project.getLayout().getBuildDirectory().dir("visor/deploy");
     TaskProvider<Sync> stage =
@@ -110,17 +109,15 @@ public final class VisorPlugin implements Plugin<Project> {
                   task.into(staged);
                   task.from(release, spec -> spec.into("visor"));
                   task.from(
-                      project.provider(
-                          () ->
-                              project
-                                  .tarTree(release.getSingleFile())
-                                  .matching(pack -> pack.include("spotter/visor/**"))),
+                      project.provider(() ->
+                          project
+                              .tarTree(release.getSingleFile())
+                              .matching(pack -> pack.include("spotter/visor/**"))),
                       spec -> {
                         // spotter/visor/... in the archive is spotter-packs/visor/... deployed.
-                        spec.eachFile(
-                            file ->
-                                file.setPath(
-                                    file.getPath().replaceFirst("^spotter/", "spotter-packs/")));
+                        spec.eachFile(file ->
+                            file.setPath(
+                                file.getPath().replaceFirst("^spotter/", "spotter-packs/")));
                         spec.setIncludeEmptyDirs(false);
                       });
                 });
@@ -132,28 +129,26 @@ public final class VisorPlugin implements Plugin<Project> {
         .withType(
             DeployUtils.class,
             applied ->
-                project.afterEvaluate(
-                    evaluated -> {
-                      DeployExtension deploy =
-                          project.getExtensions().getByType(DeployExtension.class);
-                      RemoteTarget target = deploy.getTargets().findByName(visor.getTarget().get());
-                      if (target == null) {
-                        throw new GradleException(
-                            "visor { target = ... } names "
-                                + visor.getTarget().get()
-                                + ", which isn't one of the deploy's targets");
-                      }
-                      target
-                          .getArtifacts()
-                          .create(
-                              "visor",
-                              FileTreeArtifact.class,
-                              artifact -> {
-                                artifact.dependsOn(stage);
-                                artifact.getDirectory().set(visor.getDeployDirectory());
-                                artifact.getFiles().set(project.fileTree(staged));
-                              });
-                    }));
+                project.afterEvaluate(evaluated -> {
+                  DeployExtension deploy = project.getExtensions().getByType(DeployExtension.class);
+                  RemoteTarget target = deploy.getTargets().findByName(visor.getTarget().get());
+                  if (target == null) {
+                    throw new GradleException(
+                        "visor { target = ... } names "
+                            + visor.getTarget().get()
+                            + ", which isn't one of the deploy's targets");
+                  }
+                  target
+                      .getArtifacts()
+                      .create(
+                          "visor",
+                          FileTreeArtifact.class,
+                          artifact -> {
+                            artifact.dependsOn(stage);
+                            artifact.getDirectory().set(visor.getDeployDirectory());
+                            artifact.getFiles().set(project.fileTree(staged));
+                          });
+                }));
   }
 
   /** The Visor client's jar on the robot's runtime classpath. */
@@ -180,13 +175,12 @@ public final class VisorPlugin implements Plugin<Project> {
             .filter(id -> id.getGroup().equals(CLIENT_GROUP) && id.getModule().equals(CLIENT_NAME))
             .map(ModuleComponentIdentifier::getVersion)
             .findFirst();
-    return version.orElseThrow(
-        () ->
-            new GradleException(
-                "The robot isn't built with Visor's client ("
-                    + CLIENT_GROUP
-                    + ":"
-                    + CLIENT_NAME
-                    + "), so there's no Visor to carry"));
+    return version.orElseThrow(() ->
+        new GradleException(
+            "The robot isn't built with Visor's client ("
+                + CLIENT_GROUP
+                + ":"
+                + CLIENT_NAME
+                + "), so there's no Visor to carry"));
   }
 }

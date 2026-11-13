@@ -16,6 +16,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Command;
@@ -438,11 +439,10 @@ class GateTest {
       List<Future<Boolean>> read = new ArrayList<>();
       for (Gate gate : gates) {
         read.add(
-            pool.submit(
-                () -> {
-                  start.await();
-                  return gate.getAsBoolean();
-                }));
+            pool.submit(() -> {
+              start.await();
+              return gate.getAsBoolean();
+            }));
       }
       start.countDown();
       for (Future<Boolean> each : read) {
@@ -555,6 +555,84 @@ class GateTest {
     assertThat(before).isFalse();
     assertThat(ready.getAsBoolean()).isTrue();
     assertThat(ran[0]).as("the binding saw it rise").isTrue();
+  }
+
+  /**
+   * WPILib polls every trigger once a loop until it is garbage collected, long after the command
+   * that made it is over. A gate made once the robot runs that nothing is bound to gives that poll
+   * what it last worked out, so it is not worked out across loops, and so writes nothing to the
+   * log: a gate is logged only as it is worked out. Its condition here flips every loop, which a
+   * gate that was worked out would log each time.
+   */
+  @Test
+  void anUnboundLateGateIsNotWorkedOutByThePollSoLogsNothing() {
+    loop(); // the robot runs
+    int[] asked = {0};
+    Gate gate =
+        Gate.of(
+            scheduler,
+            "made late, never bound",
+            () -> {
+              asked[0]++;
+              return asked[0] % 2 == 0;
+            });
+    int asMade = asked[0];
+
+    for (int i = 0; i < 10; i++) {
+      loop();
+    }
+
+    assertThat(asMade).as("worked out as it's made").isEqualTo(1);
+    assertThat(asked[0]).as("and never by the poll, so never logged again").isEqualTo(1);
+    // Read last, so the gate is still there, and polled, through every loop above.
+    assertThat(gate.name()).isEqualTo("made late, never bound");
+  }
+
+  /** A command bound to the gate, the way a binding is made, as a row of the next test. */
+  private record Binding(String how, BiConsumer<Gate, Command> bind) {}
+
+  /**
+   * Once a command is bound to a gate made once the robot runs, by any of a trigger's bindings, the
+   * poll works the gate out every loop, so the binding sees each loop's answer.
+   */
+  @Test
+  void aLateGateBoundAnyWayIsWorkedOutEachLoopOnceBound() {
+    List<Binding> bindings =
+        List.of(
+            new Binding("onTrue", Gate::onTrue),
+            new Binding("ifTrue", Gate::ifTrue),
+            new Binding("onFalse", Gate::onFalse),
+            new Binding("whileTrue", Gate::whileTrue),
+            new Binding("whileFalse", Gate::whileFalse),
+            new Binding("retryWhileTrue", Gate::retryWhileTrue),
+            new Binding("retryWhileFalse", Gate::retryWhileFalse),
+            new Binding("toggleOnTrue", Gate::toggleOnTrue),
+            new Binding("toggleOnFalse", Gate::toggleOnFalse));
+    loop(); // the robot runs
+    for (Binding binding : bindings) {
+      int[] asked = {0};
+      Gate gate =
+          Gate.of(
+              scheduler,
+              "bound by " + binding.how(),
+              () -> {
+                asked[0]++;
+                return false;
+              });
+      loop();
+      loop();
+      int unbound = asked[0];
+
+      binding.bind().accept(gate, Command.noRequirements(co -> {}).named(binding.how()));
+      for (int i = 0; i < 5; i++) {
+        loop();
+      }
+
+      assertThat(unbound).as("%s: not worked out before it's bound", binding.how()).isEqualTo(1);
+      assertThat(asked[0] - unbound)
+          .as("%s: worked out once a loop once bound", binding.how())
+          .isEqualTo(5);
+    }
   }
 
   /** A logic whose answer and whose question a test sets: a gate on what something was asked. */

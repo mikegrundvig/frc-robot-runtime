@@ -70,16 +70,15 @@ class AutoCheckSimTest {
   @Test
   void aRefusedMoveFailsItSayingWhichAndWhy() {
     List<AutoCheck.Result> results =
-        run(
-            (scheduler, robot, joints, drive, driver, operator, autos) -> {
-              autos.add(
-                  "Nowhere",
-                  LEFT,
-                  () ->
-                      Command.noRequirements(co -> co.await(drive.follow(Keyframe.at(ON_LEFT))))
-                          .named("Nowhere"));
-              return autos;
-            });
+        run((scheduler, robot, joints, drive, driver, operator, autos) -> {
+          autos.add(
+              "Nowhere",
+              LEFT,
+              () ->
+                  Command.noRequirements(co -> co.await(drive.follow(Keyframe.at(ON_LEFT))))
+                      .named("Nowhere"));
+          return autos;
+        });
 
     AutoCheck.Result blue = of(results, "Nowhere", Alliance.BLUE);
     assertThat(blue.passed()).isFalse();
@@ -93,16 +92,15 @@ class AutoCheckSimTest {
   @Test
   void anAutoThatThrowsFails() {
     List<AutoCheck.Result> results =
-        run(
-            (scheduler, robot, joints, drive, driver, operator, autos) -> {
-              autos.add(
-                  "Throws",
-                  LEFT,
-                  () -> {
-                    throw new IllegalStateException("no such path");
-                  });
-              return autos;
-            });
+        run((scheduler, robot, joints, drive, driver, operator, autos) -> {
+          autos.add(
+              "Throws",
+              LEFT,
+              () -> {
+                throw new IllegalStateException("no such path");
+              });
+          return autos;
+        });
 
     assertThat(of(results, "Throws", Alliance.RED).problems())
         .anyMatch(problem -> problem.contains("it failed: Throws: FAILED"))
@@ -112,21 +110,19 @@ class AutoCheckSimTest {
   @Test
   void anAutoThatLeavesTheFieldFails() {
     List<AutoCheck.Result> results =
-        run(
-            (scheduler, robot, joints, drive, driver, operator, autos) -> {
-              autos.add(
-                  "Away",
-                  LEFT,
-                  () ->
-                      Command.noRequirements(
-                              co ->
-                                  co.await(
-                                      drive
-                                          .runUntil(new ChassisVelocities(3, 0, 0), () -> false)
-                                          .within(Seconds.of(12))))
-                          .named("Away"));
-              return autos;
-            });
+        run((scheduler, robot, joints, drive, driver, operator, autos) -> {
+          autos.add(
+              "Away",
+              LEFT,
+              () ->
+                  Command.noRequirements(co ->
+                          co.await(
+                              drive
+                                  .runUntil(new ChassisVelocities(3, 0, 0), () -> false)
+                                  .within(Seconds.of(12))))
+                      .named("Away"));
+          return autos;
+        });
 
     assertThat(of(results, "Away", Alliance.BLUE).problems())
         .anyMatch(problem -> problem.startsWith("the robot left the field at "));
@@ -137,11 +133,10 @@ class AutoCheckSimTest {
   void anAutoStartsFromAStartOfItsOwn() {
     Start elsewhere = Start.at("Elsewhere", new Pose2d(6, 3, Rotation2d.ZERO));
     List<AutoCheck.Result> results =
-        run(
-            (scheduler, robot, joints, drive, driver, operator, autos) -> {
-              autos.add("Elsewhere", elsewhere, () -> Command.noRequirements(co -> {}).named("-"));
-              return autos;
-            });
+        run((scheduler, robot, joints, drive, driver, operator, autos) -> {
+          autos.add("Elsewhere", elsewhere, () -> Command.noRequirements(co -> {}).named("-"));
+          return autos;
+        });
 
     for (Alliance alliance : Alliance.values()) {
       AutoCheck.Result result = of(results, "Elsewhere", alliance);
@@ -152,20 +147,19 @@ class AutoCheckSimTest {
 
   @Test
   void theCheckFailsWithEveryRunReported() {
-    assertThatThrownBy(
-            () ->
-                AutoCheck.check(
-                    sim,
-                    ExampleRobot.SIM,
-                    (scheduler, robot, joints, drive, driver, operator, autos) -> {
-                      autos.add(
-                          "Throws",
-                          LEFT,
-                          () -> {
-                            throw new IllegalStateException("no such path");
-                          });
-                      return autos;
-                    }))
+    assertThatThrownBy(() ->
+            AutoCheck.check(
+                sim,
+                ExampleRobot.SIM,
+                (scheduler, robot, joints, drive, driver, operator, autos) -> {
+                  autos.add(
+                      "Throws",
+                      LEFT,
+                      () -> {
+                        throw new IllegalStateException("no such path");
+                      });
+                  return autos;
+                }))
         .isInstanceOf(AssertionError.class)
         .hasMessageContaining("2 of 4 autos failed")
         .hasMessageContaining("Do nothing on BLUE: ended at (")

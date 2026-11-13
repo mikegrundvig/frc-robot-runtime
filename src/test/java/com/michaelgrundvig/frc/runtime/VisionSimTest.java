@@ -233,10 +233,9 @@ class VisionSimTest {
     double doubt = sim.robot().vision().mountDoubtMeters("front-left");
     boolean alert =
         activeAlerts().stream()
-            .anyMatch(
-                text ->
-                    text.startsWith("Camera front-left is out of calibration")
-                        && text.contains("so it counts for less"));
+            .anyMatch(text ->
+                text.startsWith("Camera front-left is out of calibration")
+                    && text.contains("so it counts for less"));
     double backs =
         Math.max(
             mostDoubted.getOrDefault("back-left", 0.0),

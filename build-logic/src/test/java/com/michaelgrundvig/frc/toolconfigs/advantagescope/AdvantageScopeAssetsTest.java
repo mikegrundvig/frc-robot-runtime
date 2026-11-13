@@ -85,17 +85,16 @@ class AdvantageScopeAssetsTest {
             "Robot_test_NoCones/model_1.glb",
             "Robot_test_NoCones/model_2.glb",
             "Robot_test_NoCones/model_3.glb");
-    FILES.forEach(
-        (path, bytes) -> {
-          if (path.endsWith(".glb")) {
-            GlbReader model = GlbReader.read(bytes);
-            assertThat(model.problems()).as(path).isEmpty();
-            assertThat(map(model.json().get("asset")).get("generator"))
-                .as(path + " says it's generated")
-                .asString()
-                .contains("do not edit");
-          }
-        });
+    FILES.forEach((path, bytes) -> {
+      if (path.endsWith(".glb")) {
+        GlbReader model = GlbReader.read(bytes);
+        assertThat(model.problems()).as(path).isEmpty();
+        assertThat(map(model.json().get("asset")).get("generator"))
+            .as(path + " says it's generated")
+            .asString()
+            .contains("do not edit");
+      }
+    });
   }
 
   @Test
@@ -380,10 +379,9 @@ class AdvantageScopeAssetsTest {
         .isEqualTo(
             AdvantageScopeAssets.files(TwoRobots.robot("second")).get("Robot_second/model.glb"));
 
-    assertThatThrownBy(
-            () ->
-                AdvantageScopeAssets.main(
-                    "--catalog=" + TwoRobots.class.getName(), "--out=" + out, "--robot=third"))
+    assertThatThrownBy(() ->
+            AdvantageScopeAssets.main(
+                "--catalog=" + TwoRobots.class.getName(), "--out=" + out, "--robot=third"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessage("no robot named third; the robots are first, second");
     assertThatThrownBy(() -> AdvantageScopeAssets.main("--out=" + out))

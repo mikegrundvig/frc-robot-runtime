@@ -104,11 +104,11 @@ class JointIOSparkTest {
    * docs: {@code isPressed} is "based on the selected polarity"), and its simulator's "pressed" is
    * after it, so what the SPARK took is read back from it, and a press reads tripped.
    *
-   * <p>REVLib 2027.0.0-alpha-8 reads a limit input's type back the other way round: set normally
-   * open, it reads normally closed, and a fresh SPARK reads normally closed where REV's docs say
-   * its default is normally open, which points at the reading, not the setting. Pinned here, so a
-   * REVLib that changes it fails this test; which side is right waits on a SPARK on the bench (open
-   * question M22).
+   * <p>REVLib 2027.0.0-alpha-8 and alpha-9 read a limit input's type back the other way round: set
+   * normally open, it reads normally closed, and a fresh SPARK reads normally closed where REV's
+   * docs say its default is normally open, which points at the reading, not the setting. Pinned
+   * here, so a REVLib that changes it fails this test; which side is right waits on a SPARK on the
+   * bench (open question M22).
    */
   @Test
   void itsLimitInputsTakeTheirPolarityAndStopOnlyOnALimitSwitch() {
@@ -129,10 +129,10 @@ class JointIOSparkTest {
     io.updateInputs(inputs);
 
     assertThat(took.getForwardSwitchType())
-        .as("set normally open; alpha-8 reads it back the other way")
+        .as("set normally open; REVLib reads it back the other way")
         .isEqualTo(LimitSwitchConfig.Type.kNormallyClosed);
     assertThat(took.getReverseSwitchType())
-        .as("set normally closed; alpha-8 reads it back the other way")
+        .as("set normally closed; REVLib reads it back the other way")
         .isEqualTo(LimitSwitchConfig.Type.kNormallyOpen);
     assertThat(took.getForwardLimitSwitchTriggerBehavior())
         .as("a beam: read, never stopped on")
@@ -367,9 +367,8 @@ class JointIOSparkTest {
     JointIOSpark io =
         io(
             pivot(27)
-                .retuned(
-                    control ->
-                        control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
+                .retuned(control ->
+                    control.withSoftLimits(Range.of(Radians.of(0.01), Radians.of(2.3)))));
     SparkMax spark = (SparkMax) io.leader();
     Map<String, Runnable> requests = new LinkedHashMap<>();
     requests.put("a position", () -> io.setPosition(1, 0, 0));
@@ -378,20 +377,19 @@ class JointIOSparkTest {
     requests.put("a share of 12 V", () -> io.setDutyCycle(0.1));
     requests.put("neutral", io::stop);
 
-    requests.forEach(
-        (name, request) -> {
-          io.home(-2);
-          boolean whileHoming = spark.configAccessor.softLimit.getReverseSoftLimitEnabled();
-          request.run();
+    requests.forEach((name, request) -> {
+      io.home(-2);
+      boolean whileHoming = spark.configAccessor.softLimit.getReverseSoftLimitEnabled();
+      request.run();
 
-          assertThat(whileHoming).as("off for the homing push before " + name).isFalse();
-          assertThat(spark.configAccessor.softLimit.getReverseSoftLimitEnabled())
-              .as("on again after " + name)
-              .isTrue();
-          assertThat(spark.configAccessor.softLimit.getForwardSoftLimitEnabled())
-              .as("on again after " + name)
-              .isTrue();
-        });
+      assertThat(whileHoming).as("off for the homing push before " + name).isFalse();
+      assertThat(spark.configAccessor.softLimit.getReverseSoftLimitEnabled())
+          .as("on again after " + name)
+          .isTrue();
+      assertThat(spark.configAccessor.softLimit.getForwardSoftLimitEnabled())
+          .as("on again after " + name)
+          .isTrue();
+    });
   }
 
   /**

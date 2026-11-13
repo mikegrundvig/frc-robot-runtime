@@ -141,7 +141,7 @@ class RobotConfigTest {
 
   /**
    * The driver's top speed is how it's driven, the free speed what the robot is: the definition
-   * holds one to the other, as it's built. The template's robot reaches 4.73 m/s free.
+   * holds one to the other, as it's built. The template's robot reaches 4.78 m/s free.
    */
   /**
    * The values the guides tell a team to change: left out, the scoring gate and the slip check are
@@ -181,17 +181,16 @@ class RobotConfigTest {
             .build();
 
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                RobotConfigBuilder.builder(ExampleRobot.SIM)
-                    .definition(
-                        RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-                            .drivetrain(ExampleRobot.SIM.definition().drivetrain().control(tooFast))
-                            .build())
-                    .build())
+        .isThrownBy(() ->
+            RobotConfigBuilder.builder(ExampleRobot.SIM)
+                .definition(
+                    RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
+                        .drivetrain(ExampleRobot.SIM.definition().drivetrain().control(tooFast))
+                        .build())
+                .build())
         .withMessage(
             "RobotDefinition[sim].drivetrain.control.limits.maxLinearSpeed: 5 m/s is faster than"
-                + " the drivetrain's free speed of 4.729 m/s: give withMaxSpeed at most that");
+                + " the drivetrain's free speed of 4.78 m/s: give withMaxSpeed at most that");
   }
 
   /**
@@ -227,21 +226,20 @@ class RobotConfigTest {
                 new SensorWiring.ControllerLimit("pivot", SensorWiring.Direction.REVERSE),
                 SensorWiring.Polarity.NORMALLY_CLOSED));
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                RobotConfigBuilder.builder(ExampleRobot.SIM)
-                    .definition(
-                        RobotDefinitionBuilder.builder(wired)
-                            .joints(
-                                List.of(
-                                    RevoluteJointBuilder.builder(pivot)
-                                        .driven(
-                                            DrivenBuilder.builder(pivot.driven())
-                                                .control(Optional.empty())
-                                                .build())
-                                        .build()))
-                            .build())
-                    .build())
+        .isThrownBy(() ->
+            RobotConfigBuilder.builder(ExampleRobot.SIM)
+                .definition(
+                    RobotDefinitionBuilder.builder(wired)
+                        .joints(
+                            List.of(
+                                RevoluteJointBuilder.builder(pivot)
+                                    .driven(
+                                        DrivenBuilder.builder(pivot.driven())
+                                            .control(Optional.empty())
+                                            .build())
+                                    .build()))
+                        .build())
+                .build())
         .withMessageContaining(
             "pivot has motors and no control: give it .control(MechanismControl.position(kP))");
   }
@@ -404,14 +402,13 @@ class RobotConfigTest {
   void aPathPlannersFrictionAsTheTreadsGripIsADoubt() {
     List<Drivetrain.Corner> corners =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
-            .map(
-                corner ->
-                    DrivetrainCornerBuilder.builder(corner)
-                        .module(
-                            DrivetrainModuleBuilder.builder(corner.module())
-                                .wheelCoefficientOfFriction(2.255)
-                                .build())
-                        .build())
+            .map(corner ->
+                DrivetrainCornerBuilder.builder(corner)
+                    .module(
+                        DrivetrainModuleBuilder.builder(corner.module())
+                            .wheelCoefficientOfFriction(2.255)
+                            .build())
+                    .build())
             .toList();
     RobotDefinition grippy =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
@@ -455,14 +452,13 @@ class RobotConfigTest {
   void aWiredSwerveOfMotorsNoTalonFxDrivesIsRefused() {
     List<Drivetrain.Corner> neos =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
-            .map(
-                corner ->
-                    DrivetrainCornerBuilder.builder(corner)
-                        .module(
-                            DrivetrainModuleBuilder.builder(corner.module())
-                                .driveMotor(Motor.NEO)
-                                .build())
-                        .build())
+            .map(corner ->
+                DrivetrainCornerBuilder.builder(corner)
+                    .module(
+                        DrivetrainModuleBuilder.builder(corner.module())
+                            .driveMotor(Motor.NEO)
+                            .build())
+                    .build())
             .toList();
     RobotDefinition rev =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
@@ -490,14 +486,13 @@ class RobotConfigTest {
   void aSwerveOnTwoMakersControllersIsRefusedByTheProgram() {
     List<Drivetrain.Corner> neoSteering =
         ExampleRobot.SIM.definition().drivetrain().corners().stream()
-            .map(
-                corner ->
-                    DrivetrainCornerBuilder.builder(corner)
-                        .module(
-                            DrivetrainModuleBuilder.builder(corner.module())
-                                .steerMotor(Motor.NEO_550)
-                                .build())
-                        .build())
+            .map(corner ->
+                DrivetrainCornerBuilder.builder(corner)
+                    .module(
+                        DrivetrainModuleBuilder.builder(corner.module())
+                            .steerMotor(Motor.NEO_550)
+                            .build())
+                    .build())
             .toList();
     Drivetrain drivetrain =
         DrivetrainBuilder.builder(ExampleRobot.SIM.definition().drivetrain())

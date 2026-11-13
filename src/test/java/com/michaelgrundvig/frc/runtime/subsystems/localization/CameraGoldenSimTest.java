@@ -106,18 +106,17 @@ class CameraGoldenSimTest {
       long start = RobotController.getTime();
       int[] loop = {0};
       int[] seen = {0, 0};
-      robot.eachLoop(
-          () -> {
-            rows.add(loopRow(++loop[0], robot.estimator.estimate()));
-            for (; seen[0] < robot.images.size(); seen[0]++) {
-              rows.add(imageRow(robot.images.get(seen[0]), start));
-            }
-            for (; seen[1] < robot.frames.size(); seen[1]++) {
-              FrameVerdict frame = robot.frames.get(seen[1]);
-              // An image refused before it became a measurement has its row above.
-              frame.measured().ifPresent(weighed -> rows.add(frameRow(frame, weighed, start)));
-            }
-          });
+      robot.eachLoop(() -> {
+        rows.add(loopRow(++loop[0], robot.estimator.estimate()));
+        for (; seen[0] < robot.images.size(); seen[0]++) {
+          rows.add(imageRow(robot.images.get(seen[0]), start));
+        }
+        for (; seen[1] < robot.frames.size(); seen[1]++) {
+          FrameVerdict frame = robot.frames.get(seen[1]);
+          // An image refused before it became a measurement has its row above.
+          frame.measured().ifPresent(weighed -> rows.add(frameRow(frame, weighed, start)));
+        }
+      });
 
       robot.idle(0.5); // standing: the hub's tags give the heading too
       robot.drive(1.0, -0.3, 0.2, 0); // driving: a moving robot's images count for less

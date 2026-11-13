@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Scheduler;
@@ -42,6 +43,15 @@ import org.wpilib.system.RobotController;
  */
 @ExtendWith(RobotSim.class)
 class UnconfiguredJointsTest {
+  /**
+   * The robot is enabled, as the loops below say it is: the scheduler reads the Driver Station, and
+   * refuses a joint's command while it is disabled.
+   */
+  @BeforeEach
+  void enabled() {
+    RobotSim.setEnabled(true);
+  }
+
   private static final CanBus CANIVORE = CanBus.canivore("unconfigured");
 
   /**

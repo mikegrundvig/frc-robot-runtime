@@ -361,13 +361,12 @@ class JointMovesSimTest {
   void aCommandOfItsOwnSetsAVoltageEachLoop() {
     Command push =
         roller
-            .run(
-                co -> {
-                  while (true) {
-                    roller.setVoltage(3);
-                    co.yield();
-                  }
-                })
+            .run(co -> {
+              while (true) {
+                roller.setVoltage(3);
+                co.yield();
+              }
+            })
             .named("Push");
     sim.run(push, 1);
     double pushing = sim.simulation.velocity(ROLLER);
@@ -458,14 +457,13 @@ class JointMovesSimTest {
     List<Move> built = new ArrayList<>();
     Command wrong =
         Command.requiring(pivot, roller)
-            .executing(
-                co -> {
-                  built.add(pivot.goTo(ELEVATOR_CLEAR));
-                  built.add(roller.run(PIVOT_PUSH));
-                  for (Move move : built) {
-                    co.await(move);
-                  }
-                })
+            .executing(co -> {
+              built.add(pivot.goTo(ELEVATOR_CLEAR));
+              built.add(roller.run(PIVOT_PUSH));
+              for (Move move : built) {
+                co.await(move);
+              }
+            })
             .named("Wrong places");
 
     sim.run(wrong, 0.5);

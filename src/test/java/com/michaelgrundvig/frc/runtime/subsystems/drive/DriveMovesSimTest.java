@@ -304,24 +304,22 @@ class DriveMovesSimTest {
     Map<String, String> expected = new LinkedHashMap<>();
 
     everyKindOfMove()
-        .forEach(
-            (name, move) ->
-                NOT_DEADLINES.forEach(
-                    (seconds, shown) -> {
-                      String row = name + " within " + seconds;
-                      try {
-                        DriveMove made = move.get().within(Seconds.of(seconds));
-                        thrown.put(row, "made: " + made);
-                      } catch (IllegalArgumentException e) {
-                        thrown.put(row, e.getMessage());
-                      }
-                      expected.put(
-                          row,
-                          name
-                              + ": a deadline is a time above 0 s, not "
-                              + shown
-                              + " s: give within() how long the move may take");
-                    }));
+        .forEach((name, move) ->
+            NOT_DEADLINES.forEach((seconds, shown) -> {
+              String row = name + " within " + seconds;
+              try {
+                DriveMove made = move.get().within(Seconds.of(seconds));
+                thrown.put(row, "made: " + made);
+              } catch (IllegalArgumentException e) {
+                thrown.put(row, e.getMessage());
+              }
+              expected.put(
+                  row,
+                  name
+                      + ": a deadline is a time above 0 s, not "
+                      + shown
+                      + " s: give within() how long the move may take");
+            }));
 
     assertThat(thrown).containsExactlyEntriesOf(expected);
   }
@@ -340,29 +338,26 @@ class DriveMovesSimTest {
     boolean[] ended = {false};
     Command wrong =
         Command.requiring(drive)
-            .executing(
-                co -> {
-                  everyKindOfMove()
-                      .forEach(
-                          (name, move) ->
-                              NOT_DEADLINES.forEach(
-                                  (seconds, shown) -> {
-                                    String row = name + " within " + seconds;
-                                    moves.put(row, move.get().within(Seconds.of(seconds)));
-                                    expected.put(
-                                        row,
-                                        new Refused(
-                                            name,
-                                            "a deadline is a time above 0 s, not "
-                                                + shown
-                                                + " s: give within() how long the move may"
-                                                + " take"));
-                                  }));
-                  for (DriveMove move : moves.values()) {
-                    co.await(move);
-                  }
-                  ended[0] = true;
-                })
+            .executing(co -> {
+              everyKindOfMove()
+                  .forEach((name, move) ->
+                      NOT_DEADLINES.forEach((seconds, shown) -> {
+                        String row = name + " within " + seconds;
+                        moves.put(row, move.get().within(Seconds.of(seconds)));
+                        expected.put(
+                            row,
+                            new Refused(
+                                name,
+                                "a deadline is a time above 0 s, not "
+                                    + shown
+                                    + " s: give within() how long the move may"
+                                    + " take"));
+                      }));
+              for (DriveMove move : moves.values()) {
+                co.await(move);
+              }
+              ended[0] = true;
+            })
             .named("Bad deadlines");
     RobotSim.setEnabled(true);
     harness.scheduler.schedule(wrong);
@@ -372,15 +367,14 @@ class DriveMovesSimTest {
       loops++;
     }
 
-    moves.forEach(
-        (row, move) -> {
-          Refused refused = Objects.requireNonNull(expected.get(row), row);
-          ended(move)
-              .named(refused.name())
-              .refused()
-              .because(MoveReason.REFUSED_AS_BUILT)
-              .saying(refused.why());
-        });
+    moves.forEach((row, move) -> {
+      Refused refused = Objects.requireNonNull(expected.get(row), row);
+      ended(move)
+          .named(refused.name())
+          .refused()
+          .because(MoveReason.REFUSED_AS_BUILT)
+          .saying(refused.why());
+    });
     assertThat(moves.values())
         .allSatisfy(move -> assertThat(move.outcome()).contains(Outcome.REFUSED));
     assertThat(ended[0]).as("the command ran on to its end").isTrue();

@@ -124,14 +124,13 @@ class DriveFollowSimTest {
     Supplier<Command> pickUp =
         () ->
             Command.requiring(drive)
-                .executing(
-                    co -> {
-                      co.fork(leg);
-                      co.waitUntil(pickup);
-                      actedFromPickup.add(
-                          truth().getTranslation().getDistance(new Translation2d(1.5, 0.5)));
-                      co.await(leg);
-                    })
+                .executing(co -> {
+                  co.fork(leg);
+                  co.waitUntil(pickup);
+                  actedFromPickup.add(
+                      truth().getTranslation().getDistance(new Translation2d(1.5, 0.5)));
+                  co.await(leg);
+                })
                 .named("Pick up");
     RobotSim.setEnabled(true);
 
@@ -162,14 +161,13 @@ class DriveFollowSimTest {
     double[] acted = {Double.NaN};
     Command pickUp =
         Command.requiring(drive)
-            .executing(
-                co -> {
-                  DriveMove leg = drive.follow(at(1.5, 0.5, 0).named("pickup"), at(3, 0, 0));
-                  co.fork(leg);
-                  co.waitUntil(leg.passed("pickup"));
-                  acted[0] = truth().getTranslation().getDistance(new Translation2d(1.5, 0.5));
-                  co.await(leg);
-                })
+            .executing(co -> {
+              DriveMove leg = drive.follow(at(1.5, 0.5, 0).named("pickup"), at(3, 0, 0));
+              co.fork(leg);
+              co.waitUntil(leg.passed("pickup"));
+              acted[0] = truth().getTranslation().getDistance(new Translation2d(1.5, 0.5));
+              co.await(leg);
+            })
             .named("Pick up");
     RobotSim.setEnabled(true);
     harness.scheduler.schedule(pickUp);
@@ -261,19 +259,18 @@ class DriveFollowSimTest {
     boolean[] ended = {false};
     Command wrong =
         Command.requiring(drive)
-            .executing(
-                co -> {
-                  moves.add(drive.follow());
-                  moves.add(drive.follow(at(1, 0, 0).named("a"), at(2, 0, 0).named("a")));
-                  gates.add(drive.follow(at(1, 0, 0)).passed("pickup"));
-                  DriveMove unnamedFirst = drive.follow(at(0.5, 0, 0), at(1, 0, 0).named("drop"));
-                  moves.add(unnamedFirst);
-                  gates.add(unnamedFirst.passed(noName()));
-                  for (DriveMove move : moves) {
-                    co.await(move);
-                  }
-                  ended[0] = true;
-                })
+            .executing(co -> {
+              moves.add(drive.follow());
+              moves.add(drive.follow(at(1, 0, 0).named("a"), at(2, 0, 0).named("a")));
+              gates.add(drive.follow(at(1, 0, 0)).passed("pickup"));
+              DriveMove unnamedFirst = drive.follow(at(0.5, 0, 0), at(1, 0, 0).named("drop"));
+              moves.add(unnamedFirst);
+              gates.add(unnamedFirst.passed(noName()));
+              for (DriveMove move : moves) {
+                co.await(move);
+              }
+              ended[0] = true;
+            })
             .named("Bad keyframes");
     RobotSim.setEnabled(true);
     harness.scheduler.schedule(wrong);

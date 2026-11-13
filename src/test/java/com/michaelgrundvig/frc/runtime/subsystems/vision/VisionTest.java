@@ -30,6 +30,7 @@ import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.localization.calibration.CameraMountCalibration;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.world.field.Alliance;
 import com.michaelgrundvig.frc.world.field.Bump;
@@ -53,6 +54,7 @@ import org.wpilib.command3.Command;
 import org.wpilib.command3.Mechanism;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.fields.Fields;
+import org.wpilib.hardware.hal.HAL;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Pose3d;
 import org.wpilib.math.geometry.Rotation2d;
@@ -61,6 +63,7 @@ import org.wpilib.math.geometry.Transform2d;
 import org.wpilib.math.geometry.Transform3d;
 import org.wpilib.math.geometry.Translation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
+import org.wpilib.simulation.DriverStationSim;
 import org.wpilib.tunable.MockTunableBackend;
 import org.wpilib.tunable.TunableRegistry;
 
@@ -188,6 +191,18 @@ class VisionTest {
   void tearDown() {
     vision.close();
     TunableRegistry.reset();
+    DriverStationSim.resetData();
+    DriverStationSim.notifyNewData();
+  }
+
+  /**
+   * A scheduler on a robot that is enabled, as a task lining up runs: the scheduler refuses a
+   * command on the drive while the robot is disabled.
+   */
+  private static Scheduler schedulerOfAnEnabledRobot() {
+    HAL.initialize();
+    RobotSim.setEnabled(true);
+    return Scheduler.createIndependentScheduler();
   }
 
   private void loop() {
@@ -684,12 +699,11 @@ class VisionTest {
   /** A task that drives until it's interrupted: an approach that never quite arrives. */
   private static Command approach(Mechanism drive, String name) {
     return drive
-        .run(
-            coroutine -> {
-              while (true) {
-                coroutine.yield();
-              }
-            })
+        .run(coroutine -> {
+          while (true) {
+            coroutine.yield();
+          }
+        })
         .named(name);
   }
 
@@ -699,7 +713,7 @@ class VisionTest {
    */
   @Test
   void aTaskTrustsOnlyItsTagsWhileItRuns() {
-    Scheduler scheduler = Scheduler.createIndependentScheduler();
+    Scheduler scheduler = schedulerOfAnEnabledRobot();
     Command approach =
         Command.noRequirements(
                 coroutine -> {
@@ -733,7 +747,7 @@ class VisionTest {
    */
   @Test
   void aTaskThatInterruptsAnotherTrustsItsOwnTags() {
-    Scheduler scheduler = Scheduler.createIndependentScheduler();
+    Scheduler scheduler = schedulerOfAnEnabledRobot();
     Mechanism drive = new Mechanism() {};
     Command first =
         vision.trustingOnly(TagAllowlist.of("Hub", List.of(26)), approach(drive, "Approach"));
@@ -753,18 +767,17 @@ class VisionTest {
   /** A task the scheduler refuses (a higher priority one holds the mechanism) never takes tags. */
   @Test
   void aTaskRefusedLeavesTheRunningTasksTags() {
-    Scheduler scheduler = Scheduler.createIndependentScheduler();
+    Scheduler scheduler = schedulerOfAnEnabledRobot();
     Mechanism drive = new Mechanism() {};
     Command important =
         vision.trustingOnly(
             TagAllowlist.of("Hub", List.of(26)),
             drive
-                .run(
-                    coroutine -> {
-                      while (true) {
-                        coroutine.yield();
-                      }
-                    })
+                .run(coroutine -> {
+                  while (true) {
+                    coroutine.yield();
+                  }
+                })
                 .withPriority(10)
                 .named("Score"));
     Command refused =
@@ -784,7 +797,7 @@ class VisionTest {
    */
   @Test
   void whenTheLaterTaskEndsTheEarlierOnesTagsAreBack() {
-    Scheduler scheduler = Scheduler.createIndependentScheduler();
+    Scheduler scheduler = schedulerOfAnEnabledRobot();
     Command aiming =
         vision.trustingOnly(
             TagAllowlist.of("Hub", List.of(26)), approach(new Mechanism() {}, "Aim"));
@@ -809,7 +822,7 @@ class VisionTest {
    */
   @Test
   void aTaskOnAPlaceTrustsItsAlliancesTagsWhenItStarts() {
-    Scheduler scheduler = Scheduler.createIndependentScheduler();
+    Scheduler scheduler = schedulerOfAnEnabledRobot();
     Place face = Place.facing("Hub face", 26, 1.0);
     Command beforeTheAlliance = vision.trustingOnly(face, approach(new Mechanism() {}, "Line up"));
     assertThat(beforeTheAlliance.name()).isEqualTo("Line up (trusting Hub face's tags)");
@@ -834,10 +847,9 @@ class VisionTest {
 
   @Test
   void aPlaceWrittenAsAPoseHasNoTagsToTrust() {
-    assertThatThrownBy(
-            () ->
-                vision.trustingOnly(
-                    Place.at("Start", Pose2d.ZERO), approach(new Mechanism() {}, "Line up")))
+    assertThatThrownBy(() ->
+            vision.trustingOnly(
+                Place.at("Start", Pose2d.ZERO), approach(new Mechanism() {}, "Line up")))
         .hasMessage("Start is written as a pose, not found from tags: it has no tags to trust");
   }
 

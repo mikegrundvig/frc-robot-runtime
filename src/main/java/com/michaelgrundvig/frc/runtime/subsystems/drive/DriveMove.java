@@ -33,6 +33,8 @@ import java.util.function.BooleanSupplier;
 import org.wpilib.command3.Command;
 import org.wpilib.command3.Coroutine;
 import org.wpilib.command3.Mechanism;
+import org.wpilib.driverstation.RobotState;
+import org.wpilib.hardware.hal.RobotMode;
 import org.wpilib.math.geometry.Pose2d;
 import org.wpilib.math.geometry.Rotation2d;
 import org.wpilib.math.kinematics.ChassisVelocities;
@@ -63,8 +65,9 @@ import org.wpilib.units.measure.Time;
  * keyframe. Canceled, it's {@link Outcome#CANCELED}, and says so if it was because the robot was
  * disabled, which cancels every command. It stops the drivetrain as it ends; the drive's default
  * command takes over from the next loop. Each run takes a loop at least, one that ends as it starts
- * too, so a command that awaits moves in a loop goes round once a loop. Started while the robot is
- * disabled, it waits for it to be enabled, and its time and its deadline start then.
+ * too, so a command that awaits moves in a loop goes round once a loop. Asked for while the robot
+ * is disabled, it is refused by WPILib's scheduler and never starts. Started before every module
+ * has taken its configuration, it waits for them, and its time and its deadline start then.
  *
  * <p><b>Inside</b>, what a move does is its {@link DriveTask}, one kind for each of the moves
  * above. This class is the command around the task: it starts a run, keeps the run's deadline, and
@@ -491,6 +494,10 @@ public final class DriveMove implements Command {
   /** One run of the move ({@link #run}), as it goes when nothing throws. */
   private void runToItsEnd(Coroutine coroutine) {
     startRun();
+    startedIn =
+        drive.getRegisteredScheduler().getParentOf(this) == null
+            ? RobotState.getRobotMode()
+            : RobotMode.UNKNOWN;
     if (refused.isPresent()) {
       end(Outcome.REFUSED, Optional.of(Why.saying(MoveReason.REFUSED_AS_BUILT, refused.get())));
     } else {
@@ -523,9 +530,10 @@ public final class DriveMove implements Command {
   }
 
   /**
-   * Waits for the robot to be enabled, if it is not. A disabled drivetrain is not driven, so a move
-   * that began now would only run down its deadline. The run is timed from when the robot is
-   * enabled, and its path is planned from where the robot is then.
+   * Waits for the drivetrain to be drivable, if it is not: every module's devices have taken their
+   * configuration ({@link SwerveDrive#isEnabled}). The run is timed from then, and its path is
+   * planned from where the robot is then. The robot is enabled already: the scheduler runs no move
+   * on the drivetrain while it is disabled.
    */
   private void waitToBeEnabled(Coroutine coroutine) {
     while (!drive.isEnabled()) {
@@ -547,10 +555,17 @@ public final class DriveMove implements Command {
     }
   }
 
+  /**
+   * The robot's mode as the latest run began, for a run started outside any other command, which
+   * WPILib's scheduler cancels when that mode ends; {@link RobotMode#UNKNOWN} for one inside
+   * another command. A cancel once the mode has ended says so.
+   */
+  private RobotMode startedIn = RobotMode.UNKNOWN;
+
   @Override
   public void onCancel() {
     if (running) {
-      end(Outcome.CANCELED, drive.whyCanceledNow());
+      end(Outcome.CANCELED, Why.canceledNow(drive.whyCanceledNow(), startedIn));
     }
   }
 

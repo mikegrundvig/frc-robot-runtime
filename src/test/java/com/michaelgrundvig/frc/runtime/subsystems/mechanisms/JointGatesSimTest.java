@@ -146,15 +146,14 @@ class JointGatesSimTest {
         };
     Command takes =
         Command.requiring(roller)
-            .executing(
-                co -> {
-                  look.run(); // taken, and asked nothing
-                  co.fork(roller.run(ROLLER_INTAKING));
-                  look.run(); // asked, and not yet judged
-                  co.yield();
-                  look.run(); // judged
-                  speedAsJudged[0] = sim.simulation.velocity(ROLLER);
-                })
+            .executing(co -> {
+              look.run(); // taken, and asked nothing
+              co.fork(roller.run(ROLLER_INTAKING));
+              look.run(); // asked, and not yet judged
+              co.yield();
+              look.run(); // judged
+              speedAsJudged[0] = sim.simulation.velocity(ROLLER);
+            })
             .named("Takes the roller");
 
     sim.run(takes, 0.1);

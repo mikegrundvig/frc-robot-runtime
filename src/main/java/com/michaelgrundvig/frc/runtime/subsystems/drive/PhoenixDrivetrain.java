@@ -73,12 +73,11 @@ public final class PhoenixDrivetrain implements AutoCloseable {
    * answer, and the robot's loop must not. It is a daemon: it never keeps the program from ending.
    */
   private static ExecutorService newSender() {
-    return Executors.newSingleThreadExecutor(
-        work -> {
-          Thread thread = new Thread(work, "Swerve module settings");
-          thread.setDaemon(true);
-          return thread;
-        });
+    return Executors.newSingleThreadExecutor(work -> {
+      Thread thread = new Thread(work, "Swerve module settings");
+      thread.setDaemon(true);
+      return thread;
+    });
   }
 
   /**

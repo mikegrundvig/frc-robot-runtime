@@ -99,11 +99,32 @@ public final class JointsSimHarness implements AutoCloseable {
             tuned,
             scheduler);
     MADE.add(this); // once its joints are built: a definition they refuse leaves nothing
+    if (RobotSim.inATest()) {
+      tellTheDriverStation();
+    }
+  }
+
+  /**
+   * The scheduler reads whether the robot is enabled from the Driver Station, and refuses or
+   * cancels a joint's command while it is disabled. So the Driver Station says what this harness
+   * does: enabled as it is made, and as {@link #setEnabled} says after.
+   */
+  private void tellTheDriverStation() {
+    RobotSim.setEnabled(enabled);
+  }
+
+  /**
+   * Tells the Driver Station what the harnesses made before the test started say. A test's own
+   * harness is made with the test, before RobotSim resets the Driver Station for it.
+   */
+  public static void tellTheDriverStationOfThoseMade() {
+    MADE.forEach(JointsSimHarness::tellTheDriverStation);
   }
 
   /** Enables the joints, or disables them, from the next loop. */
   public void setEnabled(boolean enabled) {
     this.enabled = enabled;
+    tellTheDriverStation();
   }
 
   /** Releases its joints' alerts. */

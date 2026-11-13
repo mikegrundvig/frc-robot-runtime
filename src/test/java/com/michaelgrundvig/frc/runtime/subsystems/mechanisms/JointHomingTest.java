@@ -152,7 +152,7 @@ class JointHomingTest {
     assertThat(before).isEqualTo(State.UNHOMED);
     assertThat(recorded.standing()).isEqualTo(JointState.Standing.HOMING);
     assertThat(recorded.toward()).isEqualTo(JointState.Toward.LOWER_STOP);
-    assertThat(recorded.secondsAllowed()).isCloseTo(9.5, within(0.05));
+    assertThat(recorded.secondsAllowed()).isCloseTo(9.43, within(0.05));
     assertThat(volts).isEqualTo(-2);
     assertThat(early).as("not still a quarter second yet").isEmpty();
     assertThat(found).containsExactly(0.0);
@@ -175,7 +175,7 @@ class JointHomingTest {
       loop(homing, true, false, -0.3);
     }
     String fault = homing.fault().orElse(null);
-    homing.homeAgain(now, true);
+    homing.homeAgain(now);
     State again = homing.state();
     loop(homing, false, false, 0);
     State disabled = homing.state();
@@ -381,7 +381,7 @@ class JointHomingTest {
       homing.switchRead(now, 0.5, switches.sensors());
       states.add(homing.state());
     }
-    homing.homeAgain(now, true);
+    homing.homeAgain(now);
     states.add(homing.state());
     boolean aMoveWaits = homing.moveWaits(now, true);
     states.add(homing.state());
@@ -399,21 +399,20 @@ class JointHomingTest {
   }
 
   /**
-   * The same joint, disabled when it is asked to home again, is faulted on the next enable: asking
-   * with the robot disabled only leaves it to home then.
+   * The same joint, disabled and enabled again, is faulted again when it is asked to home on the
+   * next enable: a command asks only while the robot is enabled, since the scheduler starts none on
+   * a joint while it is disabled.
    */
   @Test
-  void homedToASwitchItDoesNotHaveItIsFaultedOnTheNextEnableToo() {
+  void homedToASwitchItDoesNotHaveItIsFaultedWhenAskedAgainOnTheNextEnable() {
     JointHoming homing = homing(PIVOT, Homing.toSwitch(Sensor.Switch.Limit.End.LOWER));
     homing.robotStarted(now);
     loop(homing, true, true, 0);
     loop(homing, false, false, 0);
-
-    homing.homeAgain(now, false);
-    State disabled = homing.state();
     loop(homing, true, true, 0);
 
-    assertThat(disabled).isEqualTo(State.UNHOMED);
+    homing.homeAgain(now);
+
     assertThat(homing.state()).isEqualTo(State.FAULTED);
   }
 
@@ -457,15 +456,13 @@ class JointHomingTest {
         .withMessageContaining("pivot homes to pivot down, whose position isn't known");
     assertThatIllegalArgumentException()
         .as("a practice robot that homes to the other end")
-        .isThrownBy(
-            () ->
-                sound
-                    .with(
-                        PIVOT.retuned(
-                            control ->
-                                JointFixtures.homed(
-                                    control, Homing.toSwitch(Sensor.Switch.Limit.End.UPPER))))
-                    .checked())
+        .isThrownBy(() ->
+            sound
+                .with(
+                    PIVOT.retuned(control ->
+                        JointFixtures.homed(
+                            control, Homing.toSwitch(Sensor.Switch.Limit.End.UPPER))))
+                .checked())
         .withMessageContaining("pivot homes to its upper limit switch, and its block has none");
     // The sound robot's joint finds its switch by the same lookup its mechanism uses.
     Joint homing = sound.joints().stream().filter(PIVOT::equals).findFirst().orElseThrow();
@@ -489,11 +486,8 @@ class JointHomingTest {
     JointHoming homing = homing(PIVOT, null);
     homing.robotStarted(now);
 
-    homing.homeAgain(now, true);
-    State enabled = homing.state();
-    homing.homeAgain(now, false);
+    homing.homeAgain(now);
 
-    assertThat(enabled).isEqualTo(State.READY);
     assertThat(homing.state()).isEqualTo(State.READY);
     assertThat(homing.pushVolts()).isZero();
   }
@@ -559,7 +553,7 @@ class JointHomingTest {
     OptionalDouble stopped = homing.heldOnMotor();
     homing.loopEncoderWatched(now += LOOP, false, false, 0.7, 0.68);
     OptionalDouble disabled = homing.heldOnMotor();
-    homing.homeAgain(now, true);
+    homing.homeAgain(now);
     State again = homing.state();
     OptionalDouble waiting = homing.heldOnMotor();
     homing.encoderRead(now += LOOP, OptionalDouble.of(0.69));
@@ -588,7 +582,7 @@ class JointHomingTest {
         JointState.Fault.SETTINGS_NOT_TAKEN, "pivot's motor 32 didn't take its settings");
     homing.encoderRead(now, OptionalDouble.of(0.3));
     boolean awaitingAfter = homing.awaitsEncoder();
-    homing.homeAgain(now, true);
+    homing.homeAgain(now);
     homing.encoderRead(now, OptionalDouble.of(0.35));
 
     assertThat(found).containsExactly(0.3, 0.35);

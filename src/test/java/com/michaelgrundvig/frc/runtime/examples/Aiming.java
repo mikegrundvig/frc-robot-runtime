@@ -75,15 +75,14 @@ final class Aiming {
     DriveAssist aim = drive.facing(Heading.toward(Rebuilt.HUB));
     Gate ready = Gate.all("ready to feed", aim.aimed(), shooter.isAtGoal());
     return Command.requiring(drive, shooter, feeder, indexer)
-        .executing(
-            co -> {
-              co.fork(shooter.follow(() -> RPM.of(3000)));
-              co.fork(aim); // the sticks drive, and the robot holds its aim...
-              while (true) {
-                co.waitUntil(ready); // ...and the feed runs only while it is aimed
-                co.await(joints.run(FEEDING).onlyWhile(ready));
-              }
-            })
+        .executing(co -> {
+          co.fork(shooter.follow(() -> RPM.of(3000)));
+          co.fork(aim); // the sticks drive, and the robot holds its aim...
+          while (true) {
+            co.waitUntil(ready); // ...and the feed runs only while it is aimed
+            co.await(joints.run(FEEDING).onlyWhile(ready));
+          }
+        })
         .named("Shoot at the hub");
     // @end
   }

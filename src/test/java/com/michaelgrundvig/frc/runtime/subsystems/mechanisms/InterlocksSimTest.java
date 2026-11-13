@@ -539,10 +539,8 @@ class InterlocksSimTest {
     JointsSimHarness strong =
         new JointsSimHarness(
             GUARDED.with(
-                PIVOT.retuned(
-                    old ->
-                        JointFixtures.assumed(
-                            control(30, 1, Optional.empty(), profile(8, 30), 120)))));
+                PIVOT.retuned(old ->
+                    JointFixtures.assumed(control(30, 1, Optional.empty(), profile(8, 30), 120)))));
     strong.simulation.place(PIVOT, Math.toRadians(35));
     strong.loop();
     JointMechanism chasing = strong.joints.of(PIVOT);
@@ -768,12 +766,11 @@ class InterlocksSimTest {
   void aFaultedJointsKeepOutHoldsFailSafe() {
     RobotDefinition robot =
         GUARDED.with(
-            ELEVATOR.retuned(
-                control ->
-                    JointFixtures.homed(
-                        control,
-                        MechanismControl.Homing.toHardStop(
-                            Sensor.Switch.Limit.End.LOWER, Seconds.of(0.3)))));
+            ELEVATOR.retuned(control ->
+                JointFixtures.homed(
+                    control,
+                    MechanismControl.Homing.toHardStop(
+                        Sensor.Switch.Limit.End.LOWER, Seconds.of(0.3)))));
     JointsSimHarness faulty = new JointsSimHarness(robot);
     JointMechanism held = faulty.joints.of(PIVOT);
     JointMechanism elevator = faulty.joints.of(ELEVATOR);
@@ -860,13 +857,12 @@ class InterlocksSimTest {
             .interlocks(List.of(Interlock.that(ROLLER).runsOnlyWhen(hatch.atLeast(PIVOT_RUN))))
             .build();
 
-    assertThatThrownBy(
-            () ->
-                new Joints(
-                    robot,
-                    joint -> new JointIO() {},
-                    Joints.untuned(),
-                    Scheduler.createIndependentScheduler()))
+    assertThatThrownBy(() ->
+            new Joints(
+                robot,
+                joint -> new JointIO() {},
+                Joints.untuned(),
+                Scheduler.createIndependentScheduler()))
         .hasMessage(
             "\"roller runs only when hatch at least run\" can't be enforced: hatch has no mechanism, as"
                 + " nothing drives it");

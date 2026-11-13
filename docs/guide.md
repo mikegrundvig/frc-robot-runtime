@@ -435,8 +435,12 @@ it moves nothing.
 When the robot is enabled again, each joint holds wherever it is at that moment. It does not
 jump back to an old target, and no old move carries on. A command starts only when something
 asks for it afresh. The one thing that starts by itself is a default command, because the
-scheduler starts a default command whenever its mechanism is free. So stick driving is back the
-moment you enable, and if the driver is holding a stick over, the robot drives.
+scheduler starts a default command whenever its mechanism is free and the robot is enabled. So
+stick driving is back the moment you enable, and if the driver is holding a stick over, the robot
+drives. While the robot is disabled the scheduler runs no command on a joint or the drivetrain: a
+move asked for then is refused, and never runs, and a joint that doesn't know where it is homes by
+itself at the enable. A command started in one robot mode outside any other command is canceled
+when that mode ends.
 `DisablingSimTest` runs each of these cases.
 
 **Autonomous** is enabled with nobody driving. On the pass it begins, the runtime starts the

@@ -108,12 +108,11 @@ class EncoderLoopSimTest {
     JointsSimHarness seeded = sim(ELEVATOR_SEEDED);
     JointsSimHarness closed =
         sim(
-            ELEVATOR_SEEDED.absoluteEncoder(
-                encoder ->
-                    encoder.on(
-                        MechanismWiring.PortEncoder.dutyCycle(2)
-                            .offset(Rotations.of(0.3))
-                            .closesLoop())));
+            ELEVATOR_SEEDED.absoluteEncoder(encoder ->
+                encoder.on(
+                    MechanismWiring.PortEncoder.dutyCycle(2)
+                        .offset(Rotations.of(0.3))
+                        .closesLoop())));
     for (JointsSimHarness each : new JointsSimHarness[] {seeded, closed}) {
       each.run(0.1);
       // The carriage is at 1.5 cm, still, and its motor's count reads where it rests, 0 m.

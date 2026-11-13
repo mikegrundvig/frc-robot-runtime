@@ -35,9 +35,13 @@ import org.wpilib.math.geometry.Transform2d;
  *
  * <p>Disabled means disabled. In the loop the robot is disabled, every running command is canceled,
  * and each move says so in its outcome. While it is disabled no joint and no wheel is driven,
- * whatever asks. When it is enabled again nothing carries on from before: each joint holds where it
- * is then, and a command starts only when something asks for it afresh. The one command that starts
- * by itself is a default command, which the scheduler starts whenever its mechanism is free.
+ * whatever asks: WPILib's scheduler runs no command on a joint or the drivetrain while the robot is
+ * disabled, so a move asked for then is refused and never runs, and the drive's default command
+ * waits for the enable too. When it is enabled again nothing carries on from before: each joint
+ * holds where it is then, and a command starts only when something asks for it afresh. The one
+ * command that starts by itself is a default command, which the scheduler starts whenever its
+ * mechanism is free and the robot is enabled. A command started in a robot mode, outside any other
+ * command, is canceled when that mode ends, and its move says so.
  */
 @SimulationTest
 class DisablingSimTest {
@@ -171,29 +175,38 @@ class DisablingSimTest {
   }
 
   /**
-   * A move asked for while the robot is disabled waits to be enabled, as it waits for a joint to
-   * home, and its time and its deadline start when it is: no deadline counts while the robot is
-   * disabled. The drivetrain's move waits the same way.
+   * A move asked for while the robot is disabled is refused by the scheduler, a joint's and the
+   * drivetrain's alike: it never runs, so it has no outcome, and enabling the robot does not start
+   * it. Nothing moves. Asked for again once the robot is enabled, each arrives.
    */
   @Test
-  void aMoveAskedWhileDisabledWaitsToBeEnabledAndItsDeadlineStartsThen() {
+  void aMoveAskedWhileDisabledIsRefusedAndNeverRuns() {
     JointSimulation truth = enabledInTeleop();
     Move out = sim.joints().of(PIVOT).goTo(PIVOT_OUT);
     disabledFor(0.5);
     Pose2d stood = sim.world().truePose();
     DriveMove ahead = sim.drive().goTo(stood.plus(new Transform2d(1, 0, Rotation2d.ZERO)));
 
+    boolean outTaken = sim.scheduler().schedule(out).successful();
+    boolean aheadTaken = sim.scheduler().schedule(ahead).successful();
+    sim.run(1);
+    List<String> runningWhileDisabled = running();
+    enabledAgainFor(1);
+    boolean ranOnceEnabled = out.outcome().isPresent() || ahead.outcome().isPresent();
+    double pivotUntouched = degrees(truth.position(PIVOT));
+    double metersUntouched = metersFrom(stood);
     sim.scheduler().schedule(out);
     sim.scheduler().schedule(ahead);
-    sim.run(5);
-    List<String> runningWhileDisabled = running();
-    boolean endedWhileDisabled = out.outcome().isPresent() || ahead.outcome().isPresent();
-    enabledAgainFor(3);
+    sim.run(3);
 
-    assertThat(runningWhileDisabled).containsExactlyInAnyOrder(out.name(), ahead.name());
-    assertThat(endedWhileDisabled)
-        .as("disabled far longer than either deadline, twice a profile and half a second")
-        .isFalse();
+    assertThat(outTaken).as("the pivot's move, refused").isFalse();
+    assertThat(aheadTaken).as("the drivetrain's move, refused").isFalse();
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
+    assertThat(ranOnceEnabled).as("neither starts as the robot is enabled").isFalse();
+    assertThat(pivotUntouched).as("the pivot holds in").isCloseTo(1.5, within(1.0));
+    assertThat(metersUntouched).as("the robot stands").isLessThan(0.001);
     ended(out).arrived().in(0.60);
     ended(ahead).arrived().inBetween(0, 10);
     assertThat(degrees(truth.position(PIVOT))).isCloseTo(130, within(2.0));
@@ -228,7 +241,9 @@ class DisablingSimTest {
     sim.run(1);
 
     assertThat(intaking).isCloseTo(2000 * RPM, within(20.0));
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(whileDisabled).as("not driven while disabled").isCloseTo(0, within(1.0));
     outcomeWhileDisabled
         .named("roller: intaking until piece in")
@@ -268,7 +283,9 @@ class DisablingSimTest {
     List<String> firedOnTheNewPress = firedDuring(1.5);
 
     assertThat(firedWhileDisabled).isEmpty();
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(firedOnceEnabled).as("the press made while disabled is spent").isEmpty();
     assertThat(runningStillHeld).containsExactly("Drive with the sticks");
     assertThat(pivotStillHeld).as("it holds in").isCloseTo(1.5, within(1.0));
@@ -320,7 +337,9 @@ class DisablingSimTest {
     enabledAgainFor(1.5);
 
     assertThat(feeding).isCloseTo(1000 * RPM, within(10.0));
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     followWhileDisabled
         .named("shooter follows a target")
         .canceled()
@@ -340,10 +359,10 @@ class DisablingSimTest {
   // ---- The drivetrain ----
 
   /**
-   * The drivetrain refuses to be driven while the robot is disabled, as a joint does, whatever
-   * asks. With the stick pushed the drive's default command asks the wheels to drive every loop,
-   * and the pit's drive check, started while the robot is disabled, asks them to roll forward: the
-   * wheels stay neutral, and the robot stays where it stands.
+   * The drivetrain is not driven while the robot is disabled, whatever asks. The drive's default
+   * command does not run, so the pushed stick drives nothing, and the pit's drive check, asked for
+   * while the robot is disabled, is refused like any other move: the wheels stay neutral, and the
+   * robot stays where it stands.
    */
   @Test
   void theDrivetrainIsNotDrivenWhileDisabledWhateverAsks() {
@@ -354,11 +373,15 @@ class DisablingSimTest {
     pushTheDriversStickForward();
     sim.run(1);
     double drivenByTheSticks = metersFrom(stood);
-    sim.scheduler().schedule(RobotPitwall.driveCheck(sim.robot().drive()));
+    boolean taken =
+        sim.scheduler().schedule(RobotPitwall.driveCheck(sim.robot().drive())).successful();
     sim.run(1);
     List<String> runningWhileDisabled = running();
 
-    assertThat(runningWhileDisabled).containsExactly("Drive forward");
+    assertThat(taken).as("the drive check, refused").isFalse();
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(drivenByTheSticks).as("meters driven by the sticks, disabled").isLessThan(0.001);
     assertThat(metersFrom(stood))
         .as("meters driven by the pit's check, disabled")
@@ -389,9 +412,9 @@ class DisablingSimTest {
 
   /**
    * The drive's default command, driving with the sticks, is canceled as the robot is disabled like
-   * any other command, and the scheduler starts it again in the same loop, as it starts a default
-   * command whenever its mechanism is free. While the robot is disabled it drives nothing. Enabled
-   * again with the stick still pushed, the robot drives, with no new press.
+   * any other command, and the scheduler does not start it again while the robot is disabled: a
+   * default command runs on its mechanism only while the robot is enabled. It starts again at the
+   * enable, and with the stick still pushed, the robot drives, with no new press.
    *
    * <p>That is right, because a default command is not started by a press that could be stale: it
    * reads the stick every loop, and drives what the stick asks now. And it is safe, in the way
@@ -414,7 +437,9 @@ class DisablingSimTest {
     Pose2d stoppedAgain = sim.world().truePose();
     sim.run(0.5);
 
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(drivenEnabledAgain).as("meters driven in 1 s, enabled again").isGreaterThan(2.0);
     assertThat(metersFrom(stoppedAgain)).as("stopped, the stick let go").isLessThan(0.01);
   }
@@ -471,7 +496,9 @@ class DisablingSimTest {
     List<String> runningWhileDisabled = running();
     enabledAgainFor(1);
 
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     Ran.lastRunOf(sim.autos()).named("Grab and shoot").cutOff().after(1.00);
     ended(sim.joints().of(ROLLER))
         .named("roller: intaking until piece in")
@@ -485,12 +512,13 @@ class DisablingSimTest {
   // ---- Utility mode ----
 
   /**
-   * Going from teleop to utility mode, enabled, changes nothing for a running command: it is not
-   * canceled, its joints stay driven, and its binding still holds it. A move started in utility
-   * mode runs on into teleop the same way.
+   * Going from teleop to utility mode, enabled, changes nothing for a command a binding started: it
+   * is not canceled, its joints stay driven, and its binding still holds it. A move started in
+   * utility mode outside any command is canceled as utility mode ends, as WPILib's scheduler
+   * cancels a command started in a mode when the mode ends, and it says so.
    */
   @Test
-  void aCommandRunsOnFromTeleopIntoUtilityModeAndBack() {
+  void aBindingsCommandRunsOnAcrossModesAndAMoveStartedInUtilityEndsWithIt() {
     JointSimulation truth = enabledInTeleop();
     holdTheOperatorsTrigger(true);
     sim.run(1.5);
@@ -513,7 +541,7 @@ class DisablingSimTest {
         .canceled()
         .after(2.50)
         .forNoReason();
-    ended(in).arrived().in(0.60);
+    ended(in).canceled().because(MoveReason.ROBOT_MODE_ENDED);
   }
 
   /**
@@ -539,7 +567,9 @@ class DisablingSimTest {
     sim.run(1);
 
     assertThat(runningInUtility).containsExactly("Drive forward");
-    assertThat(runningWhileDisabled).containsExactly("Drive with the sticks");
+    assertThat(runningWhileDisabled)
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(whileDisabled.phase()).isEqualTo(Actions.Phase.CANCELED);
     assertThat(whileDisabled.detail())
         .isEqualTo("Canceled: actions run only with the robot enabled in utility mode");

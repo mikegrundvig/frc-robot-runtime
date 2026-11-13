@@ -358,17 +358,15 @@ final class ValuesRegister {
     Map<String, Row> notConfigured = notConfigured(byName, problems);
     heldByARobot(byName, notConfigured, problems);
     Map<String, CodeRecord> configuration = new TreeMap<>();
-    byName.forEach(
-        (name, same) -> {
-          if (!notConfigured.containsKey(name)) {
-            configuration.put(name, same.get(0));
-          }
-        });
+    byName.forEach((name, same) -> {
+      if (!notConfigured.containsKey(name)) {
+        configuration.put(name, same.get(0));
+      }
+    });
     Map<String, Map<String, Row>> rows = grouped(values, problems);
     staleSections(rows, configuration, notConfigured, problems);
-    configuration.forEach(
-        (name, record) ->
-            recordRows(name, record, rows.getOrDefault(name, Map.of()), configuration, problems));
+    configuration.forEach((name, record) ->
+        recordRows(name, record, rows.getOrDefault(name, Map.of()), configuration, problems));
     for (Row row : values) {
       String value = row.subject() + "." + row.name();
       if (!KINDS.contains(row.kind())) {
@@ -386,19 +384,18 @@ final class ValuesRegister {
   }
 
   private static void sameNames(Map<String, List<CodeRecord>> byName, List<String> problems) {
-    byName.forEach(
-        (name, same) -> {
-          if (same.size() > 1) {
-            problems.add(
-                "Two records are named "
-                    + name
-                    + " ("
-                    + same.stream().map(CodeRecord::className).collect(Collectors.joining(", "))
-                    + "): rename one, so "
-                    + FILE
-                    + " can tell them apart");
-          }
-        });
+    byName.forEach((name, same) -> {
+      if (same.size() > 1) {
+        problems.add(
+            "Two records are named "
+                + name
+                + " ("
+                + same.stream().map(CodeRecord::className).collect(Collectors.joining(", "))
+                + "): rename one, so "
+                + FILE
+                + " can tell them apart");
+      }
+    });
   }
 
   /** The records listed as not configuration, by name; a listing of no record is a problem. */
@@ -473,29 +470,28 @@ final class ValuesRegister {
       Map<String, CodeRecord> configuration,
       Map<String, Row> notConfigured,
       List<String> problems) {
-    rows.forEach(
-        (subject, named) -> {
-          if (configuration.containsKey(subject)) {
-            return;
-          }
-          Row first = first(named);
-          Row listed = notConfigured.get(subject);
-          if (listed != null) {
-            problems.add(
-                at(first)
-                    + subject
-                    + " has values here, but line "
-                    + listed.line()
-                    + " lists it as a record that isn't configuration: keep one");
-          } else {
-            problems.add(
-                at(first)
-                    + "remove the section for "
-                    + subject
-                    + ": no configuration record is named "
-                    + subject);
-          }
-        });
+    rows.forEach((subject, named) -> {
+      if (configuration.containsKey(subject)) {
+        return;
+      }
+      Row first = first(named);
+      Row listed = notConfigured.get(subject);
+      if (listed != null) {
+        problems.add(
+            at(first)
+                + subject
+                + " has values here, but line "
+                + listed.line()
+                + " lists it as a record that isn't configuration: keep one");
+      } else {
+        problems.add(
+            at(first)
+                + "remove the section for "
+                + subject
+                + ": no configuration record is named "
+                + subject);
+      }
+    });
   }
 
   /** One configuration record's rows: one for each value, and none for anything else. */
@@ -594,21 +590,19 @@ final class ValuesRegister {
   List<String> tuningProblems(Map<String, List<String>> tuning) {
     List<String> problems = new ArrayList<>();
     Map<String, Map<String, Row>> knobRows = grouped(knobs, problems);
-    knobRows.forEach(
-        (subject, named) -> {
-          if (!tuning.containsKey(subject)) {
-            problems.add(
-                at(first(named))
-                    + "remove the tuning section `"
-                    + subject
-                    + "`: no mechanism's tuning is named "
-                    + subject);
-          }
-        });
+    knobRows.forEach((subject, named) -> {
+      if (!tuning.containsKey(subject)) {
+        problems.add(
+            at(first(named))
+                + "remove the tuning section `"
+                + subject
+                + "`: no mechanism's tuning is named "
+                + subject);
+      }
+    });
     new TreeMap<>(tuning)
-        .forEach(
-            (name, paths) ->
-                tuningRows(name, paths, knobRows.getOrDefault(name, Map.of()), problems));
+        .forEach((name, paths) ->
+            tuningRows(name, paths, knobRows.getOrDefault(name, Map.of()), problems));
     for (Row row : knobs) {
       checkSource(row, "the " + row.subject() + " tuning's " + row.name(), problems);
     }

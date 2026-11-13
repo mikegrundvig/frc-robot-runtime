@@ -516,13 +516,12 @@ class CameraPitTest {
         assertThat(card.state()).as(camera.name()).isEqualTo("Can't be read");
         assertThat(card.lines())
             .as(camera.name())
-            .anySatisfy(
-                line -> {
-                  assertThat(line.label()).isEqualTo("Problem");
-                  assertThat(line.value())
-                      .startsWith("a coprocessor runs Visor 20251225")
-                      .endsWith("deploy to it again");
-                });
+            .anySatisfy(line -> {
+              assertThat(line.label()).isEqualTo("Problem");
+              assertThat(line.value())
+                  .startsWith("a coprocessor runs Visor 20251225")
+                  .endsWith("deploy to it again");
+            });
       }
     }
   }

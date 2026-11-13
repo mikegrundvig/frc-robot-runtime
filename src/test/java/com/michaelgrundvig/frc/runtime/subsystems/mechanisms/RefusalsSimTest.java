@@ -166,31 +166,30 @@ class RefusalsSimTest {
     boolean[] ended = {false};
     Command wrong =
         Command.requiring(pivot, roller, elevator)
-            .executing(
-                co -> {
-                  for (CantBe each : whatCantBe()) {
-                    built.add(each.built().get());
+            .executing(co -> {
+              for (CantBe each : whatCantBe()) {
+                built.add(each.built().get());
+              }
+              for (Object each : built) {
+                if (each instanceof Move move) {
+                  co.await(move);
+                } else if (each instanceof JointMechanism standIn) {
+                  for (Move move :
+                      List.of(
+                          standIn.goTo(PIVOT_OUT),
+                          standIn.goTo(Degrees.of(30)),
+                          standIn.hold(),
+                          standIn.home(),
+                          standIn.follow(() -> Degrees.of(30)))) {
+                    standIns.add(move);
+                    co.await(move);
                   }
-                  for (Object each : built) {
-                    if (each instanceof Move move) {
-                      co.await(move);
-                    } else if (each instanceof JointMechanism standIn) {
-                      for (Move move :
-                          List.of(
-                              standIn.goTo(PIVOT_OUT),
-                              standIn.goTo(Degrees.of(30)),
-                              standIn.hold(),
-                              standIn.home(),
-                              standIn.follow(() -> Degrees.of(30)))) {
-                        standIns.add(move);
-                        co.await(move);
-                      }
-                      standInGates.add(standIn.isAt(PIVOT_OUT));
-                      standInGates.add(standIn.isReady());
-                    }
-                  }
-                  ended[0] = true;
-                })
+                  standInGates.add(standIn.isAt(PIVOT_OUT));
+                  standInGates.add(standIn.isReady());
+                }
+              }
+              ended[0] = true;
+            })
             .named("What can't be");
 
     sim.run(wrong, 1);

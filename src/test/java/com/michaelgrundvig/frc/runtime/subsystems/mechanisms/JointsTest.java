@@ -118,10 +118,9 @@ class JointsTest {
     assertThat(Joints.problems(robot)).isEmpty();
     assertThat(Joints.driven(robot)).contains(hatch, flap);
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                unmotored(hatch)
-                    .motors(Motor.NEO.through(JointFixtures.gearing(10)).on(TALON_FX.can(21))))
+        .isThrownBy(() ->
+            unmotored(hatch)
+                .motors(Motor.NEO.through(JointFixtures.gearing(10)).on(TALON_FX.can(21))))
         .withMessageContaining(
             "its NEO is on a TalonFX, which doesn't drive one: a TalonFXS or a SPARK MAX or a SPARK"
                 + " Flex does");
@@ -174,9 +173,8 @@ class JointsTest {
     assertThat(ControllerSettings.findings(ROBOT.with(onNeos).math(), onNeos))
         .noneMatch(finding -> finding.level() == Finding.Level.REFUSED);
     assertThat(ControllerSettings.findings(ROBOT.with(onKrakens).math(), onKrakens))
-        .anyMatch(
-            finding ->
-                finding.level() == Finding.Level.REFUSED
-                    && finding.message().contains("past Phoenix's"));
+        .anyMatch(finding ->
+            finding.level() == Finding.Level.REFUSED
+                && finding.message().contains("past Phoenix's"));
   }
 }

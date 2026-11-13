@@ -335,14 +335,17 @@ the auto by default.
 ## 8. Disabled means disabled
 
 **What most teams do.** Nothing, because v2 does it for them. The v2 scheduler cancels a command
-when the robot is disabled unless the command says it runs while disabled. The v3 scheduler, as of
-the 2027 alpha, has no such rule. It runs every command in every mode.
+when the robot is disabled unless the command says it runs while disabled. The v3 scheduler had no
+such rule until 2027 alpha 8. Since then it refuses to start, and cancels at a disable, every
+command that needs a mechanism not controllable while disabled: every joint and the drivetrain.
 
 **What this does.** On the loop the robot goes from enabled to disabled, the runtime cancels every
-running command, and each move's outcome says "the robot was disabled". While disabled, no joint
-and no wheel is driven, whatever asks, in the simulator too. A button pressed while disabled is
-spent and starts nothing later. When the robot is enabled again, each joint holds where it is, and
-only a default command starts by itself.
+running command first, so each move's outcome says "the robot was disabled", and a command that
+needs no mechanism is canceled too. While disabled, no joint and no wheel is driven, whatever asks,
+in the simulator too, and a move asked for then is refused by the scheduler and never runs. A
+button pressed while disabled is spent and starts nothing later. When the robot is enabled again,
+each joint holds where it is, a joint that doesn't know where it is homes, and only a default
+command starts by itself.
 
 **Why.** The class is leftover state across a disable. A move part way to an old target carries on
 when the robot is enabled. A trigger held through the disable spins its roller up again. A

@@ -433,11 +433,10 @@ public final class Faults {
     Crest nearest =
         crests(world).stream()
             .min(Comparator.comparingDouble(each -> each.line().middle().getDistance(robot)))
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "carrying the robot to a bump needs a field with bumps, and this one has"
-                            + " none"));
+            .orElseThrow(() ->
+                new IllegalStateException(
+                    "carrying the robot to a bump needs a field with bumps, and this one has"
+                        + " none"));
     Crossing crest = nearest.line();
     // A crest has a direction across it. The robot is on the side that direction points to, or on
     // the other, and it stays on its own side.

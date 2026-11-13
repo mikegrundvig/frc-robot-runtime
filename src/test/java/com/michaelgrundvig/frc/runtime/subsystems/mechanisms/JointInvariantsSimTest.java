@@ -141,12 +141,11 @@ class JointInvariantsSimTest {
       PrismaticJointBuilder.builder(ELEVATOR)
           .link(JointFixtures.link("carriage", 15, new Translation3d(0, 0, 0.1)))
           .build()
-          .retuned(
-              old ->
-                  JointFixtures.assumed(
-                      MechanismControlBuilder.builder(control(60, 2, profile(1.2, 50)))
-                          .neutralMode(MechanismControl.NeutralMode.COAST)
-                          .build()));
+          .retuned(old ->
+              JointFixtures.assumed(
+                  MechanismControlBuilder.builder(control(60, 2, profile(1.2, 50)))
+                      .neutralMode(MechanismControl.NeutralMode.COAST)
+                      .build()));
 
   static final RobotDefinition WEIGHED_ROBOT =
       RobotDefinitionBuilder.builder(JointFixtures.ROBOT)

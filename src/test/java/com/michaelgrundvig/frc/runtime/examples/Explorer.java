@@ -32,17 +32,16 @@ final class Explorer {
 
   Command explore() {
     return Command.requiring(drive)
-        .executing(
-            co -> {
-              while (true) {
-                DriveMove forward = drive.runUntil(FORWARD, bumped).within(Seconds.of(15));
-                co.await(forward);
-                if (!forward.arrived()) {
-                  return; // the bumper never tripped: the move says why, and the robot stops
-                }
-                co.await(drive.turnTo(nextQuarter()));
-              }
-            })
+        .executing(co -> {
+          while (true) {
+            DriveMove forward = drive.runUntil(FORWARD, bumped).within(Seconds.of(15));
+            co.await(forward);
+            if (!forward.arrived()) {
+              return; // the bumper never tripped: the move says why, and the robot stops
+            }
+            co.await(drive.turnTo(nextQuarter()));
+          }
+        })
         .named("Explore");
   }
 

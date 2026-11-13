@@ -547,22 +547,18 @@ final class JointHoming {
 
   /**
    * A command asked for the joint to be homed again: by its recipe, or from its absolute encoder's
-   * next reading. A joint that homes by moving starts now if the robot is enabled, and otherwise on
-   * the next enable. A joint with nothing to home by stays as it is: there is no stop or switch to
-   * push it toward, so nothing is started.
+   * next reading. A joint that homes by moving starts now: the command runs only while the robot is
+   * enabled, since WPILib's scheduler starts no command on a joint while it is disabled. A joint
+   * with nothing to home by stays as it is: there is no stop or switch to push it toward, so
+   * nothing is started.
    */
-  void homeAgain(long now, boolean enabled) {
+  void homeAgain(long now) {
     if (homesByEncoder()) {
       awaitEncoder(now);
       return;
     }
-    if (!homesByMoving()) {
-      return;
-    }
-    if (enabled) {
+    if (homesByMoving()) {
       begin(now);
-    } else {
-      phase = new Unhomed();
     }
   }
 
@@ -571,8 +567,8 @@ final class JointHoming {
    *
    * <p>Asking also restarts a homing that was canceled: an unhomed joint that homes by moving
    * starts homing now, if the robot is enabled. The move then waits no longer than the homing may
-   * take, and a homing that faults refuses the move. With the robot disabled, the joint homes on
-   * the next enable, as it would anyway.
+   * take, and a homing that faults refuses the move. An unhomed joint also homes by itself as the
+   * robot is enabled ({@link #advance}), with or without a move.
    */
   boolean moveWaits(long now, boolean enabled) {
     if (enabled && phase instanceof Unhomed && homesByMoving()) {

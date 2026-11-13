@@ -98,14 +98,13 @@ public final class JointRecordings {
     }
     settings
         .cancoder()
-        .ifPresent(
-            cancoder ->
-                changed(
-                    rows,
-                    label,
-                    "cancoder",
-                    cancoder.toString(),
-                    new CANcoderConfiguration().toString()));
+        .ifPresent(cancoder ->
+            changed(
+                rows,
+                label,
+                "cancoder",
+                cancoder.toString(),
+                new CANcoderConfiguration().toString()));
   }
 
   private static void talon(

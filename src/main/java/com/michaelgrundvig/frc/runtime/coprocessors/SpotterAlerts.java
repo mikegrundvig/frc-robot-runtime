@@ -54,14 +54,13 @@ final class SpotterAlerts implements AutoCloseable {
     }
     shown
         .entrySet()
-        .removeIf(
-            entry -> {
-              if (standing.contains(entry.getKey())) {
-                return false;
-              }
-              entry.getValue().close();
-              return true;
-            });
+        .removeIf(entry -> {
+          if (standing.contains(entry.getKey())) {
+            return false;
+          }
+          entry.getValue().close();
+          return true;
+        });
   }
 
   @Override

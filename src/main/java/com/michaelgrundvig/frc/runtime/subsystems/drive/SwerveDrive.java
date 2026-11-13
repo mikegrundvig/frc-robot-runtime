@@ -611,22 +611,24 @@ public class SwerveDrive implements Mechanism, AutoCloseable {
    */
   public Command driven() {
     String name = "Drive with the sticks";
-    return run(coroutine -> {
-          // The driver's sticks are read here, as the command starts, and not when it was built.
-          Optional<Driver> handedOver = driver;
-          if (handedOver.isEmpty()) {
-            recordRefused(
-                name, DriveMoveTask.WITH_THE_STICKS, Why.saying(MoveReason.NO_DRIVER, ""));
-            return;
-          }
-          Driver sticks = handedOver.get();
-          while (true) {
-            driveField(
-                velocityAskedBy(sticks.translation().get()),
-                turnRateAskedBy(sticks.turn().getAsDouble()));
-            coroutine.yield();
-          }
-        })
+    return run(
+            coroutine -> {
+              // The driver's sticks are read here, as the command starts, and not when it was
+              // built.
+              Optional<Driver> handedOver = driver;
+              if (handedOver.isEmpty()) {
+                recordRefused(
+                    name, DriveMoveTask.WITH_THE_STICKS, Why.saying(MoveReason.NO_DRIVER, ""));
+                return;
+              }
+              Driver sticks = handedOver.get();
+              while (true) {
+                driveField(
+                    velocityAskedBy(sticks.translation().get()),
+                    turnRateAskedBy(sticks.turn().getAsDouble()));
+                coroutine.yield();
+              }
+            })
         .named(name);
   }
 
@@ -671,12 +673,13 @@ public class SwerveDrive implements Mechanism, AutoCloseable {
    * whichever end it points the nearer way.
    */
   public Command lockWheels() {
-    return run(coroutine -> {
-          while (true) {
-            output.lockWheels();
-            coroutine.yield();
-          }
-        })
+    return run(
+            coroutine -> {
+              while (true) {
+                output.lockWheels();
+                coroutine.yield();
+              }
+            })
         .named("Lock wheels");
   }
 
@@ -763,13 +766,14 @@ public class SwerveDrive implements Mechanism, AutoCloseable {
    */
   public Command driveForward(double metersPerSecond, double seconds) {
     int loops = RobotLoop.loops(seconds);
-    return run(coroutine -> {
-          for (int i = 0; i < loops; i++) {
-            runVelocity(new ChassisVelocities(metersPerSecond, 0, 0));
-            coroutine.yield();
-          }
-          runVelocity(new ChassisVelocities(0, 0, 0));
-        })
+    return run(
+            coroutine -> {
+              for (int i = 0; i < loops; i++) {
+                runVelocity(new ChassisVelocities(metersPerSecond, 0, 0));
+                coroutine.yield();
+              }
+              runVelocity(new ChassisVelocities(0, 0, 0));
+            })
         .named("Drive forward");
   }
 

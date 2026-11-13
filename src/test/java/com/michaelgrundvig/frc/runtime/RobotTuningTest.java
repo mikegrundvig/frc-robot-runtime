@@ -180,12 +180,11 @@ class RobotTuningTest {
 
       assertThat(outcome.getNow(null).reasons())
           .singleElement()
-          .satisfies(
-              reason -> {
-                assertThat(reason.layer()).isEqualTo(RequestOutcome.Layer.RECORD);
-                assertThat(reason.by()).isEqualTo("VisionConfig");
-                assertThat(reason.paths()).containsExactly("/Vision/config/maxAmbiguity");
-              });
+          .satisfies(reason -> {
+            assertThat(reason.layer()).isEqualTo(RequestOutcome.Layer.RECORD);
+            assertThat(reason.by()).isEqualTo("VisionConfig");
+            assertThat(reason.paths()).containsExactly("/Vision/config/maxAmbiguity");
+          });
     } finally {
       TunableRegistry.reset();
     }
@@ -204,18 +203,13 @@ class RobotTuningTest {
     assertThat(drivetrain.knobs())
         .filteredOn(knob -> knob.path().equals("limits.maxLinearSpeed"))
         .singleElement()
-        .satisfies(
-            knob ->
-                assertThat(knob.limits().max())
-                    .isEqualTo(
-                        ExampleRobot.SIM
-                            .definition()
-                            .drivetrain()
-                            .freeSpeed()
-                            .in(MetersPerSecond)));
+        .satisfies(knob ->
+            assertThat(knob.limits().max())
+                .isEqualTo(
+                    ExampleRobot.SIM.definition().drivetrain().freeSpeed().in(MetersPerSecond)));
     assertThat(drivetrain.set(Map.of("limits.maxLinearSpeed", 4.5))).isTrue();
     assertThat(drivetrain.whyNot(Map.of("limits.maxLinearSpeed", 6.0)))
-        .isEqualTo("drivetrain: limits.maxLinearSpeed: 6 m/s is above its limit of 4.72868 m/s");
+        .isEqualTo("drivetrain: limits.maxLinearSpeed: 6 m/s is above its limit of 4.77991 m/s");
     assertThat(drivetrain.set(Map.of("limits.maxLinearSpeed", 6.0))).isFalse();
     assertThat(drivetrain.get().limits().maxLinearSpeed().orElseThrow().in(MetersPerSecond))
         .isEqualTo(4.5);

@@ -114,6 +114,8 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
   @Override
   public void beforeEach(ExtensionContext context) {
     assertTrue(HAL.initialize(), "simulated HAL failed to initialize");
+    // A robot program starts afresh in each test: it says it has started at its first loop.
+    DriverStationBackend.clearUserProgramStarted();
     SimHooks.pauseTiming();
     DriverStationSim.resetData();
     DriverStationSim.setAllianceStationId(AllianceStationID.BLUE_2);
@@ -125,10 +127,31 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
     // Made after the Driver Station's data is reset, which clears a gamepad's axes.
     driver = new GamepadSim(0);
     operator = new GamepadSim(1);
+    inATest = true;
+    JointsSimHarness.tellTheDriverStationOfThoseMade();
+  }
+
+  /**
+   * The robot program says it has started, as WPILib's and AdvantageKit's robot classes do as their
+   * loop starts (startCompetition), after the robot and its controls are made. Until it has, the
+   * Driver Station gives no robot mode, so what is bound as the robot is made is bound for good.
+   * The robot's first loop says it; a test with no robot loop says it itself.
+   */
+  public static void programStarted() {
+    DriverStationBackend.observeUserProgramStarting();
+  }
+
+  /** Whether a test is running, between this extension's start of it and its end. */
+  private static boolean inATest;
+
+  /** Whether a test is running: the simulated Driver Station is set up for it. */
+  public static boolean inATest() {
+    return inATest;
   }
 
   @Override
   public void afterEach(ExtensionContext context) {
+    inATest = false;
     closeRobot();
     JointsSimHarness.closeAll();
     TelemetryRegistry.reset();
@@ -219,6 +242,8 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
       SensorErrors errors,
       UnaryOperator<Hardware> watched) {
     closeRobot();
+    // A new robot program, which says it has started at its first loop (programStarted).
+    DriverStationBackend.clearUserProgramStarted();
     LoopHealth health = new LoopHealth();
     Pitwall page = Pitwall.start(robot.name(), 0);
     pitwall = page;
@@ -393,6 +418,7 @@ public final class RobotSim implements BeforeEachCallback, AfterEachCallback {
 
   private void loop(Robot.AfterAThrow afterAThrow) {
     RobotContainer robot = robot();
+    programStarted();
     stepClock();
     DriverStationBackend.refreshData();
     Robot.loop(pitwall(), robot, scheduler(), Objects.requireNonNull(loopHealth), afterAThrow);

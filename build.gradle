@@ -169,7 +169,7 @@ def includedLibrary = { String name ->
     }
     return null
 }
-def librarySourceDirs = [:]
+def librarySourceDirs = [: ]
 def unpackLibraries = []
 [model: "frc-robot-model", localization: "frc-localization", pitwall: "frc-pitwall"].each { name, artifact ->
     def local = includedLibrary(name)
@@ -201,8 +201,31 @@ def modelDir = librarySourceDirs.model
 def localizationDir = librarySourceDirs.localization
 def pitwallDir = librarySourceDirs.pitwall
 
-// For CoprocessorsEndToEndTest: Spotter's agent as a coprocessor runs it (java -jar), and the
-// Visor release this runtime's client belongs to, whose Spotter pack the robot pushes.
+// For CoprocessorsEndToEndTest: Spotter's agent as a coprocessor runs it, and the Visor release
+// this runtime's client belongs to, whose Spotter pack the robot pushes.
+//
+// The agent is a Linux program, which Spotter publishes with its GitHub release and nowhere else
+// (frc-spotter-<version>-linux-<amd64 or arm64>.tar.gz). So it's read from there, as
+// mikegrundvig:frc-spotter, which only that release serves; the test runs on Linux alone.
+def agentArchitecture = [amd64: "amd64", x86_64: "amd64", aarch64: "arm64"][System.getProperty("os.arch")]
+def agentRuns = System.getProperty("os.name").toLowerCase().contains("linux") && agentArchitecture != null
+repositories {
+    exclusiveContent {
+        forRepository {
+            ivy {
+                name = "spotterReleases"
+                url = "https://github.com"
+                patternLayout {
+                    artifact "[organisation]/[module]/releases/download/v[revision]/[module]-[revision]-[classifier].[ext]"
+                }
+                metadataSources { artifact() }
+            }
+        }
+        filter {
+            includeModule "mikegrundvig", "frc-spotter"
+        }
+    }
+}
 configurations {
     spotterAgentForTests {
         canBeConsumed = false
@@ -214,21 +237,51 @@ configurations {
     }
 }
 dependencies {
-    spotterAgentForTests libs.spotter.agent
+    if (agentRuns) {
+        spotterAgentForTests "mikegrundvig:frc-spotter:${libs.versions.spotter.get()}:linux-${agentArchitecture}@tar.gz"
+    }
     visorReleaseForTests "com.michaelgrundvig.frc:visor:${libs.versions.visor.get()}:linux-arm64@tar.gz"
+}
+
+// The agent's program out of its release, for the test to run.
+def spotterAgentProgram = tasks.register("spotterAgentProgram", Sync) {
+    description = "Unpacks Spotter's agent from its release, for CoprocessorsEndToEndTest to run."
+    onlyIf { agentRuns }
+    from({
+        configurations.spotterAgentForTests.collect {
+            tarTree(resources.gzip(it))
+        }
+    }) {
+        include "*/usr/lib/frc-spotter/bin/frc-spotter"
+        eachFile { path = name }
+        includeEmptyDirs = false
+    }
+    into layout.buildDirectory.dir("spotter-agent")
 }
 
 tasks.named("test") {
     useJUnitPlatform()
     // A fresh test JVM every 20 test classes (a robot program's tests do the same).
     forkEvery = 20
-    def spotterAgent = configurations.spotterAgentForTests
     def visorRelease = configurations.visorReleaseForTests
-    inputs.files(spotterAgent).withPropertyName("spotterAgent").withNormalizer(ClasspathNormalizer)
     inputs.files(visorRelease).withPropertyName("visorRelease").withPathSensitivity(PathSensitivity.NAME_ONLY)
+    def agentArguments = []
+    if (agentRuns) {
+        def program = spotterAgentProgram.map {
+            new File(it.destinationDir, "frc-spotter")
+        }
+        inputs.file(program).withPropertyName("spotterAgent").withPathSensitivity(PathSensitivity.NAME_ONLY)
+        agentArguments = [
+            {
+                [
+                    "-Dfrc.spotterAgent=${program.get().absolutePath}".toString()
+                ]
+            } as CommandLineArgumentProvider
+        ]
+    }
+    jvmArgumentProviders.addAll(agentArguments)
     jvmArgumentProviders.add({
         [
-            "-Dfrc.spotterAgent=${spotterAgent.singleFile.absolutePath}".toString(),
             "-Dfrc.visorRelease=${visorRelease.singleFile.absolutePath}".toString()
         ]
     } as CommandLineArgumentProvider)
@@ -255,7 +308,9 @@ tasks.named("test") {
     systemProperty "frc.modelDir", modelDir.absolutePath
     systemProperty "frc.localizationDir", localizationDir.absolutePath
     systemProperty "frc.pitwallDir", pitwallDir.absolutePath
-    inputs.files(fileTree("docs") { include "**/*.md" }, "README.md", new File(pitwallDir, "README.md"))
+    inputs.files(fileTree("docs") {
+        include "**/*.md"
+    }, "README.md", new File(pitwallDir, "README.md"))
     .withPropertyName("guides").withPathSensitivity(PathSensitivity.NAME_ONLY)
     inputs.files(
             fileTree("src") { include "*/java/**/*.java" },
@@ -270,7 +325,9 @@ tasks.named("test") {
     def goldenUpdate = providers.environmentVariable("GOLDEN_UPDATE").orElse("")
     inputs.property("goldenUpdate", goldenUpdate)
     outputs.upToDateWhen { goldenUpdate.get() != "1" }
-    outputs.doNotCacheIf("GOLDEN_UPDATE rewrites src/test/resources") { goldenUpdate.get() == "1" }
+    outputs.doNotCacheIf("GOLDEN_UPDATE rewrites src/test/resources") {
+        goldenUpdate.get() == "1"
+    }
     doFirst { work.get().asFile.mkdirs() }
     // ReplayEndToEndTest's robot programs write their coverage beside the tests' own, for the
     // coverage report to count: the program's startup runs nowhere else.
@@ -281,7 +338,9 @@ tasks.named("test") {
     doFirst { endToEndCoverage.get().asFile.delete() }
 }
 tasks.named("jacocoTestReport") {
-    executionData.from(fileTree(layout.buildDirectory.dir("jacoco")) { include "end-to-end.exec" })
+    executionData.from(fileTree(layout.buildDirectory.dir("jacoco")) {
+        include "end-to-end.exec"
+    })
 }
 
 // Gradle's configuration cache (gradle.properties) can't hold GradleRIO's own tasks yet: the

@@ -350,12 +350,11 @@ public final class Vision implements AutoCloseable {
   private Command trusting(Command task, Supplier<TagLease> take, String name) {
     HeldLease held = new HeldLease();
     return Command.requiring(task.requirements())
-        .executing(
-            coroutine -> {
-              held.lease = Optional.of(take.get());
-              coroutine.await(task);
-              held.release();
-            })
+        .executing(coroutine -> {
+          held.lease = Optional.of(take.get());
+          coroutine.await(task);
+          held.release();
+        })
         // A canceled command never resumes, so nothing after the await runs (not even a finally).
         .whenCanceled(held::release)
         .withPriority(task.priority())
@@ -722,15 +721,14 @@ public final class Vision implements AutoCloseable {
     for (TagDetections.Sighting tag : detections.tags()) {
       field
           .tag(tag.id())
-          .ifPresent(
-              place ->
-                  into.add(
-                      place,
-                      camera.config.robotToCamera(),
-                      tag.bestCameraToTag(),
-                      tag.altCameraToTag(),
-                      heading,
-                      yawRate));
+          .ifPresent(place ->
+              into.add(
+                  place,
+                  camera.config.robotToCamera(),
+                  tag.bestCameraToTag(),
+                  tag.altCameraToTag(),
+                  heading,
+                  yawRate));
     }
   }
 

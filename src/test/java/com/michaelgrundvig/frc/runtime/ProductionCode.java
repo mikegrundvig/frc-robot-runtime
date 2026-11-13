@@ -16,9 +16,8 @@ final class ProductionCode {
           .withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
           // The test fixtures (the simulator's harness, the simulation's truth suite's known gaps)
           // are tests' too.
-          .withImportOption(
-              location ->
-                  !location.contains("/testFixtures/") && !location.contains("-test-fixtures"))
+          .withImportOption(location ->
+              !location.contains("/testFixtures/") && !location.contains("-test-fixtures"))
           .importPackages(
               "com.michaelgrundvig.frc.runtime",
               "com.michaelgrundvig.frc.world",

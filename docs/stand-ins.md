@@ -13,13 +13,22 @@ delete the row when you replace it.
 
 Released, but alpha: each is tied to one WPILib alpha, and moves with it.
 
+- **WPILib 2027.0.0-alpha-8**, and the rules of its Commands v3 scheduler that the runtime relies
+  on: a command that needs a mechanism not controllable while disabled (every joint, the
+  drivetrain) is refused while the robot is disabled and canceled at a disable; a default command
+  does not run while disabled, and starts at the enable; a command started in one robot mode
+  outside any other command is canceled when that mode ends. The Driver Station gives no robot
+  mode until the program has started its loop. A robot program now needs WPILib's own
+  `CameraServer.json` and `AprilTag.json` vendordeps beside the others: GradleRIO no longer brings
+  the camera server, OpenCV or AprilTag, and PhotonLib's simulation needs all three.
+
 - **Phoenix 6 26.70.0-alpha-2** (`vendordeps/Phoenix6-26.70.0-alpha-2.json`, from WPILib's
   vendor-json-repo, `2027_alpha7`): the version CTRE pairs with WPILib alpha 7. Every CTRE device
   needs firmware 26.70 to talk to it (Phoenix Tuner X Preview flashes it), and a CANivore on
   Systemcore needs CTRE's `canivore-usb` package ([canivore.md](canivore.md)). No Pro license is
   assumed: no FOC, and the steering reads its CANcoder as a remote sensor.
 
-- **REVLib 2027.0.0-alpha-8** (`vendordeps/REVLib.json`, from REV's own `REVLib-2027.json`,
+- **REVLib 2027.0.0-alpha-9** (`vendordeps/REVLib.json`, from REV's own `REVLib-2027.json`,
   `2027_alpha7`). Its units were measured in REV's simulation (2026-10-05); a SPARK's direction
   (counterclockwise positive, seen facing its shaft, as Phoenix's) is REV's convention and not yet
   confirmed on a robot. Neither is how a SPARK reads an encoder on its data port: its `zeroOffset`

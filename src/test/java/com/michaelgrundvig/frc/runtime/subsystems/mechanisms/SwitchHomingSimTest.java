@@ -76,15 +76,14 @@ class SwitchHomingSimTest {
     JointsSimHarness turretSim =
         new JointsSimHarness(
             TURRET_ROBOT.with(
-                TURRET.retuned(
-                    control ->
-                        homed(
-                            control,
-                            MechanismControlHomingToSwitchBuilder.builder()
-                                .end(Sensor.Switch.Limit.End.LOWER)
-                                .volts(1)
-                                .timeout(Seconds.of(5))
-                                .build()))));
+                TURRET.retuned(control ->
+                    homed(
+                        control,
+                        MechanismControlHomingToSwitchBuilder.builder()
+                            .end(Sensor.Switch.Limit.End.LOWER)
+                            .volts(1)
+                            .timeout(Seconds.of(5))
+                            .build()))));
     JointMechanism turret = turretSim.joints.of(TURRET);
     turretSim.simulation.powerOnAt(TURRET, Math.toRadians(-40));
     Move front = turret.goTo(TURRET_FRONT).within(Seconds.of(6));
@@ -117,8 +116,8 @@ class SwitchHomingSimTest {
 
   /**
    * With its switch lost, homing never ends well: the joint's faulted, saying why, once the time
-   * worked out from its travel has passed, and saying that time: twice the 0.56 s its model crosses
-   * its 135° in at 2 V, and half a second more, 1.625 s from its first loop.
+   * worked out from its travel has passed, and saying that time: twice the 0.556 s its model
+   * crosses its 135° in at 2 V, and half a second more, 1.613 s from its first loop.
    */
   @Test
   void aLostSwitchFaultsItsHoming() {
@@ -127,7 +126,7 @@ class SwitchHomingSimTest {
 
     double took = sim.runUntil(() -> pivot.state() == JointMechanism.State.FAULTED, 3);
 
-    assertThat(took).as("the first loop past 1.625 s from the first").isCloseTo(1.66, within(1e-9));
+    assertThat(took).as("the first loop past 1.613 s from the first").isCloseTo(1.64, within(1e-9));
     assertThat(pivot.fault().orElse(null))
         .isEqualTo(
             "pivot's homing didn't trip pivot down in 1.6 s (its travel takes 0.6 s at 2.0 V):"
@@ -244,15 +243,14 @@ class SwitchHomingSimTest {
    */
   private static void assertItsControllerStops(RevoluteJoint wired) {
     RevoluteJoint turret =
-        wired.retuned(
-            control ->
-                homed(
-                    control,
-                    MechanismControlHomingToSwitchBuilder.builder()
-                        .end(End.LOWER)
-                        .volts(1)
-                        .timeout(Seconds.of(5))
-                        .build()));
+        wired.retuned(control ->
+            homed(
+                control,
+                MechanismControlHomingToSwitchBuilder.builder()
+                    .end(End.LOWER)
+                    .volts(1)
+                    .timeout(Seconds.of(5))
+                    .build()));
     Watched[] watched = new Watched[1];
     JointsSimHarness sim =
         new JointsSimHarness(

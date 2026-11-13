@@ -152,12 +152,11 @@ class HoodSimTest {
         .isEmpty();
     assertThat(Math.toDegrees(math.fromAbsolute(encoder, port.read(raw))))
         .isCloseTo(30, within(1e-9));
-    assertThatThrownBy(
-            () ->
-                RobotDefinitionBuilder.builder(ROBOT)
-                    .joints(List.of(HOOD.absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0)))))
-                    .build()
-                    .checked())
+    assertThatThrownBy(() ->
+            RobotDefinitionBuilder.builder(ROBOT)
+                .joints(List.of(HOOD.absoluteEncoder(CANCODER.can(34).offset(Rotations.of(0)))))
+                .build()
+                .checked())
         .hasMessageEndingWith(
             "hood's absolute encoder is wired, and its motors aren't: it's read through their"
                 + " controller, so wire them too; a joint your own code drives reads one on a"

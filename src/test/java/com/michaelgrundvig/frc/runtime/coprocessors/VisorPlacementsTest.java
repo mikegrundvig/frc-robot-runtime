@@ -86,11 +86,10 @@ class VisorPlacementsTest {
             new Row("before any report", List.of(), List.of(none, none, none)),
             new Row(
                 "each on its board, the agent's port left off",
-                List.of(
-                    boards -> {
-                      boards.get(0).says(FRONT);
-                      boards.get(1).says(BACK + ",usb-Other-video-index0");
-                    }),
+                List.of(boards -> {
+                  boards.get(0).says(FRONT);
+                  boards.get(1).says(BACK + ",usb-Other-video-index0");
+                }),
                 List.of(left, right, none)),
             new Row(
                 "a board out of reach keeps what it said",

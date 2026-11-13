@@ -41,9 +41,8 @@ class VisorPluginTest {
     server.setPasswordAuthenticator(
         (user, password, session) -> user.equals("systemcore") && password.equals("secret"));
     server.setSubsystemFactories(List.of(new SftpSubsystemFactory()));
-    server.setCommandFactory(
-        (channel, command) ->
-            new ProcessShellFactory(command, "/bin/sh", "-c", command).createShell(channel));
+    server.setCommandFactory((channel, command) ->
+        new ProcessShellFactory(command, "/bin/sh", "-c", command).createShell(channel));
     server.start();
 
     write("settings.gradle", "rootProject.name = 'fixture'\n");
@@ -208,15 +207,15 @@ class VisorPluginTest {
 
   private static String pom(String artifact, String version, String packaging) {
     return """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <project xmlns="http://maven.apache.org/POM/4.0.0">
-          <modelVersion>4.0.0</modelVersion>
-          <groupId>com.michaelgrundvig.frc</groupId>
-          <artifactId>%s</artifactId>
-          <version>%s</version>
-          <packaging>%s</packaging>
-        </project>
-        """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <groupId>com.michaelgrundvig.frc</groupId>
+      <artifactId>%s</artifactId>
+      <version>%s</version>
+      <packaging>%s</packaging>
+    </project>
+    """
         .formatted(artifact, version, packaging);
   }
 

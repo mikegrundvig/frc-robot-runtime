@@ -33,6 +33,8 @@ import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.wpilib.simulation.AlertSim;
 import org.wpilib.util.AlertDataJNI;
@@ -41,11 +43,12 @@ import org.wpilib.util.AlertDataJNI;
  * A robot's coprocessors as the robot program starts: its configuration names two boards. Spotter's
  * real agent runs on the first with nothing of Visor's, and the robot pushes it Visor's pack (from
  * the Visor release this runtime's client belongs to), installs its Visor release, and configures
- * it for the robot's camera plugged into it. The board is this computer: the agent runs from its
- * published jar with its files under a folder of the test's, and Visor's program is a script that
- * answers {@code version} and {@code check} as Visor does. The second board never answers, and the
- * robot's alerts say so.
+ * it for the robot's camera plugged into it. The board is this computer: the agent is the program
+ * of its release, run with its files under a folder of the test's, and Visor's program is a script
+ * that answers {@code version} and {@code check} as Visor does. The second board never answers, and
+ * the robot's alerts say so.
  */
+@EnabledOnOs(value = OS.LINUX, disabledReason = "Spotter's agent is a Linux program")
 class CoprocessorsEndToEndTest {
   private static final String CAMERA = "usb-Thrifty_Cam_0001-video-index0";
 
@@ -487,9 +490,7 @@ class CoprocessorsEndToEndTest {
                 "/bin/sh",
                 "-c",
                 // With the umask its systemd unit gives it (UMask=0077), as on a board.
-                "umask 077; exec \"$0\" -Xmx128m -jar \"$1\" --root=\"$2\" --controller=127.0.0.1"
-                    + " --port=\"$3\"",
-                ProcessHandle.current().info().command().orElse("java"),
+                "umask 077; exec \"$0\" --root=\"$1\" --controller=127.0.0.1 --port=\"$2\"",
                 System.getProperty("frc.spotterAgent"),
                 root.toString(),
                 Integer.toString(port))

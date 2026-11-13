@@ -220,33 +220,32 @@ class FaultsTest {
     Map<String, String> expected = new LinkedHashMap<>();
 
     catalog(world)
-        .forEach(
-            (kind, faults) -> {
-              for (FaultCatalog.Fault fault : faults) {
-                FaultCatalog.Lifetime other =
-                    fault.lasting()
-                        ? FaultCatalog.Lifetime.HAPPENS_ONCE
-                        : FaultCatalog.Lifetime.LASTS_UNTIL_UNDONE;
-                String row = kind + ": " + fault.name();
-                try {
-                  Faults.declared(fault, other);
-                  refused.put(row, "taken");
-                } catch (IllegalArgumentException e) {
-                  refused.put(row, e.getMessage());
-                }
-                expected.put(
-                    row,
-                    "the fault catalog's \""
-                        + fault.name()
-                        + (fault.lasting()
-                            ? "\" lasts until it is undone, but it was bound as one that happens"
-                                + " once: bind it with lasting(), saying how it is undone, or"
-                                + " change its lifetime in FaultCatalog"
-                            : "\" happens once, but it was bound as one that lasts: bind it with"
-                                + " event(), or change its lifetime in FaultCatalog"));
-                assertThat(Faults.declared(fault, fault.lifetime())).as(row).isNotNull();
-              }
-            });
+        .forEach((kind, faults) -> {
+          for (FaultCatalog.Fault fault : faults) {
+            FaultCatalog.Lifetime other =
+                fault.lasting()
+                    ? FaultCatalog.Lifetime.HAPPENS_ONCE
+                    : FaultCatalog.Lifetime.LASTS_UNTIL_UNDONE;
+            String row = kind + ": " + fault.name();
+            try {
+              Faults.declared(fault, other);
+              refused.put(row, "taken");
+            } catch (IllegalArgumentException e) {
+              refused.put(row, e.getMessage());
+            }
+            expected.put(
+                row,
+                "the fault catalog's \""
+                    + fault.name()
+                    + (fault.lasting()
+                        ? "\" lasts until it is undone, but it was bound as one that happens"
+                            + " once: bind it with lasting(), saying how it is undone, or"
+                            + " change its lifetime in FaultCatalog"
+                        : "\" happens once, but it was bound as one that lasts: bind it with"
+                            + " event(), or change its lifetime in FaultCatalog"));
+            assertThat(Faults.declared(fault, fault.lifetime())).as(row).isNotNull();
+          }
+        });
 
     assertThat(refused).hasSizeGreaterThan(20).containsExactlyEntriesOf(expected);
   }

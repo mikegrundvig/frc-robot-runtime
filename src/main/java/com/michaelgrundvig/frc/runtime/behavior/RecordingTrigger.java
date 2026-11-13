@@ -283,8 +283,9 @@ public final class RecordingTrigger extends Trigger {
    * a mechanism belongs on one of those: started while disabled, it would move the robot as it is
    * enabled.
    *
-   * <p>Commands v3 has no way for a command to say it runs while disabled, so this is the
-   * template's own, and it is the only one.
+   * <p>WPILib's scheduler runs a command while disabled only if it needs no mechanism that is
+   * driven (none of the robot's joints, nor its drivetrain): the heading reset needs none. That a
+   * press while disabled starts it is this trigger's own, and it is the only one.
    */
   public RecordingTrigger onTrueAlsoWhileDisabled(Command command) {
     record(pressesAlsoWhileDisabled, BindingStart.ON_PRESS, command);

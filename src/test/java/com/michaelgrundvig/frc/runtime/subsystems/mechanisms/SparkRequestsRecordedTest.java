@@ -142,11 +142,10 @@ class SparkRequestsRecordedTest {
         unmotored(PIVOT)
             .motors(Motor.NEO.through(gearing(25)).on(SPARK_MAX.can(61)))
             .absoluteEncoder(DATA_PORT.offset(Rotations.of(0.1)).inverted().closesLoop())
-            .retuned(
-                control ->
-                    MechanismControlBuilder.builder(control.withKs(0.2).withKg(0.5))
-                        .homing(Optional.empty())
-                        .build());
+            .retuned(control ->
+                MechanismControlBuilder.builder(control.withKs(0.2).withKg(0.5))
+                    .homing(Optional.empty())
+                    .build());
     JointIOSpark io = new JointIOSpark(ROBOT.with(pivot).math(), pivot, ControllerPins.NONE);
     SparkAbsoluteEncoderSim encoder = new SparkAbsoluteEncoderSim((SparkMax) io.leader());
     JointIO.JointIOInputs inputs = new JointIO.JointIOInputs();

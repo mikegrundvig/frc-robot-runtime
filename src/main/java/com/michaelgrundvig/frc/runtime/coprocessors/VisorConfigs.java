@@ -201,16 +201,15 @@ public final class VisorConfigs {
     }
     visor
         .lens()
-        .ifPresent(
-            lens ->
-                entry.lens(
-                    lens.width(),
-                    lens.height(),
-                    lens.fx(),
-                    lens.fy(),
-                    lens.cx(),
-                    lens.cy(),
-                    lens.distortion().stream().mapToDouble(Double::doubleValue).toArray()));
+        .ifPresent(lens ->
+            entry.lens(
+                lens.width(),
+                lens.height(),
+                lens.fx(),
+                lens.fy(),
+                lens.cx(),
+                lens.cy(),
+                lens.distortion().stream().mapToDouble(Double::doubleValue).toArray()));
   }
 
   /**

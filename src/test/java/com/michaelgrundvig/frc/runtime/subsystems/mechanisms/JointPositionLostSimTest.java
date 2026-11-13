@@ -28,6 +28,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -43,6 +44,15 @@ import org.wpilib.system.RobotController;
  */
 @ExtendWith(RobotSim.class)
 class JointPositionLostSimTest {
+  /**
+   * The robot is enabled, as the loops below say it is: the scheduler reads the Driver Station, and
+   * refuses a joint's command while it is disabled.
+   */
+  @BeforeEach
+  void enabled() {
+    RobotSim.setEnabled(true);
+  }
+
   /** The pivot's through-bore on port 1, which its loop closes on. */
   private static final MechanismWiring.PortEncoder PORT_1 =
       MechanismWiring.PortEncoder.dutyCycle(1).offset(Rotations.of(0.3)).inverted();

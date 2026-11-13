@@ -71,7 +71,7 @@ class DynamicsTruthSimTest {
         measured,
         physics,
         0.01,
-        amps == 30 ? 4.3529 : 8.7058,
+        amps == 30 ? 4.2956 : 8.5911,
         0.002);
     assertThat(rig.velocity().getY()).as("straight ahead").isCloseTo(0, within(1e-9));
   }
@@ -210,7 +210,7 @@ class DynamicsTruthSimTest {
     stillOpen(
         "energy never rises while coasting",
         rise <= 0.01,
-        Math.abs(rise - 35.15) < 0.5,
+        Math.abs(rise - 34.26) < 0.5,
         "it rose " + rise + " J after its lowest");
   }
 
@@ -291,7 +291,7 @@ class DynamicsTruthSimTest {
         spent / work,
         1,
         0.02,
-        0.6888,
+        0.6975,
         0.002);
   }
 

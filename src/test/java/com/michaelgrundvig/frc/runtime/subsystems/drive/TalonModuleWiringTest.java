@@ -439,11 +439,8 @@ class TalonModuleWiringTest {
           () -> inputs.unconfigured.isEmpty());
     }
     MotorOutputConfigs steerOutput = new MotorOutputConfigs();
-    readBack(
-        () ->
-            new TalonFX(STEER_ID, BUS)
-                .getConfigurator()
-                .refresh(steerOutput, SETTINGS_WAIT_SECONDS));
+    readBack(() ->
+        new TalonFX(STEER_ID, BUS).getConfigurator().refresh(steerOutput, SETTINGS_WAIT_SECONDS));
     assertThat(steerOutput.Inverted)
         .as("the steering's direction, sent again")
         .isEqualTo(InvertedValue.Clockwise_Positive);

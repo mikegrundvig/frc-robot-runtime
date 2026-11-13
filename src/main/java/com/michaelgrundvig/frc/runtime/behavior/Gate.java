@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.behavior;
 import static com.michaelgrundvig.frc.world.config.Rules.possessive;
 import static org.wpilib.units.Units.Seconds;
 
+import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import com.google.errorprone.annotations.CheckReturnValue;
 import com.michaelgrundvig.frc.world.record.ControlSentences;
 import com.michaelgrundvig.frc.world.record.GateTerm;
@@ -10,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
+import org.wpilib.command3.Command;
 import org.wpilib.command3.Scheduler;
 import org.wpilib.command3.Trigger;
 import org.wpilib.math.filter.Debouncer;
@@ -36,6 +38,12 @@ import org.wpilib.units.measure.Time;
  * that is waited on or bound is read every loop, so the two come to the same thing. The difference
  * is that the second kind costs nothing once nobody reads it, so a command can make a new gate on
  * every run without leaving anything behind.
+ *
+ * <p>WPILib polls every trigger once a loop, from the moment it is made until it is garbage
+ * collected, which can be long after the command that made it is over. So a gate made once the
+ * robot runs gives that poll what it last worked out, which works nothing out and logs nothing,
+ * until a command is bound to the gate itself ({@link #onTrue} and the like). From then on the poll
+ * works it out, as a read does, so the binding sees each loop's answer.
  *
  * <p><b>A gate on what was asked.</b> Most gates state a fact about the robot: where a joint is,
  * what a sensor reads. Such a fact, worked out once for a loop, is true for all of that loop. A few
@@ -197,9 +205,40 @@ public final class Gate extends Trigger {
     boolean held;
   }
 
+  /**
+   * What a gate's v3 trigger reads each time WPILib polls it. A gate made as the robot starts is
+   * read as it is everywhere else. A gate made once the robot runs gives what it last worked out,
+   * until a command is bound to it, and from then on is read as everywhere else.
+   */
+  private static final class Poll implements BooleanSupplier {
+    private final GateState state;
+
+    /** Whether a poll works the gate out, or only gives what it last worked out. */
+    private boolean worksItOut;
+
+    Poll(GateState state, boolean worksItOut) {
+      this.state = state;
+      this.worksItOut = worksItOut;
+    }
+
+    /** From now on a poll works the gate out: a command is bound to it. */
+    void startWorkingItOut() {
+      worksItOut = true;
+    }
+
+    @Override
+    public boolean getAsBoolean() {
+      if (worksItOut) {
+        return state.getAsBoolean();
+      }
+      return state.heldLastTime();
+    }
+  }
+
   private final Scheduler scheduler;
   private final String name;
   private final GateState state;
+  private final Poll poll;
 
   /**
    * A gate whose logic names what keeps it false. A mechanism's or a sensor's gate is built from
@@ -210,10 +249,15 @@ public final class Gate extends Trigger {
   }
 
   private Gate(Scheduler scheduler, String name, GateState state) {
-    super(scheduler, state);
+    this(scheduler, name, state, new Poll(state, Refusals.starting(scheduler)));
+  }
+
+  private Gate(Scheduler scheduler, String name, GateState state, Poll poll) {
+    super(scheduler, poll);
     this.scheduler = scheduler;
     this.name = name;
     this.state = state;
+    this.poll = poll;
     state.workOut();
     if (Refusals.starting(scheduler)) {
       scheduler.addPeriodic(state::workOut);
@@ -221,11 +265,10 @@ public final class Gate extends Trigger {
     }
     // The scheduler keeps every periodic task for good. So a gate made once the robot runs is not
     // given one: it is worked out as it is read, and nothing of it is left running when the
-    // command that made it is over. For the same reason its trigger is unbound here: a v3 trigger
-    // polls from the moment it is made, and an unbound one starts polling again only when a
-    // command is bound to it.
+    // command that made it is over. WPILib still polls its trigger every loop until the trigger is
+    // garbage collected, and that poll gives what the gate last worked out (Poll) until a command
+    // is bound to it.
     state.workOutWhenRead();
-    unbind();
   }
 
   /** A gate on any condition: {@code Gate.of(scheduler, "in range", () -> distance() <= 5)}. */
@@ -405,6 +448,82 @@ public final class Gate extends Trigger {
       return button.or(this);
     }
     return super.or(condition);
+  }
+
+  // A command bound to the gate itself reads it at WPILib's poll. So each binding first has the
+  // poll work the gate out (Poll): a gate made once the robot runs otherwise gives the poll only
+  // what it last worked out.
+
+  /** Starts the command when the gate becomes true. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger onTrue(Command command) {
+    poll.startWorkingItOut();
+    return super.onTrue(command);
+  }
+
+  /** Starts the command on every loop the gate is true. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger ifTrue(Command command) {
+    poll.startWorkingItOut();
+    return super.ifTrue(command);
+  }
+
+  /** Starts the command when the gate becomes false. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger onFalse(Command command) {
+    poll.startWorkingItOut();
+    return super.onFalse(command);
+  }
+
+  /** Runs the command while the gate is true. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger whileTrue(Command command) {
+    poll.startWorkingItOut();
+    return super.whileTrue(command);
+  }
+
+  /** Runs the command while the gate is false. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger whileFalse(Command command) {
+    poll.startWorkingItOut();
+    return super.whileFalse(command);
+  }
+
+  /** Starts the command on every loop the gate is true, and cancels it when it is false. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger retryWhileTrue(Command command) {
+    poll.startWorkingItOut();
+    return super.retryWhileTrue(command);
+  }
+
+  /** Starts the command on every loop the gate is false, and cancels it when it is true. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger retryWhileFalse(Command command) {
+    poll.startWorkingItOut();
+    return super.retryWhileFalse(command);
+  }
+
+  /** Starts or cancels the command, in turn, each time the gate becomes true. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger toggleOnTrue(Command command) {
+    poll.startWorkingItOut();
+    return super.toggleOnTrue(command);
+  }
+
+  /** Starts or cancels the command, in turn, each time the gate becomes false. */
+  @Override
+  @CanIgnoreReturnValue
+  public Trigger toggleOnFalse(Command command) {
+    poll.startWorkingItOut();
+    return super.toggleOnFalse(command);
   }
 
   /** Its name, as logged: "ready to shoot". */

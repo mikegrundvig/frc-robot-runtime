@@ -269,7 +269,7 @@ class JointIOSimTest {
   /**
    * Pushed into its upper stop at 3 V, the pivot is held there, its Kraken stalled at its 40 A
    * limit: what the motor's model says it draws from the battery standing still, 40 A through its
-   * windings at 1.3 V, 4.4 A, and no more. Its controller and its PDH channel read that.
+   * windings at 1.3 V, 4.3 A, and no more. Its controller and its PDH channel read that.
    */
   @Test
   void pushedIntoItsStopItDrawsWhatItsStalledMotorDraws() {
@@ -286,7 +286,7 @@ class JointIOSimTest {
     assertThat(inputs.statorCurrentAmps).isCloseTo(40, within(1e-9));
     assertThat(inputs.supplyCurrentAmps)
         .isCloseTo(stalled, within(1e-9))
-        .isCloseTo(4.4, within(0.1));
+        .isCloseTo(4.3, within(0.1));
     assertThat(sim.supplyAmps()).isEqualTo(inputs.supplyCurrentAmps);
   }
 
@@ -382,11 +382,10 @@ class JointIOSimTest {
   @Test
   void itRefusesAJointTheRobotWouldRefuse() {
     RevoluteJoint turned =
-        BARE_ARM.retuned(
-            control ->
-                control
-                    .withKg(0.4, Degrees.of(-120))
-                    .withHoming(MechanismControl.Homing.assumeAtRest()));
+        BARE_ARM.retuned(control ->
+            control
+                .withKg(0.4, Degrees.of(-120))
+                .withHoming(MechanismControl.Homing.assumeAtRest()));
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(MASSLESS).joints(List.of(turned)).build();
 

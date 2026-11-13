@@ -91,14 +91,13 @@ final class ExampleCommands {
   Command deployOrBackOff() {
     // @start region=recovery
     return Command.requiring(pivot)
-        .executing(
-            co -> {
-              var deploy = pivot.goTo(PIVOT_OUT);
-              co.await(deploy);
-              if (!deploy.arrived()) {
-                co.await(pivot.goTo(PIVOT_IN)); // back off
-              }
-            })
+        .executing(co -> {
+          var deploy = pivot.goTo(PIVOT_OUT);
+          co.await(deploy);
+          if (!deploy.arrived()) {
+            co.await(pivot.goTo(PIVOT_IN)); // back off
+          }
+        })
         .named("Deploy or back off");
     // @end
   }
@@ -106,13 +105,12 @@ final class ExampleCommands {
   /** A law of its own: the roller pushed at a voltage it works out every loop. */
   Command push() {
     return roller
-        .run(
-            co -> {
-              while (true) {
-                roller.setVoltage(pushVolts());
-                co.yield();
-              }
-            })
+        .run(co -> {
+          while (true) {
+            roller.setVoltage(pushVolts());
+            co.yield();
+          }
+        })
         .named("Push");
   }
 
@@ -122,11 +120,10 @@ final class ExampleCommands {
     Move intake =
         roller.runUntil(INTAKING, coralIn); // ends ARRIVED the loop it trips, and has no deadline
     return Command.requiring(roller)
-        .executing(
-            co -> {
-              co.await(intake);
-              co.waitUntil(coralIn); // holds a step
-            })
+        .executing(co -> {
+          co.await(intake);
+          co.waitUntil(coralIn); // holds a step
+        })
         .named("Intake one");
   }
 
@@ -159,14 +156,13 @@ final class ExampleCommands {
   /** Spins up, and feeds whenever it's ready, pausing when it's not. */
   Command shoot() {
     return Command.requiring(shooter, feeder, indexer)
-        .executing(
-            co -> {
-              co.fork(shooter.follow(() -> RPM.of(speedFor(distance()))));
-              while (true) {
-                co.waitUntil(readyToShoot);
-                co.await(joints.run(FEEDING).onlyWhile(readyToShoot));
-              }
-            })
+        .executing(co -> {
+          co.fork(shooter.follow(() -> RPM.of(speedFor(distance()))));
+          while (true) {
+            co.waitUntil(readyToShoot);
+            co.await(joints.run(FEEDING).onlyWhile(readyToShoot));
+          }
+        })
         .named("Shoot");
   }
 

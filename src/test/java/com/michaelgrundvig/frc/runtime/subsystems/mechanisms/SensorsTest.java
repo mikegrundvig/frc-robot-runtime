@@ -48,17 +48,16 @@ class SensorsTest {
     assertThat(RobotConfigBuilder.builder(ExampleRobot.SIM).definition(wired).build().definition())
         .isEqualTo(wired);
     assertThatIllegalArgumentException()
-        .isThrownBy(
-            () ->
-                RobotDefinitionBuilder.builder(wired)
-                    .sensors(
-                        List.of(
-                            down,
-                            up,
-                            HOPPER_RANGE.on(CANRANGE.can(BUS, 30)),
-                            SHOOTER_RANGE.on(CANRANGE.can(BUS, 30))))
-                    .build()
-                    .checked())
+        .isThrownBy(() ->
+            RobotDefinitionBuilder.builder(wired)
+                .sensors(
+                    List.of(
+                        down,
+                        up,
+                        HOPPER_RANGE.on(CANRANGE.can(BUS, 30)),
+                        SHOOTER_RANGE.on(CANRANGE.can(BUS, 30))))
+                .build()
+                .checked())
         .withMessage(
             "RobotDefinition[joints].devices: two CANranges on Systemcore's CAN_S0 port share CAN"
                 + " ID 30, hopper range and shooter range: give each its own");

@@ -19,9 +19,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.wpilib.command3.Scheduler;
+import org.wpilib.driverstation.RobotState;
 import org.wpilib.simulation.AlertSim;
 import org.wpilib.system.RobotController;
 
@@ -32,6 +34,15 @@ import org.wpilib.system.RobotController;
  */
 @ExtendWith(RobotSim.class)
 class JointFaultsSimTest {
+  /**
+   * The robot is enabled, as the loops below say it is: the scheduler reads the Driver Station, and
+   * refuses a joint's command while it is disabled.
+   */
+  @BeforeEach
+  void enabled() {
+    RobotSim.setEnabled(true);
+  }
+
   private final Scheduler scheduler = Scheduler.createIndependentScheduler();
   private final JointSimulation simulation = new JointSimulation(ROBOT);
   private Silenceable pivotIo = new Silenceable(new JointIO() {});
@@ -154,6 +165,9 @@ class JointFaultsSimTest {
 
   /** One loop, with the robot enabled or not. */
   private void loop(boolean enabled) {
+    if (RobotState.isEnabled() != enabled) {
+      RobotSim.setEnabled(enabled); // as the Driver Station says it, for the scheduler
+    }
     RobotSim.stepClock();
     simulation.step(RobotLoop.PERIOD_SECONDS);
     joints.read(RobotController.getTime(), enabled);

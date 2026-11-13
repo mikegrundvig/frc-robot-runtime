@@ -252,12 +252,11 @@ class WorldViewFromTheRecordEndToEndTest {
       lastFared.put(sight, each.substring(each.lastIndexOf('.') + 1));
     }
     Set<String> expected = new TreeSet<>();
-    lastMeasured.forEach(
-        (sight, when) -> {
-          if (loop - when[0] <= LOOPS_HELD) {
-            expected.add("ray." + sight + "." + lastFared.get(sight));
-          }
-        });
+    lastMeasured.forEach((sight, when) -> {
+      if (loop - when[0] <= LOOPS_HELD) {
+        expected.add("ray." + sight + "." + lastFared.get(sight));
+      }
+    });
     Set<String> lines = new TreeSet<>();
     for (Map<String, Object> line :
         drawn.shapesOfTheMoment().getOrDefault("sight-lines", List.of())) {

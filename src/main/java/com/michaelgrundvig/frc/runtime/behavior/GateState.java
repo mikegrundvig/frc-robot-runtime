@@ -164,6 +164,14 @@ final class GateState implements BooleanSupplier {
     logged = false;
   }
 
+  /**
+   * Whether the gate held the last time it was worked out, without working it out again: nothing
+   * runs, and nothing is logged.
+   */
+  boolean heldLastTime() {
+    return holds;
+  }
+
   /** Whether the gate holds, as of this loop. */
   @Override
   public boolean getAsBoolean() {

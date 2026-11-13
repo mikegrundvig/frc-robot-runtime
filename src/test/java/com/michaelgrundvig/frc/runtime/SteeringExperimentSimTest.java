@@ -98,20 +98,19 @@ class SteeringExperimentSimTest {
     private void read(Stream<String> lines) {
       List<String> event = new ArrayList<>();
       try {
-        lines.forEach(
-            line -> {
-              if (line.isEmpty()) {
-                if (event.size() == 2) {
-                  events.add(
-                      new Sse(
-                          event.get(0).substring("event: ".length()),
-                          asMap(JSON.fromJson(event.get(1).substring("data: ".length())))));
-                }
-                event.clear();
-              } else {
-                event.add(line);
-              }
-            });
+        lines.forEach(line -> {
+          if (line.isEmpty()) {
+            if (event.size() == 2) {
+              events.add(
+                  new Sse(
+                      event.get(0).substring("event: ".length()),
+                      asMap(JSON.fromJson(event.get(1).substring("data: ".length())))));
+            }
+            event.clear();
+          } else {
+            event.add(line);
+          }
+        });
       } catch (UncheckedIOException closed) {
         // The test is over.
       }
@@ -203,9 +202,8 @@ class SteeringExperimentSimTest {
       }
       if (event.event().equals("samples")) {
         asMap(event.data().get("signals"))
-            .forEach(
-                (signal, series) ->
-                    samples.merge(signal, asList(asMap(series).get("t")).size(), Integer::sum));
+            .forEach((signal, series) ->
+                samples.merge(signal, asList(asMap(series).get("t")).size(), Integer::sum));
       }
     }
 
@@ -258,7 +256,7 @@ class SteeringExperimentSimTest {
     }
     assertThat(number(asMap(run.state.get("gains")).get(STEER_KP))).isEqualTo(16.0);
     // Each turn starts with the loop asking 12 V of a motor standing still, enough to draw its
-    // stall current, 366 A: it draws its limit, 40 A.
+    // stall current, 374.4 A: it draws its limit, 40 A.
     for (String wheel : WHEELS) {
       assertThat(run.peak(wheel + " current")).as(wheel + ", amps").isCloseTo(40, within(1e-9));
       assertThat(run.peak(wheel + " voltage")).as(wheel + ", volts").isCloseTo(12, within(1e-9));

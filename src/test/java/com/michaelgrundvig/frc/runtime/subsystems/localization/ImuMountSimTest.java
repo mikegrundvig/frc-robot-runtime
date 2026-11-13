@@ -51,11 +51,10 @@ class ImuMountSimTest {
     try (DriveSimHarness harness =
         new DriveSimHarness(robot, SensorErrors.TYPICAL.withAccelerometer(accelerometer))) {
       int[] counts = new int[2];
-      harness.eachLoop(
-          () -> {
-            counts[0] += harness.localization.conditions().slipMetersPerSecond() > 0 ? 1 : 0;
-            counts[1] += harness.localization.conditions().collision() ? 1 : 0;
-          });
+      harness.eachLoop(() -> {
+        counts[0] += harness.localization.conditions().slipMetersPerSecond() > 0 ? 1 : 0;
+        counts[1] += harness.localization.conditions().collision() ? 1 : 0;
+      });
       for (double[] leg : CLEAN) {
         harness.drive(leg[0], leg[1], leg[2], leg[3]);
       }

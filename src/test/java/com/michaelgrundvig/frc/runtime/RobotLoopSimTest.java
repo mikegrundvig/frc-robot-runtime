@@ -99,10 +99,9 @@ class RobotLoopSimTest {
     RobotSim.setEnabled(true);
     Command broken =
         Command.noRequirements(RobotLoopSimTest::runUntilCanceled)
-            .whenCanceled(
-                () -> {
-                  throw new IllegalStateException("broken on purpose");
-                })
+            .whenCanceled(() -> {
+              throw new IllegalStateException("broken on purpose");
+            })
             .named("Broken");
     Command after = Command.noRequirements(RobotLoopSimTest::runUntilCanceled).named("After it");
     sim.scheduler().schedule(broken);
@@ -114,8 +113,8 @@ class RobotLoopSimTest {
     sim.loopOnRobot();
 
     assertThat(sim.scheduler().getRunningCommands())
-        .extracting(Command::name)
-        .containsExactly("Drive with the sticks");
+        .as("nothing runs while disabled, the drive's default command neither")
+        .isEmpty();
     assertThat(raised())
         .singleElement()
         .asString()
