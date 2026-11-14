@@ -81,6 +81,12 @@ public final class TalonJointBench implements JointBench {
   /** How many times a read of a device's settings asks for them before it gives up. */
   private static final int SETTINGS_TRIES = 5;
 
+  /**
+   * How long powering on waits for each device to send its faults again, in seconds: eight of the
+   * quarter seconds a Talon leaves between them.
+   */
+  private static final double FAULTS_WAIT_SECONDS = 2;
+
   private final MechanismWiring.Controller kind;
   private final String busName;
 
@@ -380,6 +386,40 @@ public final class TalonJointBench implements JointBench {
 
       io = new JointIOTalon(robot.math(), joint, pins, frames);
       leaderFrame = controllers.get(LEADER).talon().getPosition();
+      waitForFaultsSentSincePowerOn();
+    }
+
+    /**
+     * Waits for each device to send its fault field again, now that the driver has set it up.
+     *
+     * <p>Phoenix keeps a simulated device for the life of the JVM, with the last frame it sent, and
+     * a device sends its faults only four times a second. So the fault field on hand as a rig
+     * powers on can be one from the scenario before: a push held at a current limit there would
+     * read as this joint's fault for up to a quarter second. A device out of its box has reported
+     * nothing yet, so the driver is handed over only once every fault field it can read was sent by
+     * the device as this rig set it up.
+     */
+    private void waitForFaultsSentSincePowerOn() {
+      List<StatusSignal<Integer>> faultFields = new ArrayList<>();
+      for (Controller controller : controllers) {
+        faultFields.add(controller.talon().getFaultField(false));
+      }
+      cancoder.ifPresent(device -> faultFields.add(device.getFaultField(false)));
+      double[] onHand = new double[faultFields.size()];
+      for (int i = 0; i < onHand.length; i++) {
+        onHand[i] = faultFields.get(i).refresh().getTimestamp().getTime();
+      }
+      long giveUpNanos = System.nanoTime() + (long) (FAULTS_WAIT_SECONDS * 1e9);
+      for (int i = 0; i < onHand.length; i++) {
+        StatusSignal<Integer> faultField = faultFields.get(i);
+        while (faultField.refresh().getTimestamp().getTime() == onHand[i]) {
+          if (System.nanoTime() > giveUpNanos) {
+            throw new IllegalStateException(
+                "device " + i + " sent no faults in " + FAULTS_WAIT_SECONDS + " s of powering on");
+          }
+          faultField.waitForUpdate(FRAME_WAIT_SECONDS, false);
+        }
+      }
     }
 
     /** The CANdi a limit is read from, if either is. */

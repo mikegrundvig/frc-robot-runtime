@@ -30,7 +30,6 @@ import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
 import com.michaelgrundvig.frc.world.robot.SensorWiring.Direction;
 import com.michaelgrundvig.frc.world.robot.SensorWiring.Polarity;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -634,11 +633,6 @@ public abstract class JointIOConformance {
       settles(
           String.format(Locale.ROOT, "J41: %s draws about %.1f A", row.what(), stall),
           () -> inputs.statorCurrentAmps > 0.6 * stall && inputs.statorCurrentAmps < 1.1 * stall);
-      // A push held at its limit raises the device's current-limit fault. It is left to clear, so
-      // the next scenario's devices start without it: a TalonFX sends its faults four times a
-      // second, and one from here would still stand as the next powers on.
-      io.stop();
-      eventually("its faults clear", () -> Arrays.stream(inputs.faults).allMatch(f -> f == 0));
     }
     assertThat(JointHoming.STALL_SHARE).as("homing's share, under all of these").isLessThan(0.6);
   }
