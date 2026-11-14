@@ -5,9 +5,9 @@
 # This release of the FRC libraries (the model, localization, Pitwall, the runtime): what this build
 # publishes as (gradle/publishing.gradle), and the version of the model, localization and Pitwall it
 # reads. All of them share it, so a release is one change, here.
-frc-libs = "2026.11.14"
+frc-libs = "2026.11.15"
 # Visor, the AprilTag vision program for a coprocessor: its robot client, at Visor's own version.
-visor = "2026.11.9"
+visor = "2026.11.14"
 # Spotter, whose manager watches the coprocessors' agents and installs Visor through them: the
 # version of the agent the coprocessors' image carries, so the tests run the agent the robot meets
 # (its program, from Spotter's release: build.gradle).
