@@ -19,15 +19,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * Running, every call makes a log value and builds the key's full name, about 200 to 400 bytes a
  * call, and the drive writes the most keys of anything in the robot.
  *
- * <p>When it was written, the drive allocated about 33,500 bytes a loop, against about 4,500 with
- * the logger off. Nearly all of the 29,000 in its read are its IO's inputs, which AdvantageKit's
- * {@code processInputs} writes whole each loop: seventeen values for each of four modules, nine for
- * each of two gyros. The 3,500 in the command's run are the keys the drive writes each loop, its
- * pose and the two arrays of wheel setpoints.
+ * <p>It counts every allocation the code asks for: its JVM stops at the simple compiler ({@link
+ * InItsOwnJvm#optimizingCompiler}). With the optimizing compiler the number followed the computer's
+ * processor, and on some of CI's computers it measured 1,056 bytes over what it measured on the
+ * others, past its bound. So the number here is above what a robot's JVM allocates, by what its
+ * optimizing compiler saves, and a change that only defeats that saving is not seen here.
  *
- * <p>On 2026-11-09 each module's inputs gained three values (its CANcoder's magnet and faults, and
- * its angle in rotations, to zero it by) and each gyro's one (whether it restarted): about 36,500
- * bytes a loop, twenty values for each module and ten for each gyro.
+ * <p>Counted this way the drive allocates about 41,600 bytes a loop, against about 8,700 with the
+ * logger off. Nearly all of the difference is its IO's inputs, which AdvantageKit's {@code
+ * processInputs} writes whole each loop: twenty values for each of four modules, ten for each of
+ * two gyros. The rest is the keys the drive writes each loop, its pose and the two arrays of wheel
+ * setpoints.
  *
  * <p>The bound is a little above what it measured, so that one more key written every loop fails
  * it. It runs in a JVM of its own ({@link InItsOwnJvm}), which also keeps the logger, that starts
@@ -35,11 +37,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * {@code build/drive-loop-cost-logged.txt} under the directory the tests run in.
  */
 @SimulationTest
-@InItsOwnJvm
+@InItsOwnJvm(optimizingCompiler = false)
 @ExtendWith(RobotSim.class)
 class DriveLoopCostLoggedSimTest {
   /** The most the drive's loop may allocate driven by the sticks with the logger running. */
-  private static final double MOST_BYTES_A_LOOP_ON_THE_STICKS = 37_000;
+  private static final double MOST_BYTES_A_LOOP_ON_THE_STICKS = 42_000;
 
   @Test
   void theDrivesLoopWithTheLoggerRunningAllocatesNoMoreThanItDid() throws IOException {

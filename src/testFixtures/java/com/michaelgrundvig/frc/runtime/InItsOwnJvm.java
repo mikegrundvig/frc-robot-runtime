@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -44,6 +45,13 @@ import org.junit.platform.launcher.listeners.TestExecutionSummary;
  *       however busy the computer is.
  * </ul>
  *
+ * <p>A third thing is not the test's either, and a test may opt out of it ({@link
+ * #optimizingCompiler}): the computer's processor. The optimizing compiler removes allocations it
+ * can prove nothing else sees, and how many it removes follows from what it inlines, which follows
+ * from the processor's instruction set. The drive's loop with the logger running measured 36,505
+ * bytes on one processor, 35,801 with the same Java told the processor had no AVX2 ({@code
+ * -XX:UseAVX=1}), and 37,561 on some of CI's computers.
+ *
  * <p>The test's output is printed with the other tests', and a failure there fails the test here,
  * with what the test said there.
  */
@@ -51,6 +59,14 @@ import org.junit.platform.launcher.listeners.TestExecutionSummary;
 @Retention(RetentionPolicy.RUNTIME)
 @ExtendWith(InItsOwnJvm.Runner.class)
 public @interface InItsOwnJvm {
+  /**
+   * Whether the test's JVM uses the optimizing compiler, as a robot's does. Without it the JVM
+   * stops at its simple compiler, which removes no allocation: the test then measures every
+   * allocation the code asks for, the same number on every processor, and no longer sees what the
+   * optimizing compiler would have saved.
+   */
+  boolean optimizingCompiler() default true;
+
   /** Runs each test of a class it marks in a JVM of its own. */
   final class Runner implements InvocationInterceptor {
     /** The system property that says this JVM was started for one test. */
@@ -61,6 +77,9 @@ public @interface InItsOwnJvm {
      * for the compiled code, and not on a thread of its own while the code runs on.
      */
     private static final String COMPILE_IN_THE_RUNNING_THREAD = "-Xbatch";
+
+    /** The Java option that stops the JIT at its simple compiler, which removes no allocation. */
+    private static final String SIMPLE_COMPILER_ONLY = "-XX:TieredStopAtLevel=1";
 
     /** How long a test may take in its JVM, a little under the two minutes any test may take. */
     private static final long SECONDS_ALLOWED = 110;
@@ -85,9 +104,15 @@ public @interface InItsOwnJvm {
         throws IOException, InterruptedException {
       String name = testClass.getSimpleName() + "." + test.getName();
       Path output = Files.createTempFile(Path.of("."), name + "-", ".out");
+      InItsOwnJvm marked =
+          Objects.requireNonNull(testClass.getAnnotation(InItsOwnJvm.class), name + " is marked");
+      List<String> options =
+          marked.optimizingCompiler()
+              ? List.of(COMPILE_IN_THE_RUNNING_THREAD)
+              : List.of(COMPILE_IN_THE_RUNNING_THREAD, SIMPLE_COMPILER_ONLY);
       List<String> command =
           ChildJvm.command(
-              List.of(COMPILE_IN_THE_RUNNING_THREAD),
+              options,
               Map.of(STARTED_FOR_A_TEST, name),
               Runner.class,
               testClass.getName(),
