@@ -405,14 +405,15 @@ public final class TalonJointBench implements JointBench {
         faultFields.add(controller.talon().getFaultField(false));
       }
       cancoder.ifPresent(device -> faultFields.add(device.getFaultField(false)));
+      // A device that has sent nothing yet is waited for, not reported: this JVM's first rig.
       double[] onHand = new double[faultFields.size()];
       for (int i = 0; i < onHand.length; i++) {
-        onHand[i] = faultFields.get(i).refresh().getTimestamp().getTime();
+        onHand[i] = faultFields.get(i).refresh(false).getTimestamp().getTime();
       }
       long giveUpNanos = System.nanoTime() + (long) (FAULTS_WAIT_SECONDS * 1e9);
       for (int i = 0; i < onHand.length; i++) {
         StatusSignal<Integer> faultField = faultFields.get(i);
-        while (faultField.refresh().getTimestamp().getTime() == onHand[i]) {
+        while (faultField.refresh(false).getTimestamp().getTime() == onHand[i]) {
           if (System.nanoTime() > giveUpNanos) {
             throw new IllegalStateException(
                 "device " + i + " sent no faults in " + FAULTS_WAIT_SECONDS + " s of powering on");
