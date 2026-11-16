@@ -9,6 +9,7 @@ import com.michaelgrundvig.frc.runtime.RobotSim;
 import com.michaelgrundvig.frc.runtime.SimulationTest;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
+import com.michaelgrundvig.frc.runtime.subsystems.vision.UsbLink;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.robot.Camera;
 import java.util.ArrayList;
@@ -27,7 +28,8 @@ import org.wpilib.system.RobotController;
  * driven the same way, reach the robot code through Visor's frames, its client and {@code
  * CameraIOVisor} with nothing lost: the same images at the same times, the same tags, corners,
  * poses and ambiguities. Only the multi-tag solution is missing, as Visor makes none. And each
- * image through Visor shows the robot where it was when its stamp says it was taken.
+ * image through Visor shows the robot where it was when its stamp says it was taken, from a camera
+ * linked as it should be: at USB 3, raw.
  */
 @SimulationTest
 @ExtendWith(RobotSim.class)
@@ -74,6 +76,10 @@ class VisorPathSimTest {
         for (int c = 0; c < cameras.length; c++) {
           CameraIO.CameraIOInputs inputs = read(cameras[c]);
           assertThat(inputs.connected || i < 5).as("%s camera %d connected", software, c).isTrue();
+          if (software == Camera.Software.VISOR && inputs.sequence >= 0) {
+            assertThat(inputs.linkSpeed).as("camera %d's link", c).isEqualTo(UsbLink.Speed.SUPER);
+            assertThat(inputs.pixelFormat).as("its format").isEqualTo(UsbLink.Format.GREY);
+          }
           int next = 0;
           for (CameraIO.Frame frame : inputs.frames) {
             List<CameraIO.SeenTag> tags =

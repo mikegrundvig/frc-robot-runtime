@@ -42,8 +42,8 @@ import org.wpilib.tunable.TunableRegistry;
 
 /**
  * A camera's card on Pitwall, after a minute of its frames: a 30 fps camera on Visor read by a 50
- * Hz loop, healthy, dropping frames, losing them, slow to detect, restarted, gone quiet, and one on
- * PhotonVision.
+ * Hz loop, healthy, dropping frames, losing them, slow to detect, restarted, gone quiet, on each
+ * kind of USB link, and one on PhotonVision.
  */
 class CameraPitTest {
   private static final long SECOND = 1_000_000_000L;
@@ -87,6 +87,23 @@ class CameraPitTest {
     long dropped;
     double owed;
     String address = "10.12.34.11";
+    // Its USB link, as its frames say: USB 3, raw, unless a scenario says otherwise.
+    UsbLink.Speed speed = UsbLink.Speed.SUPER;
+    UsbLink.Format format = UsbLink.Format.GREY;
+    UsbLink.Headroom headroom = UsbLink.Headroom.NONE_KNOWN;
+    UsbLink.Recovery recovery = UsbLink.Recovery.NOT_TRIED;
+
+    /** Its frames from now on say this link. */
+    void linked(
+        UsbLink.Speed speed,
+        UsbLink.Format format,
+        UsbLink.Headroom headroom,
+        UsbLink.Recovery recovery) {
+      this.speed = speed;
+      this.format = format;
+      this.headroom = headroom;
+      this.recovery = recovery;
+    }
 
     @Override
     public void updateInputs(CameraIOInputs inputs) {
@@ -119,6 +136,10 @@ class CameraPitTest {
         inputs.gain = 40;
         inputs.brightnessMedian = 41;
         inputs.brightnessHigh = 187;
+        inputs.linkSpeed = speed;
+        inputs.pixelFormat = format;
+        inputs.linkHeadroom = headroom;
+        inputs.linkRecovery = recovery;
       }
     }
   }
@@ -178,12 +199,19 @@ class CameraPitTest {
     }
   }
 
-  /** A camera on Visor's lines, with the levels of the three it warns on. */
+  /** A camera on Visor's lines, its USB link fine, with the levels of the three it warns on. */
   private static List<Line> onVisor(
       Devices.Level dropped, Devices.Level lost, Devices.Level detection) {
+    return onVisor(Devices.Level.OK, dropped, lost, detection);
+  }
+
+  /** A camera on Visor's lines, with the levels of its USB link and the three it warns on. */
+  private static List<Line> onVisor(
+      Devices.Level link, Devices.Level dropped, Devices.Level lost, Devices.Level detection) {
     return List.of(
         new Line("Frames", Devices.Level.NOTE),
         new Line("Images", Devices.Level.NOTE),
+        new Line("USB link", link),
         new Line("Dropped at Visor", dropped),
         new Line("Lost on the way", lost),
         new Line("Detection", detection),
@@ -218,6 +246,7 @@ class CameraPitTest {
             Seen.onVisor(30.0, 0, 0, 5.0, 0),
             List.of(
                 "Frames: 30.0 fps lately (configured 30)",
+                "USB link: USB 3, GREY",
                 "Dropped at Visor: 0 in the last 10 s",
                 "Lost on the way: 0 in the last 10 s",
                 "Detection: 5.0 ms mean, 5.0 ms worst, of a 33.3 ms frame",
@@ -284,6 +313,7 @@ class CameraPitTest {
             List.of(
                 new Line("Frames", note),
                 new Line("Images", note),
+                new Line("USB link", ok),
                 new Line("Dropped at Visor", ok),
                 new Line("Lost on the way", ok),
                 new Line("Detection", ok),
@@ -310,6 +340,107 @@ class CameraPitTest {
             Seen.onVisor(0.0, 0, 0, Double.NaN, 0),
             List.of("Frames: 0.0 fps lately", "Detection: no frames lately")),
         new Scenario(
+            "a USB 2 camera on USB 2, at its best",
+            visor,
+            (io, loop) ->
+                io.linked(
+                    UsbLink.Speed.HIGH,
+                    UsbLink.Format.YUYV,
+                    UsbLink.Headroom.NONE_KNOWN,
+                    UsbLink.Recovery.NOT_TRIED),
+            "Sending",
+            ok,
+            onVisor(ok, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of("USB link: USB 2, YUYV")),
+        new Scenario(
+            "a USB 3 camera on USB 2 from the start, its port's power not switchable",
+            visor,
+            (io, loop) ->
+                io.linked(
+                    UsbLink.Speed.HIGH,
+                    UsbLink.Format.MJPG,
+                    UsbLink.Headroom.MAY_DO_BETTER,
+                    UsbLink.Recovery.NOT_TRIED),
+            "Sending",
+            warning,
+            onVisor(warning, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of(
+                "USB link: USB 2, MJPG: a USB 3 camera on USB 2, working at a cost; reseat its"
+                    + " plug at the next chance; on USB 2 for 60 s so far")),
+        new Scenario(
+            "a USB 3 camera still on USB 2 after Visor tried to bring it back",
+            visor,
+            (io, loop) ->
+                io.linked(
+                    UsbLink.Speed.HIGH,
+                    UsbLink.Format.MJPG,
+                    UsbLink.Headroom.MAY_DO_BETTER,
+                    UsbLink.Recovery.TRIED_STILL_SLOW),
+            "Sending",
+            warning,
+            onVisor(warning, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of(
+                "USB link: USB 2, MJPG: a USB 3 camera still on USB 2 after Visor tried to bring"
+                    + " it back, so its USB 3 contacts probably aren't touching; reseat its plug or"
+                    + " change its cable; on USB 2 for 60 s so far")),
+        new Scenario(
+            "on USB 1's speed: a wiring fault",
+            visor,
+            (io, loop) ->
+                io.linked(
+                    UsbLink.Speed.LOW_OR_FULL,
+                    UsbLink.Format.MJPG,
+                    UsbLink.Headroom.MAY_DO_BETTER,
+                    UsbLink.Recovery.NOT_TRIED),
+            "Sending",
+            problem,
+            onVisor(problem, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of(
+                "USB link: USB 1's speed, MJPG: a wiring fault, expect few or no frames; reseat its"
+                    + " plug or change its cable; too slow for 60 s so far")),
+        new Scenario(
+            "fell to USB 2 at 20 s, reseated at 30 s: the session remembers",
+            visor,
+            (io, loop) -> {
+              if (loop == 1000) {
+                io.linked(
+                    UsbLink.Speed.HIGH,
+                    UsbLink.Format.MJPG,
+                    UsbLink.Headroom.MAY_DO_BETTER,
+                    UsbLink.Recovery.NOT_TRIED);
+              }
+              if (loop == 1500) {
+                io.linked(
+                    UsbLink.Speed.SUPER,
+                    UsbLink.Format.GREY,
+                    UsbLink.Headroom.NONE_KNOWN,
+                    UsbLink.Recovery.NOT_TRIED);
+              }
+            },
+            "Sending",
+            warning,
+            onVisor(warning, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of("USB link: USB 3, GREY; on USB 2 once this session, for 10 s, 30 s ago")),
+        new Scenario(
+            "a Visor too old to say its link",
+            visor,
+            (io, loop) ->
+                io.linked(
+                    UsbLink.Speed.UNKNOWN,
+                    UsbLink.Format.UNKNOWN,
+                    UsbLink.Headroom.NONE_KNOWN,
+                    UsbLink.Recovery.NOT_TRIED),
+            "Sending",
+            ok,
+            onVisor(note, ok, ok, ok),
+            Seen.onVisor(30.0, 0, 0, 5.0, 0),
+            List.of("USB link: not reported")),
+        new Scenario(
             "on Visor on a robot, with no lens calibration",
             visorAt("/dev/v4l/by-id/usb-front-video-index0"),
             (io, loop) -> {},
@@ -319,6 +450,7 @@ class CameraPitTest {
                 new Line("Frames", note),
                 new Line("Images", note),
                 new Line("Lens", problem),
+                new Line("USB link", ok),
                 new Line("Dropped at Visor", ok),
                 new Line("Lost on the way", ok),
                 new Line("Detection", ok),
@@ -451,9 +583,9 @@ class CameraPitTest {
   }
 
   /**
-   * What the robot logs of a camera is all a replay needs: a minute of frames with drops, losses
-   * and a Visor restart, logged loop by loop as AdvantageKit logs the inputs, then read back from
-   * those tables alone, shows the same card.
+   * What the robot logs of a camera is all a replay needs: a minute of frames with drops, losses, a
+   * Visor restart and a fall to USB 2 and back, logged loop by loop as AdvantageKit logs the
+   * inputs, then read back from those tables alone, shows the same card.
    */
   @Test
   void aReplayOfTheLogShowsTheSameCard() {
@@ -469,6 +601,20 @@ class CameraPitTest {
         if (loop == 2000) {
           io.sequence = -1;
           io.dropped = 0;
+        }
+        if (loop == 2200) {
+          io.linked(
+              UsbLink.Speed.HIGH,
+              UsbLink.Format.MJPG,
+              UsbLink.Headroom.MAY_DO_BETTER,
+              UsbLink.Recovery.TRIED_STILL_SLOW);
+        }
+        if (loop == 2600) {
+          io.linked(
+              UsbLink.Speed.SUPER,
+              UsbLink.Format.GREY,
+              UsbLink.Headroom.NONE_KNOWN,
+              UsbLink.Recovery.NOT_TRIED);
         }
         camera.read(loop * SECOND / 50);
         LogTable table = new LogTable(loop * 20_000L);

@@ -6,7 +6,8 @@ import java.util.Set;
 /**
  * One camera's health over the last 10 s, from what its frames say as they arrive: its frame rate,
  * the frames its vision program dropped and the network lost, and how long detection took against
- * the camera's frame period. Each warning's episodes this session are kept too.
+ * the camera's frame period; and its USB link, as its newest frame says. Each warning's episodes
+ * this session are kept too.
  *
  * <p>The frame rate counts any camera's frames. The rest is Visor's alone: each of its frames
  * carries its number, its detection time, and its camera's dropped frames so far (Visor's {@code
@@ -27,7 +28,7 @@ public final class CameraHealth {
   /** Visor's counts are 32 bits, and wrap. */
   private static final long COUNT_MASK = 0xffff_ffffL;
 
-  /** What's wrong with a camera, as of the last 10 s. */
+  /** What's wrong with a camera: as of the last 10 s, or, for its link, as of its newest frame. */
   public enum Warning {
     /** Its vision program dropped frames: detection fell behind, or the camera sent broken ones. */
     DROPPED_FRAMES,
@@ -38,7 +39,42 @@ public final class CameraHealth {
      * camera. The mean, not the worst: one slow frame now and then costs only that frame, and shows
      * as a dropped one.
      */
-    SLOW_DETECTION
+    SLOW_DETECTION,
+    /**
+     * A USB 3 camera running on USB 2 ({@link Link#USB_3_CAMERA_ON_USB_2} or {@link
+     * Link#USB_3_CAMERA_ON_USB_2_AFTER_A_RESET}): it works, at a cost, until its plug is reseated.
+     */
+    ON_USB_2,
+    /** On USB 1's low or full speed ({@link Link#TOO_SLOW}): a wiring fault, few or no frames. */
+    LINK_TOO_SLOW
+  }
+
+  /**
+   * The camera's USB link, as its newest frame says, in the runtime's own words: the vision code
+   * maps Visor's onto these, so nothing here depends on Visor's client (its {@code docs/wire.md},
+   * the link at offset 27, says what each means).
+   */
+  public enum Link {
+    /**
+     * Not known: no frame yet, a Visor too old to say, a link Visor can't read, or PhotonVision.
+     */
+    NOT_KNOWN,
+    /** USB 3's SuperSpeed or faster: as it should be. */
+    USB_3,
+    /** USB 2's high speed, from a USB 2 camera: at its best. */
+    USB_2_CAMERA,
+    /**
+     * A USB 3 camera on USB 2 that Visor didn't try to bring back: its port's power can't be
+     * switched (a Type-A port, the ordinary case), or Visor may not. Reseat its plug.
+     */
+    USB_3_CAMERA_ON_USB_2,
+    /**
+     * A USB 3 camera on USB 2 still after Visor reset it or power cycled its port: its USB 3
+     * contacts are almost certainly not touching. Reseat its plug or change its cable.
+     */
+    USB_3_CAMERA_ON_USB_2_AFTER_A_RESET,
+    /** USB 1's low or full speed, 12 Mb/s or less: a wiring fault; expect few or no frames. */
+    TOO_SLOW
   }
 
   private final double framePeriodMs;
@@ -77,6 +113,8 @@ public final class CameraHealth {
 
   private Numbers numbers = Numbers.NOT_REPORTED;
 
+  private Link link = Link.NOT_KNOWN;
+
   /**
    * The highest frame number the camera said, and the dropped count it said with it, once {@link
    * #numbers} are reported.
@@ -103,12 +141,13 @@ public final class CameraHealth {
 
   /**
    * Takes what arrived this loop from a camera whose frames have no numbers (PhotonVision), or none
-   * yet. Once a loop, the time never going back.
+   * yet, so no link either. Once a loop, the time never going back.
    *
    * @param arrived how many of its frames arrived since the last loop, used or not
    * @param detectMs each arrived frame's detection time, in milliseconds; empty when none says
    */
   public void update(long nowNanos, int arrived, double[] detectMs) {
+    link = Link.NOT_KNOWN;
     startLoop(nowNanos, arrived);
     countDetections(detectMs);
     judge();
@@ -124,9 +163,11 @@ public final class CameraHealth {
    * @param droppedSoFar the vision program's count of the camera's dropped frames, from its start,
    *     as that frame said
    * @param detectMs each arrived frame's detection time, in milliseconds
+   * @param link the camera's USB link, as its newest frame said
    */
   public void update(
-      long nowNanos, int arrived, long sequence, long droppedSoFar, double[] detectMs) {
+      long nowNanos, int arrived, long sequence, long droppedSoFar, double[] detectMs, Link link) {
+    this.link = link;
     startLoop(nowNanos, arrived);
     countByNumbers(arrived, sequence, droppedSoFar);
     countDetections(detectMs);
@@ -222,6 +263,12 @@ public final class CameraHealth {
     if (detectMeanMs() > framePeriodMs) {
       warnings.add(Warning.SLOW_DETECTION);
     }
+    if (link == Link.USB_3_CAMERA_ON_USB_2 || link == Link.USB_3_CAMERA_ON_USB_2_AFTER_A_RESET) {
+      warnings.add(Warning.ON_USB_2);
+    }
+    if (link == Link.TOO_SLOW) {
+      warnings.add(Warning.LINK_TOO_SLOW);
+    }
     for (Warning warning : Warning.values()) {
       episodes[warning.ordinal()].update(warnings.contains(warning), nowNanos);
     }
@@ -308,12 +355,17 @@ public final class CameraHealth {
     return framePeriodMs;
   }
 
+  /** The camera's USB link, as its newest frame said. */
+  public Link link() {
+    return link;
+  }
+
   /** How many times its vision program restarted this session, by its frames' numbers. */
   public int restarts() {
     return restarts;
   }
 
-  /** What's wrong now, as of the last 10 s. */
+  /** What's wrong now: as of the last 10 s, or, for the link, as of the newest frame. */
   public boolean warns(Warning warning) {
     return warnings.contains(warning);
   }

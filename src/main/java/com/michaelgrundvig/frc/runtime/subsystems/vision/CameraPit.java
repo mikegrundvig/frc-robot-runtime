@@ -24,13 +24,14 @@ import java.util.Optional;
  * Each camera's card on Pitwall's Pit view: whether its frames arrive, at what rate, whether its
  * vision program dropped frames or the network lost them, and whether detection keeps up with the
  * camera, over the last 10 s; and each of those this session, so a drop during a match still shows
- * after it. Then the exposure and gain the latest frame was taken at, and, for a camera on Visor,
- * the exposure and gain it's set to and where each came from: its type, its venue, or tuned live.
- * Beside them, a camera on Visor has its live view, which the browser loads straight from the
- * coprocessor its frames come from (the video never passes through the robot program), its exposure
- * and gain's tuning, to tune there as in the Tune view, and two buttons that keep what's tuned in
- * the venue, for every camera of its type or for this station alone. It's the camera's one card:
- * what else Pitwall shows of a camera belongs on it.
+ * after it; and a Visor camera's USB link, and whether it fell to USB 2. Then the exposure and gain
+ * the latest frame was taken at, and, for a camera on Visor, the exposure and gain it's set to and
+ * where each came from: its type, its venue, or tuned live. Beside them, a camera on Visor has its
+ * live view, which the browser loads straight from the coprocessor its frames come from (the video
+ * never passes through the robot program), its exposure and gain's tuning, to tune there as in the
+ * Tune view, and two buttons that keep what's tuned in the venue, for every camera of its type or
+ * for this station alone. It's the camera's one card: what else Pitwall shows of a camera belongs
+ * on it.
  *
  * <p>The card is read in the robot loop, from what the loop already read.
  */
@@ -177,6 +178,7 @@ public final class CameraPit {
       lines.add(new Devices.Line("Lens", withoutALens.get(), Devices.Level.PROBLEM));
     }
     if (onVisor) {
+      lines.add(LinkLine.of(inputs, health));
       lines.add(warningLine("Dropped at Visor", dropped(health), health, Warning.DROPPED_FRAMES));
       lines.add(warningLine("Lost on the way", lost(health), health, Warning.LOST_FRAMES));
       lines.add(warningLine("Detection", detection(health), health, Warning.SLOW_DETECTION));

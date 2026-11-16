@@ -63,6 +63,27 @@ public interface CameraIO extends AutoCloseable {
     public double clippedShare = -1;
 
     /**
+     * The camera's USB link speed, as Visor's newest frame said ({@link UsbLink}): UNKNOWN until
+     * one says, from a Visor too old to say, and from PhotonVision.
+     */
+    public UsbLink.Speed linkSpeed = UsbLink.Speed.UNKNOWN;
+
+    /** The pixel format Visor runs the camera in, as its newest frame said: UNKNOWN until then. */
+    public UsbLink.Format pixelFormat = UsbLink.Format.UNKNOWN;
+
+    /**
+     * Whether the camera looks able to do better than its link, as its newest frame said: a USB 3
+     * camera on USB 2 says MAY_DO_BETTER.
+     */
+    public UsbLink.Headroom linkHeadroom = UsbLink.Headroom.NONE_KNOWN;
+
+    /**
+     * Whether Visor tried to bring the camera back to USB 3 (a reset, or a power cycle of its port)
+     * and it stayed slow, as its newest frame said.
+     */
+    public UsbLink.Recovery linkRecovery = UsbLink.Recovery.NOT_TRIED;
+
+    /**
      * The newest frame's number, as Visor counts the camera's frames from its start: a gap is
      * frames the network lost, and a number lower than the last a Visor that restarted. -1 until a
      * frame says (and from PhotonVision, which doesn't).

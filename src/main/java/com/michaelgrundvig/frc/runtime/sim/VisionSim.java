@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
 import com.michaelgrundvig.frc.visor.CameraToTag;
 import com.michaelgrundvig.frc.visor.VisorFrame;
+import com.michaelgrundvig.frc.visor.VisorLink;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
@@ -654,6 +655,13 @@ public final class VisionSim implements AutoCloseable {
         added.index(),
         true,
         false);
+    // A simulated camera is plugged in as it should be: at USB 3, running Visor's first choice of
+    // format, its raw luma.
+    visorFrame.setLink(
+        VisorLink.Speed.SUPER,
+        VisorLink.Format.GREY,
+        VisorLink.Headroom.NONE_KNOWN,
+        VisorLink.Recovery.NOT_TRIED);
     float[] corners = new float[8];
     for (PhotonTrackedTarget target : image.getTargets()) {
       if (visorFrame.tagCount() == VisorFrame.MAX_TAGS) {

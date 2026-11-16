@@ -9,8 +9,9 @@ import org.littletonrobotics.junction.Logger;
 /**
  * One camera's health, judged each loop from what it read ({@link CameraHealth}) and logged under
  * {@code Vision/<camera>/Health}: its frame rate, the frames its vision program dropped and the
- * network lost, and its detection time, over the last 10 s, with a flag for each warning. It's
- * judged from the camera's inputs alone, so a replay logs the same.
+ * network lost, and its detection time, over the last 10 s, and its USB link as its newest frame
+ * said, with a flag for each warning. It's judged from the camera's inputs alone, so a replay logs
+ * the same.
  */
 final class CameraHealthLog {
   private final CameraHealth health;
@@ -25,6 +26,9 @@ final class CameraHealthLog {
   private final String droppingKey;
   private final String losingKey;
   private final String slowKey;
+  private final String linkKey;
+  private final String onUsb2Key;
+  private final String linkTooSlowKey;
 
   CameraHealthLog(CameraConfig config) {
     health = new CameraHealth(1 / config.sensor().frameRate().in(Hertz));
@@ -38,6 +42,9 @@ final class CameraHealthLog {
     droppingKey = key + "DroppingFrames";
     losingKey = key + "LosingFrames";
     slowKey = key + "DetectionSlow";
+    linkKey = key + "Link";
+    onUsb2Key = key + "OnUsb2";
+    linkTooSlowKey = key + "LinkTooSlow";
   }
 
   /** Judges this loop's inputs, and logs the camera's health. */
@@ -59,6 +66,9 @@ final class CameraHealthLog {
     Logger.recordOutput(droppingKey, health.warns(CameraHealth.Warning.DROPPED_FRAMES));
     Logger.recordOutput(losingKey, health.warns(CameraHealth.Warning.LOST_FRAMES));
     Logger.recordOutput(slowKey, health.warns(CameraHealth.Warning.SLOW_DETECTION));
+    Logger.recordOutput(linkKey, health.link());
+    Logger.recordOutput(onUsb2Key, health.warns(CameraHealth.Warning.ON_USB_2));
+    Logger.recordOutput(linkTooSlowKey, health.warns(CameraHealth.Warning.LINK_TOO_SLOW));
   }
 
   /**
@@ -72,7 +82,35 @@ final class CameraHealthLog {
       health.update(nowNanos, arrived, inputs.detectMs);
       return;
     }
-    health.update(nowNanos, arrived, inputs.sequence, inputs.dropped, inputs.detectMs);
+    health.update(
+        nowNanos, arrived, inputs.sequence, inputs.dropped, inputs.detectMs, link(inputs));
+  }
+
+  /**
+   * The camera's link in health's words, from what Visor's newest frame said of it (Visor's {@code
+   * docs/wire.md}, the link at offset 27).
+   */
+  private static CameraHealth.Link link(CameraIO.CameraIOInputs inputs) {
+    return switch (inputs.linkSpeed) {
+      case SUPER, FASTER -> CameraHealth.Link.USB_3;
+      case HIGH -> onUsb2(inputs);
+      case LOW_OR_FULL -> CameraHealth.Link.TOO_SLOW;
+      case UNKNOWN -> CameraHealth.Link.NOT_KNOWN;
+    };
+  }
+
+  /**
+   * A camera on USB 2: one that can do no better is at its best; a USB 3 camera is on USB 2, and
+   * says whether Visor already tried to bring it back.
+   */
+  private static CameraHealth.Link onUsb2(CameraIO.CameraIOInputs inputs) {
+    if (inputs.linkHeadroom == UsbLink.Headroom.NONE_KNOWN) {
+      return CameraHealth.Link.USB_2_CAMERA;
+    }
+    if (inputs.linkRecovery == UsbLink.Recovery.TRIED_STILL_SLOW) {
+      return CameraHealth.Link.USB_3_CAMERA_ON_USB_2_AFTER_A_RESET;
+    }
+    return CameraHealth.Link.USB_3_CAMERA_ON_USB_2;
   }
 
   CameraHealth health() {

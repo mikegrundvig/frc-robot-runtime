@@ -10,6 +10,7 @@ import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.visor.CameraToTag;
 import com.michaelgrundvig.frc.visor.VisorFrame;
+import com.michaelgrundvig.frc.visor.VisorLink;
 import com.michaelgrundvig.frc.visor.VisorWire;
 import com.michaelgrundvig.frc.world.robot.Camera.Software;
 import com.michaelgrundvig.frc.world.robot.CameraBuilder;
@@ -161,6 +162,102 @@ class CameraIOVisorTest {
     automatic.setBrightness(90, 255, 0.2);
     feed.offer(automatic);
     assertThat(read.get()).isEqualTo(new Read(-1, -1, true, 90, 255, 0.2));
+  }
+
+  /**
+   * The newest frame's USB link is the camera's inputs, kept until another frame says, so the log
+   * (Vision/<camera>/LinkSpeed and the rest) holds it every loop, in the runtime's words: frame by
+   * frame, a camera that fell to USB 2, was reset and stayed there, then was reseated. A frame that
+   * arrives late doesn't replace the newest's.
+   */
+  @Test
+  void theNewestFramesUsbLinkIsTheCamerasInputs() {
+    record Link(
+        UsbLink.Speed speed,
+        UsbLink.Format format,
+        UsbLink.Headroom headroom,
+        UsbLink.Recovery recovery) {
+      /** The same link in Visor's words, to send. */
+      void setOn(VisorFrame frame) {
+        frame.setLink(
+            VisorLink.Speed.valueOf(speed.name()),
+            VisorLink.Format.valueOf(format.name()),
+            VisorLink.Headroom.valueOf(headroom.name()),
+            VisorLink.Recovery.valueOf(recovery.name()));
+      }
+    }
+    record Step(String name, long sequence, Link sent, Link read) {}
+    Link unknown =
+        new Link(
+            UsbLink.Speed.UNKNOWN,
+            UsbLink.Format.UNKNOWN,
+            UsbLink.Headroom.NONE_KNOWN,
+            UsbLink.Recovery.NOT_TRIED);
+    Link usb3 =
+        new Link(
+            UsbLink.Speed.SUPER,
+            UsbLink.Format.GREY,
+            UsbLink.Headroom.NONE_KNOWN,
+            UsbLink.Recovery.NOT_TRIED);
+    Link onUsb2 =
+        new Link(
+            UsbLink.Speed.HIGH,
+            UsbLink.Format.MJPG,
+            UsbLink.Headroom.MAY_DO_BETTER,
+            UsbLink.Recovery.NOT_TRIED);
+    Link afterAReset =
+        new Link(
+            UsbLink.Speed.HIGH,
+            UsbLink.Format.MJPG,
+            UsbLink.Headroom.MAY_DO_BETTER,
+            UsbLink.Recovery.TRIED_STILL_SLOW);
+    List<Step> steps =
+        List.of(
+            new Step("a frame from a Visor too old to say", 0, unknown, unknown),
+            new Step("at USB 3", 2, usb3, usb3),
+            new Step("fell to USB 2", 4, onUsb2, onUsb2),
+            new Step("reset, and still on USB 2", 6, afterAReset, afterAReset),
+            new Step("a late frame, sent before the last: not the newest", 5, usb3, afterAReset),
+            new Step("reseated, at USB 3 again", 7, usb3, usb3));
+    CameraIO.CameraIOInputs inputs = new CameraIO.CameraIOInputs();
+    front.updateInputs(inputs);
+    assertThat(
+            new Link(
+                inputs.linkSpeed, inputs.pixelFormat, inputs.linkHeadroom, inputs.linkRecovery))
+        .as("no frame yet")
+        .isEqualTo(unknown);
+    for (Step step : steps) {
+      VisorFrame frame = frame(0, step.sequence(), RECENT, true);
+      step.sent().setOn(frame);
+      feed.offer(frame);
+      front.updateInputs(inputs);
+      assertThat(
+              new Link(
+                  inputs.linkSpeed, inputs.pixelFormat, inputs.linkHeadroom, inputs.linkRecovery))
+          .as(step.name())
+          .isEqualTo(step.read());
+    }
+  }
+
+  /** Every link value Visor sends has the runtime's value of the same name, and no other. */
+  @Test
+  void eachOfVisorsLinkValuesIsTheRuntimesOfTheSameName() {
+    for (VisorLink.Speed each : VisorLink.Speed.values()) {
+      assertThat(VisorLinks.speed(each).name()).isEqualTo(each.name());
+    }
+    for (VisorLink.Format each : VisorLink.Format.values()) {
+      assertThat(VisorLinks.format(each).name()).isEqualTo(each.name());
+    }
+    for (VisorLink.Headroom each : VisorLink.Headroom.values()) {
+      assertThat(VisorLinks.headroom(each).name()).isEqualTo(each.name());
+    }
+    for (VisorLink.Recovery each : VisorLink.Recovery.values()) {
+      assertThat(VisorLinks.recovery(each).name()).isEqualTo(each.name());
+    }
+    assertThat(UsbLink.Speed.values()).hasSameSizeAs(VisorLink.Speed.values());
+    assertThat(UsbLink.Format.values()).hasSameSizeAs(VisorLink.Format.values());
+    assertThat(UsbLink.Headroom.values()).hasSameSizeAs(VisorLink.Headroom.values());
+    assertThat(UsbLink.Recovery.values()).hasSameSizeAs(VisorLink.Recovery.values());
   }
 
   /**

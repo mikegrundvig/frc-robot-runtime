@@ -47,9 +47,10 @@ import org.wpilib.math.geometry.Translation3d;
  * sender nor their configuration is checked: the simulator's, and the tests'.
  *
  * <p>Each loop, the first camera to read takes every frame that arrived and sorts them; each camera
- * then takes its own (its tags without poses as unsolved), with the exposure, gain and brightness
- * of its newest frame, the highest frame number and Visor's count of the camera's dropped frames,
- * each frame's detection time, and the address of the board it's on, where its live view is.
+ * then takes its own (its tags without poses as unsolved), with the exposure, gain, brightness and
+ * USB link of its newest frame, the highest frame number and Visor's count of the camera's dropped
+ * frames, each frame's detection time, and the address of the board it's on, where its live view
+ * is.
  */
 public final class VisorFeed implements AutoCloseable {
   /**
@@ -169,6 +170,12 @@ public final class VisorFeed implements AutoCloseable {
     int brightnessHigh = -1;
     double clippedShare = -1;
 
+    // And its USB link: unknown until a frame says.
+    UsbLink.Speed linkSpeed = UsbLink.Speed.UNKNOWN;
+    UsbLink.Format pixelFormat = UsbLink.Format.UNKNOWN;
+    UsbLink.Headroom linkHeadroom = UsbLink.Headroom.NONE_KNOWN;
+    UsbLink.Recovery linkRecovery = UsbLink.Recovery.NOT_TRIED;
+
     // The board it's plugged into, as last reported, and the listed board that is; and where its
     // live view is: that board, or the listed board its frames come from.
     Optional<String> placement = Optional.empty();
@@ -209,7 +216,7 @@ public final class VisorFeed implements AutoCloseable {
       unsolvedCount++;
     }
 
-    /** Takes the settings, brightness and health of the newest frame. */
+    /** Takes the settings, brightness, USB link and health of the newest frame. */
     void newest(VisorFrame frame) {
       exposureMs = frame.exposureKnown() ? frame.exposureMicros() / 1000.0 : -1;
       gain = frame.gainKnown() ? frame.gain() : -1;
@@ -217,6 +224,10 @@ public final class VisorFeed implements AutoCloseable {
       brightnessMedian = frame.medianBrightness();
       brightnessHigh = frame.highBrightness();
       clippedShare = frame.clippedShare();
+      linkSpeed = VisorLinks.speed(frame.linkSpeed());
+      pixelFormat = VisorLinks.format(frame.pixelFormat());
+      linkHeadroom = VisorLinks.headroom(frame.linkHeadroom());
+      linkRecovery = VisorLinks.recovery(frame.linkRecovery());
       dropped = frame.dropped();
     }
 
@@ -360,6 +371,10 @@ public final class VisorFeed implements AutoCloseable {
     inputs.brightnessMedian = mine.brightnessMedian;
     inputs.brightnessHigh = mine.brightnessHigh;
     inputs.clippedShare = mine.clippedShare;
+    inputs.linkSpeed = mine.linkSpeed;
+    inputs.pixelFormat = mine.pixelFormat;
+    inputs.linkHeadroom = mine.linkHeadroom;
+    inputs.linkRecovery = mine.linkRecovery;
     inputs.sequence = mine.numbers.highest();
     inputs.dropped = mine.dropped;
     inputs.visorAddress = mine.boardAddress;

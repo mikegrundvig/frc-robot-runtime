@@ -28,6 +28,8 @@ class CameraHealthTest {
     long sequence = -1;
     long dropped;
     boolean numbered = true;
+    // Its USB link, as its newest frame says.
+    CameraHealth.Link link = CameraHealth.Link.USB_3;
     // What the newest frame to arrive said: the robot hears nothing of a frame the network lost.
     long heardSequence = -1;
     long heardDropped;
@@ -74,7 +76,7 @@ class CameraHealthTest {
         health.update(nowNanos, arrived, detect);
         return;
       }
-      health.update(nowNanos, arrived, heardSequence, heardDropped, detect);
+      health.update(nowNanos, arrived, heardSequence, heardDropped, detect, link);
     }
   }
 
@@ -249,6 +251,67 @@ class CameraHealthTest {
                 4,
                 1,
                 NONE),
+            scenario(
+                "a USB 2 camera on USB 2: at its best",
+                (visor, loop) -> visor.link = CameraHealth.Link.USB_2_CAMERA,
+                60,
+                0,
+                0,
+                4,
+                0,
+                NONE),
+            scenario(
+                "a USB 3 camera on USB 2, Visor not able to try to bring it back",
+                (visor, loop) -> visor.link = CameraHealth.Link.USB_3_CAMERA_ON_USB_2,
+                60,
+                0,
+                0,
+                4,
+                0,
+                EnumSet.of(Warning.ON_USB_2)),
+            scenario(
+                "a USB 3 camera still on USB 2 after Visor tried to bring it back",
+                (visor, loop) -> visor.link = CameraHealth.Link.USB_3_CAMERA_ON_USB_2_AFTER_A_RESET,
+                60,
+                0,
+                0,
+                4,
+                0,
+                EnumSet.of(Warning.ON_USB_2)),
+            scenario(
+                "on USB 1's speed",
+                (visor, loop) -> visor.link = CameraHealth.Link.TOO_SLOW,
+                60,
+                0,
+                0,
+                4,
+                0,
+                EnumSet.of(Warning.LINK_TOO_SLOW)),
+            scenario(
+                "its link not known: an older Visor",
+                (visor, loop) -> visor.link = CameraHealth.Link.NOT_KNOWN,
+                60,
+                0,
+                0,
+                4,
+                0,
+                NONE),
+            scenario(
+                "fell to USB 2 at 4 s, back on USB 3 at 8 s: over, and no warning now",
+                (visor, loop) -> {
+                  if (loop == 200) {
+                    visor.link = CameraHealth.Link.USB_3_CAMERA_ON_USB_2;
+                  }
+                  if (loop == 400) {
+                    visor.link = CameraHealth.Link.USB_3;
+                  }
+                },
+                60,
+                0,
+                0,
+                4,
+                0,
+                NONE),
             unnumbered(
                 "PhotonVision: frames counted, the rest unknown",
                 (visor, loop) -> visor.numbered = false,
@@ -319,6 +382,34 @@ class CameraHealthTest {
     assertThat(drops.lastEndedNanos()).isPresent();
   }
 
+  /**
+   * A fall to USB 2 is a warning from the frame that says it until the frame that says USB 3 again,
+   * not a 10 s window, and the session remembers it.
+   */
+  @Test
+  void aFallToUsb2AndBackIsAnEpisodeTheSessionRemembers() {
+    CameraHealth health = new CameraHealth(FRAME_PERIOD_SECONDS);
+    Visor visor = new Visor();
+    for (int i = 0; i < 700; i++) {
+      if (i == 100) {
+        visor.link = CameraHealth.Link.USB_3_CAMERA_ON_USB_2_AFTER_A_RESET;
+      }
+      if (i == 250) {
+        visor.link = CameraHealth.Link.USB_3;
+      }
+      visor.loop(health, i * LOOP_NANOS);
+      if (i == 249) {
+        assertThat(health.warns(Warning.ON_USB_2)).as("on USB 2, 5 s in").isTrue();
+        assertThat(health.link()).isEqualTo(CameraHealth.Link.USB_3_CAMERA_ON_USB_2_AFTER_A_RESET);
+      }
+    }
+    assertThat(health.warns(Warning.ON_USB_2)).as("back on USB 3").isFalse();
+    assertThat(health.link()).isEqualTo(CameraHealth.Link.USB_3);
+    Episodes onUsb2 = health.episodes(Warning.ON_USB_2);
+    assertThat(onUsb2.count()).isEqualTo(1);
+    assertThat(onUsb2.seconds(health.nowNanos())).isCloseTo(3.0, within(1e-9));
+  }
+
   @Test
   void theFrameRateWaitsForASecond() {
     CameraHealth health = new CameraHealth(FRAME_PERIOD_SECONDS);
@@ -339,7 +430,13 @@ class CameraHealthTest {
       visor.loop(health, i * LOOP_NANOS);
     }
     for (int i = 300; i < 900; i++) {
-      health.update(i * LOOP_NANOS, 0, visor.heardSequence, visor.heardDropped, new double[0]);
+      health.update(
+          i * LOOP_NANOS,
+          0,
+          visor.heardSequence,
+          visor.heardDropped,
+          new double[0],
+          CameraHealth.Link.USB_3);
     }
     assertThat(health.framesPerSecond()).isZero();
     assertThat(health.detectMeanMs()).isNaN();

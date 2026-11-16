@@ -525,7 +525,8 @@ The simulated world is in two places, apart so that nothing the robot runs can r
   robot as real `VisorFrame`s, through Visor's client and `CameraIOVisor`, with the same tags,
   corners and poses as PhotonVision's, and no multi-tag solve, since Visor makes none. The simulator
   has no board running a configuration, so its frames name none: configuration ID 0, never
-  checked), the coprocessors, the faults' bindings to Pitwall
+  checked; each frame says its camera is linked as it should be, at USB 3, `GREY`), the
+  coprocessors, the faults' bindings to Pitwall
   (`Faults`), the scenarios, and `DriveSimulation`, which steps them together and takes the
   sensors' readings at 250 Hz. Only these adapters see the library. The program's top level makes
   the simulator with one call, `Robot.simulation` (`SimulatorWiring`), and sees the simulated world

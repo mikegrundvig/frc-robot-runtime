@@ -455,6 +455,10 @@ them the same:
 | `Sequence` | The highest frame number heard since Visor last started; -1 before any (and on PhotonVision) |
 | `Dropped` | Visor's count of the camera's dropped frames from its start, as the newest frame said; -1 before any |
 | `DetectMs` | Each frame's detection and pose-solving time this loop, ms |
+| `LinkSpeed` | The camera's USB link, as the newest frame said: `SUPER` (USB 3), `FASTER`, `HIGH` (USB 2), `LOW_OR_FULL` (USB 1's speed), or `UNKNOWN` before any, from a Visor too old to say, and on PhotonVision |
+| `PixelFormat` | The format Visor runs the camera in: `GREY`, `YUYV`, `MJPG`, or `UNKNOWN` |
+| `LinkHeadroom` | `MAY_DO_BETTER` for a USB 3 camera on a slower link, else `NONE_KNOWN` |
+| `LinkRecovery` | `TRIED_STILL_SLOW` once Visor reset the camera or power cycled its port and it stayed slow, else `NOT_TRIED` |
 | `VisorAddress` | The board the camera is plugged into, as the boards report it, or else the listed board its frames come from (any sender, for a robot listing none), where its [live view](#the-live-view-on-pitwall) is; empty before either (and in the simulator) |
 | `Health/FramesPerSecond` | Frames that arrived per second over the last 10 s; NaN in the first second |
 | `Health/DroppedLately` | Frames Visor dropped in the last 10 s; not logged until a frame says (and on PhotonVision) |
@@ -462,6 +466,8 @@ them the same:
 | `Health/DetectMeanMs`, `Health/DetectWorstMs` | Detection time over the last 10 s; NaN without frames |
 | `Health/VisorRestarts` | How often Visor restarted this session (its numbers went back): each new configuration restarts it |
 | `Health/DroppingFrames`, `Health/LosingFrames`, `Health/DetectionSlow` | Each warning, as of the last 10 s |
+| `Health/Link` | The link in a word: `USB_3`, `USB_2_CAMERA` (a USB 2 camera at its best), `USB_3_CAMERA_ON_USB_2`, `USB_3_CAMERA_ON_USB_2_AFTER_A_RESET`, `TOO_SLOW`, or `NOT_KNOWN` |
+| `Health/OnUsb2`, `Health/LinkTooSlow` | Each link warning, as of the newest frame |
 
 The warnings, each over the last 10 s (Visor's own report's period, and the robot loop's "lately"):
 
@@ -471,6 +477,22 @@ The warnings, each over the last 10 s (Visor's own report's period, and the robo
 - **Detection slow:** the mean detection time is longer than the camera's frame period, from its
   `ImageSensor`'s `frameRate`, so it can't keep up. The mean, not the worst: one slow frame now and then
   costs that frame alone, and shows as a dropped one.
+
+And two of the camera's USB link, from its newest frame rather than 10 s (Visor's `docs/wire.md`,
+the link at offset 27). A loose plug drops a USB 3 camera to USB 2, where it stays; Visor keeps it
+running, `MJPG` at its full rate, at the cost of decoding each frame on the board, and nobody at the
+robot would know but for these:
+
+- **On USB 2:** a USB 3 camera on USB 2. Where Visor couldn't try to bring it back (a port whose
+  power it can't switch, the ordinary case on a Type-A port, or without permission), reseat its plug
+  at the next chance (`USB_3_CAMERA_ON_USB_2`). Where Visor reset it or power cycled its port and it
+  stayed on USB 2, its USB 3 contacts are almost certainly not touching: reseat its plug or change
+  its cable (`USB_3_CAMERA_ON_USB_2_AFTER_A_RESET`).
+- **Link too slow:** USB 1's low or full speed, a wiring fault: expect few or no frames.
+
+A USB 2 camera on USB 2 is at its best, and an unknown link (an older Visor) says nothing. A fall
+to USB 2 and back during a match is in the log both ways: `LinkSpeed` and `Health/Link` change on
+the loop it happened and again when it came back, and `Health/OnUsb2` is true between.
 
 **Each board**, under `Coprocessors/<address>`, its address as the robot's configuration gives it.
 The inputs are read from Spotter's manager in the robot loop, from the `debian` pack's values:
@@ -505,14 +527,15 @@ The rules, which set no limit of their own:
 **On Pitwall,** the Pit view has a card for each camera (kind Camera, named by its id) and each
 board (kind Coprocessor, named by its address, dots as hyphens), beside the autos' and the
 venue's. A camera's card says whether its frames arrive, its frame rate against its configured
-one, its dropped and lost frames and its detection time against its frame period, Visor's
-restarts, and the exposure and gain its latest frame was taken at, beside its live view
+one, its USB link and the format in use (**USB link**: `USB 3, GREY`, `USB 2, MJPG`, with what a
+wrong link means and what to do), its dropped and lost frames and its detection time against its
+frame period, Visor's restarts, and the exposure and gain its latest frame was taken at, beside its live view
 ([below](#the-live-view-on-pitwall)). A board's says whether it's
 reached, how long it's been up, its busiest core and whether it slowed, how hot it runs and how
 far from slowing, its USB devices, and what it doesn't report. A warning stays on its card, ▲, for
 the rest of the session, with how often, how long and how long ago, so a drop in a match shows in
-the pit after it; a card is ✗ while its camera isn't sending or its board is missing, and while a
-board's margin is failing. Restarting the robot program clears them.
+the pit after it, and so does a fall to USB 2; a card is ✗ while its camera isn't sending, or on a
+link at USB 1's speed, or its board is missing, and while a board's margin is failing. Restarting the robot program clears them.
 
 Visor's frames carry what the camera did; whether the board browned out isn't among the `debian`
 pack's values (it has no undervoltage reading for an Orange Pi), so a power dip shows as a reboot
