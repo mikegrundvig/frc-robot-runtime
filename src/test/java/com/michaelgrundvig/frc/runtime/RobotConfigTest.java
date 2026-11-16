@@ -18,7 +18,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointFixtures;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
 import com.michaelgrundvig.frc.world.robot.CanBus;
 import com.michaelgrundvig.frc.world.robot.Driven;
 import com.michaelgrundvig.frc.world.robot.Driven.LimitSwitch;
@@ -121,7 +121,11 @@ class RobotConfigTest {
       List<CameraConfig> renamed = new ArrayList<>(definition.cameras());
       for (int i = 0; i < c.cameras().size(); i++) {
         renamed.set(
-            i, CameraConfigBuilder.builder(renamed.get(i)).name(c.cameras().get(i)).build());
+            i,
+            CameraStationBuilder.builder(renamed.get(i).station())
+                .name(c.cameras().get(i))
+                .build()
+                .holds(renamed.get(i).camera()));
       }
       var building =
           RobotConfigBuilder.builder(ExampleRobot.SIM)

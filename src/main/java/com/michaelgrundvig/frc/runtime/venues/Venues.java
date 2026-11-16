@@ -3,6 +3,7 @@ package com.michaelgrundvig.frc.runtime.venues;
 import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Venue;
+import com.michaelgrundvig.frc.world.field.VenueCameras;
 import com.michaelgrundvig.frc.world.field.VenueCheck;
 import com.michaelgrundvig.frc.world.field.VenueFile;
 import com.michaelgrundvig.frc.world.game.Game;
@@ -27,7 +28,9 @@ import org.wpilib.util.Alert;
  *       alert, until a build carries the same file.
  * </ul>
  *
- * <p>The selected file is logged as an input, so a replay uses exactly that venue.
+ * <p>A venue may also carry its cameras' exposure and gain ({@link #cameras}), which change with
+ * it. The selected file is logged as an input, so a replay uses exactly that venue, and its
+ * cameras' settings.
  */
 public final class Venues implements AutoCloseable {
   /** What the selection on the robot's disk comes to. */
@@ -100,8 +103,29 @@ public final class Venues implements AutoCloseable {
   /** The name of the field in use, for the pit. */
   private String active;
 
-  /** Whether another field is selected, and waits for the robot to be disabled. */
-  private boolean pending;
+  /**
+   * Whether another field is selected, and waits for the robot to be disabled. Pitwall's threads
+   * read it, so it's published as the loop works it out.
+   */
+  private volatile boolean pending;
+
+  /**
+   * The file of the venue in use, as the loop took it: empty on the official layout. Pitwall's
+   * threads read it, to keep a camera's settings in the venue the robot is using.
+   */
+  private volatile String inUseText = "";
+
+  /**
+   * Why the selection can't be used, as the loop last worked it out: empty when it can. Pitwall's
+   * threads read it, to say why a camera's settings can't be kept.
+   */
+  private volatile String selectionProblem = "";
+
+  /**
+   * The camera settings of the venue in use, which change with it: none on the official layout. A
+   * venue's settings are the only robot settings it keeps.
+   */
+  private volatile VenueCameras cameras = VenueCameras.NONE;
 
   public Venues(Game game, VenueIO io) {
     this.game = game;
@@ -128,6 +152,7 @@ public final class Venues implements AutoCloseable {
     Selection selection = selection();
     unusable.setText(unusableText);
     unusable.set(!selection.problem().isEmpty());
+    selectionProblem = selection.problem();
 
     boolean isPracticeVenueOnTheField =
         selection instanceof Selection.Surveyed surveyed
@@ -145,6 +170,8 @@ public final class Venues implements AutoCloseable {
     if (disabled && !wantedKey.equals(inUse)) {
       inUse = wantedKey;
       active = name(wanted);
+      cameras = cameras(wanted);
+      inUseText = text(wanted);
       change = Optional.of(model(wanted));
     }
     pending = !wantedKey.equals(inUse);
@@ -221,6 +248,46 @@ public final class Venues implements AutoCloseable {
       return game.model().apply(surveyed.venue().tagLayout(game.layout(surveyed.base())));
     }
     return game.officialField();
+  }
+
+  /** A field's file: a venue's, or empty for the official layout. */
+  private static String text(Selection field) {
+    if (field instanceof Selection.Surveyed surveyed) {
+      return surveyed.venue().text();
+    }
+    return "";
+  }
+
+  /**
+   * Why the selection can't be used, as the loop last worked it out: empty when it can, or when
+   * nothing is selected. Safe from Pitwall's threads.
+   */
+  String selectionProblem() {
+    return selectionProblem;
+  }
+
+  /**
+   * The file of the venue the robot is using, as the loop last took it: empty on the official
+   * layout. Safe from Pitwall's threads.
+   */
+  String inUseText() {
+    return inUseText;
+  }
+
+  /** A field's camera settings: a venue's, or none for the official layout. */
+  private static VenueCameras cameras(Selection field) {
+    if (field instanceof Selection.Surveyed surveyed) {
+      return surveyed.venue().cameras();
+    }
+    return VenueCameras.NONE;
+  }
+
+  /**
+   * The camera settings of the venue in use: what its cameras run at here, where it says ({@link
+   * com.michaelgrundvig.frc.runtime.coprocessors.CameraSettings}). None on the official layout.
+   */
+  public VenueCameras cameras() {
+    return cameras;
   }
 
   /** What the robot believes it plays on: a venue's name, or the official layout's. */

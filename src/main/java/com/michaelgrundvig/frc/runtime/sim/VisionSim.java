@@ -13,7 +13,9 @@ import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
 import com.michaelgrundvig.frc.visor.CameraToTag;
 import com.michaelgrundvig.frc.visor.VisorFrame;
 import com.michaelgrundvig.frc.world.field.FieldModel;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,8 +53,8 @@ import org.wpilib.vision.stream.CameraServer;
  * with when it was taken ({@link #update}).
  *
  * <p>Each camera's images reach the robot as its vision program would send them ({@link
- * CameraConfig.Software}): PhotonVision's results, or Visor's frames, through Visor's own client
- * and {@link CameraIOVisor}. On Visor's path the tags' corners and poses are PhotonVision's
+ * Camera.Software}): PhotonVision's results, or Visor's frames, through Visor's own client and
+ * {@link CameraIOVisor}. On Visor's path the tags' corners and poses are PhotonVision's
  * simulation's, which Visor's solve matches (Visor's own tests check it against the same
  * simulation), and there is no multi-tag solution, as Visor makes none.
  *
@@ -106,7 +108,7 @@ public final class VisionSim implements AutoCloseable {
   private final List<PhotonCameraSim> cameras = new ArrayList<>();
 
   /** Every camera's vision program, for a test; null for each camera's own configuration's. */
-  private final CameraConfig.@Nullable Software everyCamera;
+  private final Camera.@Nullable Software everyCamera;
 
   /**
    * For cameras on Visor's path, which tags its detector finds, by their size in the image; null
@@ -286,7 +288,7 @@ public final class VisionSim implements AutoCloseable {
       Map<Integer, Translation3d> tagErrors,
       IntToLongFunction cameraSeeds,
       Noise noise,
-      CameraConfig.@Nullable Software everyCamera) {
+      Camera.@Nullable Software everyCamera) {
     this(field, tagErrors, cameraSeeds, noise, everyCamera, null);
   }
 
@@ -301,7 +303,7 @@ public final class VisionSim implements AutoCloseable {
       Map<Integer, Translation3d> tagErrors,
       IntToLongFunction cameraSeeds,
       Noise noise,
-      CameraConfig.@Nullable Software everyCamera,
+      Camera.@Nullable Software everyCamera,
       @Nullable DetectionModel detection) {
     this.detection = detection;
     this.everyCamera = everyCamera;
@@ -405,8 +407,8 @@ public final class VisionSim implements AutoCloseable {
    */
   public CameraIO camera(CameraConfig config, Transform3d mountError) {
     int index = cameras.size();
-    CameraConfig.Software software = everyCamera != null ? everyCamera : config.software();
-    boolean onVisor = software instanceof CameraConfig.Software.Visor;
+    Camera.Software software = everyCamera != null ? everyCamera : config.software();
+    boolean onVisor = software instanceof Camera.Software.Visor;
     CameraIO io;
     PhotonCamera drawnOn;
     if (onVisor) {
@@ -556,7 +558,7 @@ public final class VisionSim implements AutoCloseable {
 
   /** As above, erring as {@code noise} says. */
   static SimCameraProperties properties(CameraConfig camera, long seed, Noise noise) {
-    CameraConfig.ImageSensor sensor = camera.sensor();
+    ImageSensor sensor = camera.sensor();
     return new SimCameraProperties()
         .setCalibration(
             sensor.widthPixels(),

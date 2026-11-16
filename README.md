@@ -20,7 +20,7 @@ published to the FRC libraries' Maven repository,
 | `src/testFixtures/java/` | What a team tests its own robot with: `RobotSim`, `Monkey`, `AutoCheck`, the invariants, `GoldenFile`, and the architecture rules a robot program shares (`ProductionRules`). A robot program asks for them as `testFixtures("com.michaelgrundvig.frc:frc-robot-runtime")`. |
 | `src/test/java/` | The runtime's own tests, in the packages of what they test, from single classes to the whole robot in the simulator, on the guide's robot, with its architecture rules (`ArchitectureTest`), the values register's test (`ValuesRegisterTest`) and the guides' examples' test (`DocExamplesTest`). |
 | `lib/simulation/` | The simulation, a project of its own (`com.michaelgrundvig.frc.simulation`, published as `com.michaelgrundvig.frc:frc-robot-simulation`): the physics, the IMUs' models, how the simulated sensors err, the catalog of what can fail, the seeds, and the truth suite that checks them against physics. Reads the world model and nothing else of the robot's. |
-| `build-logic/` | The Gradle plugins: one writes AdvantageScope's robot assets from a robot program's `Robots.java` (`frc.advantagescope-assets`), and one carries the Visor release in the robot's deploy (`frc.visor`). An included build of its own, published with the runtime as `com.michaelgrundvig.frc:frc-gradle-plugins`. |
+| `build-logic/` | The Gradle plugins: one writes AdvantageScope's robot assets from a robot program's `Robots.java` (`frc.advantagescope-assets`), one writes each robot's pre-competition checklist from it (`frc.competition-checklist`), and one carries the Visor release in the robot's deploy (`frc.visor`). An included build of its own, published with the runtime as `com.michaelgrundvig.frc:frc-gradle-plugins`. |
 | `docs/` | The guides, below. |
 | `vendordeps/` | The vendor libraries the runtime is built and tested with, as in any WPILib project. A robot program that uses the runtime has the same files at the same versions. |
 | `gradle/` | The build's supporting rules: `quality.gradle` (checks, for every project), `wpilib-repositories.gradle` (where the libraries find WPILib), `frc-maven.gradle` (where the robot model, localization and Pitwall come from), `publishing.gradle` (the published artifacts), the version catalog (with `frc-libs`, the release's version), and every downloaded library's checksum. |
@@ -63,8 +63,8 @@ repositories {
     }
 }
 dependencies {
-    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.15"
-    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.15")
+    implementation "com.michaelgrundvig.frc:frc-robot-runtime:2026.11.16"
+    testImplementation testFixtures("com.michaelgrundvig.frc:frc-robot-runtime:2026.11.16")
 }
 ```
 
@@ -77,8 +77,11 @@ The model, localization and Pitwall write their own beside it, naming the module
 against, and the template's build compares those too.
 
 To draw AdvantageScope's robot assets from `Robots.java`, a program applies the plugin that lives
-in `build-logic/`, published with the runtime at its version (`frc.visor`, the other, is applied
-the same way and is explained in [docs/visor.md](docs/visor.md)):
+in `build-logic/`, published with the runtime at its version (`frc.visor` is applied the same way
+and is explained in [docs/visor.md](docs/visor.md)). `frc.competition-checklist` is applied the
+same way too: it writes each robot's pre-competition checklist into `checklists/`, committed, from
+its definition (which camera goes in each station, by its label and serial, and what to check in
+the pit and on the field), and writes over an edit there:
 
 ```groovy
 // settings.gradle
@@ -92,6 +95,7 @@ pluginManagement {
             filter {
                 includeGroup "com.michaelgrundvig.frc"
                 includeGroup "frc.advantagescope-assets"
+                includeGroup "frc.competition-checklist"
                 includeGroup "frc.visor"
             }
         }
@@ -100,7 +104,8 @@ pluginManagement {
 
 // build.gradle
 plugins {
-    id "frc.advantagescope-assets" version "2026.11.15"
+    id "frc.advantagescope-assets" version "2026.11.16"
+    id "frc.competition-checklist" version "2026.11.16"
 }
 ```
 

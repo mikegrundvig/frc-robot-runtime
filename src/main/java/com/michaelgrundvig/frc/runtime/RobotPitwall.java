@@ -21,6 +21,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.JointExperiments;
 import com.michaelgrundvig.frc.runtime.subsystems.mechanisms.Joints;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraPit;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper;
 import java.time.Duration;
 import java.util.Optional;
 import org.wpilib.command3.Command;
@@ -54,11 +55,18 @@ final class RobotPitwall {
    * @param mode what the program runs as, which says where the cameras' frames come from
    * @param config the robot's configuration, which lists its coprocessors: the only places the page
    *     loads a camera's live view from
+   * @param keeper where a camera's card keeps its tuned exposure and gain: the venue's card
    */
-  static void addTo(Pitwall pitwall, RobotContainer robot, RunMode mode, RobotConfig config) {
+  static void addTo(
+      Pitwall pitwall, RobotContainer robot, RunMode mode, RobotConfig config, VenueKeeper keeper) {
     addTheSimulatorsControls(pitwall, robot.world());
     pitwall.devices().add(AutoPit.device(robot.autos()));
-    CameraPit.devices(robot.vision(), cameraFrames(mode), robot.tunings().cameras())
+    CameraPit.devices(
+            robot.vision(),
+            cameraFrames(mode),
+            robot.tunings().cameras(),
+            robot.cameraSettings(),
+            keeper)
         .forEach(pitwall.devices()::add);
     CameraPit.pictureOrigins(config.coprocessors()).forEach(pitwall.devices()::picturesFrom);
     BoardPit.devices(robot.coprocessorHealth()).forEach(pitwall.devices()::add);

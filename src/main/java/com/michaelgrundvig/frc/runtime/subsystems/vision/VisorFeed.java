@@ -6,7 +6,9 @@ import com.michaelgrundvig.frc.visor.Candidate;
 import com.michaelgrundvig.frc.visor.VisorFrame;
 import com.michaelgrundvig.frc.visor.VisorReceiver;
 import com.michaelgrundvig.frc.visor.VisorVersion;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import java.net.InetAddress;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -132,7 +134,7 @@ public final class VisorFeed implements AutoCloseable {
     final int index;
 
     /** Its configured image size, when the feed knows it. */
-    final Optional<CameraConfig.ImageSensor> sensor;
+    final Optional<ImageSensor> sensor;
 
     final FrameNumbers numbers = new FrameNumbers();
 
@@ -189,7 +191,7 @@ public final class VisorFeed implements AutoCloseable {
     int[] unsolvedArray = {};
     double[] detectArray = {};
 
-    Reader(int index, Optional<CameraConfig.ImageSensor> sensor) {
+    Reader(int index, Optional<ImageSensor> sensor) {
       this.index = index;
       this.sensor = sensor;
     }
@@ -315,12 +317,12 @@ public final class VisorFeed implements AutoCloseable {
   }
 
   /** A camera's configured sensor, when the feed has its configuration and it's on Visor. */
-  private Optional<CameraConfig.ImageSensor> sensorOf(int camera) {
+  private Optional<ImageSensor> sensorOf(int camera) {
     if (camera >= cameras.size()) {
       return Optional.empty();
     }
     CameraConfig config = cameras.get(camera);
-    if (!(config.software() instanceof CameraConfig.Software.Visor)) {
+    if (!(config.software() instanceof Software.Visor)) {
       return Optional.empty();
     }
     return Optional.of(config.sensor());
@@ -495,7 +497,7 @@ public final class VisorFeed implements AutoCloseable {
     }
   }
 
-  private boolean hasItsSize(CameraConfig.ImageSensor sensor) {
+  private boolean hasItsSize(ImageSensor sensor) {
     return frame.width() == sensor.widthPixels() && frame.height() == sensor.heightPixels();
   }
 
@@ -598,7 +600,7 @@ public final class VisorFeed implements AutoCloseable {
     };
   }
 
-  private static String size(CameraConfig.ImageSensor sensor) {
+  private static String size(ImageSensor sensor) {
     return sensor.widthPixels() + "x" + sensor.heightPixels();
   }
 

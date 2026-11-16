@@ -6,7 +6,6 @@ import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.runtime.ValuesRegister.CodeRecord;
 import com.michaelgrundvig.frc.runtime.ValuesRegister.Component;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,7 +37,9 @@ class ValuesRegisterTest {
    */
   private static Map<String, List<String>> tuning() {
     CameraConfig first = ExampleRobot.COMPETITION.definition().cameras().get(0);
-    CameraConfig onVisor = first.withSoftware(Software.visor().gain(40));
+    CameraConfig onVisor =
+        TestCameras.retyped(
+            TestCameras.onVisor(first), TestCameras.named(first.type().gain(40), "dialed in"));
     RobotConfig robot = ExampleRobot.COMPETITION.with(onVisor);
     List<String> cameras =
         robot.definition().cameras().stream().map(camera -> camera.name() + " camera").toList();

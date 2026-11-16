@@ -171,21 +171,25 @@ pose is known within 5 cm. It stops after twenty seconds, or 600 sightings.
 
 The procedure finds the mount that puts every tag the camera saw at its real place. The report says
 how far the tags landed off (across the camera's line of sight, where it sees them sharply) before
-and after, how sure it is, and the camera's mount as the calls to put in its entry in `Robots`:
+and after, how sure it is, and the station's mount as the calls to put in its entry in `Robots`:
 `.at(Inches.of(11.75), Inches.of(11.77), Inches.of(17.00)).facing(Degrees.of(10.0),
-Degrees.of(45.0)).roll(Degrees.of(0.0)).measured()`, `.measured()` the call that marks the mount
-checked. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
+Degrees.of(45.0)).roll(Degrees.of(0.0)).measuredWith(1)`, `.measuredWith(1)` the call that marks the
+mount checked with camera 1, the camera the station holds. If it says it isn't sure, the spots were too alike: a camera 4 in low and one tilted
 down 2° put a tag 3 m away in the same wrong place, and only tags at different distances tell them
 apart.
 
 When: after mounting, bumping, or remounting a camera, and whenever the robot says a camera is out
 of calibration.
 
-How sure the mount is goes in the camera's entry too, as `.mountTolerance(...)`: the most it may
-still be off along and about each axis. Left out, it's `MountTolerance.UNCHECKED`, 25 mm and 3°, a
-mount measured with a tape or read off CAD and never checked, and the robot says so at startup. The
-procedure's report ends with `.measured()`, `MountTolerance.MEASURED`, 5 mm and 1°, the end of
-what a mount measured from CAD and checked lands within. For a tighter one, run it five times from
+How sure the mount is goes in the station's entry too: the most a camera there may still be off
+along and about each axis. Left out, it's `MountTolerance.UNCHECKED`, 25 mm and 3°, a mount measured
+with a tape or read off CAD and never checked, and the robot says so at startup. The procedure's
+report ends with `.measuredWith(n)`, for `MountTolerance.MEASURED`, 5 mm and 1°, the end of what a
+mount measured from CAD and checked lands within, while the station holds camera `n`. Swap the
+camera for another and the station counts as unchecked again, and the robot says so at startup,
+until the procedure measures it with the camera now in it: a camera sits in a bracket as its own
+housing and the bracket's screws seat it, so the measurement is of the station with that camera.
+A tolerance given outright, `.mountTolerance(...)`, holds whichever camera is in it. For a tighter one, run it five times from
 the same spots and give three times the spread of what they find. The default localizer starts each
 camera's turn on its mount as unsure as this and learns the rest while the robot drives
 ([below](#what-the-localizer-learns-of-a-mount)), so a mount a little off costs the pose little;
@@ -271,8 +275,8 @@ from everything else, to within a millisecond from a few hundred tags.
 
 Each camera's result is how late its images are stamped:
 
-- **On Visor**, it's the camera's time offset: `.timeOffset(Milliseconds.of(-23.8))` in its
-  `Software.visor()`. The offset already configured is counted in, so replace the old value. Run it
+- **On Visor**, it's the camera's time offset: `.timeOffset(Milliseconds.of(-23.8))` on its
+  `Camera`, by the number on its label. The offset already configured is counted in, so replace the old value. Run it
   again after: the camera should read within a millisecond or two. (In the simulator, cameras with
   nothing wrong read 0.2 to 0.9 ms early, and why isn't known yet: not the heading history, not the
   images' stamps, not the rate's wobble. A millisecond at 3 rad/s is 0.17°.)

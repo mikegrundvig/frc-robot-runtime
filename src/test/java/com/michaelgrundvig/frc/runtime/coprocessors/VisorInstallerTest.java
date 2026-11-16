@@ -7,13 +7,14 @@ import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.coprocessors.VisorInstaller.Outcome;
 import com.michaelgrundvig.frc.runtime.coprocessors.VisorInstaller.Seen;
 import com.michaelgrundvig.frc.visor.VisorPack;
+import com.michaelgrundvig.frc.world.field.VenueCameras;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 import org.jspecify.annotations.Nullable;
@@ -146,8 +147,7 @@ class VisorInstallerTest {
               assertThat(w.installer.pending(BACK_INDEX)).isFalse();
 
               w.enabled = true;
-              assertThat(w.tune(BACK_INDEX, Map.of("exposure.time", 1.2, "gain.value", 55.0)))
-                  .isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("exposure", 1.2, "gain", 55.0))).isTrue();
               w.loops(50);
               assertThat(b.asked()).as("enabled: it waits").isEmpty();
               assertThat(w.installer.pending(BACK_INDEX)).isTrue();
@@ -311,7 +311,7 @@ class VisorInstallerTest {
 
               // A tune: while its configure is in flight, the one running stays taken, and so
               // does the tuned one as it lands.
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 55.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 55.0))).isTrue();
               w.seconds(11);
               int tuned = id(w.wantedNow(BACK_ONLY));
               assertThat(b.asked()).hasSize(2);
@@ -324,7 +324,7 @@ class VisorInstallerTest {
               // Tuned again while enabled: the first tune, which it runs, stays taken until the
               // second reaches it; the stale one is still refused.
               w.enabled = true;
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 60.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 60.0))).isTrue();
               w.loops(50);
               assertThat(b.asked()).as("enabled: it waits").hasSize(2);
               assertThat(w.installer.otherConfig("vision-b", tuned)).isFalse();
@@ -343,7 +343,7 @@ class VisorInstallerTest {
             w -> {
               FakeBoard b = w.board("vision-b", report(VERSION, wanted(BACK_ONLY), BACK_ONLY));
               w.loops(1);
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 55.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 55.0))).isTrue();
               w.loops(1);
               String tuned = w.wantedNow(BACK_ONLY);
               assertThat(b.asked()).containsExactly("configure " + tuned);
@@ -359,10 +359,10 @@ class VisorInstallerTest {
               assertThat(w.installer.otherConfig("vision-b", id(STALE))).isTrue();
               assertThat(w.alerts())
                   .contains(
-                      "Visor on vision-b runs another configuration than the committed one, so"
-                          + " the match runs it: a tuned exposure or gain, or one that never"
-                          + " reached it. Its frames are taken only if the robot gave it that"
-                          + " one. Put tuned values in Robots.java.");
+                      "Visor on vision-b runs another configuration than the kept one, so the"
+                          + " match runs it: a tuned exposure or gain, or one that never reached"
+                          + " it. Its frames are taken only if the robot gave it that one. Keep"
+                          + " tuned values in the venue from each camera's card.");
 
               // Off the field, it's given the committed one, and what was kept has done its work.
               w.field = false;
@@ -431,7 +431,7 @@ class VisorInstallerTest {
               // Tuned again and again, each pushed and run: still no more than its own few.
               w.field = false;
               for (int gain = 50; gain < 56; gain++) {
-                assertThat(w.tune(BACK_INDEX, Map.of("gain.value", (double) gain))).isTrue();
+                assertThat(w.tune(BACK_INDEX, Map.of("gain", (double) gain))).isTrue();
                 w.seconds(11);
                 FakeBoard b = w.boards.get(1);
                 b.last().finish(Outcome.WORKED, "");
@@ -565,7 +565,7 @@ class VisorInstallerTest {
               FakeBoard b = w.board("vision-b", report(VERSION, wanted(BACK_ONLY), BACK_ONLY));
               w.loops(5);
               b.says(Seen.SILENT);
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 55.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 55.0))).isTrue();
               w.loops(50);
               assertThat(b.asked()).isEmpty();
               assertThat(w.installer.pending(BACK_INDEX)).as("its board isn't known").isFalse();
@@ -581,7 +581,7 @@ class VisorInstallerTest {
               b.last().finish(Outcome.REFUSED, "exit isn't 0: Visor refused the configuration");
               w.seconds(60);
               assertThat(b.asked()).hasSize(1);
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 55.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 55.0))).isTrue();
               w.loops(1);
               assertThat(b.asked())
                   .containsExactly(
@@ -591,17 +591,16 @@ class VisorInstallerTest {
             "a value outside its limits is refused, and nothing is sent; the committed ones fit",
             w -> {
               FakeBoard b = w.board("vision-b", report(VERSION, wanted(BACK_ONLY), BACK_ONLY));
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 70_000.0))).isFalse();
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", -1.0))).isFalse();
-              assertThat(w.tune(BACK_INDEX, Map.of("exposure.time", 0.05))).isFalse();
-              assertThat(w.tune(BACK_INDEX, Map.of("exposure.time", 40.0))).isFalse();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 70_000.0))).isFalse();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", -1.0))).isFalse();
+              assertThat(w.tune(BACK_INDEX, Map.of("exposure", 0.05))).isFalse();
+              assertThat(w.tune(BACK_INDEX, Map.of("exposure", 40.0))).isFalse();
               w.seconds(60);
               assertThat(b.asked()).isEmpty();
               // Each camera's committed exposure and gain is within its own tuning's limits.
-              assertThat(w.tune(BACK_INDEX, Map.of("exposure.time", 2.5, "gain.value", 40.0)))
-                  .isTrue();
-              assertThat(w.tune(0, Map.of("exposure.time", 1.0))).isTrue();
-              assertThat(w.tune(1, Map.of("exposure.time", 1.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("exposure", 2.5, "gain", 40.0))).isTrue();
+              assertThat(w.tune(0, Map.of("exposure", 1.0))).isTrue();
+              assertThat(w.tune(1, Map.of("exposure", 1.0))).isTrue();
               w.seconds(60);
               assertThat(b.asked()).as("the committed values again: nothing to send").isEmpty();
             }),
@@ -665,7 +664,7 @@ class VisorInstallerTest {
               w.loops(1);
               assertThat(w.alerts()).as("committed").isEmpty();
               w.field = false;
-              assertThat(w.tune(BACK_INDEX, Map.of("gain.value", 55.0))).isTrue();
+              assertThat(w.tune(BACK_INDEX, Map.of("gain", 55.0))).isTrue();
               w.loops(1);
               b.last().finish(Outcome.WORKED, "");
               b.says(report(VERSION, w.wantedNow(BACK_ONLY), BACK_ONLY));
@@ -674,10 +673,10 @@ class VisorInstallerTest {
               w.loops(1);
               assertThat(w.alerts())
                   .containsExactly(
-                      "Visor on vision-b runs another configuration than the committed one, so"
-                          + " the match runs it: a tuned exposure or gain, or one that never"
-                          + " reached it. Its frames are taken only if the robot gave it that"
-                          + " one. Put tuned values in Robots.java.");
+                      "Visor on vision-b runs another configuration than the kept one, so the"
+                          + " match runs it: a tuned exposure or gain, or one that never reached"
+                          + " it. Its frames are taken only if the robot gave it that one. Keep"
+                          + " tuned values in the venue from each camera's card.");
               w.field = false;
               w.loops(1);
               assertThat(w.alerts()).isEmpty();
@@ -855,7 +854,7 @@ class VisorInstallerTest {
 
   /** A scenario's robot: its cameras and tunings, its boards, its state and clock. */
   static final class World implements AutoCloseable {
-    Map<String, LiveConfig<Software.Visor>> tunings = VisorTuning.of(VisorConfigsTest.cameras());
+    Map<String, LiveConfig<CameraTuning>> tunings = VisorTuning.of(VisorConfigsTest.cameras());
     VisorTuning.Live cameras = VisorTuning.live(VisorConfigsTest.cameras(), tunings);
     final List<FakeBoard> boards = new ArrayList<>();
     final List<Runnable> heldReads = new ArrayList<>();
@@ -900,8 +899,9 @@ class VisorInstallerTest {
 
     private VisorInstaller installer() {
       return new VisorInstaller(
-          cameras,
-          cameras.committed(),
+          cameras.cameras(),
+          cameras::now,
+          cameras::kept,
           1234,
           VisorConfigsTest.TAG_SIZE,
           VERSION,
@@ -935,6 +935,8 @@ class VisorInstallerTest {
 
     void loops(int count) {
       for (int i = 0; i < count; i++) {
+        // As the robot's loop does: the cameras' settings follow their tuning, on no venue.
+        cameras.update(VenueCameras.NONE, camera -> OptionalInt.empty());
         installer.periodic();
         nanos += 20_000_000;
       }
@@ -944,7 +946,7 @@ class VisorInstallerTest {
       loops(count * 50);
     }
 
-    LiveConfig<Software.Visor> tuning(int camera) {
+    LiveConfig<CameraTuning> tuning(int camera) {
       return Objects.requireNonNull(tunings.get(VisorConfigsTest.cameras().get(camera).name()));
     }
 
@@ -955,7 +957,10 @@ class VisorInstallerTest {
 
     /** The configuration wanted now, as tuned, for a board with these devices. */
     String tomlNow(List<String> devices) {
-      return VisorConfigs.forBoard(cameras.get(), 1234, VisorConfigsTest.TAG_SIZE, devices).toml();
+      cameras.update(VenueCameras.NONE, camera -> OptionalInt.empty());
+      return VisorConfigs.forBoard(
+              cameras.cameras(), cameras.now(), 1234, VisorConfigsTest.TAG_SIZE, devices)
+          .toml();
     }
 
     String wantedNow(List<String> devices) {

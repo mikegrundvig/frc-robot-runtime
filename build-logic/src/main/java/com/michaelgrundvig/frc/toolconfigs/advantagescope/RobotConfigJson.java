@@ -5,6 +5,7 @@ import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.Drivetrain;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import com.michaelgrundvig.frc.world.tools.RobotDescription;
 import io.avaje.jsonb.JsonType;
 import io.avaje.jsonb.Jsonb;
@@ -118,14 +119,14 @@ final class RobotConfigJson {
    * cones are drawn from the true angles.
    */
   private static Map<String, Object> cameraView(CameraConfig camera) {
-    CameraConfig.ImageSensor sensor = camera.sensor();
+    ImageSensor sensor = camera.sensor();
     Translation3d lens = camera.position();
     // WPILib's pitch is positive nose down, so a camera tilted up has a negative one.
     List<Map<String, Object>> rollPitchYaw =
         List.of(
             turn("x", camera.rollOrDefault().in(Degrees)),
-            turn("y", -camera.tiltUp().orElseThrow().in(Degrees)),
-            turn("z", camera.yaw().orElseThrow().in(Degrees)));
+            turn("y", -camera.station().tiltUp().orElseThrow().in(Degrees)),
+            turn("z", camera.station().yaw().orElseThrow().in(Degrees)));
     double aspectRatio = (double) sensor.widthPixels() / sensor.heightPixels();
     double verticalRadians = 2 * RobotSchematic.halfAngle(camera, sensor.heightPixels());
 

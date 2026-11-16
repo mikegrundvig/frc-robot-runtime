@@ -5,6 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
 import com.michaelgrundvig.frc.world.field.FieldModel;
+import com.michaelgrundvig.frc.world.field.Venue;
+import com.michaelgrundvig.frc.world.field.VenueCameras;
+import com.michaelgrundvig.frc.world.field.VenueFile;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import java.io.IOException;
 import java.io.InputStream;
@@ -12,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.AfterEach;
@@ -278,5 +282,170 @@ class VenuesTest {
         .contains("bare WPILib layout");
     assertThatThrownBy(() -> pit.choose("nope")).hasMessageContaining("no venue nope");
     assertThatThrownBy(pit::download).hasMessageContaining("official layout");
+  }
+
+  private static VenueCameras.Settings gain(int gain) {
+    return new VenueCameras.Settings(Optional.empty(), Optional.of(gain));
+  }
+
+  /**
+   * The pit's way through an event with no survey: on the official layout there's nowhere to keep a
+   * camera's settings; the card makes the event's venue, the official layout under its name, and
+   * chooses it; a tuned gain is kept in it for every camera of a type, then another for one
+   * station, each time in place of the venue's old file, so the robot keeps one file for the venue,
+   * not in Git until it's committed; and the robot takes each, the cameras' settings with it, while
+   * disabled.
+   */
+  @Test
+  void thePitMakesAnEventVenueAndKeepsCameraSettingsInIt(@TempDir Path stored, @TempDir Path git)
+      throws IOException {
+    VenueStore store = new VenueStore(stored, git);
+    VenueIODisk disk = new VenueIODisk(store);
+    Venues venues = venues(disk);
+    VenuePit pit = new VenuePit(store, disk, venues, Rebuilt.GAME);
+    venues.update(true, false);
+
+    assertThatThrownBy(
+            () -> pit.keep("front", "ThriftyCam", gain(40), VenueKeeper.For.EVERY_OF_ITS_TYPE))
+        .as("on the official layout")
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("official layout, which keeps nothing");
+    assertThatThrownBy(() -> pit.makeEventVenue(" "))
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("give the event's");
+
+    assertThat(pit.makeEventVenue("Week 1")).contains("Made \"Week 1\"").contains("chose it");
+    assertThat(venues.update(true, false)).as("taken while disabled").isPresent();
+    assertThat(venues.active()).isEqualTo("Week 1");
+    assertThat(venues.cameras()).isEqualTo(VenueCameras.NONE);
+    assertThatThrownBy(() ->
+            pit.keep(
+                "front",
+                "ThriftyCam",
+                VenueCameras.Settings.NONE,
+                VenueKeeper.For.EVERY_OF_ITS_TYPE))
+        .as("nothing tuned")
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("nothing tuned on front");
+
+    record Step(
+        VenueKeeper.For kept, String station, int gain, VenueCameras expected, String says) {}
+    List<Step> steps =
+        List.of(
+            new Step(
+                VenueKeeper.For.EVERY_OF_ITS_TYPE,
+                "front",
+                40,
+                new VenueCameras(Map.of("ThriftyCam", gain(40)), Map.of()),
+                "Kept front's gain 40 in \"Week 1\", for every ThriftyCam"),
+            new Step(
+                VenueKeeper.For.THIS_STATION,
+                "back",
+                52,
+                new VenueCameras(
+                    Map.of("ThriftyCam", gain(40)),
+                    Map.of("back", new VenueCameras.StationSettings("ThriftyCam", gain(52)))),
+                "Kept back's gain 52 in \"Week 1\", for back alone"));
+    for (Step step : steps) {
+      assertThat(pit.keep(step.station(), "ThriftyCam", gain(step.gain()), step.kept()))
+          .as(step.says())
+          .startsWith(step.says());
+      assertThat(venues.update(false, false)).as("not while enabled").isEmpty();
+      assertThat(venues.cameras()).as("not while enabled").isNotEqualTo(step.expected());
+      assertThat(venues.update(true, false)).as(step.says()).isPresent();
+      assertThat(venues.cameras()).as(step.says()).isEqualTo(step.expected());
+      assertThat(venues.notInGit()).as(step.says()).isTrue();
+      assertThat(store.files()).as("one file for the venue").hasSize(1);
+    }
+    try (Devices.File file = pit.download()) {
+      String text = new String(file.body().readAllBytes(), StandardCharsets.UTF_8);
+      assertThat(file.name()).isEqualTo("week-1.json");
+      assertThat(VenueFile.read(text).cameras()).isEqualTo(steps.get(1).expected());
+    }
+
+    // Another venue chosen while enabled waits, and keeping waits with it: the values were tuned
+    // on the venue in use, not the one chosen.
+    assertThat(pit.upload(venue("event", 0.03).getBytes(StandardCharsets.UTF_8))).contains("Saved");
+    Devices.Option other =
+        pit.card().choices().get(0).options().stream()
+            .filter(option -> option.label().startsWith("Test venue"))
+            .findFirst()
+            .orElseThrow();
+    pit.choose(other.value());
+    venues.update(false, false);
+    assertThatThrownBy(
+            () -> pit.keep("front", "ThriftyCam", gain(41), VenueKeeper.For.THIS_STATION))
+        .as("another venue waits for the robot to be disabled")
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("another venue is chosen");
+    pit.choose(VenuePit.OFFICIAL);
+    assertThatThrownBy(
+            () -> pit.keep("front", "ThriftyCam", gain(41), VenueKeeper.For.THIS_STATION))
+        .as("the official layout waits, the event's venue still in use")
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("another venue is chosen");
+    assertThat(venues.active()).isEqualTo("Week 1");
+  }
+
+  /** One step of the pit's: a loop of the robot's, or a keep and what it answers. */
+  private record Step(String what, Runnable loop, String station, int gain, String answer) {}
+
+  /**
+   * Keeps follow one another without waiting on the robot: each writes a new file of the venue in
+   * use, which the robot takes at its next disabled loop, and the next keep writes into that file,
+   * enabled or not. A venue made, or chosen, is a choice the robot takes once disabled, and a keep
+   * waits for it. A chosen venue the robot can't use says why, not that something waits.
+   */
+  @Test
+  void keepsFollowOneAnotherAndOnlyAChoiceMakesOneWait(@TempDir Path stored, @TempDir Path git)
+      throws IOException {
+    VenueStore store = new VenueStore(stored, git);
+    VenueIODisk disk = new VenueIODisk(store);
+    Venues venues = venues(disk);
+    VenuePit pit = new VenuePit(store, disk, venues, Rebuilt.GAME);
+    venues.update(true, false);
+    pit.makeEventVenue("Week 1");
+    Runnable none = () -> {};
+    Runnable disabled = () -> venues.update(true, false);
+    Runnable enabled = () -> venues.update(false, false);
+    List<Step> steps =
+        List.of(
+            new Step("made, before any loop", none, "front", 40, "another venue is chosen"),
+            new Step("after a disabled loop", disabled, "front", 40, "Kept front's gain 40"),
+            new Step("a second keep, before a loop", none, "back", 52, "Kept back's gain 52"),
+            new Step("after an enabled loop", enabled, "side", 30, "Kept side's gain 30"),
+            new Step("after a disabled loop", disabled, "front", 41, "Kept front's gain 41"));
+    for (Step step : steps) {
+      step.loop().run();
+      String answer;
+      try {
+        answer =
+            pit.keep(step.station(), "ThriftyCam", gain(step.gain()), VenueKeeper.For.THIS_STATION);
+      } catch (Devices.Refused refused) {
+        answer = refused.getMessage();
+      }
+      assertThat(answer).as(step.what()).startsWith(step.answer());
+    }
+    venues.update(true, false);
+    VenueCameras kept = venues.cameras();
+    assertThat(kept.forCamera("front", "ThriftyCam").gain()).contains(41);
+    assertThat(kept.forCamera("back", "ThriftyCam").gain()).as("kept before a loop").contains(52);
+    assertThat(kept.forCamera("side", "ThriftyCam").gain()).as("kept while enabled").contains(30);
+    assertThat(store.files()).as("one file for the venue").hasSize(1);
+
+    // A file the robot can't use: a station's own settings that don't say their camera type.
+    String text = venues.inUseText().strip();
+    String broken =
+        text.substring(0, text.lastIndexOf('}')).replaceAll("(?s),\\s*\"cameras\".*$", "")
+            + ", \"cameras\": {\"stations\": {\"side\": {\"gain\": 30}}}}";
+    store.save(broken);
+    store.select(Venue.hash(broken));
+    disk.reread();
+    venues.update(true, false);
+    assertThatThrownBy(
+            () -> pit.keep("front", "ThriftyCam", gain(44), VenueKeeper.For.THIS_STATION))
+        .isInstanceOf(Devices.Refused.class)
+        .hasMessageContaining("the chosen venue can't be used")
+        .hasMessageContaining("\"type\": \"ThriftyCam\"");
   }
 }

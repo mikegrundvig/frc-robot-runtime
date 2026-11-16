@@ -15,6 +15,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.drive.SwerveDrive;
 import com.michaelgrundvig.frc.runtime.subsystems.localization.Localization;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.SwerveWiring;
@@ -429,13 +430,16 @@ public final class Calibration {
             late >= 0 ? "late" : "early",
             solved.get().stdDevSeconds() * 1000,
             solved.get().sightings());
-    if (camera.software() instanceof CameraConfig.Software.Visor visor) {
+    if (camera.software() instanceof Camera.Software.Visor visor) {
       // The offset already configured is in the stamps measured: the new one corrects what's left.
       double configured = visor.timeOffset().map(offset -> offset.in(Seconds)).orElse(0.0);
       return format(
-          "%s In Robots, the %s camera's Software.visor(): .timeOffset(Milliseconds.of(%.1f))"
-              + " // measured %s",
-          measured, camera.name(), (configured - late) * 1000, today.get());
+          "%s In Robots, camera %d's (in %s): .timeOffset(Milliseconds.of(%.1f)) // measured %s",
+          measured,
+          camera.camera().number(),
+          camera.name(),
+          (configured - late) * 1000,
+          today.get());
     }
     if (Math.abs(late) >= CAPTURE_BROKEN_SECONDS) {
       return measured
@@ -544,9 +548,9 @@ public final class Calibration {
     }
     return format(
         "%s: tags landed %.1f cm off, %.1f cm with the mount found (%d sightings; to within %.2f"
-            + " in and %.2f°).%s In Robots, the %s camera's mount: .at(Inches.of(%.2f),"
+            + " in and %.2f°).%s In Robots, the %s station: .at(Inches.of(%.2f),"
             + " Inches.of(%.2f), Inches.of(%.2f)).facing(Degrees.of(%.1f), Degrees.of(%.1f))"
-            + ".roll(Degrees.of(%.1f)).measured() // measured %s",
+            + ".roll(Degrees.of(%.1f)).measuredWith(%d) // measured %s",
         camera.name(),
         solved.residualBeforeMeters() * 100,
         solved.residualAfterMeters() * 100,
@@ -562,6 +566,7 @@ public final class Calibration {
         -Math.toDegrees(turn.getY()),
         Math.toDegrees(turn.getZ()),
         Math.toDegrees(turn.getX()),
+        camera.camera().number(),
         today.get());
   }
 

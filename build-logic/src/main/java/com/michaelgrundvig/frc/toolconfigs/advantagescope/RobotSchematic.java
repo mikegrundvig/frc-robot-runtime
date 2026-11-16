@@ -6,6 +6,7 @@ import static org.wpilib.units.Units.Radians;
 import com.michaelgrundvig.frc.world.physical.Vector3;
 import com.michaelgrundvig.frc.world.robot.Body;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import com.michaelgrundvig.frc.world.tools.RobotDescription;
 import java.util.ArrayList;
 import java.util.List;
@@ -232,7 +233,7 @@ final class RobotSchematic {
   static List<Mesh> cones(RobotDescription robot) {
     List<Mesh> cones = new ArrayList<>();
     for (CameraConfig camera : camerasOnChassis(robot)) {
-      CameraConfig.ImageSensor sensor = camera.sensor();
+      ImageSensor sensor = camera.sensor();
       // At its sight range, the image is this far across and up from the optical axis: the range
       // times the tangent of half the angle it sees that way.
       double range = camera.sightRangeOrDefault().in(Meters);
@@ -264,7 +265,7 @@ final class RobotSchematic {
    * @param pixels the side's length in pixels: the width, or the height
    */
   static double halfAngle(CameraConfig camera, int pixels) {
-    CameraConfig.ImageSensor sensor = camera.sensor();
+    ImageSensor sensor = camera.sensor();
     double diagonalPixels = StrictMath.hypot(sensor.widthPixels(), sensor.heightPixels());
     double tangentAcrossDiagonal = StrictMath.tan(camera.diagonalFieldOfView().in(Radians) / 2);
     return StrictMath.atan(tangentAcrossDiagonal * pixels / diagonalPixels);
@@ -274,15 +275,15 @@ final class RobotSchematic {
   private static Frame lens(CameraConfig camera) {
     Vector3 mount =
         new Vector3(
-            camera.forward().orElseThrow().in(Meters),
-            camera.left().orElseThrow().in(Meters),
-            camera.up().orElseThrow().in(Meters));
+            camera.station().forward().orElseThrow().in(Meters),
+            camera.station().left().orElseThrow().in(Meters),
+            camera.station().up().orElseThrow().in(Meters));
     // WPILib's pitch is positive nose down, so a camera tilted up has a negative one.
-    double pitchRadians = -camera.tiltUp().orElseThrow().in(Radians);
+    double pitchRadians = -camera.station().tiltUp().orElseThrow().in(Radians);
     return Frame.turned(
         mount,
         camera.rollOrDefault().in(Radians),
         pitchRadians,
-        camera.yaw().orElseThrow().in(Radians));
+        camera.station().yaw().orElseThrow().in(Radians));
   }
 }

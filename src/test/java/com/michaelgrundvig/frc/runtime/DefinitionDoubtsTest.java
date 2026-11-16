@@ -10,6 +10,7 @@ import com.michaelgrundvig.frc.world.config.Finding;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.Gearing;
 import com.michaelgrundvig.frc.world.robot.Joint;
+import com.michaelgrundvig.frc.world.robot.Lens;
 import com.michaelgrundvig.frc.world.robot.Link;
 import com.michaelgrundvig.frc.world.robot.MechanismControl;
 import com.michaelgrundvig.frc.world.robot.Motor;
@@ -154,8 +155,8 @@ class DefinitionDoubtsTest {
   @Test
   void aVisorCameraWithNoLensCalibrationIsTheRobotsDoubt() {
     CameraConfig first = ExampleRobot.SIM.definition().cameras().get(0);
-    CameraConfig.Software.Lens lens =
-        CameraConfig.Software.Lens.builder()
+    Lens lens =
+        Lens.builder()
             .width(first.sensor().widthPixels())
             .height(first.sensor().heightPixels())
             .fx(905.2)
@@ -172,16 +173,15 @@ class DefinitionDoubtsTest {
             + " nothing. Calibrate it with Visor's tools/calibrate.py and give it the .lens(...)"
             + " that prints (docs/visor.md)";
 
-    assertThat(doubtsWith(first, CameraConfig.Software.visor().device(device))).contains(said);
-    assertThat(doubtsWith(first, CameraConfig.Software.VISOR)).noneMatch(said::equals);
-    assertThat(doubtsWith(first, CameraConfig.Software.visor().device(device).lens(lens)))
-        .noneMatch(said::equals);
+    assertThat(doubtsWith(TestCameras.onVisor(first, device))).contains(said);
+    assertThat(doubtsWith(TestCameras.onVisor(first))).noneMatch(said::equals);
+    assertThat(doubtsWith(TestCameras.onVisor(first, device, lens))).noneMatch(said::equals);
   }
 
-  /** The robot's doubts with its first camera on this software. */
-  private static List<String> doubtsWith(CameraConfig first, CameraConfig.Software software) {
+  /** The robot's doubts with its first camera as given. */
+  private static List<String> doubtsWith(CameraConfig first) {
     List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
-    cameras.set(0, first.withSoftware(software));
+    cameras.set(0, first);
     RobotDefinition robot =
         RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition()).cameras(cameras).build();
     return Doubts.lines(

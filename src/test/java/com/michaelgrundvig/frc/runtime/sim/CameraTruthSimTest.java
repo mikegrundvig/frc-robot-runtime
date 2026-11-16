@@ -21,6 +21,7 @@ import com.michaelgrundvig.frc.world.field.TagFamily;
 import com.michaelgrundvig.frc.world.field.TagLayout;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -342,7 +343,7 @@ class CameraTruthSimTest {
     Pinhole(CameraConfig config, Pose3d robot, double tagSize) {
       this.tagSize = tagSize;
       camera = robot.transformBy(config.robotToCamera());
-      CameraConfig.ImageSensor sensor = config.sensor();
+      ImageSensor sensor = config.sensor();
       width = sensor.widthPixels();
       height = sensor.heightPixels();
       double halfDiagonal = Math.tan(config.diagonalFieldOfView().in(Degrees) * Math.PI / 360);

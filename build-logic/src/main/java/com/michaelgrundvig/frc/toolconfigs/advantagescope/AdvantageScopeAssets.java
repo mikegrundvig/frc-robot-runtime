@@ -1,7 +1,7 @@
 package com.michaelgrundvig.frc.toolconfigs.advantagescope;
 
+import com.michaelgrundvig.frc.toolconfigs.WriterArguments;
 import com.michaelgrundvig.frc.world.tools.AdvantageScopeRelease;
-import com.michaelgrundvig.frc.world.tools.RobotCatalog;
 import com.michaelgrundvig.frc.world.tools.RobotDescription;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -82,20 +82,23 @@ public final class AdvantageScopeAssets {
           "Drivetrain.Corner.module",
           "Drivetrain.Corner.position",
           "Drivetrain.Module.wheelRadius",
-          "CameraConfig.name",
-          "CameraConfig.forward",
-          "CameraConfig.left",
-          "CameraConfig.up",
-          "CameraConfig.roll",
-          "CameraConfig.tiltUp",
-          "CameraConfig.yaw",
-          "CameraConfig.sensor",
-          "CameraConfig.software",
-          "CameraConfig.ImageSensor.widthPixels",
-          "CameraConfig.ImageSensor.heightPixels",
-          "CameraConfig.ImageSensor.fieldOfView",
-          "CameraConfig.ImageSensor.fieldOfViewAcross",
-          "CameraConfig.ImageSensor.sightRange");
+          "CameraConfig.station",
+          "CameraConfig.camera",
+          "CameraStation.name",
+          "CameraStation.forward",
+          "CameraStation.left",
+          "CameraStation.up",
+          "CameraStation.roll",
+          "CameraStation.tiltUp",
+          "CameraStation.yaw",
+          "Camera.type",
+          "Camera.software",
+          "CameraType.sensor",
+          "ImageSensor.widthPixels",
+          "ImageSensor.heightPixels",
+          "ImageSensor.fieldOfView",
+          "ImageSensor.fieldOfViewAcross",
+          "ImageSensor.sightRange");
 
   /** The configuration values the model leaves out: AdvantageScope has no place for them. */
   public static final List<String> DROPPED =
@@ -113,11 +116,19 @@ public final class AdvantageScopeAssets {
           "Drivetrain.Module.couplingRatio",
           "Drivetrain.wiring",
           "Drivetrain.control",
-          "CameraConfig.noiseScale",
-          "CameraConfig.joint",
-          "CameraConfig.mountTolerance",
-          "CameraConfig.ImageSensor.frameRate",
-          "CameraConfig.ImageSensor.latency");
+          "CameraStation.noiseScale",
+          "CameraStation.joint",
+          "CameraStation.mountTolerance",
+          "CameraStation.measuredWith",
+          "Camera.number",
+          "CameraType.name",
+          "CameraType.exposure",
+          "CameraType.gain",
+          "CameraType.controls",
+          "CameraType.stream",
+          "CameraType.gainRange",
+          "ImageSensor.frameRate",
+          "ImageSensor.latency");
 
   /** The wheels, in the drivetrain's order, as the module poses are logged. */
   static final List<String> WHEELS =
@@ -144,21 +155,8 @@ public final class AdvantageScopeAssets {
    *     doesn't have
    */
   public static void main(String... args) throws IOException, ReflectiveOperationException {
-    AssetArguments arguments = AssetArguments.parse(args);
-    RobotCatalog catalog =
-        Class.forName(arguments.catalogClass())
-            .asSubclass(RobotCatalog.class)
-            .getDeclaredConstructor()
-            .newInstance();
-    write(robotsToWrite(catalog, arguments.robots()), arguments.out());
-  }
-
-  /** The robots named, or every robot the catalog has when none is named. */
-  private static List<RobotDescription> robotsToWrite(RobotCatalog catalog, List<String> names) {
-    if (names.isEmpty()) {
-      return catalog.all();
-    }
-    return names.stream().map(catalog::named).toList();
+    WriterArguments arguments = WriterArguments.parse("AdvantageScopeAssets", args);
+    write(arguments.robotsToWrite(), arguments.out());
   }
 
   /**

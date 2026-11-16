@@ -11,7 +11,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.sim.JointSimulation;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.List;
 import java.util.Objects;
@@ -29,7 +29,7 @@ import org.wpilib.system.RobotController;
 class TurretCameraSimTest {
   /** 15 cm out from the turret's axis and 5 cm above its base, facing its front, tilted up 10°. */
   static final CameraConfig TURRET_CAMERA =
-      CameraConfigBuilder.builder(ExampleRobot.SIM.definition().cameras().get(0))
+      CameraStationBuilder.builder(ExampleRobot.SIM.definition().cameras().get(0).station())
           .name("turret")
           .forward(Meters.of(0.15))
           .left(Meters.of(0))
@@ -38,7 +38,8 @@ class TurretCameraSimTest {
           .tiltUp(Degrees.of(10))
           .yaw(Degrees.of(0))
           .joint(TURRET)
-          .build();
+          .build()
+          .holds(ExampleRobot.SIM.definition().cameras().get(0).camera());
 
   /** The template's robot with a turret, its one camera on it. */
   static final RobotConfig ROBOT =

@@ -487,45 +487,89 @@ ID 70 must be from 0 to 62`.
 
 ### `CameraConfig`
 
-`com.michaelgrundvig.frc.world.robot.CameraConfig`: one camera on the robot. Per camera, in
-`Robots`. The template's four are a 2026 competition robot's, as that team's 2026 code gives them.
+`com.michaelgrundvig.frc.world.robot.CameraConfig`: a camera in its station, `FRONT_LEFT.holds(CAMERA_1)`.
+Per station, in `Robots`, listed by `.withCameras(...)`. Its values are records with sections of
+their own: the station ([`CameraStation`](#camerastation)), where a camera there sits and points,
+and the camera in it ([`Camera`](#camera)). Swapping a camera is changing which camera a station
+holds. The robot refuses one camera in two stations, and two different cameras with one number.
+
+### `CameraStation`
+
+`com.michaelgrundvig.frc.world.robot.CameraStation`: a place on the robot a camera can go, named
+for the place. Per station, in `Robots`, `CameraStation.named("front-left")` and a verb for each
+value. The template's four are a 2026 competition robot's, as that team's 2026 code gives them.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `name` | chosen | none | The camera's name: on PhotonVision, the name PhotonVision knows it by; on Visor, the name in Visor's configuration and logs, which `visor record --camera` takes. |
-| `forward` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `left` and `up`, `.at(forward, left, up)`; a camera without them is refused at startup. [A camera's mount](calibration.md#a-cameras-mount), starting from CAD; again after mounting, bumping, or remounting it. |
+| `name` | chosen | none | The station's name, named for its place (`front-left`), and the name of the camera in it everywhere the robot speaks of it: its logs, on PhotonVision the name PhotonVision knows the camera by, on Visor the name in Visor's configuration and logs, which `visor record --camera` takes, and its card on Pitwall. A camera swapped for another keeps the name. |
+| `forward` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `left` and `up`, `.at(forward, left, up)`; a station without them is refused at startup. [A camera's mount](calibration.md#a-cameras-mount), starting from CAD; again after mounting, bumping, or remounting a camera there. |
 | `left` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `up` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
 | `roll` | calibrated | 2026 code (a 2026 robot's cameras) | Optional: as `forward`. Left out, 0°, a camera mounted level, and the program says so at startup until the mount procedure gives it. |
-| `tiltUp` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `yaw`, `.facing(tiltUp, yaw)`; a camera without them is refused at startup. As `forward`. |
+| `tiltUp` | calibrated | 2026 code (a 2026 robot's cameras) | Given with `yaw`, `.facing(tiltUp, yaw)`; a station without them is refused at startup. As `forward`. |
 | `yaw` | calibrated | 2026 code (a 2026 robot's cameras) | As `forward`. |
-| `noiseScale` | calibrated | guess (every camera typical) | Optional: left out, 1, and the program says so at startup. How much noisier this camera is than the typical one, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other cameras', once every mount is calibrated. |
-| `joint` | as built | none | What the camera rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
-| `software` | as built | none (`PHOTONVISION` unless given) | The vision program on the camera's coprocessor: `PHOTONVISION`, read by its `name` over NetworkTables, or Visor, read from Visor's frames over UDP: `VISOR` for the simulator, `Software.visor()` and its verbs with what the robot configures Visor with ([below](#cameraconfigsoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
+| `noiseScale` | calibrated | guess (every station typical) | Optional: left out, 1, and the program says so at startup. How much noisier this station's results are than the typical camera's, whose noise [camera noise](characterization.md#camera-noise) measured: its logged tag residual (`Vision/<camera>/MeanTagResidualMeters`) over the other stations', once every mount is calibrated. The station's, since its mount's shake and its view of the field weigh as much as the camera in it. |
+| `joint` | as built | none | What the station rides on, if not the chassis: a joint, whose link it's mounted to. Its mount (`forward` to `yaw`) is then in that joint's frame, from CAD. It must sit on the link's shapes (within 10 cm), and inside the robot with the joint where it rests. Localization reads only the chassis's cameras yet. |
+| `measuredWith` | calibrated | none | Optional: the number on the label of the camera [a camera's mount](calibration.md#a-cameras-mount) checked the station with, which its report ends with, `.measuredWith(1)`. While the station holds that camera its mount counts as measured ([`MountTolerance`](#mounttolerance), 5 mm and 1°); holding another, as unchecked, 25 mm and 3°, which the program says at startup, until the procedure checks it again with the camera now in it. A camera sits in a bracket as its own housing and the bracket's screws seat it, so a measurement is of the station with that camera. |
 
-### `CameraConfig.Software.Visor`
+### `Camera`
 
-What the robot configures Visor with for a camera, on whichever coprocessor it's plugged into
-([visor.md](visor.md)). Per camera, in `Robots`, as `.software(Software.visor()...)`, a verb for
-each value: `.device(...)`, `.lens(...)`, `.exposure(Milliseconds.of(1.5))`, `.gain(40)`,
-`.stream(Percent.of(50), Hertz.of(10), 60)`. The
-simulator reads none of it, so a camera on Visor in the simulator alone can be `Software.VISOR`.
+`com.michaelgrundvig.frc.world.robot.Camera`: one physical camera. Per camera, in `Robots`:
+`Camera.visor(1, THRIFTYCAM).device(...).lens(...)`, or `Camera.photonVision(1, ARDUCAM)` for a
+camera PhotonVision reads, which keeps its device and calibration on its coprocessor. Its type
+has a section of its own ([`CameraType`](#cameratype)).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
-| `device` | as built | none | The name `visor cameras --names` prints for the camera on its coprocessor (`visor cameras` lists the same names with the sizes each offers). A camera with a USB serial of its own is named by its `/dev/v4l/by-id/` path, which follows it to any port and any board. A camera with no serial (a ThriftyCam has none), or one whose serial another camera shares, is named by its USB port, its `/dev/v4l/by-path/` path, even when it's the only camera plugged in: it then has to go back in that port, so label the ports and cables. The board's Visor status in Spotter lists the names it sees. |
-| `controls` | chosen | none (the camera's own settings) | Any other camera setting, by the name `v4l2-ctl --list-ctrls` prints on the board (`visor cameras` lists them with their ranges and defaults), set in this order after the exposure and gain. Not the exposure or gain controls, which `exposure` and `gain` own: Visor refuses them, and the robot says so as it starts, so tuning can't be undone by a second owner. A name the camera doesn't have stops Visor opening it, and its log says which. |
-| `exposure` | chosen | top team (a top team's ThriftyCam: 1 ms, its automatic exposure off) | As `Software.visor()` starts, unless given: a fixed 1 ms ([below](#cameraconfigsoftwareexposurefixed)) with the camera's automatic exposure off, since a camera's own lengthens the exposure in dim light, blurring the tags exactly when they're hardest to read. `.camerasOwnExposure()` hands it back to the camera, which then has no exposure to tune. |
-| `gain` | chosen | none (the camera's own gain) | `Gain.CAMERAS_OWN`, the camera's own, unless given: a `gain` control's units are the camera's, so no one number suits every camera. `.gain(n)` sets it ([below](#cameraconfigsoftwaregainlevel)), and makes it tunable. |
+| `number` | as built | none | The number on the camera's label, from 1: label each camera before it goes on the robot. Unique among the robot's cameras; the pre-competition checklist and the startup report name a camera by it. |
+| `software` | as built | none | The vision program on the camera's coprocessor: PhotonVision, read by its station's name over NetworkTables, or Visor, read from Visor's frames over UDP, with what the robot configures Visor with for this camera ([below](#camerasoftwarevisor)). A camera on Visor has its place in the robot's list of cameras, from 0, as its index in Visor's configuration, and the robot answers Visor's clock sync while any camera is on it. |
+
+### `Camera.Software.Visor`
+
+What the robot configures Visor with for one camera, on whichever coprocessor it's plugged into
+([visor.md](visor.md)): a verb on its `Camera` for each value, `.device(...)`, `.lens(...)`,
+`.timeOffset(...)`. The simulator reads none of it, so a camera on Visor in the simulator alone
+can be `Camera.visor(1, THRIFTYCAM)` with neither.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `device` | as built | none | The name `visor cameras --names` prints for the camera on its coprocessor (`visor cameras` lists the same names with the sizes each offers). A camera with a USB serial of its own is named by its `/dev/v4l/by-id/` path, which follows it to any port and any board, and is the camera itself. A camera with no serial, or one whose serial another camera shares, is named by its USB port, its `/dev/v4l/by-path/` path, even when it's the only camera plugged in: that names the port and not the camera, so it has to go back in that port; label the ports and cables. The board's Visor status in Spotter lists the names it sees. |
 | `timeOffset` | calibrated | none (no offset) | Added to every capture time: [a camera's capture time](calibration.md#a-cameras-capture-time), the spin test, prints it to paste, on each camera. |
 
-### `CameraConfig.Software.Stream`
+### `CameraType`
+
+`com.michaelgrundvig.frc.world.robot.CameraType`: a kind of camera, shared by every camera of the
+kind: `CameraType.of("ThriftyCam", ImageSensor.of(1600, 1304, Hertz.of(60)))`, and a verb for each
+other value. In `Robots`, once per kind. Its images have a section of their own
+([`ImageSensor`](#imagesensor)). The exposure and gain are where each camera of the kind starts on
+Visor; PhotonVision keeps its own settings, so a camera on PhotonVision reads none of them.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `name` | chosen | none | What the kind is called, `ThriftyCam`: the startup report and the pre-competition checklist name it, and a venue keeps the kind's exposure and gain by it, so two kinds never share one. |
+| `exposure` | chosen | top team (a top team's ThriftyCam: 1 ms, its automatic exposure off) | A fixed 1 ms unless given ([below](#cameratypeexposurefixed)), with the camera's automatic exposure off, since a camera's own lengthens the exposure in dim light, blurring the tags exactly when they're hardest to read. `.camerasOwnExposure()` hands it back to the camera, which then has no exposure to tune. |
+| `gain` | chosen | none (the camera's own gain) | `Gain.CAMERAS_OWN`, the camera's own, unless given: a `gain` control's units are the camera's, so no one number suits every kind. `.gain(n)` sets where each camera of the kind starts ([below](#cameratypegainlevel)): the one place for a measured gain for the kind. |
+| `controls` | chosen | none (the camera's own settings) | Any other camera setting, by the name `v4l2-ctl --list-ctrls` prints on the board (`visor cameras` lists them with their ranges and defaults), set in this order after the exposure and gain. Not the exposure or gain controls, which `exposure` and `gain` own: Visor refuses them, and the robot says so as it starts, so tuning can't be undone by a second owner. A name the camera doesn't have stops Visor opening it, and its log says which. |
+
+### `CameraType.GainRange`
+
+The values a kind of camera's `gain` control takes, `.gainRange(16, 255)`, on its `CameraType`:
+optional, and left out it's UVC's whole range, 0 to 65535, which Visor holds to the camera's own.
+The pit's tuning of the gain goes between them, and a venue's gain outside them runs at the
+nearest, which the robot says at startup. A type's own `.gain(...)` outside its range is refused.
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `lowest` | as built | none | The least gain the control takes: the camera's datasheet or firmware notes, or the range `visor cameras` lists on its coprocessor. |
+| `highest` | as built | none | The most, at least `lowest`: as `lowest`. |
+
+### `CameraType.Stream`
 
 A camera's live view, which its card on Pitwall's Pit view shows, the browser fetching it from the
-camera's coprocessor ([visor.md](visor.md#the-live-view-on-pitwall)). Per camera, in its
-`Software.visor()`, as `.stream(Percent.of(50), Hertz.of(10), 60)`: optional, and left out it's
-Visor's own (half size, 10 a second and quality 60, the numbers below), which the robot writes
-nothing of. Visor makes nothing while no card shows it, and never at detection's expense.
+camera's coprocessor ([visor.md](visor.md#the-live-view-on-pitwall)). Per kind of camera, as
+`.stream(Percent.of(50), Hertz.of(10), 60)`: optional, and left out it's Visor's own (half size, 10
+a second and quality 60, the numbers below), which the robot writes nothing of. Visor makes nothing
+while no card shows it, and never at detection's expense.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -533,33 +577,33 @@ nothing of. Visor makes nothing while no card shows it, and never at detection's
 | `frameRate` | chosen | guess (Visor's 10 a second) | Pictures a second while a card shows it, at least 1: past 30 is no smoother to the eye, and each picture costs the board a few milliseconds. One faster than the camera runs at the camera's. Ten is smooth enough to aim by, at a sixth of a 60 fps camera's frames. |
 | `quality` | chosen | guess (Visor's 60) | JPEG quality, 1 to 100. At 60 a half-size ThriftyCam picture is 20 to 25 KB, about 2 Mbit/s at 10 a second, and tag edges and IDs stay sharp; raise it if the view looks blocky, lower it if the network's busy. |
 
-### `CameraConfig.Software.Exposure.Fixed`
+### `CameraType.Exposure.Fixed`
 
-A camera's fixed exposure, its automatic exposure off: `.exposure(Milliseconds.of(1))`. Per
-camera, in its `Software.visor()`, as `.exposure(...)`; tunable live as its [camera's
-tuning](#camera-camera-tuning).
+A camera's fixed exposure, its automatic exposure off: `.exposure(Milliseconds.of(1))`. Per kind of
+camera, as `.exposure(...)`; tunable live as its [camera's tuning](#camera-camera-tuning).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `time` | chosen | top team (a top team runs the ThriftyCam at 1 ms) | 1 ms unless given: blur from the robot turning is the main error in a tag's corners, and a short exposure cuts it (at 1 ms, a turn at 360°/s moves a tag 4 m away about 2.5 cm). From 100 µs, one of V4L2's steps (a shorter one rounds to none), to 1 s; Visor sets the nearest 100 µs. [Tune it](visor.md#exposure-and-gain) at the venue, disabled: the shortest whose frames keep `Vision/<camera>/BrightnessHigh` near 100 or more with `ClippedShare` near 0; raise the gain before lengthening it, and keep it under one frame's time. |
 
-### `CameraConfig.Software.Gain.Level`
+### `CameraType.Gain.Level`
 
-A value of a camera's `gain` control: `.gain(40)`. Per camera, in its `Software.visor()`, as
-`.gain(...)`; tunable live as its [camera's tuning](#camera-camera-tuning).
+A value of a camera's `gain` control: `.gain(40)`. Per kind of camera, as `.gain(...)`; tunable
+live as its [camera's tuning](#camera-camera-tuning).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `value` | chosen | none (the camera's own until given) | In the camera's own units, a whole number from 0 to 65535: `visor cameras` on its coprocessor lists the control's range and default, which is where to start. The ThriftyCam's default waits until its `gain` range is read off a real one; a top team runs it at libcamera's analogue gain 2 of 1 to 4, another scale. Raise it when frames are dark at the exposure you want, until the noise in `visor record`'s frames starts to show. Visor holds it to the camera's range, with a warning. |
 
-### `CameraConfig.Software.Lens`
+### `Lens`
 
 A camera's lens, as Visor's `tools/calibrate.py solve` measures it and prints it, ready to paste:
-OpenCV's model. Per physical camera, at the frame size it runs; again after refocusing or
-replacing it. Without one, Visor sends the tags' corners and no poses. The build refuses a lens
-calibrated at another size than the camera's `ImageSensor`. A new lens reaches the camera's board as a
-new configuration, once the robot is disabled off the field; until then the board's frames, solved
-with the old one, are left out ([visor.md](visor.md#which-frames-are-believed)).
+OpenCV's model. Per physical camera, on its `Camera` as `.lens(...)`, at the frame size it runs;
+again after refocusing or replacing it. Without one, Visor sends the tags' corners and no poses.
+The build refuses a lens calibrated at another size than the camera type's `ImageSensor`. A new lens
+reaches the camera's board as a new configuration, once the robot is disabled off the field; until
+then the board's frames, solved with the old one, are left out
+([visor.md](visor.md#which-frames-are-believed)).
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -571,29 +615,42 @@ with the old one, are left out ([visor.md](visor.md#which-frames-are-believed)).
 | `cy` | calibrated | none | As `fx`: the optical centre down. |
 | `distortion` | calibrated | none | As `fx`: OpenCV's coefficients, five unless `--rational` gave eight for a wide lens. |
 
-### `CameraConfig.MountTolerance`
+### `MountTolerance`
 
-How far a camera may really sit from its configured mount, as a bound along and about each axis.
-Per camera, in `Robots`, as `.mountTolerance(...)`; left out, `MountTolerance.UNCHECKED`, 25 mm and
-3°, for a mount measured with a tape or read off CAD and never checked, and the program says so at
-startup. [A camera's mount](calibration.md#a-cameras-mount) ends its report with `.measured()`,
-`MountTolerance.MEASURED`, 5 mm and 1°, for a mount it has put right. The default
-localizer starts the camera's turn on its mount as unsure as an error drawn evenly within it (1° is
-0.58° as a standard deviation) and learns the turn from the camera's images as the robot drives;
-the offset adds to `cameraShiftStdDevMeters`. Too small, and a camera off by more is trusted as if
-it weren't.
+How far a camera may really sit from its station's configured mount, as a bound along and about
+each axis. Per station, in `Robots`, as `.mountTolerance(...)`, or from its measurement
+(`.measuredWith(...)`); left out, `MountTolerance.UNCHECKED`, 25 mm and 3°, for a mount measured
+with a tape or read off CAD and never checked, and the program says so at startup. [A camera's
+mount](calibration.md#a-cameras-mount) ends its report with `.measuredWith(...)`, for
+`MountTolerance.MEASURED`, 5 mm and 1°, while the station holds the camera it was measured with.
+The default localizer starts the camera's turn on its mount as unsure as an error drawn evenly
+within it (1° is 0.58° as a standard deviation) and learns the turn from the camera's images as the
+robot drives; the offset adds to `cameraShiftStdDevMeters`. Too small, and a camera off by more is
+trusted as if it weren't.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
 | `along` | calibrated | math (unchecked, 25 mm: a camera placed by hand lands within about an inch; checked, 5 mm, the end of what a mount measured from CAD and checked lands within, as the [camera placement study's robustness](camera-placement.md#robustness) has it) | After [a camera's mount](calibration.md#a-cameras-mount), five runs from the same spots: three times the spread of where they put the lens. |
 | `about` | calibrated | math (unchecked, 3°: a bracket bent a little; checked, 1°, as `along`) | As `along`, for the camera's angles. |
 
-### `CameraConfig.ImageSensor`
+### `CameraTuning`
 
-The camera itself: per model of camera, at the settings it runs: `ImageSensor.of(1280, 800, Hertz.of(30))`,
-the size and rate, and the rest each by its own call, `.fieldOfView(...)`, `.latency(...)`,
-`.sightRange(...)`, where it's known. In `Robots`, shared by the cameras that use it. The simulator
-builds its cameras from it. What's left out is said at startup.
+`com.michaelgrundvig.frc.runtime.coprocessors.CameraTuning`: what the pit tunes of one camera on
+Visor, as numbers ([its tuning](#camera-camera-tuning)). Never written in code: it starts where the
+camera runs, its venue's or its type's, and a tuned value is kept in the venue from the camera's
+card ([visor.md](visor.md#exposure-and-gain)).
+
+| Value | Kind | Source | How to measure it, or why |
+|---|---|---|---|
+| `exposure` | chosen | none (the venue's, else the type's) | Tuned at the venue, disabled: the shortest whose frames keep `Vision/<camera>/BrightnessHigh` near 100 or more with `ClippedShare` near 0; raise the gain before lengthening it. Kept in the venue, for every camera of its type or the station alone. |
+| `gain` | chosen | none (the venue's, else the type's, else the camera's own as its frames report it) | Tuned at the venue, disabled, after the exposure: raise it when frames are dark at the exposure you want, until the noise in `visor record`'s frames starts to show. Kept in the venue as `exposure` is. |
+
+### `ImageSensor`
+
+The images a kind of camera gives, at the settings it runs: `ImageSensor.of(1280, 800,
+Hertz.of(30))`, the size and rate, and the rest each by its own call, `.fieldOfView(...)`,
+`.latency(...)`, `.sightRange(...)`, where it's known. In `Robots`, in its `CameraType`. The
+simulator builds its cameras from it. What's left out is said at startup.
 
 | Value | Kind | Source | How to measure it, or why |
 |---|---|---|---|
@@ -1746,15 +1803,18 @@ committed. Its motor controller takes a change on the next loop. Its feedforward
 
 ### `<camera> camera` tuning
 
-`VisorTuning.of`: one for each camera on Visor whose definition fixes its exposure or gives its
-gain, named for the camera (`front-left camera`), with only the knobs it fixes. Visor restarts the
-camera with a tuned value once the robot is disabled off the field ([visor.md](visor.md#exposure-and-gain)).
-The camera's card on the Pit view shows the same knobs, beside its live view.
+`VisorTuning.of`: one for each camera on Visor, named for the camera (`front-left camera`): its
+gain always, and its exposure where its type fixes one. It starts where the camera runs: the
+venue's value, else its type's; a camera left at its own gain starts at the gain its frames
+report, and at 0 until they do. Visor restarts the camera with a tuned value once the robot is
+disabled off the field ([visor.md](visor.md#exposure-and-gain)). A tuned value runs until it's
+kept in the venue from the camera's card, or the robot restarts. The camera's card on the Pit
+view shows the same knobs, beside its live view.
 
 | Knob | Source | Why |
 |---|---|---|
-| `exposure.time` | math (0.1 ms, V4L2's step, to one frame at the camera's `frameRate`) | The shortest a UVC camera sets, to the longest that keeps its frame rate; widened to take in what's committed. |
-| `gain.value` | datasheet (UVC's gain control is an unsigned 16-bit number) | Its whole range: the robot doesn't know the camera's own, and Visor holds a value to it, with a warning in its log. |
+| `exposure` | math (0.1 ms, V4L2's step, to one frame at the camera's `frameRate`) | The shortest a UVC camera sets, to the longest that keeps its frame rate; widened to take in its type's. A venue's exposure longer than that is run untuned, and the camera's card says why. |
+| `gain` | datasheet (UVC's gain control is an unsigned 16-bit number) | Its whole range: the robot doesn't know the camera's own, and Visor holds a value to it, with a warning in its log. |
 
 ### `pivot` tuning
 

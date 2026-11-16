@@ -10,7 +10,7 @@ import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.CameraIO;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
-import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -105,8 +105,7 @@ class DetectorComparisonSimTest {
     }
   }
 
-  private static Lap drive(
-      String name, CameraConfig.Software software, @Nullable DetectionModel model) {
+  private static Lap drive(String name, Camera.Software software, @Nullable DetectionModel model) {
     int images = 0;
     int imagesWithTags = 0;
     List<Fix> fixes = new ArrayList<>();
@@ -177,13 +176,13 @@ class DetectorComparisonSimTest {
     Map<String, Lap> laps = new LinkedHashMap<>();
     laps.put(
         "simulator",
-        drive("Simulator's limits (7 m, 100 px²)", CameraConfig.Software.PHOTONVISION, null));
+        drive("Simulator's limits (7 m, 100 px²)", Camera.Software.PHOTONVISION, null));
     for (DetectionModel model :
         List.of(
             DetectionModel.WPILIB_DECIMATE_2,
             DetectionModel.WPILIB_DECIMATE_1,
             DetectionModel.NAPA)) {
-      laps.put(model.name(), drive(model.name(), CameraConfig.Software.VISOR, model));
+      laps.put(model.name(), drive(model.name(), Camera.Software.VISOR, model));
     }
 
     System.out.printf(

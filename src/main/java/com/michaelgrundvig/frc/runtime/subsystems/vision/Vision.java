@@ -39,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
@@ -905,6 +906,22 @@ public final class Vision implements AutoCloseable {
    */
   public void venue(FieldModel venue) {
     field = venue;
+  }
+
+  /**
+   * The gain a camera's latest frame was taken at, as its vision program read it back from the
+   * camera, by its index in the robot's list: empty until it says, or for a camera with no gain
+   * control. A camera left at its own gain starts its tuning from it.
+   */
+  public OptionalInt reportedGain(int camera) {
+    if (camera < 0 || camera >= cameras.size()) {
+      return OptionalInt.empty();
+    }
+    int gain = cameras.get(camera).inputs.gain;
+    if (gain < 0) {
+      return OptionalInt.empty();
+    }
+    return OptionalInt.of(gain);
   }
 
   // ---- For the pit ----

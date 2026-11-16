@@ -29,6 +29,12 @@ gradlePlugin {
             displayName = "AdvantageScope's robot assets, from Robots.java"
             description = "Generates ascope_assets/ from the robot's configuration in every build, and fails on an edit made outside it."
         }
+        competitionChecklist {
+            id = "frc.competition-checklist"
+            implementationClass = "com.michaelgrundvig.frc.toolconfigs.CompetitionChecklistPlugin"
+            displayName = "A pre-competition checklist, from Robots.java"
+            description = "Generates each robot's pre-competition checklist (checklists/) from its definition in every build: which camera goes in each station, and what to check in the pit and on the field."
+        }
         visor {
             id = "frc.visor"
             implementationClass = "com.michaelgrundvig.frc.toolconfigs.VisorPlugin"

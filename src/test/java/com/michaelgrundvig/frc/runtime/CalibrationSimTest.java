@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.pitwall.simulator.Setting;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
 import com.michaelgrundvig.frc.simulation.FaultCatalog;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -117,10 +118,10 @@ class CalibrationSimTest {
   }
 
   /** The robot's cameras, every one on this software. */
-  private static RobotConfig everyCameraOn(CameraConfig.Software software) {
+  private static RobotConfig everyCameraOn(Camera.Software software) {
     RobotConfig robot = ExampleRobot.SIM;
     for (CameraConfig camera : ExampleRobot.SIM.definition().cameras()) {
-      robot = robot.with(camera.withSoftware(software));
+      robot = robot.with(TestCameras.on(camera, software));
     }
     return robot;
   }
@@ -166,12 +167,12 @@ class CalibrationSimTest {
 
   /** The software every camera of the robot runs, for the procedures that need its headings. */
   enum Cameras {
-    PHOTONVISION(CameraConfig.Software.PHOTONVISION),
-    VISOR(CameraConfig.Software.VISOR);
+    PHOTONVISION(Camera.Software.PHOTONVISION),
+    VISOR(Camera.Software.VISOR);
 
-    final CameraConfig.Software software;
+    final Camera.Software software;
 
-    Cameras(CameraConfig.Software software) {
+    Cameras(Camera.Software software) {
       this.software = software;
     }
   }
@@ -236,9 +237,7 @@ class CalibrationSimTest {
             .filter(camera -> camera.name().equals("front-left"))
             .findFirst()
             .orElseThrow();
-    sim.build(
-        ExampleRobot.SIM.with(frontLeft.withSoftware(CameraConfig.Software.VISOR)),
-        SensorErrors.NONE);
+    sim.build(ExampleRobot.SIM.with(TestCameras.onVisor(frontLeft)), SensorErrors.NONE);
     sim.run(1.0);
     offsetClock("front-left", 25);
 
@@ -247,7 +246,7 @@ class CalibrationSimTest {
 
     Matcher offset =
         Pattern.compile(
-                "front-left camera's Software\\.visor\\(\\): \\.timeOffset\\(Milliseconds\\.of\\((-?\\d+\\.\\d)\\)\\)")
+                "camera 1's \\(in front-left\\): \\.timeOffset\\(Milliseconds\\.of\\((-?\\d+\\.\\d)\\)\\)")
             .matcher(report);
     assertThat(offset.find()).as(report).isTrue();
     assertThat(Double.parseDouble(offset.group(1))).isCloseTo(-25, within(3.0));
@@ -318,7 +317,7 @@ class CalibrationSimTest {
     String report = sim.robot().calibration().lastResult();
     assertThat(report)
         .startsWith("front-left: tags landed")
-        .contains("In Robots, the front-left camera's mount: .at(Inches.of(");
+        .contains("In Robots, the front-left station: .at(Inches.of(");
     String line = report.substring(report.indexOf(".at("));
     double[] mount = numbers(line);
     // Configured at (11.75, 11.75, 21) in, roll 0, tilted up 10, turned 45: really 4 in lower.
@@ -328,8 +327,8 @@ class CalibrationSimTest {
     assertThat(mount[3]).as("tilted up").isCloseTo(10, within(0.5));
     assertThat(mount[4]).as("turned").isCloseTo(45, within(0.5));
     assertThat(line)
-        .as("it ends with the call that marks the mount checked")
-        .containsPattern("\\.measured\\(\\) // measured \\S+$");
+        .as("it ends with the call that marks the mount checked with its camera")
+        .containsPattern("\\.measuredWith\\(1\\) // measured \\S+$");
     assertThat(numbers(report)[0]).as("tags landed off, cm").isGreaterThan(5);
     assertThat(numbers(report)[1]).as("and with the mount found").isLessThan(3);
   }

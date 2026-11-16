@@ -127,10 +127,15 @@ class ExampleRobotSimTest {
         .containsExactlyElementsOf(competition.cameras().stream().map(CameraConfig::name).toList());
     CameraConfig backLeft = practice.cameras().get(2);
     assertThat(backLeft.name()).isEqualTo("back-left");
-    assertThat(backLeft.up().orElseThrow()).as("half an inch lower").isEqualTo(Inches.of(20.5));
-    assertThat(backLeft.yaw())
+    assertThat(backLeft.station().up().orElseThrow())
+        .as("half an inch lower")
+        .isEqualTo(Inches.of(20.5));
+    assertThat(backLeft.station().yaw())
         .as("the rest of its mount kept")
-        .isEqualTo(competition.cameras().get(2).yaw());
+        .isEqualTo(competition.cameras().get(2).station().yaw());
+    assertThat(backLeft.camera())
+        .as("the same camera in it")
+        .isEqualTo(competition.cameras().get(2).camera());
   }
 
   /**

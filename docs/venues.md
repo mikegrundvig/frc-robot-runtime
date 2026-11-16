@@ -20,7 +20,11 @@ A venue file is a small JSON document that embeds WPILib's layout unchanged (`Ve
   "layout": { "...": "WPILib's layout, as WPILib or WPIcal writes it" },
   "moved": {"14": "the panel was rehung after the survey"},
   "method": "hand",
-  "date": "2026-10-12"
+  "date": "2026-10-12",
+  "cameras": {
+    "types": {"ThriftyCam": {"exposureMs": 1.5, "gain": 40}},
+    "stations": {"back": {"type": "ThriftyCam", "gain": 52}}
+  }
 }
 ```
 
@@ -30,7 +34,8 @@ A venue file is a small JSON document that embeds WPILib's layout unchanged (`Ve
 | `base` | The official layout the survey was measured against |
 | `layout` | Either of WPILib's formats: the field format (`field-tags`) or the earlier AprilTag layout (`tags`, which WPIcal and PhotonVision use) |
 | `moved` | Optional. Why a tag sits more than 10 cm or 5° from its official place |
-| `method`, `date` | Optional. How and when it was measured |
+| `method`, `date` | Optional. How and when it was measured: `official` for the official layout as it is |
+| `cameras` | Optional. Its cameras' exposure and gain ([below](#camera-settings)) |
 
 A key the format doesn't have is an error, so a misspelling can't pass silently.
 
@@ -81,6 +86,23 @@ the field attached.
 
 A tag moved since is a new venue: measure it again, and upload the change.
 
+## Camera settings
+
+A venue also carries its cameras' exposure and gain for its lighting, the only robot settings a
+venue keeps: under `types`, `exposureMs` and `gain` for each kind of camera, by its camera type's
+name in `Robots.java`, and under `stations` a station's own, by the station's name, where its light
+differs. A gain is in the camera's own units, so each kind has its own. Each value is optional; one
+left out is the camera type's own ([visor.md](visor.md#exposure-and-gain)). The exposure is a
+fixed one, 0.1 to 1000 ms; the gain a whole number, 0 to 65535. They're written by the pit, not by
+hand: tune a camera, then keep the value from its card, for every camera of its type or its
+station alone. A bare WPILib layout has none.
+
+A station's own settings name the camera type they were kept with (`type`): a station that holds
+another kind of camera since runs at that kind's, and the robot says so as it takes the venue,
+until a value is kept for the station again. A type or a station the robot has no camera for is
+kept in the file and unused, so one venue file can serve two robots; the robot says which in one
+line as it takes the venue.
+
 ## In the pit
 
 Pitwall's **Pit** view has a **venue** card.
@@ -93,7 +115,15 @@ Pitwall's **Pit** view has a **venue** card.
   - an official venue matching WPILib's layout to 1 mm.
 - **Choose:** the robot takes the chosen venue at the start of a loop while disabled, never while
   it drives. The choice stays across reboots and deploys.
+- **New venue for this event:** for an event with no survey of the field, makes a venue from the official
+  layout as it is, named for the event (type the name in its box), and chooses it: somewhere to keep
+  the event's camera settings. It's an `official` venue, so it fits the field wherever the official
+  layout does.
 - **Download venue file:** gives the file to commit.
+- A camera's card keeps its tuned exposure and gain in the chosen venue
+  ([visor.md](visor.md#exposure-and-gain)). The robot writes them into the venue's file, which is
+  then another file, chosen in the old one's place; an upload kept here is replaced by it, so the
+  robot keeps one file for the venue.
 
 The robot keeps uploaded venues outside the deploy folder, so a deploy can't wipe them: on
 Systemcore in `/home/systemcore/venues/`, and in the simulator in `build/venues/`. It keeps up to
@@ -113,11 +143,15 @@ layout, and in the second case a HIGH alert says why.
 when the field system connects, the robot falls back to the official layout and raises a HIGH
 alert until the pit chooses the event's venue.
 
-**Logged in full.** The chosen file is logged as an input, so a replay uses exactly that venue.
+**Its cameras run at its settings.** A venue's camera settings take effect with it, while
+disabled, and the robot says each camera's exposure and gain and where each came from.
+
+**Logged in full.** The chosen file is logged as an input, so a replay uses exactly that venue,
+and its cameras' settings.
 
 ## Keep it in Git
 
-A venue uploaded at an event lives only on the robot. The card and a MEDIUM alert say **not in
+A venue uploaded at an event, or a camera setting kept in one, lives only on the robot. The card and a MEDIUM alert say **not in
 Git** until a build carries the same file. Download it and commit it to
 `src/main/deploy/venues/`: a venue there ships with every deploy and can be chosen like an
 uploaded one.

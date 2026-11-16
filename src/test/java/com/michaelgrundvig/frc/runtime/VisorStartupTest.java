@@ -10,7 +10,7 @@ import com.michaelgrundvig.frc.world.field.TagFamily;
 import com.michaelgrundvig.frc.world.game.Game;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
+import com.michaelgrundvig.frc.world.robot.CameraType;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
@@ -40,8 +40,10 @@ class VisorStartupTest {
   /** The simulator's robot with its first camera on Visor, naming this control. */
   private static RobotConfig withControl(String control) {
     CameraConfig first = ExampleRobot.SIM.definition().cameras().get(0);
-    Software.Visor visor = Software.visor().controls(List.of(Software.Control.of(control, 1)));
-    return ExampleRobot.SIM.with(first.withSoftware(visor));
+    CameraType named =
+        TestCameras.named(
+            first.type().controls(List.of(CameraType.Control.of(control, 1))), "with a control");
+    return ExampleRobot.SIM.with(TestCameras.retyped(TestCameras.onVisor(first), named));
   }
 
   private record Row(String what, RobotConfig robot, Game game, String refused) {}

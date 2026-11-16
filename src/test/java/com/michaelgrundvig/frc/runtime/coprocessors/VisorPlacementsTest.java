@@ -3,8 +3,8 @@ package com.michaelgrundvig.frc.runtime.coprocessors;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.TestCameras;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -59,14 +59,10 @@ class VisorPlacementsTest {
   private static List<CameraConfig> cameras() {
     List<CameraConfig> guide = ExampleRobot.SIM.definition().cameras();
     List<CameraConfig> cameras = new ArrayList<>();
-    cameras.add(on(guide.get(0), Software.visor().device("/dev/v4l/by-id/" + FRONT)));
-    cameras.add(on(guide.get(1), Software.visor().device("/dev/v4l/by-id/" + BACK)));
-    cameras.add(on(guide.get(2), Software.VISOR));
+    cameras.add(TestCameras.onVisor(guide.get(0), "/dev/v4l/by-id/" + FRONT));
+    cameras.add(TestCameras.onVisor(guide.get(1), "/dev/v4l/by-id/" + BACK));
+    cameras.add(TestCameras.onVisor(guide.get(2)));
     return cameras;
-  }
-
-  private static CameraConfig on(CameraConfig camera, Software software) {
-    return camera.withSoftware(software);
   }
 
   /**

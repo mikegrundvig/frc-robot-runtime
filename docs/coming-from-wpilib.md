@@ -253,8 +253,8 @@ What differs in the default estimator:
 You do not call `addVisionMeasurement`, and there are no standard deviations to hand-tune per
 tag count. The tuning is in `EstimatorConfig` and `VisionConfig`, and
 [values.md](values.md) says what each number means. A camera runs PhotonVision or Visor, the
-runtime's own AprilTag program ([visor.md](visor.md)); each camera says which in its block
-(`.software(...)`).
+runtime's own AprilTag program ([visor.md](visor.md)); each camera says which as it's defined
+(`Camera.visor(...)` or `Camera.photonVision(...)`).
 
 **You can have `SwerveDrivePoseEstimator` back.** The estimator sits behind an interface,
 `Localizer`, and WPILib's is the second implementation. One line in the robot's block chooses it:
@@ -526,7 +526,7 @@ interface is in the runtime, beside the drivers that exist.
 - Gyro: a Pigeon 2, with Systemcore's own IMU as a backup.
 - Drivetrain: swerve, on TalonFX modules with CANcoders or on SPARK modules.
 - Vision: PhotonVision, or Visor, the runtime's own AprilTag program, on a coprocessor
-  ([visor.md](visor.md)). Each camera names its own in its block (`.software(...)`).
+  ([visor.md](visor.md)). Each camera names its own as it's defined (`Camera.visor(...)`).
 
 A Phoenix Pro license is not assumed. The guide's drivetrain runs without FOC (a licensed
 controller turns it on with `.foc()`), and its steering reads the CANcoder as a remote sensor.

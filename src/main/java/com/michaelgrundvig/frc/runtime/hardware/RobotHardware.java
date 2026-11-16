@@ -24,6 +24,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorBoards;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorClock;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorFeed;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorPorts;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.CanDevice;
 import com.michaelgrundvig.frc.world.robot.ControllerPins;
@@ -329,7 +330,7 @@ public final class RobotHardware implements Hardware {
     List<CameraConfig> configured = definition.cameras();
     for (int index = 0; index < configured.size(); index++) {
       CameraConfig camera = configured.get(index);
-      if (camera.software() instanceof CameraConfig.Software.Visor) {
+      if (camera.software() instanceof Camera.Software.Visor) {
         cameras.add(new CameraIOVisor(visor(), index));
       } else {
         cameras.add(new CameraIOPhotonVision(camera.name()));

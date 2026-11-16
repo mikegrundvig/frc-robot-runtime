@@ -4,6 +4,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.vision.VisorBoards;
 import com.michaelgrundvig.frc.spotter.manager.Board;
 import com.michaelgrundvig.frc.spotter.manager.Value;
 import com.michaelgrundvig.frc.visor.VisorPack;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -68,7 +69,7 @@ final class VisorPlacements implements VisorBoards {
     this.configs = configs;
     for (CameraConfig camera : cameras) {
       Optional<String> device = Optional.empty();
-      if (camera.software() instanceof CameraConfig.Software.Visor visor) {
+      if (camera.software() instanceof Camera.Software.Visor visor) {
         device = visor.device().map(VisorConfigs::deviceName);
       }
       devices.add(device);

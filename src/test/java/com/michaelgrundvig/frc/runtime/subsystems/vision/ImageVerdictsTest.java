@@ -24,11 +24,19 @@ import com.michaelgrundvig.frc.localization.VisionConfig;
 import com.michaelgrundvig.frc.localization.YawSamples;
 import com.michaelgrundvig.frc.localization.YawSource;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
+import com.michaelgrundvig.frc.runtime.coprocessors.VisorTuning;
 import com.michaelgrundvig.frc.runtime.lib.timing.RobotLoop;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Symmetry;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
+import com.michaelgrundvig.frc.world.robot.CameraBuilder;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
+import com.michaelgrundvig.frc.world.robot.MountTolerance;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import java.util.ArrayList;
@@ -68,25 +76,31 @@ class ImageVerdictsTest {
   private static final long T0 = 1_000_000_000L;
   private static final long LOOP_NANOS = 20_000_000L;
 
-  private static final CameraConfig PHOTONVISION = camera(CameraConfig.Software.PHOTONVISION);
+  private static final CameraConfig PHOTONVISION = camera(Software.PHOTONVISION);
 
   /** A camera on Visor, on a robot, that nobody has calibrated a lens for. */
   private static final CameraConfig WITHOUT_A_LENS =
-      camera(CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-front-video-index0"));
+      camera(
+          new Software.Visor(
+              Optional.of("/dev/v4l/by-id/usb-front-video-index0"),
+              Optional.empty(),
+              Optional.empty()));
 
-  private static CameraConfig camera(CameraConfig.Software software) {
-    return CameraConfig.of(
-            "front",
-            CameraConfig.ImageSensor.of(1280, 800, Hertz.of(30))
-                .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
+  private static CameraConfig camera(Software software) {
+    CameraType type =
+        CameraType.of(
+            "test camera",
+            ImageSensor.of(1280, 800, Hertz.of(30))
+                .fieldOfView(Degrees.of(80), ImageSensor.Across.DIAGONAL)
                 .latency(Milliseconds.of(30))
-                .sightRange(Meters.of(7)))
+                .sightRange(Meters.of(7)));
+    return CameraStation.named("front")
         .at(Inches.of(12), Inches.of(0), Inches.of(12))
         .facing(Degrees.of(15), Degrees.of(0))
         .roll(Degrees.of(0))
         .noiseScale(1.0)
-        .measured()
-        .software(software);
+        .mountTolerance(MountTolerance.MEASURED)
+        .holds(CameraBuilder.builder().number(1).type(type).software(software).build());
   }
 
   /** A camera that hands over whatever the test scripts, its tags with poses or without. */
@@ -316,7 +330,14 @@ class ImageVerdictsTest {
               .isEqualTo(row.counted().getOrDefault(verdict, 0L));
         }
         assertThat(rig.vision.summary()).as(row.name()).endsWith(row.pitLineEnds());
-        assertThat(new CameraPit(front, CameraPit.Frames.FROM_THE_SIMULATOR).card().lines())
+        assertThat(
+                new CameraPit(
+                        front,
+                        CameraPit.Frames.FROM_THE_SIMULATOR,
+                        VisorTuning.live(List.of(front.config), Map.of()),
+                        VenueKeeper.NONE)
+                    .card()
+                    .lines())
             .as(row.name() + ": the camera's card")
             .anySatisfy(line -> {
               assertThat(line.label()).isEqualTo("Images");

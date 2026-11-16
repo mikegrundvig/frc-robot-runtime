@@ -38,8 +38,14 @@ import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.Place;
 import com.michaelgrundvig.frc.world.field.Symmetry;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
+import com.michaelgrundvig.frc.world.robot.CameraBuilder;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
+import com.michaelgrundvig.frc.world.robot.MountTolerance;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import com.michaelgrundvig.frc.world.robot.RobotDefinitionBuilder;
 import com.michaelgrundvig.frc.world.robot.RobotMath;
@@ -66,6 +72,7 @@ import org.wpilib.math.kinematics.ChassisVelocities;
 import org.wpilib.simulation.DriverStationSim;
 import org.wpilib.tunable.MockTunableBackend;
 import org.wpilib.tunable.TunableRegistry;
+import org.wpilib.units.measure.Distance;
 
 /** The cameras' side of localization, with a scripted camera in place of PhotonVision. */
 class VisionTest {
@@ -80,17 +87,24 @@ class VisionTest {
   private static final long T0 = 1_000_000_000L;
 
   private final CameraConfig camera =
-      CameraConfig.of(
-              "front",
-              CameraConfig.ImageSensor.of(1280, 800, Hertz.of(30))
-                  .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
-                  .latency(Milliseconds.of(30))
-                  .sightRange(Meters.of(7)))
+      CameraStation.named("front")
           .at(Inches.of(12), Inches.of(0), Inches.of(12))
           .facing(Degrees.of(15), Degrees.of(0))
           .roll(Degrees.of(0))
           .noiseScale(1.0)
-          .measured();
+          .mountTolerance(MountTolerance.MEASURED)
+          .holds(
+              CameraBuilder.builder()
+                  .number(1)
+                  .type(
+                      CameraType.of(
+                          "test camera",
+                          ImageSensor.of(1280, 800, Hertz.of(30))
+                              .fieldOfView(Degrees.of(80), ImageSensor.Across.DIAGONAL)
+                              .latency(Milliseconds.of(30))
+                              .sightRange(Meters.of(7))))
+                  .software(Software.PHOTONVISION)
+                  .build());
 
   /** A camera that reports whatever the test scripts. */
   private static final class ScriptedCamera implements CameraIO {
@@ -145,7 +159,7 @@ class VisionTest {
   /** The template's robot, with this test's cameras: the front one, and a second beside it. */
   private final RobotDefinition definition =
       RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
-          .cameras(List.of(camera, CameraConfigBuilder.builder(camera).name("second").build()))
+          .cameras(List.of(camera, named(camera, "second")))
           .build();
 
   /** Localization around that odometry: it solves each image as the robot was then. */
@@ -361,9 +375,11 @@ class VisionTest {
   @Test
   void imagesWithoutACaptureTimeRaiseAnAlertWhileTheyKeepComing() {
     vision.close();
+    Software visor =
+        new Software.Visor(
+            Optional.of("/dev/v4l/by-id/usb-cam-video-index0"), Optional.empty(), Optional.empty());
     CameraConfig onVisor =
-        camera.withSoftware(
-            CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-cam-video-index0"));
+        camera.station().holds(CameraBuilder.builder(camera.camera()).software(visor).build());
     vision =
         new Vision(
             List.of(onVisor),
@@ -577,13 +593,7 @@ class VisionTest {
 
   @Test
   void aCameraWhoseTagsLandOffShowsItInItsResidual() {
-    CameraConfig reallyHigher =
-        CameraConfig.of("front", camera.sensor())
-            .at(Inches.of(12), Inches.of(0), Inches.of(16))
-            .facing(Degrees.of(15), Degrees.of(0))
-            .roll(Degrees.of(0))
-            .noiseScale(1.0)
-            .measured();
+    CameraConfig reallyHigher = raised(camera, Inches.of(16));
     io.see(T0 + 200_000_000L, reallyHigher);
 
     loop();
@@ -885,7 +895,7 @@ class VisionTest {
 
   /** Vision with the front camera and a second one, as configured, that sees the same tags. */
   private void withASecondCamera() {
-    second = CameraConfigBuilder.builder(camera).name("second").build();
+    second = named(camera, "second");
     vision.close();
     vision =
         new Vision(
@@ -900,7 +910,7 @@ class VisionTest {
   /** A camera on its own has nothing to hold the pose it'd be judged against: it never is. */
   @Test
   void aCameraAloneIsNeverJudged() {
-    CameraConfig reallyLower = CameraConfigBuilder.builder(camera).up(Inches.of(8)).build();
+    CameraConfig reallyLower = raised(camera, Inches.of(8));
 
     imagesFrom(reallyLower, 300);
 
@@ -914,7 +924,7 @@ class VisionTest {
    */
   @Test
   void aCameraWhoseTagsLandOffIsOutOfCalibrationOnceJudged() {
-    CameraConfig reallyLower = CameraConfigBuilder.builder(camera).up(Inches.of(8)).build();
+    CameraConfig reallyLower = raised(camera, Inches.of(8));
     withASecondCamera();
 
     imagesFrom(reallyLower, 200); // two tags an image: 400 seen, not enough to judge
@@ -954,7 +964,7 @@ class VisionTest {
    */
   @Test
   void theMountToleranceIsReadEveryLoop() {
-    CameraConfig reallyLower = CameraConfigBuilder.builder(camera).up(Inches.of(8)).build();
+    CameraConfig reallyLower = raised(camera, Inches.of(8));
     withASecondCamera();
     imagesFrom(reallyLower, 260);
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).isTrue();
@@ -972,5 +982,20 @@ class VisionTest {
         VisionConfigBuilder.builder(VisionConfig.defaults()).outOfCalibrationMeters(0.11).build();
     loop();
     assertThat(vision.camera(0).isOutOfCalibrationAlertActive()).as("11 cm: stays down").isFalse();
+  }
+
+  /**
+   * The same camera in a station of another name, as a second camera: another camera, numbered
+   * apart from the first.
+   */
+  private static CameraConfig named(CameraConfig camera, String name) {
+    CameraStation station = CameraStationBuilder.builder(camera.station()).name(name).build();
+    return station.holds(
+        CameraBuilder.builder(camera.camera()).number(camera.camera().number() + 1).build());
+  }
+
+  /** The same camera, its station's lens this high. */
+  private static CameraConfig raised(CameraConfig camera, Distance up) {
+    return CameraStationBuilder.builder(camera.station()).up(up).build().holds(camera.camera());
   }
 }

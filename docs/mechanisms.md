@@ -674,7 +674,12 @@ static final RobotConfig PRACTICE =
                 .retuned(control -> control.withKg(0.3))
                 .rest(Degrees.of(-30))) // it stows at -30°
         .with(CLAW_BEAM.on(CANDI.can(36).s1().normallyOpen())) // a beam on another CANdi
-        .with(CameraConfigBuilder.builder(BACK_LEFT).up(Inches.of(20.5)).build()); // lower
+        // Its back-left station is half an inch lower, with the same camera in it.
+        .with(
+            CameraStationBuilder.builder(BACK_LEFT_STATION)
+                .up(Inches.of(20.5))
+                .build()
+                .holds(BACK_LEFT.camera()));
 ```
 
 List it in `Robots.all()` beside the competition robot, `List.of(COMPETITION, PRACTICE)`, and the
@@ -699,7 +704,8 @@ too:
 | `CLAW_BEAM.on(...)` | A sensor of the robot's own: its wiring | The sensor |
 | `DRIVETRAIN.encoderOffsets(...)` | The drivetrain's module offsets, front left, front right, back left, back right, as Tuner X gives them | The rest of its wiring |
 | `DRIVETRAIN.gyro(...).frontLeft(...)...backRight(...)` | The drivetrain's wiring, whole: its gyro, then each corner's devices | Its modules, which may differ only in what the simulator alone reads, Tuner X's inertias |
-| `CameraConfigBuilder.builder(BACK_LEFT)...build()` | The robot's camera of its name, whole, as the back-left one above, half an inch lower | Nothing: give it all, through its builder |
+| `FRONT_LEFT.holds(CAMERA_5)` | Which camera the robot's station of its name holds: a camera swapped for a spare | The station's place and name; its mount counts as unchecked until it's measured with the new camera |
+| `CameraStationBuilder.builder(BACK_LEFT_STATION)...build().holds(...)` | The robot's station of its name, whole, as the back-left one above, half an inch lower | Nothing: give it all, through its builder, and the camera in it |
 
 A few things to know:
 - **`replaced(...)` takes only a name the joint has**: its places' names are what its code says,

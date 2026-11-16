@@ -10,7 +10,13 @@ import static org.wpilib.units.Units.Milliseconds;
 import com.michaelgrundvig.frc.runtime.InItsOwnJvm;
 import com.michaelgrundvig.frc.visor.CameraToTag;
 import com.michaelgrundvig.frc.visor.VisorFrame;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
+import com.michaelgrundvig.frc.world.robot.CameraBuilder;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
+import com.michaelgrundvig.frc.world.robot.MountTolerance;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
@@ -70,19 +76,31 @@ class VisorLoopCostTest {
     TunableRegistry.reset();
   }
 
+  /** A camera number for a station's name: cameras in stations of different names differ. */
+  private static int numberFor(String name) {
+    return 1 + Math.floorMod(name.hashCode(), 9_999);
+  }
+
   private static CameraConfig camera(String name) {
-    return CameraConfig.of(
-            name,
-            CameraConfig.ImageSensor.of(1600, 1304, Hertz.of(60))
-                .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
+    CameraType type =
+        CameraType.of(
+            "test camera",
+            ImageSensor.of(1600, 1304, Hertz.of(60))
+                .fieldOfView(Degrees.of(80), ImageSensor.Across.DIAGONAL)
                 .latency(Milliseconds.of(30))
-                .sightRange(Meters.of(7)))
+                .sightRange(Meters.of(7)));
+    return CameraStation.named(name)
         .at(Inches.of(12), Inches.of(0), Inches.of(12))
         .facing(Degrees.of(15), Degrees.of(0))
         .roll(Degrees.of(0))
         .noiseScale(1.0)
-        .measured()
-        .software(CameraConfig.Software.VISOR);
+        .mountTolerance(MountTolerance.MEASURED)
+        .holds(
+            CameraBuilder.builder()
+                .number(numberFor(name))
+                .type(type)
+                .software(Software.VISOR)
+                .build());
   }
 
   @Test

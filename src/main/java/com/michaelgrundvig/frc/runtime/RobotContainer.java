@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.runtime.behavior.Bindings;
 import com.michaelgrundvig.frc.runtime.behavior.Disabling;
 import com.michaelgrundvig.frc.runtime.behavior.RecordingGamepad;
 import com.michaelgrundvig.frc.runtime.commands.Calibration;
+import com.michaelgrundvig.frc.runtime.coprocessors.CameraTuning;
 import com.michaelgrundvig.frc.runtime.coprocessors.CoprocessorHealth;
 import com.michaelgrundvig.frc.runtime.coprocessors.Coprocessors;
 import com.michaelgrundvig.frc.runtime.coprocessors.VisorTuning;
@@ -103,14 +104,14 @@ public final class RobotContainer implements AutoCloseable {
    * @param vision how far the cameras are trusted ({@link Vision#tuning})
    * @param joints each driven joint's gains and current limits, by its label ({@link
    *     JointMechanism#tuning})
-   * @param cameras each Visor camera's exposure and gain, by its name, where its definition fixes
-   *     either ({@link VisorTuning#of})
+   * @param cameras each Visor camera's exposure and gain, by its name ({@link VisorTuning#of}),
+   *     starting from its type's or its venue's
    */
   record Tunings(
       LiveConfig<DrivetrainControl> drivetrain,
       LiveConfig<VisionConfig> vision,
       Map<String, LiveConfig<MechanismControl>> joints,
-      Map<String, LiveConfig<CameraConfig.Software.Visor>> cameras) {
+      Map<String, LiveConfig<CameraTuning>> cameras) {
     /** Every one. */
     List<LiveConfig<?>> all() {
       List<LiveConfig<?>> all = new ArrayList<>(List.of(drivetrain, vision));
@@ -142,6 +143,12 @@ public final class RobotContainer implements AutoCloseable {
 
   /** What the pit can tune, as published. Every one is removed again as the robot closes. */
   private final Tunings tunings;
+
+  /**
+   * Each camera's exposure and gain: its type's, its venue's, and as tuned. Moved on each loop, as
+   * the pit's choices are taken.
+   */
+  private final VisorTuning.Live cameraSettings;
 
   /** What the robot reads and drives: its own devices, the simulator's, or none in a replay. */
   private final Hardware hardware;
@@ -261,6 +268,7 @@ public final class RobotContainer implements AutoCloseable {
     // What the pit can tune. The mechanisms read these every loop, so a tuned value takes effect
     // at once.
     tunings = published(tunings(robot));
+    cameraSettings = VisorTuning.live(definition.cameras(), tunings.cameras());
 
     // The match, and the drive team's gamepads.
     autos = new Autos(scheduler);
@@ -274,7 +282,7 @@ public final class RobotContainer implements AutoCloseable {
     world = simulatedWorld(mode, simulation, field, robotMass);
     // The coprocessors come before the hardware, which checks each Visor frame's sender against
     // the boards they list.
-    coprocessors = coprocessors(mode, runsOn, robot, field, tunings.cameras());
+    coprocessors = coprocessors(mode, runsOn, robot, field, cameraSettings);
     hardware =
         watched.apply(
             hardware(
@@ -434,22 +442,22 @@ public final class RobotContainer implements AutoCloseable {
    *
    * @param runsOn the computer the program runs on, for where Visor's configurations are kept
    * @param field the field the robot plays on, whose tag size each board's configuration gives
-   * @param tunings each Visor camera's tuning, by its name ({@link VisorTuning#of}), which each
-   *     board's configuration is written from: a camera's exposure or gain tuned live reaches its
-   *     board
+   * @param cameraSettings each camera's exposure and gain, as kept and as running ({@link
+   *     VisorTuning#live}), which each board's configuration is written from: a camera's exposure
+   *     or gain tuned live, or kept in a venue, reaches its board
    */
   static Coprocessors coprocessors(
       RunMode mode,
       RunsOn runsOn,
       RobotConfig robot,
       FieldModel field,
-      Map<String, LiveConfig<CameraConfig.Software.Visor>> tunings) {
+      VisorTuning.Live cameraSettings) {
     if (mode != RunMode.REAL) {
       return Coprocessors.none();
     }
     return Coprocessors.on(
         robot.coprocessors(),
-        VisorTuning.live(robot.definition().cameras(), tunings),
+        cameraSettings,
         HardwareAttached.deployDirectory(),
         RobotController.getTeamNumber(),
         field.tagSizeMeters(),
@@ -648,15 +656,18 @@ public final class RobotContainer implements AutoCloseable {
   }
 
   /**
-   * Takes what the pit chose since the last loop: a venue and an auto. Both take effect only at the
-   * start of a loop, and only while the robot is disabled. The auto is taken here, before the match
-   * is read, because the chosen auto names the robot's start.
+   * Takes what the pit chose since the last loop: a venue, with its cameras' exposure and gain, and
+   * an auto. Each takes effect only at the start of a loop, and only while the robot is disabled.
+   * The auto is taken here, before the match is read, because the chosen auto names the robot's
+   * start. The cameras' settings follow the venue, and the gain each camera's latest frame was
+   * taken at, which a camera left at its own gain starts its tuning from.
    */
   private void takeThePitsChoices(boolean enabled) {
     Optional<FieldModel> newVenue = venues.update(!enabled, RobotState.isFMSAttached());
     if (newVenue.isPresent()) {
       playOn(newVenue.get());
     }
+    cameraSettings.update(venues.cameras(), vision::reportedGain);
     autos.update(!enabled);
   }
 
@@ -805,6 +816,11 @@ public final class RobotContainer implements AutoCloseable {
   }
 
   /** The venues the pit can choose, and the one in force. */
+  /** Each camera's exposure and gain, as kept and as running. */
+  VisorTuning.Live cameraSettings() {
+    return cameraSettings;
+  }
+
   Venues venues() {
     return venues;
   }

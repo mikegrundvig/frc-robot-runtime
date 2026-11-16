@@ -12,6 +12,7 @@ import com.michaelgrundvig.frc.runtime.subsystems.vision.DetectionModel;
 import com.michaelgrundvig.frc.simulation.Seeds;
 import com.michaelgrundvig.frc.simulation.SensorErrors;
 import com.michaelgrundvig.frc.world.field.FieldModel;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.Arrays;
@@ -82,7 +83,7 @@ public final class SimulatedWorld implements World {
       RobotDefinition definition,
       Mass robotMass,
       SensorErrors errors,
-      CameraConfig.@Nullable Software everyCamera) {
+      Camera.@Nullable Software everyCamera) {
     this(field, definition, robotMass, errors, everyCamera, null);
   }
 
@@ -96,7 +97,7 @@ public final class SimulatedWorld implements World {
       RobotDefinition definition,
       Mass robotMass,
       SensorErrors errors,
-      CameraConfig.@Nullable Software everyCamera,
+      Camera.@Nullable Software everyCamera,
       @Nullable DetectionModel detection) {
     // A definition can reach the simulator without a RobotConfig, so it is checked here too.
     definition.checked();

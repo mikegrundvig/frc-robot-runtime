@@ -321,7 +321,7 @@ class HardwareTest {
   /** The example robot with its first camera on Visor. */
   private static RobotDefinition onVisor() {
     List<CameraConfig> cameras = new ArrayList<>(ExampleRobot.SIM.definition().cameras());
-    cameras.set(0, cameras.get(0).withSoftware(CameraConfig.Software.VISOR));
+    cameras.set(0, TestCameras.onVisor(cameras.get(0)));
     return RobotDefinitionBuilder.builder(ExampleRobot.SIM.definition())
         .name("on Visor")
         .cameras(cameras)

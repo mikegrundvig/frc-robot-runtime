@@ -1,6 +1,7 @@
 package com.michaelgrundvig.frc.runtime.coprocessors;
 
 import com.michaelgrundvig.frc.visor.VisorPack;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -146,8 +147,9 @@ public final class VisorInstaller implements AutoCloseable {
    */
   static final long SETTLE_NANOS = 10_000_000_000L;
 
-  private final Supplier<List<CameraConfig>> cameras;
-  private final List<CameraConfig> committed;
+  private final List<CameraConfig> cameras;
+  private final Supplier<List<CameraSettings>> now;
+  private final Supplier<List<CameraSettings>> kept;
 
   /**
    * Whether any of the robot's cameras is on Visor. Without one, the robot pushes no board Visor's
@@ -172,7 +174,11 @@ public final class VisorInstaller implements AutoCloseable {
   private final VisorMemory memory;
   private String memoryProblem = "";
   private @Nullable CompletableFuture<byte[]> releaseRead;
-  private List<CameraConfig> seenCameras = List.of();
+
+  /** The settings the wanted configurations were last worked out from: as running, and as kept. */
+  private List<CameraSettings> seenNow = List.of();
+
+  private List<CameraSettings> seenKept = List.of();
 
   /** Whether each camera's configuration hasn't reached its board yet, by its index. */
   private final boolean[] pending;
@@ -250,9 +256,11 @@ public final class VisorInstaller implements AutoCloseable {
   }
 
   /**
-   * @param cameras the robot's cameras, in its definition's order, as tuned now: read each loop,
-   *     and the same list while nothing changed ({@link VisorTuning#live})
-   * @param committed the robot's cameras as its definition commits them
+   * @param cameras the robot's cameras, in its definition's order
+   * @param now each camera's exposure and gain as it runs them now, tuned values among them: read
+   *     each loop, and the same list while nothing changed ({@link VisorTuning.Live#now})
+   * @param kept each camera's exposure and gain as kept, its type's and its venue's, without what's
+   *     tuned live ({@link VisorTuning.Live#kept}): what a board runs after a restart
    * @param team the team number, for each configuration
    * @param tagSizeMeters the side of the field's tags' black square, for each configuration
    * @param version the Visor this robot carries: its client's ({@code VisorVersion.VERSION})
@@ -267,8 +275,9 @@ public final class VisorInstaller implements AutoCloseable {
    *     started, and where what's taken now is kept
    */
   public VisorInstaller(
-      Supplier<List<CameraConfig>> cameras,
-      List<CameraConfig> committed,
+      List<CameraConfig> cameras,
+      Supplier<List<CameraSettings>> now,
+      Supplier<List<CameraSettings>> kept,
       int team,
       double tagSizeMeters,
       String version,
@@ -280,11 +289,11 @@ public final class VisorInstaller implements AutoCloseable {
       LongSupplier nanos,
       List<? extends Board> boards,
       VisorMemory memory) {
-    this.cameras = cameras;
-    this.committed = List.copyOf(committed);
+    this.cameras = List.copyOf(cameras);
+    this.now = now;
+    this.kept = kept;
     this.onVisor =
-        committed.stream()
-            .anyMatch(camera -> camera.software() instanceof CameraConfig.Software.Visor);
+        cameras.stream().anyMatch(camera -> camera.software() instanceof Camera.Software.Visor);
     this.team = team;
     this.tagSizeMeters = tagSizeMeters;
     this.version = version;
@@ -294,7 +303,7 @@ public final class VisorInstaller implements AutoCloseable {
     this.enabled = enabled;
     this.fieldAttached = fieldAttached;
     this.nanos = nanos;
-    this.pending = new boolean[committed.size()];
+    this.pending = new boolean[cameras.size()];
     this.memory = memory;
     Map<String, VisorMemory.Kept> recalled = memory.recalled();
     for (Board board : boards) {
@@ -307,9 +316,12 @@ public final class VisorInstaller implements AutoCloseable {
     if (!onVisor) {
       return;
     }
-    List<CameraConfig> now = cameras.get();
-    boolean camerasChanged = !now.equals(seenCameras);
-    seenCameras = now;
+    List<CameraSettings> running = now.get();
+    List<CameraSettings> asKept = kept.get();
+    // By identity: each list is a new one only when what it says changed.
+    boolean camerasChanged = running != seenNow || asKept != seenKept;
+    seenNow = running;
+    seenKept = asKept;
     boolean offField = !enabled.getAsBoolean() && !fieldAttached.getAsBoolean();
     boolean anyChanged = camerasChanged;
     boolean keep = false;
@@ -317,14 +329,14 @@ public final class VisorInstaller implements AutoCloseable {
     for (int i = 0; i < boards.size(); i++) {
       OnBoard on = boards.get(i);
       if (heard(on) || camerasChanged) {
-        keep |= want(on, now);
+        keep |= want(on, running, asKept);
         anyChanged = true;
       }
       follow(on);
       look(on, offField);
     }
     if (anyChanged) {
-      sayWhereTheCamerasAre(now);
+      sayWhereTheCamerasAre();
     }
     if (keep) {
       keepWhatsTaken();
@@ -418,7 +430,7 @@ public final class VisorInstaller implements AutoCloseable {
    * Works out what a board wants, from its report and the cameras: only when either changed.
    * Whether which configurations it's taken from, to be kept, changed.
    */
-  private boolean want(OnBoard on, List<CameraConfig> now) {
+  private boolean want(OnBoard on, List<CameraSettings> running, List<CameraSettings> asKept) {
     on.wanted = null;
     on.committedHash = null;
     if (!(on.seen instanceof Seen.Reported reported)) {
@@ -429,11 +441,12 @@ public final class VisorInstaller implements AutoCloseable {
       return false;
     }
     List<String> devices = reported.report().cameras();
-    VisorConfigs.ForBoard wanted = VisorConfigs.forBoard(now, team, tagSizeMeters, devices);
+    VisorConfigs.ForBoard wanted =
+        VisorConfigs.forBoard(cameras, running, team, tagSizeMeters, devices);
     on.wanted = wanted;
     String committedHash = wanted.hash();
-    if (!now.equals(committed)) {
-      committedHash = VisorConfigs.forBoard(committed, team, tagSizeMeters, devices).hash();
+    if (!running.equals(asKept)) {
+      committedHash = VisorConfigs.forBoard(cameras, asKept, team, tagSizeMeters, devices).hash();
     }
     on.committedHash = committedHash;
     // The board runs what it says now: when that's the one wanted, its frames stay taken after
@@ -718,7 +731,7 @@ public final class VisorInstaller implements AutoCloseable {
    * Once a board's report or the cameras changed: which cameras no board has, which configurations
    * haven't reached their boards, and which boards run another than the committed one.
    */
-  private void sayWhereTheCamerasAre(List<CameraConfig> now) {
+  private void sayWhereTheCamerasAre() {
     boolean everyBoardKnown = true;
     List<String> devices = new ArrayList<>();
     List<String> notCommitted = new ArrayList<>();
@@ -749,7 +762,7 @@ public final class VisorInstaller implements AutoCloseable {
     for (int camera = 0; camera < pending.length; camera++) {
       if (pending[camera]) {
         anyPending = true;
-        waitingCameras.add(now.get(camera).name());
+        waitingCameras.add(cameras.get(camera).name());
       }
     }
     waiting.setText(
@@ -760,11 +773,11 @@ public final class VisorInstaller implements AutoCloseable {
     uncommitted.setText(
         "Visor on "
             + String.join(", ", notCommitted)
-            + " runs another configuration than the committed one, so the match runs it: a tuned"
+            + " runs another configuration than the kept one, so the match runs it: a tuned"
             + " exposure or gain, or one that never reached it. Its frames are taken only if the"
-            + " robot gave it that one. Put tuned values in Robots.java.");
+            + " robot gave it that one. Keep tuned values in the venue from each camera's card.");
     // Only once every board with Visor has said what it has can a camera be on none of them.
-    List<String> missing = everyBoardKnown ? VisorConfigs.unplaced(now, devices) : List.of();
+    List<String> missing = everyBoardKnown ? VisorConfigs.unplaced(cameras, devices) : List.of();
     unplaced.setText(
         "Visor cameras plugged into no coprocessor: "
             + String.join(", ", missing)

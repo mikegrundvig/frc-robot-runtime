@@ -18,8 +18,9 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Inches;
 
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
 import com.michaelgrundvig.frc.world.robot.Pdh;
 import com.michaelgrundvig.frc.world.robot.RobotDefinition;
 import java.util.function.Supplier;
@@ -40,7 +41,7 @@ class DefinitionOrderTest {
 
   /** A camera that rides on the arm, so the robot must list the arm. */
   private static final CameraConfig ON_THE_ARM =
-      CameraConfigBuilder.builder(ExampleRobot.BACK_LEFT)
+      CameraStationBuilder.builder(ExampleRobot.BACK_LEFT.station())
           .name("on-arm")
           .forward(Inches.of(2))
           .left(Inches.of(0))
@@ -48,7 +49,8 @@ class DefinitionOrderTest {
           .tiltUp(Degrees.of(0))
           .yaw(Degrees.of(0))
           .joint(ARM)
-          .build();
+          .build()
+          .holds(Camera.photonVision(5, ExampleRobot.BACK_LEFT.type()));
 
   /** The robot as the guide writes it: the PDH, then what it feeds, then what names those. */
   private static final RobotDefinition AS_THE_GUIDE_WRITES_IT =
@@ -129,10 +131,11 @@ class DefinitionOrderTest {
             (Supplier<RobotDefinition>)
                 () ->
                     START.withCameras(
-                        CameraConfigBuilder.builder(ExampleRobot.BACK_LEFT)
+                        CameraStationBuilder.builder(ExampleRobot.BACK_LEFT.station())
                             .name("far")
                             .forward(Inches.of(40))
-                            .build()),
+                            .build()
+                            .holds(Camera.photonVision(6, ExampleRobot.BACK_LEFT.type()))),
             "RobotDefinition[example].cameras: camera far is outside the robot, at"));
   }
 

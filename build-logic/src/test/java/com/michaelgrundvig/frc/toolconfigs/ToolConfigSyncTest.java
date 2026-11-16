@@ -221,6 +221,38 @@ class ToolConfigSyncTest {
     assertThat(plain().run(false).written()).as("the record moved on").isEmpty();
   }
 
+  /**
+   * A robot renamed whose files sit at the folder's top, as the checklists do: its old file goes,
+   * as a folder the build wrote does, and a file there the build never wrote, a team's own, stays.
+   */
+  @Test
+  void aTopLevelFileTheModelNoLongerGivesIsRemovedIfTheBuildWroteIt() throws IOException {
+    ToolConfigSync checklists =
+        new ToolConfigSync(
+            generated,
+            committed,
+            dir.resolve("sidecar"),
+            "Robots.java",
+            "checklists",
+            List.of("*.md"),
+            false);
+    generate("practice.md", "old");
+    generate("comp.md", "comp");
+    checklists.run(false);
+    write(committed.resolve("notes.md"), "a team's own notes");
+    Files.delete(generated.resolve("practice.md"));
+    generate("practice-bot.md", "renamed");
+
+    ToolConfigSync.Outcome outcome = checklists.run(false);
+
+    assertThat(outcome.written())
+        .containsExactlyInAnyOrder(
+            "practice-bot.md: new", "practice.md: removed, Robots.java no longer gives it");
+    assertThat(committed.resolve("practice.md")).doesNotExist();
+    assertThat(committed.resolve("notes.md")).exists();
+    assertThat(checklists.run(false).written()).as("the record moved on").isEmpty();
+  }
+
   /** Strict, an edited file in a folder the model no longer gives is refused, not removed. */
   @Test
   void strictAnEditedFileInAFolderTheModelDroppedIsRefused() throws IOException {

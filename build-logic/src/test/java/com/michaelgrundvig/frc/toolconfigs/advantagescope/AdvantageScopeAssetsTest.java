@@ -10,9 +10,13 @@ import static org.wpilib.units.Units.Degrees;
 import static org.wpilib.units.Units.Meters;
 
 import com.michaelgrundvig.frc.world.robot.Body;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraType;
 import com.michaelgrundvig.frc.world.robot.Drivetrain;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import com.michaelgrundvig.frc.world.tools.RobotCatalog;
 import com.michaelgrundvig.frc.world.tools.RobotDescription;
 import io.avaje.jsonb.Jsonb;
@@ -51,17 +55,19 @@ class AdvantageScopeAssetsTest {
           TestRobot.body(),
           TestRobot.drivetrain(),
           List.of(
-              CameraConfigBuilder.builder(
-                      TestRobot.camera("front", new Translation3d(0.25, 0.2, 0.5)))
+              CameraStationBuilder.builder(
+                      TestRobot.station("front", new Translation3d(0.25, 0.2, 0.5)))
                   .roll(Degrees.of(5))
                   .tiltUp(Degrees.of(15))
                   .yaw(Degrees.of(30))
-                  .build(),
-              CameraConfigBuilder.builder(
-                      TestRobot.camera("back", new Translation3d(-0.3, -0.1, 0.4)))
+                  .build()
+                  .holds(TestRobot.camera(1)),
+              CameraStationBuilder.builder(
+                      TestRobot.station("back", new Translation3d(-0.3, -0.1, 0.4)))
                   .tiltUp(Degrees.of(-10))
                   .yaw(Degrees.of(180))
-                  .build()),
+                  .build()
+                  .holds(TestRobot.camera(2))),
           Optional.empty());
 
   private static final Map<String, byte[]> FILES = AdvantageScopeAssets.files(ROBOT);
@@ -324,11 +330,19 @@ class AdvantageScopeAssetsTest {
             "Drivetrain.Module.couplingRatio",
             "Drivetrain.wiring",
             "Drivetrain.control",
-            "CameraConfig.noiseScale",
-            "CameraConfig.joint",
-            "CameraConfig.mountTolerance",
-            "CameraConfig.ImageSensor.frameRate",
-            "CameraConfig.ImageSensor.latency");
+            "CameraStation.noiseScale",
+            "CameraStation.joint",
+            "CameraStation.mountTolerance",
+            "CameraStation.measuredWith",
+            "Camera.number",
+            "CameraType.name",
+            "CameraType.exposure",
+            "CameraType.gain",
+            "CameraType.controls",
+            "CameraType.stream",
+            "CameraType.gainRange",
+            "ImageSensor.frameRate",
+            "ImageSensor.latency");
     Set<String> values = new TreeSet<>();
     for (Class<?> record :
         List.of(
@@ -337,7 +351,10 @@ class AdvantageScopeAssetsTest {
             Drivetrain.Corner.class,
             Drivetrain.Module.class,
             CameraConfig.class,
-            CameraConfig.ImageSensor.class)) {
+            CameraStation.class,
+            Camera.class,
+            CameraType.class,
+            ImageSensor.class)) {
       String name =
           record.getName().substring(record.getPackageName().length() + 1).replace('$', '.');
       for (RecordComponent component : record.getRecordComponents()) {

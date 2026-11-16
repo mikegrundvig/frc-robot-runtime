@@ -20,12 +20,16 @@ import static org.wpilib.units.Units.Rotations;
 import com.michaelgrundvig.frc.world.physical.Inertia;
 import com.michaelgrundvig.frc.world.physical.MassProperties;
 import com.michaelgrundvig.frc.world.robot.Body;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraStationBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraType;
 import com.michaelgrundvig.frc.world.robot.Driven.AbsoluteEncoder;
 import com.michaelgrundvig.frc.world.robot.Drivetrain;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import com.michaelgrundvig.frc.world.robot.Gearing;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import com.michaelgrundvig.frc.world.robot.ImuMount;
 import com.michaelgrundvig.frc.world.robot.Joint;
 import com.michaelgrundvig.frc.world.robot.Link;
@@ -369,39 +373,58 @@ public final class ExampleRobot {
    * simulator's. Measure where your camera stops finding a tag (docs/characterization.md, camera
    * noise).
    */
-  private static final CameraConfig.ImageSensor APRILTAG_CAMERA =
-      CameraConfig.ImageSensor.of(1280, 800, Hertz.of(30))
-          .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
-          .latency(Milliseconds.of(30))
-          .sightRange(Meters.of(7));
+  private static final CameraType APRILTAG_CAMERA =
+      CameraType.of(
+          "AprilTag camera",
+          ImageSensor.of(1280, 800, Hertz.of(30))
+              .fieldOfView(Degrees.of(80), ImageSensor.Across.DIAGONAL)
+              .latency(Milliseconds.of(30))
+              .sightRange(Meters.of(7)));
 
   /**
-   * Four cameras, one at each corner of the frame, each facing diagonally outward: 45 degrees from
+   * Four stations, one at each corner of the frame, each facing diagonally outward: 45 degrees from
    * straight ahead at the front corners, 135 at the back ones. Between them they look all the way
    * round the robot, so whichever way it faces, some camera has the field's tags in front of it,
    * and each one looks out past its own corner, away from the rest of the robot. Each lens sits
    * 11.75 in from the center both ways, 2 in inside the 27.5 in frame's edges, where a camera can
    * bolt to the frame, 21 in up, level, and tilted up 10 degrees towards the tags. The simulator
-   * mounts each exactly where it says, so each mount counts as measured and checked.
+   * mounts each exactly where it says, so each counts as measured with the camera in it.
+   */
+  private static final CameraStation FRONT_LEFT_STATION =
+      CameraStation.named("front-left")
+          .at(Inches.of(11.75), Inches.of(11.75), Inches.of(21))
+          .facing(Degrees.of(10), Degrees.of(45))
+          .measuredWith(1);
+
+  private static final CameraStation FRONT_RIGHT_STATION =
+      CameraStation.named("front-right")
+          .at(Inches.of(11.75), Inches.of(-11.75), Inches.of(21))
+          .facing(Degrees.of(10), Degrees.of(-45))
+          .measuredWith(2);
+
+  private static final CameraStation BACK_LEFT_STATION =
+      CameraStation.named("back-left")
+          .at(Inches.of(-11.75), Inches.of(11.75), Inches.of(21))
+          .facing(Degrees.of(10), Degrees.of(135))
+          .measuredWith(3);
+
+  private static final CameraStation BACK_RIGHT_STATION =
+      CameraStation.named("back-right")
+          .at(Inches.of(-11.75), Inches.of(-11.75), Inches.of(21))
+          .facing(Degrees.of(10), Degrees.of(-135))
+          .measuredWith(4);
+
+  /**
+   * The four cameras in the stations, by the numbers on their labels, on PhotonVision, which knows
+   * each by its station's name. Swap one for a spare by putting the spare in its station: the
+   * station's mount then counts as unchecked until it is measured with the spare.
    */
   private static final List<CameraConfig> CAMERAS =
       List.of(
-          CameraConfig.of("front-left", APRILTAG_CAMERA)
-              .at(Inches.of(11.75), Inches.of(11.75), Inches.of(21))
-              .facing(Degrees.of(10), Degrees.of(45))
-              .measured(),
-          CameraConfig.of("front-right", APRILTAG_CAMERA)
-              .at(Inches.of(11.75), Inches.of(-11.75), Inches.of(21))
-              .facing(Degrees.of(10), Degrees.of(-45))
-              .measured(),
-          CameraConfig.of("back-left", APRILTAG_CAMERA)
-              .at(Inches.of(-11.75), Inches.of(11.75), Inches.of(21))
-              .facing(Degrees.of(10), Degrees.of(135))
-              .measured(),
-          CameraConfig.of("back-right", APRILTAG_CAMERA)
-              .at(Inches.of(-11.75), Inches.of(-11.75), Inches.of(21))
-              .facing(Degrees.of(10), Degrees.of(-135))
-              .measured());
+          FRONT_LEFT_STATION.holds(Camera.photonVision(1, APRILTAG_CAMERA)),
+          FRONT_RIGHT_STATION.holds(Camera.photonVision(2, APRILTAG_CAMERA)),
+          BACK_LEFT_STATION.holds(Camera.photonVision(3, APRILTAG_CAMERA)),
+          BACK_RIGHT_STATION.holds(Camera.photonVision(4, APRILTAG_CAMERA)));
 
   /**
    * The simulator's IMUs: at the center, 3 in up on the belly pan, level with x forward, and
@@ -432,7 +455,9 @@ public final class ExampleRobot {
               // TALON_FX.can(32).pdh(4, Amps.of(40)).
               .withCameras(CAMERAS.toArray(CameraConfig[]::new)));
 
-  /** The template's robot's back-left camera, as {@link #SIM} mounts it, 21 in up. */
+  /**
+   * The template's robot's back-left camera in its station, as {@link #SIM} mounts it, 21 in up.
+   */
   public static final CameraConfig BACK_LEFT = ExampleRobot.SIM.definition().cameras().get(2);
 
   /** The competition robot: the template's, with these mechanisms, each motor fed by the PDH. */
@@ -467,7 +492,12 @@ public final class ExampleRobot {
                   .retuned(control -> control.withKg(0.3))
                   .rest(Degrees.of(-30))) // it stows at -30°
           .with(CLAW_BEAM.on(CANDI.can(36).s1().normallyOpen())) // a beam on another CANdi
-          .with(CameraConfigBuilder.builder(BACK_LEFT).up(Inches.of(20.5)).build()); // lower
+          // Its back-left station is half an inch lower, with the same camera in it.
+          .with(
+              CameraStationBuilder.builder(BACK_LEFT_STATION)
+                  .up(Inches.of(20.5))
+                  .build()
+                  .holds(BACK_LEFT.camera()));
 
   /** Every robot of the design, as Robots.all() lists them. */
   public static List<RobotConfig> all() {

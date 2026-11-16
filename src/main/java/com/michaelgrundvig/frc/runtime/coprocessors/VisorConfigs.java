@@ -9,9 +9,12 @@ import com.michaelgrundvig.frc.visor.VisorPack;
 import com.michaelgrundvig.frc.visor.VisorReceiver;
 import com.michaelgrundvig.frc.world.field.FieldModel;
 import com.michaelgrundvig.frc.world.field.TagFamily;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software.Exposure;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software.Gain;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.CameraType.Exposure;
+import com.michaelgrundvig.frc.world.robot.CameraType.Gain;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -20,17 +23,17 @@ import java.util.Optional;
 
 /**
  * Visor's configuration for a coprocessor, from the robot's definition and the cameras the board
- * reports plugged in: each of the robot's cameras on Visor ({@link CameraConfig.Software.Visor})
- * whose device is among them, at its place in the robot's list of cameras, which is the index its
- * frames carry and the robot reads it by. A camera is found by its device's {@code /dev/v4l/by-id/}
- * name, which is the camera's own (its USB serial), so it's configured on whichever board it's
- * plugged into; or, for a camera with no serial of its own, by its port's {@code by-path/} name.
+ * reports plugged in: each of the robot's cameras on Visor ({@link Camera.Software.Visor}) whose
+ * device is among them, at its place in the robot's list of cameras, which is the index its frames
+ * carry and the robot reads it by. A camera is found by its device's {@code /dev/v4l/by-id/} name,
+ * which is the camera's own (its USB serial), so it's configured on whichever board it's plugged
+ * into; or, for a camera with no serial of its own, by its port's {@code by-path/} name.
  *
- * <p>Each camera's exposure and gain are written as its definition gives them, or as they're tuned
- * live ({@link VisorTuning}): Visor has no defaults of its own, so a camera's own exposure or gain
- * is written as nothing, and Visor puts back the camera's. Its live view is written as its
- * definition gives it, at no more frames a second than the camera's own, or left out for Visor's
- * own.
+ * <p>Each camera's exposure and gain are written as it runs them now: its type's, its venue's, or
+ * as tuned live ({@link CameraSettings}, {@link VisorTuning}). Visor has no defaults of its own, so
+ * a camera's own exposure or gain is written as nothing, and Visor puts back the camera's. Its live
+ * view is written as its definition gives it, at no more frames a second than the camera's own, or
+ * left out for Visor's own.
  *
  * <p>Each configuration names the port the robot receives frames on, {@link
  * VisorReceiver#DEFAULT_PORT}, so Visor's own default never decides where frames go, and the
@@ -89,16 +92,41 @@ public final class VisorConfigs {
    */
   public static ForBoard forBoard(
       List<CameraConfig> cameras, int team, double tagSizeMeters, Collection<String> devices) {
+    return forBoard(cameras, CameraSettings.ofTypes(cameras), team, tagSizeMeters, devices);
+  }
+
+  /**
+   * One board's configuration, each camera at the exposure and gain it runs at now: its type's, its
+   * venue's, or as tuned ({@link VisorTuning.Live#now}).
+   *
+   * @param cameras the robot's cameras, in its definition's order
+   * @param settings each camera's exposure and gain, by its index
+   * @param team the team number, which finds the robot controller, 10.TE.AM.2
+   * @param tagSizeMeters the side of the field's tags' black square
+   * @param devices the {@code /dev/v4l/by-id/} and {@code by-path/} names the board reports
+   */
+  public static ForBoard forBoard(
+      List<CameraConfig> cameras,
+      List<CameraSettings> settings,
+      int team,
+      double tagSizeMeters,
+      Collection<String> devices) {
     VisorConfigFile file = file(team, tagSizeMeters);
     List<Integer> on = new ArrayList<>();
     for (int index = 0; index < cameras.size(); index++) {
       CameraConfig camera = cameras.get(index);
-      Optional<CameraConfig.Software.Visor> visor = visorOn(camera, devices);
+      Optional<Camera.Software.Visor> visor = visorOn(camera, devices);
       if (visor.isEmpty()) {
         continue;
       }
       on.add(index);
-      cameraEntry(file, index, camera, visor.get(), visor.get().device().orElseThrow());
+      cameraEntry(
+          file,
+          index,
+          camera,
+          visor.get(),
+          settings.get(index),
+          visor.get().device().orElseThrow());
     }
     String toml = file.toToml();
     return new ForBoard(toml, VisorPack.configHash(toml), on);
@@ -122,9 +150,10 @@ public final class VisorConfigs {
   public static void requireRunnable(List<CameraConfig> cameras, FieldModel field) {
     List<String> problems = new ArrayList<>();
     VisorConfigFile file = file(ANY_TEAM, field.tagSizeMeters());
+    List<CameraSettings> settings = CameraSettings.ofTypes(cameras);
     for (int index = 0; index < cameras.size(); index++) {
       CameraConfig camera = cameras.get(index);
-      if (!(camera.software() instanceof CameraConfig.Software.Visor visor)) {
+      if (!(camera.software() instanceof Camera.Software.Visor visor)) {
         continue;
       }
       if (field.tagFamily() != VISOR_DETECTS) {
@@ -138,7 +167,8 @@ public final class VisorConfigs {
         continue;
       }
       try {
-        cameraEntry(file, index, camera, visor, visor.device().orElse(NO_DEVICE_YET));
+        cameraEntry(
+            file, index, camera, visor, settings.get(index), visor.device().orElse(NO_DEVICE_YET));
       } catch (IllegalArgumentException refused) {
         problems.add(camera.name() + ": Visor refuses it: " + refused.getMessage());
       }
@@ -153,9 +183,9 @@ public final class VisorConfigs {
   }
 
   /** A camera's Visor software, when it's on Visor and its device is among those given. */
-  private static Optional<CameraConfig.Software.Visor> visorOn(
+  private static Optional<Camera.Software.Visor> visorOn(
       CameraConfig camera, Collection<String> devices) {
-    if (!(camera.software() instanceof CameraConfig.Software.Visor visor)) {
+    if (!(camera.software() instanceof Camera.Software.Visor visor)) {
       return Optional.empty();
     }
     Optional<String> device = visor.device();
@@ -166,16 +196,17 @@ public final class VisorConfigs {
   }
 
   /**
-   * Writes one camera's entry, at this device: its sensor, exposure, gain, live view, controls and
-   * lens.
+   * Writes one camera's entry, at this device: its sensor, its exposure and gain as it runs them
+   * now, and its type's live view and controls, and its lens.
    */
   private static void cameraEntry(
       VisorConfigFile file,
       int index,
       CameraConfig camera,
-      CameraConfig.Software.Visor visor,
+      Camera.Software.Visor visor,
+      CameraSettings settings,
       String device) {
-    CameraConfig.ImageSensor sensor = camera.sensor();
+    ImageSensor sensor = camera.sensor();
     int fps = (int) Math.round(sensor.frameRate().in(Hertz));
     VisorConfigFile.Camera entry =
         file.camera(camera.name(), index, device, sensor.widthPixels(), sensor.heightPixels())
@@ -184,19 +215,19 @@ public final class VisorConfigs {
         .timeOffset()
         .ifPresent(offset -> entry.timeOffsetMicros(Math.round(offset.in(Microseconds))));
     // A fixed exposure turns the camera's automatic exposure off; the camera's own is left out.
-    if (visor.exposure() instanceof Exposure.Fixed fixed) {
+    if (settings.exposure() instanceof Exposure.Fixed fixed) {
       entry.exposureMicros(Math.round(fixed.time().in(Microseconds)));
     }
-    if (visor.gain() instanceof Gain.Level level) {
+    if (settings.gain() instanceof Gain.Level level) {
       entry.gain(level.value());
     }
     // A live view the definition doesn't give is left out, so Visor's own applies.
-    if (visor.stream().isPresent()) {
-      CameraConfig.Software.Stream stream = visor.stream().get();
+    if (camera.type().stream().isPresent()) {
+      CameraType.Stream stream = camera.type().stream().get();
       int streamFps = (int) Math.max(1, Math.min(fps, Math.round(stream.frameRate().in(Hertz))));
       entry.stream(stream.scale().in(Value), streamFps, stream.quality());
     }
-    for (CameraConfig.Software.Control control : visor.controls()) {
+    for (CameraType.Control control : camera.type().controls()) {
       entry.control(control.name(), control.value());
     }
     visor
@@ -221,7 +252,7 @@ public final class VisorConfigs {
   public static List<String> unplaced(List<CameraConfig> cameras, Collection<String> devices) {
     List<String> unplaced = new ArrayList<>();
     for (CameraConfig camera : cameras) {
-      if (!(camera.software() instanceof CameraConfig.Software.Visor visor)) {
+      if (!(camera.software() instanceof Camera.Software.Visor visor)) {
         continue;
       }
       if (visor.device().isEmpty()) {

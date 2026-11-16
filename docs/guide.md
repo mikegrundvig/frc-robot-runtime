@@ -280,7 +280,12 @@ public static final RobotConfig PRACTICE =
                 .retuned(control -> control.withKg(0.3))
                 .rest(Degrees.of(-30))) // it stows at -30°
         .with(CLAW_BEAM.on(CANDI.can(36).s1().normallyOpen())) // a beam on another CANdi
-        .with(CameraConfigBuilder.builder(BACK_LEFT).up(Inches.of(20.5)).build()); // lower
+        // Its back-left station is half an inch lower, with the same camera in it.
+        .with(
+            CameraStationBuilder.builder(BACK_LEFT_STATION)
+                .up(Inches.of(20.5))
+                .build()
+                .holds(BACK_LEFT.camera()));
 ```
 
 The same behaviour code runs on both. `PIVOT_OUT` means 130 degrees on one robot and 128 on the

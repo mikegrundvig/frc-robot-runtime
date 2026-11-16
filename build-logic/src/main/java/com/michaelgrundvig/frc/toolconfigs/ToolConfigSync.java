@@ -147,7 +147,7 @@ final class ToolConfigSync {
         refused.add(different(path, now, file.getValue(), remembered.containsKey(path)));
       }
     }
-    for (String path : stale(wanted)) {
+    for (String path : stale(wanted, remembered)) {
       byte[] now = Files.readAllBytes(committed.resolve(path));
       if (hash(now).equals(remembered.get(path)) || overwrite) {
         removals.add(path);
@@ -250,9 +250,22 @@ final class ToolConfigSync {
     }
   }
 
-  /** The files in the committed copies of the generated folders that weren't generated. */
-  private List<String> stale(Map<String, byte[]> wanted) throws IOException {
+  /**
+   * The files the model no longer gives: those in the committed copies of the generated folders
+   * that weren't generated, and the writer's files at the committed folder's top that the record
+   * shows the build wrote, such as a renamed robot's checklist. A file at the top the build never
+   * wrote is a team's own, and stays.
+   */
+  private List<String> stale(Map<String, byte[]> wanted, Map<String, String> remembered)
+      throws IOException {
     List<String> stale = new ArrayList<>();
+    for (String path : remembered.keySet()) {
+      boolean atTheTop = path.indexOf('/') < 0;
+      boolean gone = !wanted.containsKey(path) && Files.isRegularFile(committed.resolve(path));
+      if (atTheTop && gone && writable(path)) {
+        stale.add(path);
+      }
+    }
     for (String folder : folders(wanted.keySet())) {
       Path inCommitted = committed.resolve(folder);
       if (Files.isDirectory(inCommitted)) {

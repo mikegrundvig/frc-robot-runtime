@@ -2,11 +2,17 @@ package com.michaelgrundvig.frc.runtime.subsystems.vision;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
+import com.michaelgrundvig.frc.runtime.coprocessors.CameraSettings;
+import com.michaelgrundvig.frc.runtime.coprocessors.VisorTuning;
 import com.michaelgrundvig.frc.runtime.lib.health.CameraHealth;
 import com.michaelgrundvig.frc.runtime.lib.health.CameraHealth.Warning;
 import com.michaelgrundvig.frc.runtime.lib.health.Durations;
 import com.michaelgrundvig.frc.runtime.lib.health.Episodes;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper.For;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,11 +24,13 @@ import java.util.Optional;
  * Each camera's card on Pitwall's Pit view: whether its frames arrive, at what rate, whether its
  * vision program dropped frames or the network lost them, and whether detection keeps up with the
  * camera, over the last 10 s; and each of those this session, so a drop during a match still shows
- * after it. Then the exposure and gain the latest frame was taken at. Beside them, a camera on
- * Visor has its live view, which the browser loads straight from the coprocessor its frames come
- * from (the video never passes through the robot program), and its exposure and gain's tuning,
- * where it has one, to tune there as in the Tune view. It's the camera's one card: what else
- * Pitwall shows of a camera belongs on it.
+ * after it. Then the exposure and gain the latest frame was taken at, and, for a camera on Visor,
+ * the exposure and gain it's set to and where each came from: its type, its venue, or tuned live.
+ * Beside them, a camera on Visor has its live view, which the browser loads straight from the
+ * coprocessor its frames come from (the video never passes through the robot program), its exposure
+ * and gain's tuning, to tune there as in the Tune view, and two buttons that keep what's tuned in
+ * the venue, for every camera of its type or for this station alone. It's the camera's one card:
+ * what else Pitwall shows of a camera belongs on it.
  *
  * <p>The card is read in the robot loop, from what the loop already read.
  */
@@ -75,10 +83,14 @@ public final class CameraPit {
 
   private final Camera camera;
   private final Frames frames;
+  private final VisorTuning.Live settings;
+  private final VenueKeeper keeper;
 
-  CameraPit(Camera camera, Frames frames) {
+  CameraPit(Camera camera, Frames frames, VisorTuning.Live settings, VenueKeeper keeper) {
     this.camera = camera;
     this.frames = frames;
+    this.settings = settings;
+    this.keeper = keeper;
   }
 
   /**
@@ -86,20 +98,41 @@ public final class CameraPit {
    *
    * @param frames where the frames come from
    * @param tunings each Visor camera's tuning, by the camera's name, shown on its card
+   * @param settings each camera's exposure and gain, and where each came from
+   * @param keeper where a camera's tuned exposure and gain are kept: the venue's card
    */
   public static List<Devices.Device> devices(
-      Vision vision, Frames frames, Map<String, ? extends LiveConfig<?>> tunings) {
+      Vision vision,
+      Frames frames,
+      Map<String, ? extends LiveConfig<?>> tunings,
+      VisorTuning.Live settings,
+      VenueKeeper keeper) {
     List<Devices.Device> devices = new ArrayList<>();
     for (Camera camera : vision.cameras()) {
-      CameraPit pit = new CameraPit(camera, frames);
+      CameraPit pit = new CameraPit(camera, frames, settings, keeper);
       Devices.Device device = Devices.Device.named(deviceName(camera.config), "Camera", pit::card);
       LiveConfig<?> tuning = tunings.get(camera.config.name());
       if (tuning != null) {
-        device.tuning(tuning.name());
+        device
+            .tuning(tuning.name())
+            .press(
+                "keep-type",
+                "Keep in this venue: every " + camera.config.type().name(),
+                text -> pit.keep(For.EVERY_OF_ITS_TYPE))
+            .press(
+                "keep-station",
+                "Keep in this venue: this station only",
+                text -> pit.keep(For.THIS_STATION));
       }
       devices.add(device);
     }
     return devices;
+  }
+
+  /** Keeps what's tuned on this camera in the venue in use, on Pitwall's thread. */
+  String keep(For kept) throws IOException {
+    String station = camera.config.name();
+    return keeper.keep(station, camera.config.type().name(), settings.tuned(station), kept);
   }
 
   /**
@@ -131,7 +164,7 @@ public final class CameraPit {
   Devices.Card card() {
     CameraIO.CameraIOInputs inputs = camera.inputs;
     CameraHealth health = camera.health();
-    boolean onVisor = camera.config.software() instanceof CameraConfig.Software.Visor;
+    boolean onVisor = camera.config.software() instanceof Software.Visor;
     List<Devices.Line> lines = new ArrayList<>();
     State state = State.of(inputs);
     if (state == State.CANT_BE_READ) {
@@ -155,6 +188,11 @@ public final class CameraPit {
                 Devices.Level.NOTE));
       }
       lines.add(new Devices.Line("Exposure", exposure(inputs), Devices.Level.NOTE));
+      lines.add(setTo());
+      String problem = settings.problem(camera.config.name());
+      if (!problem.isEmpty()) {
+        lines.add(new Devices.Line("Settings", problem, Devices.Level.WARNING));
+      }
     } else {
       lines.add(
           new Devices.Line(
@@ -261,6 +299,27 @@ public final class CameraPit {
         health.detectMeanMs(),
         health.detectWorstMs(),
         health.framePeriodMs());
+  }
+
+  /**
+   * The exposure and gain the camera is set to, and where each came from: its type, its venue, or
+   * tuned live and not kept yet, which the card marks as a note to keep.
+   */
+  private Devices.Line setTo() {
+    Optional<CameraSettings> now = settings.now(camera.config.name());
+    if (now.isEmpty()) {
+      return new Devices.Line("Set to", "unknown", Devices.Level.NOTE);
+    }
+    CameraSettings set = now.get();
+    String said = set.inWords(camera.config.type().name());
+    Devices.Level level = Devices.Level.OK;
+    boolean anyTuned =
+        set.exposureFrom() == CameraSettings.Source.TUNED
+            || set.gainFrom() == CameraSettings.Source.TUNED;
+    if (anyTuned) {
+      level = Devices.Level.NOTE;
+    }
+    return new Devices.Line("Set to", said, level);
   }
 
   /** The exposure and gain the latest frame was taken at, and how bright it was. */

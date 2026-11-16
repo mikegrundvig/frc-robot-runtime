@@ -6,13 +6,13 @@ import com.michaelgrundvig.frc.pitwall.Devices;
 import com.michaelgrundvig.frc.runtime.ExampleRobot;
 import com.michaelgrundvig.frc.runtime.RobotConfig;
 import com.michaelgrundvig.frc.runtime.RobotConfigBuilder;
+import com.michaelgrundvig.frc.runtime.TestCameras;
 import com.michaelgrundvig.frc.spotter.manager.BoardDefinition;
 import com.michaelgrundvig.frc.spotter.manager.Connection;
 import com.michaelgrundvig.frc.spotter.manager.Level;
 import com.michaelgrundvig.frc.visor.VisorPack;
 import com.michaelgrundvig.frc.visor.VisorVersion;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -132,7 +132,7 @@ class CoprocessorsEndToEndTest {
 
     // The guide's robot with its first camera on Visor, plugged into the board.
     CameraConfig first = ExampleRobot.COMPETITION.definition().cameras().get(0);
-    CameraConfig onVisor = first.withSoftware(Software.visor().device("/dev/v4l/by-id/" + CAMERA));
+    CameraConfig onVisor = TestCameras.onVisor(first, "/dev/v4l/by-id/" + CAMERA);
     RobotConfig robot =
         RobotConfigBuilder.builder(ExampleRobot.COMPETITION.with(onVisor))
             .coprocessors(List.of("127.0.0.1:" + port, dead))
@@ -191,7 +191,7 @@ class CoprocessorsEndToEndTest {
   @Test
   void withNoTeamNumberVisorIsLeftAloneAndTheRobotSaysWhy() throws Exception {
     CameraConfig first = ExampleRobot.COMPETITION.definition().cameras().get(0);
-    CameraConfig onVisor = first.withSoftware(Software.visor().device("/dev/v4l/by-id/" + CAMERA));
+    CameraConfig onVisor = TestCameras.onVisor(first, "/dev/v4l/by-id/" + CAMERA);
     RobotConfig robot = ExampleRobot.COMPETITION.with(onVisor);
     Path deploy = Files.createDirectories(work.resolve("deploy"));
     List<String> boards = List.of(nothingAnswers());

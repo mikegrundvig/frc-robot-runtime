@@ -136,6 +136,39 @@ public final class VenueStore {
             + ", then upload again");
   }
 
+  /**
+   * Keeps a venue file in place of another it was made from, as keeping a camera's settings in a
+   * venue does: the new one is kept and the old one, if it was an upload kept here, is removed, so
+   * the robot keeps one file for the venue. A committed one stays, since the build carries it. The
+   * caller checks the new file first, and selects it.
+   *
+   * @return the new file's hash
+   * @throws IOException if the robot has no room for it, or it couldn't be written
+   */
+  public String replace(String old, String fresh) throws IOException {
+    Path kept = stored.resolve(hash(old) + ".json");
+    boolean oldIsKeptHere = Files.isRegularFile(kept);
+    if (!oldIsKeptHere) {
+      Optional<String> noRoom = whyNoRoomFor(fresh);
+      if (noRoom.isPresent()) {
+        throw new IOException(noRoom.get());
+      }
+    }
+    String hash = save(fresh);
+    if (oldIsKeptHere && !hash.equals(hash(old))) {
+      Files.delete(kept);
+    }
+    return hash;
+  }
+
+  /**
+   * Removes an uploaded venue file kept here, if it is one: one a later keep of the same venue
+   * superseded. A committed one stays, since the build carries it.
+   */
+  public void forget(String text) throws IOException {
+    Files.deleteIfExists(stored.resolve(hash(text) + ".json"));
+  }
+
   /** Every venue file the robot has: the stored ones, then the committed ones. */
   public List<Path> files() throws IOException {
     List<Path> files = new ArrayList<>();

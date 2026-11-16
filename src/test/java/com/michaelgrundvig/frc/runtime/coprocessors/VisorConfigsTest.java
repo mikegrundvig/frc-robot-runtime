@@ -16,10 +16,13 @@ import com.michaelgrundvig.frc.world.field.Symmetry;
 import com.michaelgrundvig.frc.world.field.TagFamily;
 import com.michaelgrundvig.frc.world.field.TagLayout;
 import com.michaelgrundvig.frc.world.game.Rebuilt;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
-import com.michaelgrundvig.frc.world.robot.CameraConfigBuilder;
-import com.michaelgrundvig.frc.world.robot.CameraConfigImageSensorBuilder;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.CameraTypeBuilder;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
+import com.michaelgrundvig.frc.world.robot.ImageSensorBuilder;
+import com.michaelgrundvig.frc.world.robot.Lens;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -40,32 +43,47 @@ class VisorConfigsTest {
   private static final String FRONT_RIGHT = "usb-Thrifty_Cam_0002-video-index0";
   private static final String BACK = "usb-Thrifty_Cam_0003-video-index0";
 
-  private static CameraConfig on(CameraConfig camera, Software software) {
-    return camera.withSoftware(software);
+  /** The guide's station, holding this camera in place of its own. */
+  private static CameraConfig on(CameraConfig placed, Camera camera) {
+    return placed.station().holds(camera);
   }
 
-  private static Software.Visor device(String name) {
-    return Software.visor().device("/dev/v4l/by-id/" + name);
+  /** The guide's camera, by its number, moved to Visor, with nothing said of it yet. */
+  private static Camera visor(CameraConfig placed) {
+    return Camera.visor(placed.camera().number(), placed.type());
+  }
+
+  /** The guide's camera, by its number, on Visor at this device. */
+  private static Camera device(CameraConfig placed, String name) {
+    return visor(placed).device("/dev/v4l/by-id/" + name);
+  }
+
+  /** The guide's camera, by its number, its type changed: on Visor at this device. */
+  private static Camera retyped(CameraConfig placed, CameraType type, String name) {
+    return Camera.visor(placed.camera().number(), type).device("/dev/v4l/by-id/" + name);
   }
 
   /** The guide's cameras: 0, 1 and 3 on Visor, the back one set up fully; 2 on PhotonVision. */
   static List<CameraConfig> cameras() {
     List<CameraConfig> cameras = new ArrayList<>(GUIDE);
-    cameras.set(0, on(GUIDE.get(0), device(FRONT_LEFT)));
-    cameras.set(1, on(GUIDE.get(1), device(FRONT_RIGHT)));
-    CameraConfig.ImageSensor sensor = GUIDE.get(3).sensor();
+    cameras.set(0, on(GUIDE.get(0), device(GUIDE.get(0), FRONT_LEFT)));
+    cameras.set(1, on(GUIDE.get(1), device(GUIDE.get(1), FRONT_RIGHT)));
+    ImageSensor sensor = GUIDE.get(3).sensor();
+    CameraType backType =
+        GUIDE
+            .get(3)
+            .type()
+            .exposure(Milliseconds.of(2.5))
+            .gain(40)
+            .controls(List.of(CameraType.Control.of("power_line_frequency", 2)));
     cameras.set(
         3,
         on(
             GUIDE.get(3),
-            Software.visor()
-                .device("/dev/v4l/by-id/" + BACK)
-                .exposure(Milliseconds.of(2.5))
-                .gain(40)
-                .controls(List.of(Software.Control.of("power_line_frequency", 2)))
+            retyped(GUIDE.get(3), backType, BACK)
                 .timeOffset(Microseconds.of(-1500))
                 .lens(
-                    Software.Lens.builder()
+                    Lens.builder()
                         .width(sensor.widthPixels())
                         .height(sensor.heightPixels())
                         .fx(905.25)
@@ -128,7 +146,7 @@ class VisorConfigsTest {
         0,
         on(
             GUIDE.get(0),
-            Software.visor().device("/dev/v4l/by-id/" + FRONT_LEFT).camerasOwnExposure()));
+            retyped(GUIDE.get(0), GUIDE.get(0).type().camerasOwnExposure(), FRONT_LEFT)));
     String front = VisorConfigs.forBoard(cameras, 1234, TAG_SIZE, List.of(FRONT_LEFT)).toml();
     assertThat(front).doesNotContain("exposure_us").doesNotContain("gain");
   }
@@ -141,25 +159,25 @@ class VisorConfigsTest {
   @Test
   void eachCamerasLiveViewIsWrittenNoFasterThanTheCamera() {
     // A camera slower than the fastest live view, so a view can ask for more than it runs at.
-    CameraConfig slow =
-        CameraConfigBuilder.builder(GUIDE.get(0))
-            .sensor(
-                CameraConfigImageSensorBuilder.builder(GUIDE.get(0).sensor())
-                    .frameRate(Hertz.of(20))
-                    .build())
+    CameraType type = GUIDE.get(0).type();
+    CameraType slow =
+        CameraTypeBuilder.builder(type)
+            .sensor(ImageSensorBuilder.builder(type.sensor()).frameRate(Hertz.of(20)).build())
             .build();
     record Case(String name, CameraConfig camera, String written) {}
-    Software.Visor visor = device(FRONT_LEFT);
+    CameraConfig first = GUIDE.get(0);
     List<Case> cases =
         List.of(
-            new Case("written nothing", on(GUIDE.get(0), visor), ""),
+            new Case("written nothing", on(first, retyped(first, type, FRONT_LEFT)), ""),
             new Case(
                 "its own",
-                on(GUIDE.get(0), visor.stream(Percent.of(25), Hertz.of(5), 80)),
+                on(first, retyped(first, type.stream(Percent.of(25), Hertz.of(5), 80), FRONT_LEFT)),
                 "stream_scale = 0.25\nstream_fps = 5\nstream_quality = 80\n"),
             new Case(
                 "faster than the camera",
-                on(slow, visor.stream(Percent.of(100), Hertz.of(30), 60)),
+                on(
+                    first,
+                    retyped(first, slow.stream(Percent.of(100), Hertz.of(30), 60), FRONT_LEFT)),
                 "stream_scale = 1.0\nstream_fps = 20\nstream_quality = 60\n"));
     for (Case c : cases) {
       List<CameraConfig> cameras = cameras();
@@ -282,11 +300,14 @@ class VisorConfigsTest {
             new Row("power_line_frequency", ""));
     FieldModel field = Rebuilt.GAME.officialField();
     for (Row row : rows) {
-      for (Software.Visor visor : List.of(device(FRONT_LEFT), Software.visor())) {
+      CameraConfig front = GUIDE.get(0);
+      CameraType named = front.type().controls(List.of(CameraType.Control.of(row.control(), 1)));
+      for (Camera camera :
+          List.of(
+              retyped(front, named, FRONT_LEFT), Camera.visor(front.camera().number(), named))) {
         List<CameraConfig> cameras = cameras();
-        Software.Visor named = visor.controls(List.of(Software.Control.of(row.control(), 1)));
-        cameras.set(0, on(GUIDE.get(0), named));
-        String what = row.control() + (visor.device().isPresent() ? "" : ", no device yet");
+        cameras.set(0, on(front, camera));
+        String what = row.control() + (camera.device().isPresent() ? "" : ", no device yet");
         if (row.refused().isEmpty()) {
           assertThatCode(() -> VisorConfigs.requireRunnable(cameras, field))
               .as(what)
@@ -304,7 +325,7 @@ class VisorConfigsTest {
   @Test
   void aCameraNoBoardHasIsNamed() {
     List<CameraConfig> cameras = cameras();
-    cameras.set(2, on(GUIDE.get(2), Software.VISOR));
+    cameras.set(2, on(GUIDE.get(2), visor(GUIDE.get(2))));
     assertThat(VisorConfigs.unplaced(cameras, List.of(FRONT_LEFT, FRONT_RIGHT, BACK)))
         .containsExactly(GUIDE.get(2).name() + " (it names no device)");
     assertThat(VisorConfigs.unplaced(cameras(), List.of(FRONT_LEFT)))

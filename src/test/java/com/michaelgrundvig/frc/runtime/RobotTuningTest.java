@@ -9,9 +9,10 @@ import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.pitwall.ParameterDocs;
 import com.michaelgrundvig.frc.pitwall.RequestOutcome;
 import com.michaelgrundvig.frc.pitwall.TunableTee;
+import com.michaelgrundvig.frc.runtime.coprocessors.CameraTuning;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
+import com.michaelgrundvig.frc.world.robot.CameraType;
 import com.michaelgrundvig.frc.world.robot.DrivetrainControl;
 import java.util.List;
 import java.util.Map;
@@ -38,37 +39,41 @@ class RobotTuningTest {
    */
   private static RobotConfig onVisor() {
     List<CameraConfig> cameras = ExampleRobot.SIM.definition().cameras();
+    CameraType type = cameras.get(0).type();
     return ExampleRobot.SIM.with(
-        on(cameras.get(0), Software.visor()),
-        on(cameras.get(1), Software.visor().exposure(Milliseconds.of(2.5)).gain(40)),
-        on(cameras.get(2), Software.visor().camerasOwnExposure()));
-  }
-
-  private static CameraConfig on(CameraConfig camera, Software software) {
-    return camera.withSoftware(software);
+        TestCameras.onVisor(cameras.get(0)),
+        TestCameras.retyped(
+            TestCameras.onVisor(cameras.get(1)),
+            TestCameras.named(type.exposure(Milliseconds.of(2.5)).gain(40), "dialed in")),
+        TestCameras.retyped(
+            TestCameras.onVisor(cameras.get(2)),
+            TestCameras.named(type.camerasOwnExposure(), "on its own exposure")));
   }
 
   /**
-   * A camera on Visor tunes what its definition fixes, each knob within the camera's own reach, and
-   * gives the builder call to write the tuned value back; a camera on its own automatic exposure
-   * and gain has nothing to tune.
+   * Every camera on Visor tunes its gain, and its exposure where its type fixes one, each knob
+   * within the camera's own reach, and says how to keep a tuned value: in the venue from its card,
+   * or in its type's code. A camera left at its own gain starts its tuning at 0 until its frames
+   * say its own; one on its own automatic exposure has no exposure to tune.
    */
   @Test
-  void aVisorCamerasExposureAndGainAreTunedWhereItsDefinitionFixesThem() {
+  void aVisorCamerasExposureAndGainAreTuned() {
     var cameras = RobotContainer.tunings(onVisor()).cameras();
     List<String> names =
         ExampleRobot.SIM.definition().cameras().stream().map(CameraConfig::name).toList();
-    assertThat(cameras).containsOnlyKeys(names.get(0), names.get(1));
+    assertThat(cameras).containsOnlyKeys(names.get(0), names.get(1), names.get(2));
 
     record Case(String camera, String path, double committed, double min, double max) {}
     // At 30 frames a second, one frame is 33.3 ms: a longer exposure would slow the frame rate.
     List<Case> cases =
         List.of(
-            new Case(names.get(0), "exposure.time", 1, 0.1, 1000.0 / 30),
-            new Case(names.get(1), "exposure.time", 2.5, 0.1, 1000.0 / 30),
-            new Case(names.get(1), "gain.value", 40, 0, 65_535));
+            new Case(names.get(0), "exposure", 1, 0.1, 1000.0 / 30),
+            new Case(names.get(0), "gain", 0, 0, 65_535),
+            new Case(names.get(1), "exposure", 2.5, 0.1, 1000.0 / 30),
+            new Case(names.get(1), "gain", 40, 0, 65_535),
+            new Case(names.get(2), "gain", 0, 0, 65_535));
     for (Case c : cases) {
-      LiveConfig<Software.Visor> tuning = Objects.requireNonNull(cameras.get(c.camera()));
+      LiveConfig<CameraTuning> tuning = Objects.requireNonNull(cameras.get(c.camera()));
       assertThat(tuning.name()).isEqualTo(c.camera() + " camera");
       assertThat(tuning.committedValue(c.path())).as(c.path()).isEqualTo(c.committed());
       LiveConfig.Knob knob =
@@ -76,21 +81,23 @@ class RobotTuningTest {
       assertThat(knob.limits().min()).as(c.path()).isCloseTo(c.min(), within(1e-9));
       assertThat(knob.limits().max()).as(c.path()).isCloseTo(c.max(), within(1e-9));
     }
-    assertThat(Objects.requireNonNull(cameras.get(names.get(0))).knobs())
-        .as("its own gain: nothing to tune")
+    assertThat(Objects.requireNonNull(cameras.get(names.get(2))).knobs())
+        .as("on its own automatic exposure: no exposure to tune")
         .extracting(LiveConfig.Knob::path)
-        .containsExactly("exposure.time");
+        .containsExactly("gain");
 
-    LiveConfig<Software.Visor> tuning = Objects.requireNonNull(cameras.get(names.get(1)));
-    assertThat(tuning.set(Map.of("exposure.time", 1.5, "gain.value", 64.0))).isTrue();
-    assertThat(tuning.get()).isEqualTo(Software.visor().exposure(Milliseconds.of(1.5)).gain(64));
+    LiveConfig<CameraTuning> tuning = Objects.requireNonNull(cameras.get(names.get(1)));
+    assertThat(tuning.set(Map.of("exposure", 1.5, "gain", 64.0))).isTrue();
+    assertThat(tuning.get()).isEqualTo(new CameraTuning(Milliseconds.of(1.5), 64));
     assertThat(tuning.changes())
         .extracting(LiveConfig.Change::builderCall)
-        .containsExactly(".exposure(Milliseconds.of(1.5))", ".gain(64)");
-    assertThat(tuning.whyNot(Map.of("gain.value", 40.5)))
-        .isEqualTo(names.get(1) + " camera: gain.value takes a whole number, got 40.5");
-    assertThat(tuning.whyNot(Map.of("exposure.time", 50.0)))
-        .startsWith(names.get(1) + " camera: exposure.time: 50 ms is above its limit");
+        .containsExactly(
+            "keep it in the venue from its card, or its type's .exposure(Milliseconds.of(1.5))",
+            "keep it in the venue from its card, or its type's .gain(64)");
+    assertThat(tuning.whyNot(Map.of("gain", 40.5)))
+        .isEqualTo(names.get(1) + " camera: gain takes a whole number, got 40.5");
+    assertThat(tuning.whyNot(Map.of("exposure", 50.0)))
+        .startsWith(names.get(1) + " camera: exposure: 50 ms is above its limit");
   }
 
   /** The container's list of tunings is the one every check reads: it misses none of them. */

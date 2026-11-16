@@ -8,6 +8,7 @@ import com.michaelgrundvig.frc.spotter.manager.Settings;
 import com.michaelgrundvig.frc.spotter.manager.packs.TeamPacks;
 import com.michaelgrundvig.frc.visor.VisorPack;
 import com.michaelgrundvig.frc.visor.VisorVersion;
+import com.michaelgrundvig.frc.world.robot.Camera;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -114,9 +115,9 @@ public final class Coprocessors implements AutoCloseable {
    * and take their packs while the program boots, disabled.
    *
    * @param addresses the robot's coprocessors, each its Spotter agent's address
-   * @param cameras the robot's cameras, as committed and as tuned now ({@link VisorTuning#live}):
-   *     those on Visor are configured on whichever board they're plugged into, with their exposure
-   *     and gain as tuned
+   * @param cameras the robot's cameras, with their exposure and gain as kept and as running now
+   *     ({@link VisorTuning#live}): those on Visor are configured on whichever board they're
+   *     plugged into, at their exposure and gain as running
    * @param deploy the deploy folder: Visor's pack in {@code spotter-packs/}, and this robot's Visor
    *     release in {@code visor/}
    * @param team the team number set on Systemcore, for Visor's configuration; 0 if none is
@@ -139,7 +140,7 @@ public final class Coprocessors implements AutoCloseable {
       BooleanSupplier fieldAttached,
       LongSupplier nanos) {
     return withBoards(
-        definitions(addresses, cameras.committed()),
+        definitions(addresses, cameras.cameras()),
         cameras,
         deploy,
         team,
@@ -170,8 +171,7 @@ public final class Coprocessors implements AutoCloseable {
   }
 
   private static boolean onVisor(List<CameraConfig> cameras) {
-    return cameras.stream()
-        .anyMatch(camera -> camera.software() instanceof CameraConfig.Software.Visor);
+    return cameras.stream().anyMatch(camera -> camera.software() instanceof Camera.Software.Visor);
   }
 
   /**
@@ -205,7 +205,7 @@ public final class Coprocessors implements AutoCloseable {
             recorder);
     manager.start();
     Watched watched = new Watched(manager, recorder, new SpotterAlerts(manager::alerts));
-    if (team <= 0 && onVisor(cameras.committed())) {
+    if (team <= 0 && onVisor(cameras.cameras())) {
       Alert noTeam =
           new Alert(
               "Visor",
@@ -221,8 +221,9 @@ public final class Coprocessors implements AutoCloseable {
     TeamPacks teamPacks = teamPacks(packs);
     VisorInstaller visor =
         new VisorInstaller(
-            cameras,
-            cameras.committed(),
+            cameras.cameras(),
+            cameras::now,
+            cameras::kept,
             team,
             tagSizeMeters,
             VisorVersion.VERSION,

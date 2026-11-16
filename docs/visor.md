@@ -20,13 +20,22 @@ robot with a real board ([bench.md](bench.md#standing-in-for-the-robot-with-its-
 
 ## Putting a camera on Visor
 
-In `Robots.java`, the camera's `.software(...)` says which camera it is, by its device, with its
-settings and its lens. `Software.visor()` is a camera on Visor with nothing said yet, and each
-setting is a verb on it:
+In `Robots.java`, a camera is said in three parts, each once:
+
+- its **type**, the kind of camera, which every camera of the kind shares: the size and rate it
+  runs at, and the exposure and gain each camera of the kind starts at
+  ([below](#exposure-and-gain));
+- the **camera** itself, by the number on its label, with its device and its lens's calibration,
+  said together so a lens can't end up with another camera's device;
+- the **station** it's in, a place on the robot named for the place, which says where a camera
+  there sits and points. The station's name is the camera's name everywhere: its logs, Visor's
+  configuration, its Pitwall card.
 
 ```java fragment
-Software.visor()
-    ...
+CameraType.of("ThriftyCam", ImageSensor.of(1600, 1304, Hertz.of(60)));
+...
+Camera.visor(1, THRIFTYCAM)
+    .device("/dev/v4l/by-id/usb-Maker_Camera_A1B2C3-video-index0")
     .lens(
         Lens.builder()
             .width(1600)
@@ -36,22 +45,33 @@ Software.visor()
             .cx(801.183)
             .cy(650.427)
             .distortion(List.of(-0.3117, 0.1204, 0.00041, -0.00022, -0.0208))
-            .build())
+            .build());
+...
+CameraStation.named("front-left")
+    .at(Inches.of(11.75), Inches.of(11.75), Inches.of(21))
+    .facing(Degrees.of(10), Degrees.of(45));
 ```
 
+The robot's definition puts each camera in its station, `.with(FRONT_LEFT.holds(CAMERA_1))` or
+`.withCameras(...)`. Swapping a camera is changing which camera a station holds, one reference;
+a station measured with the camera it held ([calibration.md](calibration.md)) counts as unchecked
+once it holds another, and the robot says so at startup. A camera is in one station, and two
+cameras can't share a number.
+
 The device is the camera's name as `visor cameras --names` prints it on its coprocessor, the one
-rule for naming a camera. A ThriftyCam has no USB serial, so it is named by the USB port it's
-plugged into, its `/dev/v4l/by-path/` name, such as
-`/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1:1.0-video-index0`, and must go back in that port
-(label the ports and cables). A camera that does have a serial is named by its `/dev/v4l/by-id/`
-name, which follows it to any port. Either way the robot finds which coprocessor the camera is
-plugged into from what each board reports, and nothing says which board a camera is on.
-`Software.VISOR` alone is enough for the simulator, which sends each simulated image
-through Visor's frames, its client and `CameraIOVisor`, as a real one arrives.
-[values.md](values.md#cameraconfigsoftwarevisor) says what each value is and how to find it; the
-camera's exposure and gain have [a section of their own](#exposure-and-gain). A camera with a lens takes its field of view
-from it, so its sensor says only its size and rate, `ImageSensor.of(1600, 1304, Hertz.of(60))`, and its
-latency is Visor's typical 20 ms until the Vision log measures it.
+rule for naming a camera. A camera with a USB serial is named by its `/dev/v4l/by-id/` name, which
+follows it to any port. A camera without one can only be named by the USB port it's plugged into,
+its `/dev/v4l/by-path/` name, such as
+`/dev/v4l/by-path/platform-xhci-hcd.0-usb-0:1:1.0-video-index0`: that names the port, not the
+camera, so it must go back in that port (label the ports and cables). Either way the robot finds
+which coprocessor the camera is plugged into from what each board reports, and nothing says which
+board a camera is on. `Camera.visor(1, THRIFTYCAM)` alone, with no device or lens, is enough for
+the simulator, which sends each simulated image through Visor's frames, its client and
+`CameraIOVisor`, as a real one arrives. [values.md](values.md#camera) says what each value is and
+how to find it; the camera's exposure and gain have [a section of their own](#exposure-and-gain).
+A camera with a lens takes its field of view from it, so its type says only its size and rate,
+`ImageSensor.of(1600, 1304, Hertz.of(60))`, and its latency is Visor's typical 20 ms until the
+Vision log measures it.
 
 The robot's entry also lists its coprocessors, each by its Spotter agent's address. While any of
 the robot's cameras is on Visor, the robot pushes each of them Visor's pack, from the deploy
@@ -194,7 +214,8 @@ reports, Visor's [docs/wire.md](https://github.com/mikegrundvig/frc-visor/blob/m
 The robot takes a board's frames only from a configuration it gave that board:
 
 - the one it wants for the board now, with each camera's exposure and gain as tuned;
-- the committed one, from `Robots.java` as it is;
+- the kept one: `Robots.java` as it is, with each camera's exposure and gain as the selected
+  venue keeps them;
 - the last one it saw the board run while it was the one wanted;
 - what it kept of these before the robot program last restarted (below).
 
@@ -233,53 +254,90 @@ A file that's missing or can't be read is nothing kept, said in one line of the 
 and the robot goes on as it would without one. A write that fails raises a medium alert,
 `Visor/forgetting`, and the robot goes on: after the next restart, a board running a tuning is
 left out until the robot is disabled off the field. `Visor/uncommitted` still names each board
-running another configuration than the committed one: put tuned values in `Robots.java`.
+running another configuration than the kept one: keep tuned values in the venue.
 
 ## Exposure and gain
 
 Visor has no opinion on a camera's exposure or gain: it sets what the robot's configuration gives,
-every time it opens the camera, after a replug too. The defaults live with the camera's
-description in `Robots.java`, so a camera written as above runs them:
+every time it opens the camera, after a replug too. Each camera runs at the first of these that
+gives a value, and the robot says which, and where each came from, as it starts and whenever one
+changes (`Camera settings: front-left: exposure 1.0 ms (its type's, from the code), gain 40 (the
+venue's, for every ThriftyCam)`), and logs the same lines as `Vision/CameraSettings`:
 
-- **Exposure: a fixed 1 ms, the camera's automatic exposure off** (as `Software.visor()` starts). Blur
-  from the robot turning is the main error in a tag's corners, and a short exposure cuts it: at 1 ms
-  a robot turning at 360°/s moves a tag 4 m away about 2.5 cm across the image. A top team runs the
-  ThriftyCam (OG02B1B) at 1 ms with its automatic exposure off. A camera's own automatic exposure
-  lengthens it in dim light, which blurs exactly when a tag is hardest to read.
+1. a value **tuned live** from Pitwall, until it's kept in the venue or the robot restarts;
+2. the selected **venue's**, for the camera's station;
+3. the selected **venue's**, for the camera's type, by the type's name;
+4. the camera's **type's** own, in `Robots.java`.
+
+**The type's defaults.** A camera type written as above runs them:
+
+- **Exposure: a fixed 1 ms, the camera's automatic exposure off.** Blur from the robot turning is
+  the main error in a tag's corners, and a short exposure cuts it: at 1 ms a robot turning at
+  360°/s moves a tag 4 m away about 2.5 cm across the image. A top team runs the ThriftyCam
+  (OG02B1B) at 1 ms with its automatic exposure off. A camera's own automatic exposure lengthens it
+  in dim light, which blurs exactly when a tag is hardest to read.
 - **Gain: the camera's own** (`Gain.CAMERAS_OWN`). A `gain` control's units are the camera's, so no
-  one number suits every camera. A top team runs the ThriftyCam at an analogue gain of 2 on a range of
-  1 to 4 (4 is noisy), but that's libcamera's scale, not V4L2's: the ThriftyCam's default here waits
-  until its `gain` range is read off a real one (`visor cameras` on its coprocessor lists it).
+  one number suits every kind of camera. A top team runs the ThriftyCam at an analogue gain of 2 on
+  a range of 1 to 4 (4 is noisy), but that's libcamera's scale, not V4L2's: the ThriftyCam's
+  default here waits until its `gain` range is read off a real one (`visor cameras` on its
+  coprocessor lists it).
 
-Any camera can give its own, as dialed in at a venue:
+A type can give its own, once a value is measured for the kind, the one place for it:
 
 ```java fragment
-.exposure(Milliseconds.of(1.5))
-.gain(40)
+THRIFTYCAM.exposure(Milliseconds.of(1.5)).gain(40);
 ```
 
-The exposure is from 100 µs, V4L2's step, to 1 s; the gain is a whole number, 0 to 65535.
+The exposure is from 100 µs, V4L2's step, to 1 s; the gain is a whole number, 0 to 65535, or
+within the range a type states for its gain control, `.gainRange(16, 255)`: the pit then tunes
+the gain between those values, a venue's gain outside them runs at the nearest (the robot says so
+at startup, and the venue is still used), and a type's own `.gain(...)` outside them is refused.
 `.camerasOwnExposure()` hands the exposure back to the camera's automatic exposure, which Visor
 turns back on. `.controls(...)` stays for any other V4L2 control, by name; it refuses the exposure
 and gain controls, which these own.
 
-**Tuning at a venue.** A camera whose exposure is fixed, or whose gain is given, has a tuning of its
-own on Pitwall's Tune view, `<camera> camera`, beside the drivetrain's and the joints': its
-`exposure.time` (from 0.1 ms, V4L2's step, to one frame's time, past which the frame rate drops) and
-its `gain.value` (0 to 65535, UVC's range: Visor holds it to the camera's own and says so). Tune it
-while the robot is disabled and off the field (no FMS attached): the robot writes the board its
-new configuration, as it does a new deploy's, and Visor restarts with it, so frames stop for a
-second or two. A value tuned while enabled, or on the field, waits until then, and a low alert,
-`Visor/waiting`, names the cameras whose configuration hasn't reached their board. When the field
-connects, the tuned values revert to the committed ones, but the board keeps what it has for the
-match (restarting the cameras on the field would cost more), and its frames are still taken
-([above](#the-configuration-a-frame-names)), so a medium alert, `Visor/uncommitted`, names each
-board running another configuration than the committed one. Watch
-the camera's brightness in the log (below), and write the value that works into `Robots.java`: the
-Tune view gives its builder call. A camera on its
-own automatic exposure and gain has nothing to tune; give it `.gain(...)`, its default
-from `visor cameras`, to tune its gain. Camera settings don't go in a venue's file: a venue is its
-tag layout.
+**The venue's.** A venue's file carries its cameras' settings for its lighting
+([venues.md](venues.md#camera-settings)): an exposure and a gain for each camera type, by its
+name, since a gain is in the camera's own units and means something else on another kind, and a
+station's own where its light differs. They're chosen in the pit and kept on the robot, so a value
+dialed in at an event survives a restart, and they change, as the venue does, only while the
+robot is disabled. A venue keeps nothing else of the robot's. What a venue gives a type or a
+station the robot hasn't is kept in its file, so one file can serve two robots, and the robot's
+report says, in one line, what it left unused. Two camera types of one name must be one kind set up one
+way: the robot refuses two that differ in anything but their live view.
+
+**Tuning at a venue.** Every camera on Visor has a tuning of its own on Pitwall's Tune view,
+`<camera> camera`, beside the drivetrain's and the joints', and on its card on the Pit view, beside
+its live view: its `gain` (0 to 65535, UVC's range: Visor holds it to the camera's own and says so)
+and, where its type fixes its exposure, its `exposure` (from 0.1 ms, V4L2's step, to one frame's
+time, past which the frame rate drops). It starts where the camera runs; a camera left at its own
+gain starts at the gain its frames report. Tune it while the robot is disabled and off the field
+(no FMS attached): the robot writes the board its new configuration, as it does a new deploy's,
+and Visor restarts with it, so frames stop for a second or two. A value tuned while enabled, or on
+the field, waits until then, and a low alert, `Visor/waiting`, names the cameras whose
+configuration hasn't reached their board. Watch the camera's brightness on its card and in the log
+(below). When a value works, keep it from the camera's card:
+
+- **Keep in this venue: every ThriftyCam** (the camera's type's name): the value becomes the
+  venue's for every camera of that type, and the station it was tuned at gives up its own of it;
+- **Keep in this venue: this station only:** the value becomes that station's own, for the type of
+  camera in it: swap in another kind of camera and the station runs at that kind's again.
+
+Keeping waits while another venue is chosen and not yet taken: the values go into the venue the
+robot is using, the one they were tuned on.
+
+Before a press, the card's **Set to** line reads, say, `exposure 1.0 ms (its type's, from the
+code), gain 44 (tuned live, not kept)`, marked as a note. After it, while disabled, it reads `gain
+44 (the venue's, for every ThriftyCam)` or `gain 44 (the venue's, for its station)`, and the venue
+card says **not in Git**.
+
+The robot writes it into the selected venue's file on the robot, which is then a new file, chosen in
+the old one's place, and the venue card says **not in Git** until it's downloaded and committed
+([venues.md](venues.md#keep-it-in-git)). On the official layout there's no venue to keep it in:
+make one on the venue card first, **New venue for this event**. When the field connects, tuned values not kept
+revert, but the board keeps what it has for the match (restarting the cameras on the field would
+cost more), and its frames are still taken ([above](#the-configuration-a-frame-names)), so a medium
+alert, `Visor/uncommitted`, names each board running another configuration than the kept one.
 
 **What the log shows.** Every frame says the exposure and gain it was taken at, read back from the
 camera, and how bright it is. The robot logs each camera's latest, every loop:
@@ -485,7 +543,7 @@ or the laptop isn't on the robot's network), it says so, and tries again every 5
 for the field, so the view has no field mode.
 
 The view's size, rate and JPEG quality are the camera's `stream` when it gives one
-([values.md](values.md#cameraconfigsoftwarestream)): its size as a share of the camera's, its rate,
+([values.md](values.md#cameratypestream)): its size as a share of the camera's, its rate,
 and its JPEG quality. A camera that gives none has Visor's own view, half size, 10 a second (or the
 camera's rate, if slower) and quality 60, and the robot writes none of it:
 

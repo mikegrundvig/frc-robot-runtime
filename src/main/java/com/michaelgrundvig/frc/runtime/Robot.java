@@ -24,6 +24,7 @@ import com.michaelgrundvig.frc.runtime.sim.SimulatorWiring;
 import com.michaelgrundvig.frc.runtime.subsystems.vision.Vision;
 import com.michaelgrundvig.frc.runtime.venues.VenueIO;
 import com.michaelgrundvig.frc.runtime.venues.VenueIODisk;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper;
 import com.michaelgrundvig.frc.runtime.venues.VenuePit;
 import com.michaelgrundvig.frc.runtime.venues.VenueStore;
 import com.michaelgrundvig.frc.runtime.venues.Venues;
@@ -430,10 +431,14 @@ public class Robot extends LoggedRobot {
             simulation,
             loopHealth,
             watched);
-    RobotPitwall.addTo(pitwall, container, mode, robot);
+    Optional<VenuePit> venuePit = Optional.empty();
     if (venueStore.isPresent() && disk.isPresent()) {
-      pitwall.devices().add(VenuePit.device(venueStore.get(), disk.get(), venues, game));
+      venuePit = Optional.of(VenuePit.of(venueStore.get(), disk.get(), venues, game));
     }
+    // A camera's card keeps its tuned settings in the venue, through the venue's card.
+    VenueKeeper keeper = venuePit.isPresent() ? venuePit.get() : VenueKeeper.NONE;
+    RobotPitwall.addTo(pitwall, container, mode, robot, keeper);
+    venuePit.ifPresent(pit -> pitwall.devices().add(pit.device()));
     return container;
   }
 

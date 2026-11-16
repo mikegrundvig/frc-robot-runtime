@@ -5,13 +5,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.michaelgrundvig.frc.pitwall.LiveConfig;
 import com.michaelgrundvig.frc.runtime.InItsOwnJvm;
 import com.michaelgrundvig.frc.visor.VisorPack;
+import com.michaelgrundvig.frc.world.field.VenueCameras;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
-import com.michaelgrundvig.frc.world.robot.CameraConfig.Software;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalInt;
 import java.util.stream.Stream;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -66,24 +67,26 @@ class VisorInstallerLoopCostTest {
   @MethodSource("rows")
   void aSteadyLoopAllocatesNothing(Row row) {
     List<CameraConfig> committed = VisorConfigsTest.cameras();
-    Map<String, LiveConfig<Software.Visor>> tunings = VisorTuning.of(committed);
-    LiveConfig<Software.Visor> back = Objects.requireNonNull(tunings.get(committed.get(3).name()));
-    assertThat(back.set(Map.of("gain.value", 55.0))).isTrue();
+    Map<String, LiveConfig<CameraTuning>> tunings = VisorTuning.of(committed);
+    LiveConfig<CameraTuning> back = Objects.requireNonNull(tunings.get(committed.get(3).name()));
+    assertThat(back.set(Map.of("gain", 55.0))).isTrue();
     VisorTuning.Live cameras = VisorTuning.live(committed, tunings);
+    cameras.update(VenueCameras.NONE, camera -> OptionalInt.empty());
     List<String> fronts = List.of(FRONT_LEFT, FRONT_RIGHT);
     List<String> backs = List.of(BACK);
-    VisorInstallerTest.FakeBoard a = board("vision-a", report(cameras.get(), fronts));
+    VisorInstallerTest.FakeBoard a = board("vision-a", report(cameras, fronts));
     // Two reports that say the same, made before the loops so the test allocates nothing itself.
-    VisorInstaller.Seen backReport = report(cameras.get(), backs);
-    VisorInstaller.Seen backReportAgain = report(cameras.get(), new ArrayList<>(backs));
+    VisorInstaller.Seen backReport = report(cameras, backs);
+    VisorInstaller.Seen backReportAgain = report(cameras, new ArrayList<>(backs));
     VisorInstallerTest.FakeBoard b = board("vision-b", backReport);
     long[] now = {0};
     long thread = Thread.currentThread().threadId();
     double least = Double.POSITIVE_INFINITY;
     try (VisorInstaller installer =
         new VisorInstaller(
-            cameras,
-            committed,
+            cameras.cameras(),
+            cameras::now,
+            cameras::kept,
             1234,
             VisorConfigsTest.TAG_SIZE,
             VERSION,
@@ -129,9 +132,12 @@ class VisorInstallerLoopCostTest {
     return new VisorInstallerTest.FakeBoard(name, seen);
   }
 
-  /** A board's report with these cameras, running the configuration wanted for them. */
-  private static VisorInstaller.Seen report(List<CameraConfig> cameras, List<String> devices) {
-    String config = VisorConfigs.forBoard(cameras, 1234, VisorConfigsTest.TAG_SIZE, devices).hash();
+  /** A board's report with these cameras, running the configuration wanted for them as tuned. */
+  private static VisorInstaller.Seen report(VisorTuning.Live cameras, List<String> devices) {
+    String config =
+        VisorConfigs.forBoard(
+                cameras.cameras(), cameras.now(), 1234, VisorConfigsTest.TAG_SIZE, devices)
+            .hash();
     return new VisorInstaller.Seen.Reported(
         new VisorPack.Report(VERSION, config, VERSION, config, devices));
   }

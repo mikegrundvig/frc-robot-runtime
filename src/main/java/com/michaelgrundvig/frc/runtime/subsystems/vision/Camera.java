@@ -11,6 +11,7 @@ import com.michaelgrundvig.frc.localization.Timestamps;
 import com.michaelgrundvig.frc.localization.Verdict;
 import com.michaelgrundvig.frc.runtime.lib.Said;
 import com.michaelgrundvig.frc.runtime.lib.health.CameraHealth;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -313,7 +314,7 @@ final class Camera implements AutoCloseable {
    * any other camera, and for one the simulator alone runs, which needs no lens.
    */
   static Optional<String> withoutALens(CameraConfig config) {
-    if (!(config.software() instanceof CameraConfig.Software.Visor visor)) {
+    if (!(config.software() instanceof Software.Visor visor)) {
       return Optional.empty();
     }
     if (visor.device().isEmpty() || visor.lens().isPresent()) {
@@ -697,7 +698,7 @@ final class Camera implements AutoCloseable {
   private static String noCaptureTimeText(CameraConfig config) {
     String said =
         "Camera " + possessive(config.name()) + " images arrive without a capture time, left out";
-    if (config.software() instanceof CameraConfig.Software.Visor) {
+    if (config.software() instanceof Software.Visor) {
       return said
           + ": its coprocessor's clock isn't synced to the robot's (chronyc tracking on the"
           + " coprocessor, docs/visor.md)";

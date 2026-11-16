@@ -8,12 +8,28 @@ import static org.wpilib.units.Units.Meters;
 import static org.wpilib.units.Units.Milliseconds;
 
 import com.michaelgrundvig.frc.pitwall.Devices;
+import com.michaelgrundvig.frc.pitwall.LiveConfig;
+import com.michaelgrundvig.frc.runtime.coprocessors.CameraTuning;
+import com.michaelgrundvig.frc.runtime.coprocessors.VisorTuning;
 import com.michaelgrundvig.frc.runtime.lib.health.CameraHealth;
+import com.michaelgrundvig.frc.runtime.venues.VenueKeeper;
 import com.michaelgrundvig.frc.visor.VisorFrame;
+import com.michaelgrundvig.frc.world.field.VenueCameras;
+import com.michaelgrundvig.frc.world.robot.Camera.Software;
+import com.michaelgrundvig.frc.world.robot.CameraBuilder;
 import com.michaelgrundvig.frc.world.robot.CameraConfig;
+import com.michaelgrundvig.frc.world.robot.CameraStation;
+import com.michaelgrundvig.frc.world.robot.CameraType;
+import com.michaelgrundvig.frc.world.robot.ImageSensor;
+import com.michaelgrundvig.frc.world.robot.MountTolerance;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.BiConsumer;
 import org.junit.jupiter.api.AfterEach;
@@ -32,19 +48,32 @@ import org.wpilib.tunable.TunableRegistry;
 class CameraPitTest {
   private static final long SECOND = 1_000_000_000L;
 
-  private static CameraConfig camera(String name, CameraConfig.Software software) {
-    return CameraConfig.of(
-            name,
-            CameraConfig.ImageSensor.of(1600, 1304, Hertz.of(30))
-                .fieldOfView(Degrees.of(80), CameraConfig.Across.DIAGONAL)
+  private static CameraConfig camera(String name, Software software) {
+    CameraType type =
+        CameraType.of(
+            "test camera",
+            ImageSensor.of(1600, 1304, Hertz.of(30))
+                .fieldOfView(Degrees.of(80), ImageSensor.Across.DIAGONAL)
                 .latency(Milliseconds.of(30))
-                .sightRange(Meters.of(7)))
+                .sightRange(Meters.of(7)));
+    return CameraStation.named(name)
         .at(Inches.of(12), Inches.of(0), Inches.of(12))
         .facing(Degrees.of(15), Degrees.of(0))
         .roll(Degrees.of(0))
         .noiseScale(1.0)
-        .measured()
-        .software(software);
+        .mountTolerance(MountTolerance.MEASURED)
+        .holds(
+            CameraBuilder.builder().number(numberFor(name)).type(type).software(software).build());
+  }
+
+  /** A camera number for a station's name: cameras in stations of different names differ. */
+  private static int numberFor(String name) {
+    return 1 + Math.floorMod(name.hashCode(), 9_999);
+  }
+
+  /** Visor's software for a camera at this device. */
+  private static Software visorAt(String device) {
+    return new Software.Visor(Optional.of(device), Optional.empty(), Optional.empty());
   }
 
   /** A camera's frames as its IO hands them over, as Visor would number and count them. */
@@ -103,7 +132,7 @@ class CameraPitTest {
    */
   private record Scenario(
       String name,
-      CameraConfig.Software software,
+      Software software,
       BiConsumer<Scripted, Integer> atLoop,
       String state,
       Devices.Level level,
@@ -158,7 +187,8 @@ class CameraPitTest {
         new Line("Dropped at Visor", dropped),
         new Line("Lost on the way", lost),
         new Line("Detection", detection),
-        new Line("Exposure", Devices.Level.NOTE));
+        new Line("Exposure", Devices.Level.NOTE),
+        new Line("Set to", Devices.Level.OK));
   }
 
   @BeforeEach
@@ -172,7 +202,7 @@ class CameraPitTest {
   }
 
   private static List<Scenario> scenarios() {
-    CameraConfig.Software visor = CameraConfig.Software.VISOR;
+    Software visor = Software.VISOR;
     Devices.Level ok = Devices.Level.OK;
     Devices.Level warning = Devices.Level.WARNING;
     Devices.Level problem = Devices.Level.PROBLEM;
@@ -258,9 +288,14 @@ class CameraPitTest {
                 new Line("Lost on the way", ok),
                 new Line("Detection", ok),
                 new Line("Visor restarted", note),
-                new Line("Exposure", note)),
+                new Line("Exposure", note),
+                new Line("Set to", ok)),
             Seen.onVisor(30.0, 0, 0, 5.0, 1),
-            List.of("Visor restarted: once this session", "Lost on the way: 0 in the last")),
+            List.of(
+                "Visor restarted: once this session",
+                "Lost on the way: 0 in the last",
+                "Set to: exposure 1.0 ms (its type's, from the code), gain the camera's own (its"
+                    + " type's, from the code)")),
         new Scenario(
             "gone quiet at 20 s",
             visor,
@@ -276,7 +311,7 @@ class CameraPitTest {
             List.of("Frames: 0.0 fps lately", "Detection: no frames lately")),
         new Scenario(
             "on Visor on a robot, with no lens calibration",
-            CameraConfig.Software.visor().device("/dev/v4l/by-id/usb-front-video-index0"),
+            visorAt("/dev/v4l/by-id/usb-front-video-index0"),
             (io, loop) -> {},
             "Sending",
             problem,
@@ -287,14 +322,15 @@ class CameraPitTest {
                 new Line("Dropped at Visor", ok),
                 new Line("Lost on the way", ok),
                 new Line("Detection", ok),
-                new Line("Exposure", note)),
+                new Line("Exposure", note),
+                new Line("Set to", ok)),
             Seen.onVisor(30.0, 0, 0, 5.0, 0),
             List.of(
                 "Lens: has no lens calibration: Visor sends its tags' corners and no poses, so"
                     + " it places nothing. Calibrate it with Visor's tools/calibrate.py")),
         new Scenario(
             "on PhotonVision",
-            CameraConfig.Software.PHOTONVISION,
+            Software.PHOTONVISION,
             (io, loop) -> io.numbered = false,
             "Sending",
             ok,
@@ -313,7 +349,7 @@ class CameraPitTest {
     for (Scenario scenario : scenarios()) {
       Scripted io = new Scripted();
       try (Camera camera = aMinuteOf(scenario, io)) {
-        Devices.Card card = new CameraPit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
+        Devices.Card card = pit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
         String name = scenario.name();
         assertThat(card.state()).as(name).isEqualTo(scenario.state());
         assertThat(card.level()).as(name).isEqualTo(scenario.level());
@@ -332,7 +368,7 @@ class CameraPitTest {
     for (Scenario scenario : scenarios()) {
       Scripted io = new Scripted();
       try (Camera camera = aMinuteOf(scenario, io)) {
-        Devices.Card card = new CameraPit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
+        Devices.Card card = pit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
         List<String> lines =
             card.lines().stream().map(line -> line.label() + ": " + line.value()).toList();
         for (String said : scenario.says()) {
@@ -342,6 +378,66 @@ class CameraPitTest {
         }
       }
     }
+  }
+
+  /** A camera's card, its settings its type's, keeping nothing. */
+  private static CameraPit pit(Camera camera, CameraPit.Frames frames) {
+    VisorTuning.Live settings = VisorTuning.live(List.of(camera.config), Map.of());
+    settings.update(VenueCameras.NONE, index -> OptionalInt.empty());
+    return new CameraPit(camera, frames, settings, VenueKeeper.NONE);
+  }
+
+  /**
+   * A camera's tuned gain shows on its card as tuned and not kept, and its card's buttons keep it
+   * in the venue, for every camera of its type or for its station: the keeper is handed what was
+   * tuned. Kept, its gain is the venue's. With nothing tuned, the keeper is handed nothing to keep.
+   */
+  @Test
+  void aTunedValueShowsAsNotKeptAndTheCardKeepsIt() throws IOException {
+    Scripted io = new Scripted();
+    try (Camera camera = new Camera(camera("front", Software.VISOR), io, 500)) {
+      Map<String, LiveConfig<CameraTuning>> tunings = VisorTuning.of(List.of(camera.config));
+      VisorTuning.Live settings = VisorTuning.live(List.of(camera.config), tunings);
+      List<String> kept = new ArrayList<>();
+      VenueKeeper keeper =
+          (station, type, tuned, whom) -> {
+            kept.add(station + " " + type + " " + tuned.gain().orElse(-1) + " " + whom);
+            return "kept";
+          };
+      CameraPit pit = new CameraPit(camera, CameraPit.Frames.FROM_THE_SIMULATOR, settings, keeper);
+      settings.update(VenueCameras.NONE, index -> OptionalInt.of(32));
+      assertThat(setTo(pit))
+          .isEqualTo(
+              "exposure 1.0 ms (its type's, from the code), gain the camera's own (its"
+                  + " type's, from the code)");
+
+      LiveConfig<CameraTuning> tuning = Objects.requireNonNull(tunings.get("front"));
+      assertThat(tuning.value("gain")).as("starts at the gain the camera reports").isEqualTo(32);
+      assertThat(tuning.set(Map.of("gain", 44.0))).isTrue();
+      settings.update(VenueCameras.NONE, index -> OptionalInt.of(32));
+      assertThat(setTo(pit)).endsWith("gain 44 (tuned live, not kept)");
+
+      pit.keep(VenueKeeper.For.EVERY_OF_ITS_TYPE);
+      pit.keep(VenueKeeper.For.THIS_STATION);
+      assertThat(kept)
+          .containsExactly(
+              "front test camera 44 EVERY_OF_ITS_TYPE", "front test camera 44 THIS_STATION");
+
+      VenueCameras keptThere =
+          VenueCameras.NONE.keptForType(
+              "test camera", "front", new VenueCameras.Settings(Optional.empty(), Optional.of(44)));
+      settings.update(keptThere, index -> OptionalInt.of(44));
+      assertThat(setTo(pit)).endsWith("gain 44 (the venue's, for every test camera)");
+      assertThat(settings.tuned("front").empty()).as("kept: nothing tuned any more").isTrue();
+    }
+  }
+
+  private static String setTo(CameraPit pit) {
+    return pit.card().lines().stream()
+        .filter(line -> line.label().equals("Set to"))
+        .findFirst()
+        .orElseThrow()
+        .value();
   }
 
   /** A minute of the scenario's frames, read each loop as the robot does. */
@@ -364,7 +460,7 @@ class CameraPitTest {
     Scripted io = new Scripted();
     List<LogTable> logged = new ArrayList<>();
     Devices.Card live;
-    try (Camera camera = new Camera(camera("front", CameraConfig.Software.VISOR), io, 500)) {
+    try (Camera camera = new Camera(camera("front", Software.VISOR), io, 500)) {
       for (int loop = 0; loop <= 3000; loop++) {
         if (loop % 400 == 0) {
           io.dropNext = 1;
@@ -379,7 +475,7 @@ class CameraPitTest {
         camera.inputs.toLog(table);
         logged.add(table);
       }
-      live = new CameraPit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
+      live = pit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
     }
     int[] next = {0};
     CameraIO fromTheLog =
@@ -389,13 +485,11 @@ class CameraPitTest {
             ((CameraIOInputsAutoLogged) inputs).fromLog(logged.get(next[0]++));
           }
         };
-    try (Camera replayed =
-        new Camera(camera("front", CameraConfig.Software.VISOR), fromTheLog, 500)) {
+    try (Camera replayed = new Camera(camera("front", Software.VISOR), fromTheLog, 500)) {
       for (int loop = 0; loop <= 3000; loop++) {
         replayed.read(loop * SECOND / 50);
       }
-      assertThat(new CameraPit(replayed, CameraPit.Frames.FROM_THE_COPROCESSORS).card())
-          .isEqualTo(live);
+      assertThat(pit(replayed, CameraPit.Frames.FROM_THE_COPROCESSORS).card()).isEqualTo(live);
       assertThat(live.level()).isEqualTo(Devices.Level.WARNING);
     }
   }
@@ -408,11 +502,11 @@ class CameraPitTest {
   void aCardsLiveViewIsOnTheBoardItsFramesComeFromOrSaysWhyNot() {
     record Case(
         String name,
-        CameraConfig.Software software,
+        Software software,
         CameraPit.Frames frames,
         String address,
         Devices.Picture picture) {}
-    CameraConfig.Software visor = CameraConfig.Software.VISOR;
+    Software visor = Software.VISOR;
     CameraPit.Frames robot = CameraPit.Frames.FROM_THE_COPROCESSORS;
     List<Case> cases =
         List.of(
@@ -445,7 +539,7 @@ class CameraPitTest {
                 Devices.Picture.none("No live view in a replay: the log has no pictures")),
             new Case(
                 "on PhotonVision",
-                CameraConfig.Software.PHOTONVISION,
+                Software.PHOTONVISION,
                 robot,
                 "",
                 Devices.Picture.none(
@@ -458,9 +552,7 @@ class CameraPitTest {
         for (int loop = 0; loop <= 100; loop++) {
           camera.read(loop * SECOND / 50);
         }
-        assertThat(new CameraPit(camera, c.frames()).card().picture())
-            .as(c.name())
-            .hasValue(c.picture());
+        assertThat(pit(camera, c.frames()).card().picture()).as(c.name()).hasValue(c.picture());
       }
     }
   }
@@ -497,14 +589,10 @@ class CameraPitTest {
     long now = 10 * SECOND;
     try (Camera front =
             new Camera(
-                camera("front", CameraConfig.Software.VISOR),
-                new CameraIOVisor(feed, 0, () -> now),
-                500);
+                camera("front", Software.VISOR), new CameraIOVisor(feed, 0, () -> now), 500);
         Camera back =
             new Camera(
-                camera("back", CameraConfig.Software.VISOR),
-                new CameraIOVisor(feed, 1, () -> now),
-                500)) {
+                camera("back", Software.VISOR), new CameraIOVisor(feed, 1, () -> now), 500)) {
       VisorFrame stale = new VisorFrame();
       stale.setHeader(0, 1600, 1304, now - SECOND / 10, 0, true, false);
       stale.setVersionId(20251225);
@@ -512,7 +600,7 @@ class CameraPitTest {
       front.read(now);
       back.read(now);
       for (Camera camera : List.of(front, back)) {
-        Devices.Card card = new CameraPit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
+        Devices.Card card = pit(camera, CameraPit.Frames.FROM_THE_COPROCESSORS).card();
         assertThat(card.state()).as(camera.name()).isEqualTo("Can't be read");
         assertThat(card.lines())
             .as(camera.name())
@@ -528,9 +616,7 @@ class CameraPitTest {
 
   @Test
   void aCamerasNameOnThePageIsItsId() {
-    assertThat(CameraPit.deviceName(camera("Front Left", CameraConfig.Software.VISOR)))
-        .isEqualTo("front-left");
-    assertThat(CameraPit.deviceName(camera("rear.cam_2", CameraConfig.Software.VISOR)))
-        .isEqualTo("rear-cam-2");
+    assertThat(CameraPit.deviceName(camera("Front Left", Software.VISOR))).isEqualTo("front-left");
+    assertThat(CameraPit.deviceName(camera("rear.cam_2", Software.VISOR))).isEqualTo("rear-cam-2");
   }
 }
